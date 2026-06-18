@@ -21,7 +21,7 @@ export default function ModuleArchivePanel({ moduleId, moduleName, isAdmin }) {
   const [restoringId, setRestoringId] = useState(null)
   const [showConfig, setShowConfig] = useState(false)
   const [githubConfig, setGithubConfig] = useState(() => getGitHubConfig() || {
-    owner: 'zhong184556267',
+    owner: 'zhongong1225-bot',
     repo: 'dnd-team-app-V2',
     branch: 'main',
     pathPrefix: 'dnd-backups',
