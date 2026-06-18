@@ -95,9 +95,17 @@ export function setTeamVault(moduleId, balances) {
   const mod = moduleId ?? 'default'
   if (isSupabaseEnabled()) {
     vaultCache[mod] = { ...out }
-    return td.saveTeamVaultRow(mod, vaultCache[mod]).then(() => out)
+    return td.saveTeamVaultRow(mod, vaultCache[mod]).then(() => {
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('dnd-archive-trigger', { detail: { moduleId: mod } }))
+      }, 0)
+      return out
+    })
   }
   saveVaultLocal(moduleId, out)
+  setTimeout(() => {
+    window.dispatchEvent(new CustomEvent('dnd-archive-trigger', { detail: { moduleId: mod } }))
+  }, 0)
   return Promise.resolve(out)
 }
 
@@ -114,6 +122,9 @@ export function adjustVault(moduleId, currencyId, delta) {
     if (n < 0 && current + n < 0) return Promise.resolve({ success: false, error: '金库余额不足' })
     const next = { ...vault, [currencyId]: Math.max(0, current + n) }
     saveVaultLocal(moduleId, next)
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('dnd-archive-trigger', { detail: { moduleId: moduleId ?? 'default' } }))
+    }, 0)
     return Promise.resolve({ success: true })
   }
 
@@ -125,6 +136,9 @@ export function adjustVault(moduleId, currencyId, delta) {
     const next = { ...vault, [currencyId]: Math.max(0, current + n) }
     vaultCache[moduleId ?? 'default'] = next
     await td.saveTeamVaultRow(moduleId, next)
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('dnd-archive-trigger', { detail: { moduleId: moduleId ?? 'default' } }))
+    }, 0)
     return { success: true }
   })()
 }

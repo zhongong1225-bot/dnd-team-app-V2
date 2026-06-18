@@ -5,12 +5,26 @@ import { useModule } from '../contexts/ModuleContext'
 import { addCharacter, loadCharacterById, loadCharactersInModule, getMainCharactersInModule } from '../lib/characterStore'
 import { logTeamActivity } from '../lib/activityLog'
 import { isSupabaseEnabled } from '../lib/supabase'
+import { CLASS_LIST } from '../data/classDatabase'
 
 const CARD_KINDS = [
   { value: 'main', label: '主卡' },
   { value: 'subordinate_class', label: '附属卡（职业模版）' },
   { value: 'subordinate_creature', label: '附属卡（生物模版）' },
 ]
+
+const ABILITY_LABELS = [
+  { key: 'str', label: '力量' },
+  { key: 'dex', label: '敏捷' },
+  { key: 'con', label: '体质' },
+  { key: 'int', label: '智力' },
+  { key: 'wis', label: '感知' },
+  { key: 'cha', label: '魅力' },
+]
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, Number(n) || min))
+}
 
 export default function CharacterNew() {
   const { user } = useAuth()
@@ -19,6 +33,11 @@ export default function CharacterNew() {
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [classVal, setClassVal] = useState('')
+  const [classLevel, setClassLevel] = useState(1)
+  const [level, setLevel] = useState(1)
+  const [hpCurrent, setHpCurrent] = useState(0)
+  const [hpMax, setHpMax] = useState(0)
+  const [abilities, setAbilities] = useState({ str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 })
   const [cardKind, setCardKind] = useState('main')
   const [parentId, setParentId] = useState('')
   const [saving, setSaving] = useState(false)
@@ -31,6 +50,10 @@ export default function CharacterNew() {
   useEffect(() => {
     if (isSupabaseEnabled() && user?.name && moduleId) loadCharactersInModule(moduleId).catch(() => {})
   }, [user?.name, moduleId])
+
+  const setAbility = (key, value) => {
+    setAbilities((prev) => ({ ...prev, [key]: clamp(value, 1, 30) }))
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -50,6 +73,10 @@ export default function CharacterNew() {
       const payload = {
         name: n,
         'class': classVal.trim(),
+        classLevel: clamp(classLevel, 1, 20),
+        level: clamp(level, 1, 20),
+        hp: { current: clamp(hpCurrent, 0, 999), max: clamp(hpMax, 0, 999), temp: 0 },
+        abilities: { ...abilities },
         moduleId,
       }
       if (isSubordinate) {
@@ -59,7 +86,7 @@ export default function CharacterNew() {
       }
       const char = await Promise.resolve(addCharacter(user.name, payload))
       if (!char?.id) {
-        throw new Error('创建未成功：未返回角色 ID。请检查 Supabase 中是否已执行 supabase-schema-v2.sql（characters 表）。')
+        throw new Error('创建未成功：未返回角色 ID。')
       }
       try {
         await loadCharacterById(char.id)
@@ -79,11 +106,7 @@ export default function CharacterNew() {
         err?.error_description ||
         (typeof err === 'string' ? err : '') ||
         '创建失败'
-      setError(
-        msg.includes('JWT') || msg.includes('401')
-          ? '连接被拒绝：请检查 .env 里是否为 Publishable Key（sb_publishable_），不要用 Secret Key。'
-          : msg
-      )
+      setError(msg)
     } finally {
       setSaving(false)
     }
@@ -91,19 +114,17 @@ export default function CharacterNew() {
 
   return (
     <div className="p-4 pb-24 min-h-screen" style={{ backgroundColor: 'var(--page-bg)' }}>
-      <h1 className="font-display text-xl font-semibold text-white mb-4">
-        新建角色
-      </h1>
+      <h1 className="font-display text-xl font-semibold text-white mb-4">新建角色</h1>
       <form onSubmit={handleSubmit} className="space-y-4">
         {error ? (
           <div className="rounded-xl border border-dnd-red/50 bg-dnd-red/10 px-4 py-3 text-sm text-red-200">
             {error}
           </div>
         ) : null}
+
+        {/* 类型 */}
         <div>
-          <label className="block text-xs text-dnd-text-label uppercase tracking-label mb-1">
-            类型
-          </label>
+          <label className="block text-xs text-dnd-text-label uppercase tracking-label mb-1">类型</label>
           <select
             value={cardKind}
             onChange={(e) => setCardKind(e.target.value)}
@@ -114,6 +135,8 @@ export default function CharacterNew() {
             ))}
           </select>
         </div>
+
+        {/* 所属主卡 */}
         {isSubordinate && (
           <div>
             <label className="block text-xs text-dnd-text-label uppercase tracking-label mb-1">
@@ -135,6 +158,8 @@ export default function CharacterNew() {
             )}
           </div>
         )}
+
+        {/* 角色名 */}
         <div>
           <label className="block text-xs text-dnd-text-label uppercase tracking-label mb-1">
             角色名 <span className="text-dnd-red">*</span>
@@ -148,18 +173,96 @@ export default function CharacterNew() {
             required
           />
         </div>
+
+        {/* 职业 */}
         <div>
-          <label className="block text-xs text-dnd-text-label uppercase tracking-label mb-1">
-            职业（选填）
-          </label>
-          <input
-            type="text"
+          <label className="block text-xs text-dnd-text-label uppercase tracking-label mb-1">职业</label>
+          <select
             value={classVal}
             onChange={(e) => setClassVal(e.target.value)}
-            placeholder="如：战士、法师"
-            className="w-full rounded-xl border border-white/20 bg-dnd-card px-4 py-3 text-white placeholder:text-dnd-text-muted focus:border-dnd-red focus:ring-2 focus:ring-dnd-red/30 focus:outline-none"
-          />
+            className="w-full rounded-xl border border-white/20 bg-dnd-card px-4 py-3 text-white focus:border-dnd-red focus:ring-2 focus:ring-dnd-red/30 focus:outline-none"
+          >
+            <option value="">请选择职业</option>
+            {CLASS_LIST.map((cls) => (
+              <option key={cls} value={cls}>{cls}</option>
+            ))}
+          </select>
+          <p className="text-dnd-text-muted text-[10px] mt-1">选择职业后，角色卡会自动加载该职业的特性、生命骰、施法等信息。</p>
         </div>
+
+        {/* 等级 */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-dnd-text-label uppercase tracking-label mb-1">职业等级</label>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={classLevel}
+              onChange={(e) => setClassLevel(clamp(e.target.value, 1, 20))}
+              className="w-full rounded-xl border border-white/20 bg-dnd-card px-4 py-3 text-white focus:border-dnd-red focus:ring-2 focus:ring-dnd-red/30 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-dnd-text-label uppercase tracking-label mb-1">总等级</label>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={level}
+              onChange={(e) => setLevel(clamp(e.target.value, 1, 20))}
+              className="w-full rounded-xl border border-white/20 bg-dnd-card px-4 py-3 text-white focus:border-dnd-red focus:ring-2 focus:ring-dnd-red/30 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        {/* 生命值 */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-dnd-text-label uppercase tracking-label mb-1">当前 HP</label>
+            <input
+              type="number"
+              min={0}
+              max={999}
+              value={hpCurrent}
+              onChange={(e) => setHpCurrent(clamp(e.target.value, 0, 999))}
+              className="w-full rounded-xl border border-white/20 bg-dnd-card px-4 py-3 text-white focus:border-dnd-red focus:ring-2 focus:ring-dnd-red/30 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-dnd-text-label uppercase tracking-label mb-1">最大 HP</label>
+            <input
+              type="number"
+              min={0}
+              max={999}
+              value={hpMax}
+              onChange={(e) => setHpMax(clamp(e.target.value, 0, 999))}
+              className="w-full rounded-xl border border-white/20 bg-dnd-card px-4 py-3 text-white focus:border-dnd-red focus:ring-2 focus:ring-dnd-red/30 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        {/* 属性 */}
+        <div>
+          <label className="block text-xs text-dnd-text-label uppercase tracking-label mb-2">属性值</label>
+          <div className="grid grid-cols-3 gap-3">
+            {ABILITY_LABELS.map((ab) => (
+              <div key={ab.key}>
+                <label className="block text-[10px] text-dnd-text-muted mb-1">{ab.label}</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={abilities[ab.key]}
+                  onChange={(e) => setAbility(ab.key, e.target.value)}
+                  className="w-full rounded-xl border border-white/20 bg-dnd-card px-3 py-2 text-white text-center focus:border-dnd-red focus:ring-2 focus:ring-dnd-red/30 focus:outline-none"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 提交 */}
         <button
           type="submit"
           disabled={saving || !name.trim()}

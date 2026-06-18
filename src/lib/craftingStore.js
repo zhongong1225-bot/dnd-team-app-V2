@@ -35,6 +35,9 @@ function saveLocal(moduleId, list) {
   try {
     localStorage.setItem(craftingKey(moduleId), JSON.stringify(list))
   } catch (_) {}
+  setTimeout(() => {
+    window.dispatchEvent(new CustomEvent('dnd-archive-trigger', { detail: { moduleId: moduleId ?? 'default' } }))
+  }, 0)
 }
 
 export const MAGIC_ITEM_TYPES = [
@@ -90,7 +93,12 @@ export function addCraftingProject(moduleId, project) {
   const mod = moduleId ?? 'default'
   if (isSupabaseEnabled()) {
     craftingCache[mod] = list
-    return td.saveCraftingRow(mod, list).then(() => list)
+    return td.saveCraftingRow(mod, list).then(() => {
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('dnd-archive-trigger', { detail: { moduleId: mod } }))
+      }, 0)
+      return list
+    })
   }
   saveLocal(moduleId, list)
   return Promise.resolve(list)
@@ -108,7 +116,12 @@ export function updateCraftingProject(moduleId, index, updates) {
   const mod = moduleId ?? 'default'
   if (isSupabaseEnabled()) {
     craftingCache[mod] = next
-    return td.saveCraftingRow(mod, next).then(() => next)
+    return td.saveCraftingRow(mod, next).then(() => {
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('dnd-archive-trigger', { detail: { moduleId: mod } }))
+      }, 0)
+      return next
+    })
   }
   saveLocal(moduleId, next)
   return Promise.resolve(next)
@@ -121,7 +134,12 @@ export function removeCraftingProject(moduleId, index) {
   const mod = moduleId ?? 'default'
   if (isSupabaseEnabled()) {
     craftingCache[mod] = next
-    return td.saveCraftingRow(mod, next).then(() => next)
+    return td.saveCraftingRow(mod, next).then(() => {
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('dnd-archive-trigger', { detail: { moduleId: mod } }))
+      }, 0)
+      return next
+    })
   }
   saveLocal(moduleId, next)
   return Promise.resolve(next)
@@ -138,7 +156,12 @@ export function reorderCraftingProjects(moduleId, fromIndex, toIndex) {
   const mod = moduleId ?? 'default'
   if (isSupabaseEnabled()) {
     craftingCache[mod] = next
-    return td.saveCraftingRow(mod, next).then(() => next)
+    return td.saveCraftingRow(mod, next).then(() => {
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('dnd-archive-trigger', { detail: { moduleId: mod } }))
+      }, 0)
+      return next
+    })
   }
   saveLocal(moduleId, next)
   return Promise.resolve(next)

@@ -12,6 +12,7 @@ import { clearLegacyTeamLocalStorage } from '../lib/clearLegacyTeamLocalStorage'
 import { loadCustomItemsFromSupabase } from '../data/itemDatabase'
 import { loadCustomSpellsFromSupabase } from '../data/spellDatabase'
 import { startAutoBackupScheduler, stopAutoBackupScheduler } from '../lib/moduleSnapshotStore'
+import { startAutoArchiveListener } from '../lib/moduleArchiveStore'
 
 const ModuleContext = createContext(null)
 
@@ -87,6 +88,12 @@ export function ModuleProvider({ children }) {
     }
     return () => stopAutoBackupScheduler()
   }, [isAdmin])
+
+  // 自动存档监听器：内容修改时自动保存（防抖，不卡顿）
+  useEffect(() => {
+    const stop = startAutoArchiveListener()
+    return () => stop?.()
+  }, [])
 
   const setCurrentModuleId = (id) => {
     persistModuleId(id, user?.name)

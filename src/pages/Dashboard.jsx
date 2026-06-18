@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { BookOpen, ChevronDown, ChevronRight, Plus, Pencil, Star, Trash2, Save } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronRight, Plus, Pencil, Star, Trash2, Save, RotateCcw, X } from 'lucide-react'
 import DragHandleIcon from '../components/DragHandleIcon'
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
@@ -8,9 +8,10 @@ import { getAllCharacters, getDefaultCharacterId } from '../lib/characterStore'
 import { getModules, addModule, updateModule, reorderModules, deleteModule } from '../lib/moduleStore'
 import { loadTeamActivities } from '../lib/activityLog'
 import { isSupabaseEnabled } from '../lib/supabase'
-import { saveManualSnapshot } from '../lib/moduleSnapshotStore'
+import { saveManualSnapshot, listSnapshots, restoreFromSnapshot } from '../lib/moduleSnapshotStore'
 import { inputClass } from '../lib/inputStyles'
 import Characters from './Characters'
+import ModuleArchivePanel from '../components/ModuleArchivePanel'
 
 export default function Dashboard() {
   const { user, isAdmin } = useAuth()
@@ -24,6 +25,10 @@ export default function Dashboard() {
   const [editingName, setEditingName] = useState('')
   const [expandedModuleIds, setExpandedModuleIds] = useState(() => new Set())
   const [snapshottingId, setSnapshottingId] = useState(null)
+  const [restoreModuleId, setRestoreModuleId] = useState(null)
+  const [snapshotList, setSnapshotList] = useState([])
+  const [loadingSnapshots, setLoadingSnapshots] = useState(false)
+  const [restoringId, setRestoringId] = useState(null)
   const moduleNameInputRef = useRef(null)
   const editingModuleIdRef = useRef(null)
   const savingModuleRef = useRef(false)
@@ -182,6 +187,42 @@ export default function Dashboard() {
     return d.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }) + ' ' + d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
   }
 
+  const handleOpenRestore = async (e, m) => {
+    e.stopPropagation()
+    setRestoreModuleId(m.id)
+    setLoadingSnapshots(true)
+    setSnapshotList([])
+    try {
+      const list = await listSnapshots(m.id)
+      setSnapshotList(list)
+    } catch (err) {
+      console.warn('加载快照失败', err)
+      alert('加载快照失败：' + (err?.message || String(err)))
+      setRestoreModuleId(null)
+    } finally {
+      setLoadingSnapshots(false)
+    }
+  }
+
+  const handleRestore = async (snapshotId) => {
+    if (restoringId) return
+    if (!confirm('确定从此快照恢复？当前数据会先备份一份，然后被快照数据覆盖。')) return
+    setRestoringId(snapshotId)
+    try {
+      const result = await restoreFromSnapshot(snapshotId)
+      if (result.success) {
+        alert('恢复成功！页面数据已更新，可以浏览角色。')
+        setRestoreModuleId(null)
+      } else {
+        alert('恢复失败：' + (result.error || '未知错误'))
+      }
+    } catch (err) {
+      alert('恢复出错：' + (err?.message || String(err)))
+    } finally {
+      setRestoringId(null)
+    }
+  }
+
   const handleSnapshot = async (e, m) => {
     e.stopPropagation()
     if (snapshottingId) return
@@ -335,6 +376,14 @@ export default function Dashboard() {
                 <div className="flex items-center gap-0.5 shrink-0">
                   {!isEditing && (
                     <>
+                      <button
+                        type="button"
+                        onClick={(e) => handleOpenRestore(e, m)}
+                        title="从快照恢复数据"
+                        className="p-1.5 rounded-lg text-dnd-text-muted hover:text-blue-400 hover:bg-blue-500/15 transition-colors"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                      </button>
                       {isAdmin && (
                         <button
                         type="button"
@@ -376,6 +425,12 @@ export default function Dashboard() {
 
               {isExpanded && (
                 <div className="border-t border-white/10 bg-[#1a2435]/45">
+                  {/* 存档面板 */}
+                  {isAdmin && (
+                    <div className="px-4 py-3 border-b border-white/5">
+                      <ModuleArchivePanel moduleId={m.id} moduleName={m.name} isAdmin={isAdmin} />
+                    </div>
+                  )}
                   {charList.length === 0 ? (
                     <div className="px-4 py-4 flex flex-col gap-3">
                       <p className="text-dnd-text-muted text-sm">该模组暂无角色。</p>
@@ -446,6 +501,49 @@ export default function Dashboard() {
           </button>
         )}
       </div>
+
+      {/* 快照恢复弹窗 -- 注意：作为 portal 用 fixed 定位，在最外层div内 */}
+      {restoreModuleId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onClick={() => setRestoreModuleId(null)}>
+          <div className="w-full max-w-md rounded-xl bg-gray-900 border border-white/15 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+              <h3 className="text-white font-semibold text-sm">从快照恢复数据</h3>
+              <button type="button" onClick={() => setRestoreModuleId(null)} className="p-1 rounded text-gray-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-4 py-3 max-h-96 overflow-y-auto">
+              {loadingSnapshots ? (
+                <p className="text-dnd-text-muted text-sm py-4 text-center">加载中...</p>
+              ) : snapshotList.length === 0 ? (
+                <p className="text-dnd-text-muted text-sm py-4 text-center">该模组暂无本地快照</p>
+              ) : (
+                <ul className="space-y-2">
+                  {snapshotList.map((snap) => (
+                    <li key={snap.id} className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-white text-sm font-medium truncate">{snap.label}</p>
+                        <p className="text-dnd-text-muted text-xs mt-0.5">{snap.type === 'auto' ? '自动备份' : '手动备份'} · {new Date(snap.timestamp).toLocaleString('zh-CN')}</p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={!!restoringId}
+                        onClick={() => handleRestore(snap.id)}
+                        className="shrink-0 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-medium transition-colors"
+                      >
+                        {restoringId === snap.id ? '恢复中...' : '恢复'}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="px-4 py-3 border-t border-white/10">
+              <p className="text-dnd-text-muted text-xs">恢复前会自动保存当前状态。恢复后刷新页面可看到最新数据。</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

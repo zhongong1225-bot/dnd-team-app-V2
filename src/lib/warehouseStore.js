@@ -184,10 +184,14 @@ export function setArcaneChestCount(moduleId, count) {
 }
 
 function saveWarehouse(moduleId, list) {
-  return persistWarehouse(moduleId, {
+  const result = persistWarehouse(moduleId, {
     items: Array.isArray(list) ? list : [],
     arcaneChestCount: getArcaneChestCount(moduleId),
   })
+  setTimeout(() => {
+    window.dispatchEvent(new CustomEvent('dnd-archive-trigger', { detail: { moduleId: moduleId ?? 'default' } }))
+  }, 0)
+  return result
 }
 
 /** 往仓库添加：完整条目（含 详细介绍、附注、属性上限、效果等）或简写 { name, qty }。同质无自定义时合并数量。 */

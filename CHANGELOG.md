@@ -1,5 +1,13 @@
 # 更新日志
 
+## 2.1.0
+
+- **Supabase 重建**：原项目被清理后重新创建 `twqmhhozcthfoxnxwgyb`（东京节点），数据库表结构统一为 `data` JSONB 列模式（characters / campaign_modules / team_vault / crafting_projects / user_prefs / custom_library / activity_log / warehouse / custom_items）。
+- **GitHub 存档系统**：Dashboard 模组页新增「存档面板」，支持本地 IndexedDB 保存 30 条手动存档 + 5 条自动存档；可配置 GitHub Token 后一键上传备份，仓库默认 `zhong184556267/dnd-team-app-V2`。
+- **自动存档**：角色修改、仓库变动、金库调整、制作项目变更后自动触发存档（3 秒防抖，仅本地，不卡顿）。
+- **新建角色页升级**：创建时可直接选择职业（与角色卡 CLASS_DATA 绑定）、设定等级/总等级、填写六维属性与初始 HP，支持高等级角色直接创建。
+- **数据安全**：本地存档 + GitHub 云端备份双保险，避免数据丢失。
+
 ## 2.0.3
 
 - 职业数据：岚御法师 2 级特性「秘凤步法」说明中，伤害减免与所花费法术等级倍数由 **2 倍** 调整为 **3 倍**（`classDatabase.js`）。

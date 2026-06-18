@@ -270,6 +270,9 @@ export function addCharacter(ownerName, data = {}) {
   if (isSupabaseEnabled()) {
     return charSupabase.insertCharacter(character).then((inserted) => {
       charactersCache.push(inserted)
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('dnd-archive-trigger', { detail: { moduleId: inserted?.moduleId ?? character.moduleId } }))
+      }, 0)
       return inserted
     })
   }
@@ -277,6 +280,9 @@ export function addCharacter(ownerName, data = {}) {
   const list = raw ? JSON.parse(raw) : []
   list.push(character)
   saveCharacters(list)
+  setTimeout(() => {
+    window.dispatchEvent(new CustomEvent('dnd-archive-trigger', { detail: { moduleId: character.moduleId } }))
+  }, 0)
   return character
 }
 
@@ -299,6 +305,12 @@ export function updateCharacter(id, patch) {
         const idx = charactersCache.findIndex((c) => c.id === id)
         if (idx >= 0) charactersCache[idx] = updated
       }
+      const moduleId = updated?.moduleId ?? base?.moduleId ?? patch?.moduleId
+      if (moduleId) {
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('dnd-archive-trigger', { detail: { moduleId } }))
+        }, 0)
+      }
       return updated
     })
   }
@@ -309,6 +321,12 @@ export function updateCharacter(id, patch) {
   const normalizedPatch = buildNormalizedPatch(list[idx], patch)
   list[idx] = { ...list[idx], ...normalizedPatch, updatedAt: new Date().toISOString() }
   saveCharacters(list)
+  const moduleId = list[idx]?.moduleId ?? patch?.moduleId
+  if (moduleId) {
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('dnd-archive-trigger', { detail: { moduleId } }))
+    }, 0)
+  }
   return list[idx]
 }
 
@@ -323,6 +341,12 @@ export function deleteCharacter(id) {
         await setDefaultCharInPrefs(deletedChar.owner, deletedChar.moduleId ?? 'default', null)
       }
       charactersCache = charactersCache.filter((c) => c.id !== id)
+      const moduleId = deletedChar?.moduleId
+      if (moduleId) {
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('dnd-archive-trigger', { detail: { moduleId } }))
+        }, 0)
+      }
       return true
     })
   }
@@ -335,6 +359,12 @@ export function deleteCharacter(id) {
     setDefaultCharacterId(deletedChar.owner, null, deletedChar.moduleId ?? 'default')
   }
   saveCharacters(next)
+  const moduleId = deletedChar?.moduleId
+  if (moduleId) {
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('dnd-archive-trigger', { detail: { moduleId } }))
+    }, 0)
+  }
   return true
 }
 
