@@ -263,7 +263,14 @@ const GITHUB_CONFIG_KEY = 'dnd_github_backup_config'
 export function getGitHubConfig() {
   try {
     const raw = localStorage.getItem(GITHUB_CONFIG_KEY)
-    return raw ? JSON.parse(raw) : null
+    if (!raw) return null
+    const config = JSON.parse(raw)
+    // 自动迁移旧仓库地址到新账号
+    if (config.owner === 'zhong184556267' && config.repo === 'dnd-team-app-V2') {
+      config.owner = 'zhongong1225-bot'
+      localStorage.setItem(GITHUB_CONFIG_KEY, JSON.stringify(config))
+    }
+    return config
   } catch {
     return null
   }
