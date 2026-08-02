@@ -4,7 +4,7 @@ import { BookOpen, ChevronDown, ChevronRight, Plus, Pencil, Star, Trash2, Save, 
 import DragHandleIcon from '../components/DragHandleIcon'
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
-import { getAllCharacters, getDefaultCharacterId, loadCharactersInModule } from '../lib/characterStore'
+import { getAllCharacters, getDefaultCharacterId, loadAllCharactersIntoCache } from '../lib/characterStore'
 import { getModules, addModule, updateModule, reorderModules, deleteModule } from '../lib/moduleStore'
 import { loadTeamActivities } from '../lib/activityLog'
 import { isSupabaseEnabled } from '../lib/supabase'
@@ -46,28 +46,12 @@ export default function Dashboard() {
 
   /* 进入 Dashboard 时先把角色数据拉进内存缓存，否则模组卡片会显示 0 个角色 */
   useEffect(() => {
-    if (!isSupabaseEnabled() || !user?.name) return
-    console.log('[Dashboard] 开始加载角色, user:', user.name, 'isAdmin:', isAdmin, 'modules:', modules.map(m => m.id))
-    // 逐个模组加载（loadCharactersInModule 内部会正确合并缓存）
-    let cancelled = false
-    ;(async () => {
-      for (const m of modules) {
-        if (cancelled) break
-        try {
-          await loadCharactersInModule(m.id)
-          console.log('[Dashboard] 模组', m.id, '加载完成, 缓存中共', getAllCharacters(m.id).length, '个角色')
-        } catch (err) {
-          console.warn('[Dashboard] 加载模组', m.id, '失败:', err)
-        }
-      }
-      if (!cancelled) {
-        const total = modules.reduce((sum, m) => sum + getAllCharacters(m.id).length, 0)
-        console.log('[Dashboard] 全部模组加载完成, 共', total, '个角色')
+    if (isSupabaseEnabled() && user?.name) {
+      loadAllCharactersIntoCache(user.name, isAdmin).then(() => {
         setRealtimeTick((t) => t + 1)
-      }
-    })()
-    return () => { cancelled = true }
-  }, [user?.name, isAdmin, modules.length])
+      })
+    }
+  }, [user?.name, isAdmin])
 
   const refreshActivities = () => {
     loadTeamActivities(35).then(setActivities)
