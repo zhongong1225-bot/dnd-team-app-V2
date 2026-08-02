@@ -15,7 +15,7 @@ import ModuleArchivePanel from '../components/ModuleArchivePanel'
 
 export default function Dashboard() {
   const { user, isAdmin } = useAuth()
-  const { setCurrentModuleId, modules, refreshModules, teamDataReady } = useModule()
+  const { setCurrentModuleId, modules, refreshModules } = useModule()
   const location = useLocation()
   const [, setRealtimeTick] = useState(0)
   const [activities, setActivities] = useState([])
@@ -29,7 +29,6 @@ export default function Dashboard() {
   const [snapshotList, setSnapshotList] = useState([])
   const [loadingSnapshots, setLoadingSnapshots] = useState(false)
   const [restoringId, setRestoringId] = useState(null)
-  const [debugLoadInfo, setDebugLoadInfo] = useState('尚未开始加载')
   const moduleNameInputRef = useRef(null)
   const editingModuleIdRef = useRef(null)
   const savingModuleRef = useRef(false)
@@ -47,33 +46,23 @@ export default function Dashboard() {
 
   /* 进入 Dashboard 时先把角色数据拉进内存缓存，否则模组卡片会显示 0 个角色 */
   useEffect(() => {
-    if (!isSupabaseEnabled()) {
-      setDebugLoadInfo('Supabase 未启用')
-      return
-    }
-    if (!user?.name) {
-      setDebugLoadInfo('user.name 为空')
-      return
-    }
-    setDebugLoadInfo(`开始加载, modules=${modules.length}, user=${user.name}, admin=${isAdmin}`)
+    if (!isSupabaseEnabled() || !user?.name) return
+    console.log('[Dashboard] 开始加载角色, user:', user.name, 'isAdmin:', isAdmin, 'modules:', modules.map(m => m.id))
+    // 逐个模组加载（loadCharactersInModule 内部会正确合并缓存）
     let cancelled = false
     ;(async () => {
-      const results = []
       for (const m of modules) {
         if (cancelled) break
         try {
           await loadCharactersInModule(m.id)
-          const cnt = getAllCharacters(m.id).length
-          results.push(`${m.id}: ${cnt}个`)
-          setDebugLoadInfo(`加载中... ${results.join(', ')}`)
+          console.log('[Dashboard] 模组', m.id, '加载完成, 缓存中共', getAllCharacters(m.id).length, '个角色')
         } catch (err) {
-          results.push(`${m.id}: 错误-${err?.message || err}`)
-          setDebugLoadInfo(`加载出错: ${err?.message || err}`)
+          console.warn('[Dashboard] 加载模组', m.id, '失败:', err)
         }
       }
       if (!cancelled) {
         const total = modules.reduce((sum, m) => sum + getAllCharacters(m.id).length, 0)
-        setDebugLoadInfo(`完成! 共 ${total} 个角色 | ${results.join(', ')}`)
+        console.log('[Dashboard] 全部模组加载完成, 共', total, '个角色')
         setRealtimeTick((t) => t + 1)
       }
     })()
@@ -287,28 +276,6 @@ export default function Dashboard() {
       <h1 className="font-display text-xl font-semibold text-white mb-4 section-title">
         欢迎，玩家 {user?.name}
       </h1>
-
-      {/* ===== 临时调试面板 - 修复后删除 ===== */}
-      <div style={{ background: '#440', border: '2px solid yellow', padding: '12px', marginBottom: '16px', borderRadius: '8px', color: '#fff', fontSize: '13px', fontFamily: 'monospace' }}>
-        <div style={{ color: 'yellow', fontWeight: 'bold', marginBottom: '8px' }}>🔍 调试信息</div>
-        <div>isSupabaseEnabled: <b style={{ color: isSupabaseEnabled() ? '#0f0' : '#f00' }}>{String(isSupabaseEnabled())}</b></div>
-        <div>user.name: <b>{user?.name ?? '(undefined)'}</b></div>
-        <div>isAdmin: <b>{String(isAdmin)}</b></div>
-        <div>modules.length: <b>{modules.length}</b></div>
-        <div>modules: <b>{JSON.stringify(modules.map(m => ({ id: m.id, name: m.name })))}</b></div>
-        <div>teamDataReady: <b>{String(teamDataReady)}</b></div>
-        <div style={{ marginTop: '8px', borderTop: '1px solid yellow', paddingTop: '8px' }}>
-          加载状态: <b>{debugLoadInfo}</b>
-        </div>
-        <div style={{ marginTop: '8px', borderTop: '1px solid yellow', paddingTop: '8px' }}>
-          各模组角色数:
-          {modules.map(m => {
-            const cnt = getAllCharacters(m.id).length
-            return <div key={m.id} style={{ marginLeft: '12px' }}>模组 {m.id} ({m.name}): <b style={{ color: cnt > 0 ? '#0f0' : '#f00' }}>{cnt}</b> 个角色</div>
-          })}
-        </div>
-      </div>
-      {/* ===== 临时调试面板结束 ===== */}
 
       {isSupabaseEnabled() && (
         <section className="mb-6 rounded-xl border border-white/10 bg-gradient-to-b from-[#2a3952]/24 to-[#222f45]/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] overflow-hidden">
