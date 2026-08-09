@@ -1,6 +1,6 @@
 import { Trash2, Pencil } from 'lucide-react'
 import { getBuffSourceKindLabel, getBuffSourceKindTitle } from '../lib/buffSourceKind'
-import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue } from '../data/buffTypes'
+import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue, formatDamageForAttack } from '../data/buffTypes'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { formatContainedSpellBrief } from '../lib/containedSpellBrief'
 import { isFormulaValue, formatFormulaLabel, evaluateBuffValue } from '../lib/formulas'
@@ -141,16 +141,16 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       return parts.join('，') + (adv ? (parts.length ? '，' : '') + adv : '')
     }
     if ((buff.effectType === 'ability_score' || buff.effectType === 'ability_override' || buff.effectType === 'ability_score_uncapped') && isPlainAbilityObject(v)) {
-      const parts = Object.entries(v)
-        .filter(([k, val]) => k !== 'advantage' && val != null && val !== 0)
-        .map(([k, val]) => {
-          const nameZh = ABILITY_NAMES_ZH[k] ?? k
-          if (isFormulaValue(val)) return `${nameZh}${formatFormulaLabelWithEval(val, baseContext)}`
-          const num = evaluateBuffValue(val, baseContext)
-          if (buff.effectType === 'ability_override') return `${nameZh}${num}`
-          const sign = num >= 0 ? '+' : ''
-          return `${nameZh}${sign}${num}`
-        })
+      const entries = Object.entries(v).filter(([k, val]) => k !== 'advantage' && val != null && val !== 0)
+      if (entries.length === 0) return ''
+      const parts = entries.map(([k, val]) => {
+        const nameZh = ABILITY_NAMES_ZH[k] ?? k
+        if (isFormulaValue(val)) return `${nameZh}${formatFormulaLabelWithEval(val, baseContext)}`
+        const num = evaluateBuffValue(val, baseContext)
+        if (buff.effectType === 'ability_override') return `${nameZh}${num}`
+        const sign = num >= 0 ? '+' : ''
+        return `${nameZh}${sign}${num}`
+      })
       return parts.join('，')
     }
     if (buff.effectType === 'contained_spell' && v && typeof v === 'object' && !Array.isArray(v)) {
@@ -166,10 +166,10 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
   if (buff.effectType === 'extra_damage_dice') {
     if (typeof v === 'string' && v.trim()) return v.trim()
     if (v && typeof v === 'object' && !Array.isArray(v)) {
-      const s = [' - ', v.minus, ' + ', v.plus, ' ', v.type].join('').replace(/\s+/g, ' ').trim()
-      return s || effectLabel
+      const s = formatDamageForAttack(v)
+      return s || ''
     }
-    return effectLabel
+    return ''
   }
   if (Array.isArray(v) && v.length) {
     if (['resist_type', 'immune_type', 'vulnerable_type'].includes(buff.effectType)) {
@@ -311,20 +311,20 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
       return { label: effectLabel, value: spellLine || null }
     }
     if ((buff.effectType === 'ability_score' || buff.effectType === 'ability_override' || buff.effectType === 'ability_score_uncapped') && isPlainAbilityObject(buff.value)) {
-      const parts = Object.entries(buff.value)
-        .filter(([, v]) => v != null && v !== 0)
-        .map(([k, val]) => {
-          const nameZh = ABILITY_NAMES_ZH[k] ?? k
-          if (isFormulaValue(val)) return `${nameZh} ${formatFormulaLabelWithEval(val, baseContext)}`
-          const num = evaluateBuffValue(val, baseContext)
-          if (buff.effectType === 'ability_override') return `${nameZh} ${num}`
-          const sign = num >= 0 ? '+' : ''
-          return `${nameZh} ${sign}${num}`
-        })
-      return { label: effectLabel, value: parts.length ? parts.join('、') : null }
+      const entries = Object.entries(buff.value).filter(([, val]) => val != null && val !== 0)
+      if (entries.length === 0) return { label: effectLabel, value: null }
+      const parts = entries.map(([k, val]) => {
+        const nameZh = ABILITY_NAMES_ZH[k] ?? k
+        if (isFormulaValue(val)) return `${nameZh} ${formatFormulaLabelWithEval(val, baseContext)}`
+        const num = evaluateBuffValue(val, baseContext)
+        if (buff.effectType === 'ability_override') return `${nameZh} ${num}`
+        const sign = num >= 0 ? '+' : ''
+        return `${nameZh} ${sign}${num}`
+      })
+      return { label: effectLabel, value: parts.join('、') }
     }
     if (buff.effectType === 'extra_damage_dice') {
-      const str = typeof v === 'string' ? v.trim() : [' - ', v.minus, ' + ', v.plus, ' ', v.type].join('').replace(/\s+/g, ' ').trim()
+      const str = typeof v === 'string' ? v.trim() : formatDamageForAttack(v)
       return { label: effectLabel, value: str || null }
     }
     if (isPlainAbilityObject(v)) {
