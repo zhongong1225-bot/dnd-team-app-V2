@@ -866,7 +866,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [addDamageType, setAddDamageType] = useState('')
   const [addWeaponProficient, setAddWeaponProficient] = useState(true)
   const [addItemIndex, setAddItemIndex] = useState(null)
-  const [addItemSpellLevel, setAddItemSpellLevel] = useState('')
   const [addGains, setAddGains] = useState([])
   const [showSpellModule, setShowSpellModule] = useState(() => char?.showSpellModule !== false)
   const [showMartialModule, setShowMartialModule] = useState(() => char?.showMartialModule !== false)
@@ -1259,7 +1258,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setShowWeaponExtraDiceEditor(false)
     setAddWeaponProficient(true)
     setAddSpellAttackSpellLevel('')
-    setAddItemSpellLevel('')
     setAddGains([])
     setShowAddCombatMeanModal(true)
   }
@@ -1285,7 +1283,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setShowAddCombatMeanModal(false)
   }
   const confirmAddItemMean = () => {
-    const lvl = Number(addItemSpellLevel)
     const patch = {
       type: 'item',
       weaponInventoryIndex: null,
@@ -1295,7 +1292,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       abilityForAttack: null,
       damageType: null,
       weaponProficient: true,
-      spellLevel: lvl >= 1 && lvl <= 9 ? lvl : null,
+      spellLevel: null,
       gains: addGains,
     }
     if (editingCombatMeanId) {
@@ -1358,7 +1355,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const openEditItemMean = (cm) => {
     setEditingCombatMeanId(cm.id)
     setAddItemIndex(cm.itemInventoryIndex ?? null)
-    setAddItemSpellLevel(cm.spellLevel != null ? String(cm.spellLevel) : '')
     setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs))
     setAddMeanStep('item')
     setShowAddCombatMeanModal(true)
@@ -1764,8 +1760,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const getSpellMeanSlotRing = useCallback((cm) => {
     if (!cm) return null
     if (cm.type === 'item') {
-      const lvl = Number(cm.spellLevel)
-      return lvl >= 1 && lvl <= 9 ? lvl : null
+      // 道具攻击（法器/爆炸品/卷轴）不消耗法术位：法器扣充能、爆炸品扣数量、卷轴扣数量
+      return null
     }
     if (cm.type !== 'spell_attack' && cm.type !== 'spell') return null
     const lvl = Number(cm.spellLevel)
@@ -3459,7 +3455,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       <button type="button" onClick={() => { const w0 = weaponsFromInv[0]; const nextIdx = w0 ? w0.index : null; setAddWeaponIndex(nextIdx); setAddAbility(w0 ? inferPhysicalWeaponAbilityFromProto(w0.proto) : 'str'); setAddDamageType(''); setShowWeaponExtraDiceEditor(false); setAddMeanStep('weapon'); }} className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white font-medium text-sm">
                         武器攻击
                       </button>
-                      <button type="button" onClick={() => { const first = itemMeansFromInv[0]; setAddItemIndex(first ? first.index : null); setAddItemSpellLevel(''); setAddMeanStep('item'); }} disabled={itemMeansFromInv.length === 0} className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm">
+                      <button type="button" onClick={() => { const first = itemMeansFromInv[0]; setAddItemIndex(first ? first.index : null); setAddMeanStep('item'); }} disabled={itemMeansFromInv.length === 0} className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm">
                         道具攻击
                       </button>
                       <button type="button" onClick={() => { setAddSpellAttackName(''); setAddSpellAttackSpellId(''); setAddSpellAttackHitResolution('spell_attack'); setAddSpellAttackDice(''); setAddSpellAttackDamageType(''); setAddMeanStep('spell_attack'); }} className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white font-medium text-sm">
@@ -3563,21 +3559,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                           <option key={it.index} value={it.index}>{it.label}</option>
                         ))}
                       </select>
-                      {(() => {
-                        const selected = addItemIndex != null ? itemMeansFromInv.find((it) => it.index === addItemIndex) : null
-                        if (selected?.kind !== 'focus') return null
-                        return (
-                          <div>
-                            <label className="block text-dnd-text-muted text-xs mb-0.5">法术位环阶（自动扣减）</label>
-                            <select value={addItemSpellLevel} onChange={(e) => setAddItemSpellLevel(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
-                              <option value="">不扣法术位</option>
-                              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((lvl) => (
-                                <option key={lvl} value={String(lvl)}>{lvl} 环</option>
-                              ))}
-                            </select>
-                          </div>
-                        )
-                      })()}
                     </div>
                     <GainEditor gains={addGains} onChange={setAddGains} />
                     <div className="flex gap-2 mt-3">
