@@ -214,12 +214,15 @@ function normalizeValueForSave(module, currentEffect) {
     return { spellId: '', spellName: '', level: 0, hitResolution: 'dex_save', range: '', area: '', damageDice: '', damageDiceCount: 1, damageDiceSides: 6, damageType: '', charges: 0 }
   }
   if (currentEffect.key === 'extra_damage_dice') {
-    if (typeof value === 'string') return value.trim()
     if (value && typeof value === 'object' && !Array.isArray(value)) {
-      const { minus = '', plus = '', type = '' } = value
-      return [' - ', minus, ' + ', plus, ' ', type].join('').replace(/\s+/g, ' ').trim()
+      const { minus = '', plus = '', type = '', o3 = '', onlySpellDamage } = value
+      return { minus, plus, type, o3, onlySpellDamage: !!onlySpellDamage }
     }
-    return ''
+    if (typeof value === 'string') {
+      const parsed = parseDamageString(value.trim())
+      return { ...parsed, onlySpellDamage: false }
+    }
+    return { minus: '', plus: '', type: '', o3: '', onlySpellDamage: false }
   }
   if (currentEffect.key === 'crit_extra_dice') {
     if (isFormulaValue(value)) return value
@@ -1188,11 +1191,23 @@ function EffectValueEditor({
       )
     }
     if (currentEffect?.key === 'extra_damage_dice' || needsSubSelect === 'damageDiceInline') {
+      const raw = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
       return (
         <>
           <div className="min-w-0 w-full">
             <DamageDiceInlineRow value={value} onChange={onChange} module={module} compact />
           </div>
+          {currentEffect?.key === 'extra_damage_dice' && (
+            <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-gray-300 col-span-full">
+              <input
+                type="checkbox"
+                checked={!!raw.onlySpellDamage}
+                onChange={(e) => onChange({ ...module, value: { ...raw, onlySpellDamage: e.target.checked } })}
+                className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+              />
+              仅法术伤害生效
+            </label>
+          )}
         </>
       )
     }
@@ -1504,10 +1519,22 @@ function EffectValueEditor({
   }
 
   if (currentEffect?.key === 'extra_damage_dice' || needsSubSelect === 'damageDiceInline') {
+    const raw = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
     return (
-      <div className="space-y-0.5">
+      <div className="space-y-1">
         <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5 leading-none">伤害骰</label>
         <DamageDiceInlineRow value={value} onChange={onChange} module={module} compact={false} />
+        {currentEffect?.key === 'extra_damage_dice' && (
+          <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-300">
+            <input
+              type="checkbox"
+              checked={!!raw.onlySpellDamage}
+              onChange={(e) => onChange({ ...module, value: { ...raw, onlySpellDamage: e.target.checked } })}
+              className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+            />
+            仅法术伤害生效
+          </label>
+        )}
       </div>
     )
   }

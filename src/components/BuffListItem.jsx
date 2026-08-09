@@ -167,7 +167,8 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
     if (typeof v === 'string' && v.trim()) return v.trim()
     if (v && typeof v === 'object' && !Array.isArray(v)) {
       const s = formatDamageForAttack(v)
-      return s || ''
+      if (!s) return ''
+      return v.onlySpellDamage ? `${s}（仅法术伤害）` : s
     }
     return ''
   }
@@ -325,7 +326,8 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
     }
     if (buff.effectType === 'extra_damage_dice') {
       const str = typeof v === 'string' ? v.trim() : formatDamageForAttack(v)
-      return { label: effectLabel, value: str || null }
+      if (!str) return { label: effectLabel, value: null }
+      return { label: effectLabel, value: v?.onlySpellDamage ? `${str}（仅法术伤害）` : str }
     }
     if (isPlainAbilityObject(v)) {
       const parts = Object.entries(v).filter(([k, val]) => k !== 'advantage' && val != null && val !== 0).map(([k, val]) => `${ABILITY_NAMES_ZH[k] ?? k}+${formatSignedEntryVal(val, context)}`)

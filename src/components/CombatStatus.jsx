@@ -498,7 +498,7 @@ function hasGainDiceFloor2(gains) {
 }
 
 /** 根据战斗手段类型与 Buff 统计，自动生成一组默认增益建议（仅在用户未手动设置时填充） */
-function buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs) {
+function buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellMean = false) {
   const gains = []
   const isPhysical = cm?.type === 'physical'
   const pushOnce = (type, payload) => {
@@ -536,6 +536,7 @@ function buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs) {
         if (!scopeOk && isPhysical) continue
         if (e.effectType === 'extra_damage_dice') {
           const raw = e.value
+          if (raw && typeof raw === 'object' && !Array.isArray(raw) && raw.onlySpellDamage && !isSpellMean) continue
           let diceText = ''
           if (typeof raw === 'string' && raw.trim()) {
             diceText = raw.trim()
@@ -695,13 +696,14 @@ function GainEditor({ gains, onChange }) {
  * 命中/伤害加值已统一通过 getBuffsFromEquipmentAndInventory 转成虚拟 BUFF，
  * 由 useBuffCalculator 计算一次，此处不再重复累加平加值。
  */
-function getWeaponEntryDamageExtras(entry, proto) {
+function getWeaponEntryDamageExtras(entry, proto, isSpellMean = false) {
   if (!entry || !Array.isArray(entry.effects)) return { flatBonus: 0, extraDiceStrings: [] }
   const extraDiceStrings = []
   for (const e of entry.effects) {
     if (!e) continue
     if (e.effectType === 'extra_damage_dice') {
       const raw = e.value
+      if (raw && typeof raw === 'object' && !Array.isArray(raw) && raw.onlySpellDamage && !isSpellMean) continue
       if (typeof raw === 'string' && raw.trim()) {
         extraDiceStrings.push(raw.trim())
       } else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
@@ -1375,14 +1377,16 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setAddSpellAttackDice(cm.damageDice || '')
     setAddSpellAttackDamageType(cm.damageTypeSpell || '')
     setAddSpellAttackSpellLevel(cm.spellLevel != null ? String(cm.spellLevel) : '')
-    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs))
+    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, true))
     setAddMeanStep('spell_attack')
     setShowAddCombatMeanModal(true)
   }
   const openEditItemMean = (cm) => {
     setEditingCombatMeanId(cm.id)
     setAddItemIndex(cm.itemInventoryIndex ?? null)
-    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs))
+    const itemOpt = cm.itemInventoryIndex != null ? itemMeansFromInv.find((x) => x.index === cm.itemInventoryIndex) : null
+    const isSpellItem = itemOpt && (itemOpt.kind === 'focus' || itemOpt.kind === 'scroll')
+    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellItem))
     setAddMeanStep('item')
     setShowAddCombatMeanModal(true)
   }
