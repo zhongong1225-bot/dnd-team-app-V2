@@ -490,7 +490,7 @@ function ContainedSpellEditor({
 }
 
 /** 伤害模块一行：narrowBlocks 更窄块宽；evenSpacing 统一间隔；unifiedColor 同色基线对齐；evenSpread 时占满宽度且模块内均分平铺 */
-function DamageDiceInlineRow({ value, onChange, module, compact, minusStepper, trailing, leftLabel, narrowBlocks, evenSpacing, unifiedColor, evenSpread }) {
+function DamageDiceInlineRow({ value, onChange, module, compact, minusStepper, hideFlatMod, trailing, leftLabel, narrowBlocks, evenSpacing, unifiedColor, evenSpread }) {
   const isLegacy = typeof value === 'string'
   const parsed = isLegacy && value ? parseDamageString(value) : {}
   const raw = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -504,7 +504,7 @@ function DamageDiceInlineRow({ value, onChange, module, compact, minusStepper, t
     onChange({ ...module, value: next })
   }
   const setDice = (count, sides) => {
-    const fm = parseDiceFromPlus(plus).flatMod
+    const fm = hideFlatMod ? 0 : parseDiceFromPlus(plus).flatMod
     update('plus', buildPlusFromDiceParts(count, sides, fm))
   }
   const setFlatMod = (fm) => {
@@ -555,19 +555,20 @@ function DamageDiceInlineRow({ value, onChange, module, compact, minusStepper, t
           ))}
         </select>
       </div>
-      {/* 固定加值（XdY+N），在 dX 与伤害类型之间；与项目「数字输入」NumberStepper 一致 */}
-      <div className={`flex items-center shrink-0 ${rowH}`} style={stepperBlockStyle} title="伤害加值（如 +5，与骰子合计为总伤害骰部分）">
-        <NumberStepper
-          value={diceFlatMod}
-          onChange={setFlatMod}
-          min={-99}
-          max={99}
-          step={1}
-          compact={compact}
-          narrow={narrowBlocks}
-          unifiedColor={unifiedColor}
-        />
-      </div>
+      {!hideFlatMod && (
+        <div className={`flex items-center shrink-0 ${rowH}`} style={stepperBlockStyle} title="伤害加值（如 +5，与骰子合计为总伤害骰部分）">
+          <NumberStepper
+            value={diceFlatMod}
+            onChange={setFlatMod}
+            min={-99}
+            max={99}
+            step={1}
+            compact={compact}
+            narrow={narrowBlocks}
+            unifiedColor={unifiedColor}
+          />
+        </div>
+      )}
       {/* 伤害类型：evenSpacing 时缩小左右内边距以完整显示二字类型 */}
       <div className={`flex items-center ${selectWrapperCls} ${rowH}`} style={!evenSpacing ? selectBlockStyle : undefined}>
         <select value={type} onChange={(e) => update('type', e.target.value)} className={selCls + selCenter + selColorCls + ' w-full min-w-0 h-full ' + selectPad} title="伤害类型">

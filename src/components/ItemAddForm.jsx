@@ -68,35 +68,45 @@ function buildArmorNoteFromFields(fields) {
   return `${acPart}；力量${strPart}；隐匿${stealthPart}`
 }
 
+/** 武器基础/多用伤害不应包含固定加值（加值来自能力调整、熟练、魔法加值等 Buff），去掉 legacy 中的 flat mod */
+function stripDiceFlatMod(plus) {
+  if (!plus || typeof plus !== 'string') return plus
+  const m = plus.trim().match(/^(\d+)d(\d+)([+-]\d+)?$/i)
+  if (!m) return plus
+  return `${m[1]}d${m[2]}`
+}
+
 /** 解析武器伤害字符串，将「1d8/1d10 钝击」拆分为基础与多用（双手）伤害 */
 function splitVersatileDamage(str) {
   const parsed = parseDamageString(str)
-  const base = { minus: parsed.minus ?? '', plus: parsed.plus ?? '', o1: '', o2: '', type: parsed.type ?? '', o3: parsed.o3 ?? '' }
+  const base = { minus: parsed.minus ?? '', plus: stripDiceFlatMod(parsed.plus) ?? '', o1: '', o2: '', type: parsed.type ?? '', o3: parsed.o3 ?? '' }
   const versa = { minus: '', plus: '', o1: '', o2: '', type: parsed.type ?? '', o3: '' }
   if (base.plus.includes('/')) {
     const [p1, p2] = base.plus.split('/')
-    base.plus = p1.trim()
-    versa.plus = p2.trim()
+    base.plus = stripDiceFlatMod(p1.trim()) ?? ''
+    versa.plus = stripDiceFlatMod(p2.trim()) ?? ''
   }
   return { base, versa }
 }
 
-/** 根据基础伤害与多用伤害对象构建「攻击」字段；类型相同时合并为「1d8/1d10 钝击」 */
+/** 根据基础伤害与多用伤害对象构建「攻击」字段；类型相同时合并为「1d8/1d10 钝击」。武器基础伤害不带固定加值。 */
 function buildWeaponAttack(baseObj, versaObj) {
-  const baseStr = formatDamageForAttack(baseObj)
-  const versaStr = formatDamageForAttack(versaObj)
-  if (!versaStr || !versaObj?.plus) return baseStr
-  const baseDice = baseObj.plus || ''
-  const versaDice = versaObj.plus || ''
-  const baseType = baseObj.type || ''
-  const versaType = versaObj.type || baseType
+  const basePlus = stripDiceFlatMod(baseObj?.plus || '')
+  const versaPlus = stripDiceFlatMod(versaObj?.plus || '')
+  const base = { ...baseObj, plus: basePlus }
+  const versa = { ...versaObj, plus: versaPlus }
+  const baseStr = formatDamageForAttack(base)
+  const versaStr = formatDamageForAttack(versa)
+  if (!versaStr || !versaPlus) return baseStr
+  const baseType = base.type || ''
+  const versaType = versa.type || baseType
   const sameType = baseType && versaType === baseType
-  const note = baseObj.o3 || versaObj.o3 || ''
+  const note = base.o3 || versa.o3 || ''
   let out = ''
   if (sameType) {
-    out = `${baseDice}/${versaDice} ${baseType}`
+    out = `${basePlus}/${versaPlus} ${baseType}`
   } else {
-    out = `${baseDice}${baseType ? ' ' + baseType : ''}/${versaDice}${versaType ? ' ' + versaType : ''}`.trim()
+    out = `${basePlus}${baseType ? ' ' + baseType : ''}/${versaPlus}${versaType ? ' ' + versaType : ''}`.trim()
   }
   if (note) out = `${out} #${note}`
   return out
@@ -823,7 +833,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                   onChange={(next) => next.value != null && setWeaponDamage(next.value)}
                   module={{ id: 'weapon-dmg', effectType: 'extra_damage_dice', value: weaponDamage }}
                   compact
-                  minusStepper
+                  hideFlatMod
                   leftLabel="伤害"
                   trailing={
                     <>
@@ -851,7 +861,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                     }}
                     module={{ id: 'weapon-versatile-dmg', effectType: 'extra_damage_dice', value: weaponVersatileDamage }}
                     compact
-                    minusStepper
+                    hideFlatMod
                     leftLabel="双手"
                   />
                 </div>
