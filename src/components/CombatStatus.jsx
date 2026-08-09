@@ -16,6 +16,7 @@ import {
   getHPBuffSum,
   getACModeOptionsForCharacter,
   getEffectiveACCalculationMode,
+  evaluateBuffValue,
 } from '../lib/formulas'
 import {
   useBuffCalculator,
@@ -23,7 +24,7 @@ import {
   getCritDamageDiceMultiplierFromItemEntry,
   getCritThreatMinNaturalFromItemEntry,
 } from '../hooks/useBuffCalculator'
-import { getMergedBuffsForCalculator } from '../lib/effects/effectMapping'
+import { getMergedBuffsForCalculator, getEffectsFromBuff } from '../lib/effects/effectMapping'
 import { skillProfFactor } from '../data/dndSkills'
 import { CONDITION_OPTIONS, CONDITION_DESCRIPTIONS, EXHAUSTION_DESCRIPTIONS, DAMAGE_TYPES, ABILITY_NAMES_ZH, getDamageTypeLabel, formatDamageForAttack } from '../data/buffTypes'
 import { inputClass, inputClassInline } from '../lib/inputStyles'
@@ -51,6 +52,7 @@ import MartialStyleIntroBlock from './MartialStyleIntroBlock'
 import { NumberStepper } from './BuffForm'
 import InfoTooltip from './InfoTooltip'
 import { MartialTechTooltipContent } from '../lib/infoTooltipContent'
+import { isNewContainedSpellValue, normalizeContainedSpellValue } from '../lib/containedSpellModel'
 
 /** 战斗手段行：24 细分为 12 份 — 名称2 | 射程2 | 命中2 | 伤害5.5 | 删除0.5（删列=1/24；Tailwind 无 grid-cols-24 故用任意值） */
 const COMBAT_MEAN_ROW_GRID =
@@ -153,6 +155,49 @@ function shortMartialAction(action) {
   return s.replace(/动作$/, '').trim() || s
 }
 
+/** 根据施法时间/动作描述，统一战斗手段动作标签 */
+function resolveCombatMeanActionLabel(source) {
+  const s = String(source || '').trim()
+  if (!s) return '动作'
+  if (/附赠|bonus/i.test(s)) return '附赠'
+  if (/反应|reaction/i.test(s)) return '反应'
+  if (/迅捷|swift/i.test(s)) return '迅捷'
+  if (/全回合|整轮|full[\s-]round/i.test(s)) return '整轮'
+  if (/移动|move/i.test(s)) return '移动'
+  if (/动作|action/i.test(s)) return '动作'
+  return s
+}
+
+/** 动作标签配色：动作=天蓝，附赠=翠绿，反应=琥珀，整轮=玫红，其它=灰 */
+function actionLabelClass(label) {
+  switch (label) {
+    case '附赠':
+      return 'text-emerald-300/90 bg-emerald-900/35 border-emerald-500/30'
+    case '反应':
+      return 'text-amber-300/90 bg-amber-900/35 border-amber-500/30'
+    case '整轮':
+      return 'text-rose-300/90 bg-rose-900/35 border-rose-500/30'
+    case '移动':
+      return 'text-violet-300/90 bg-violet-900/35 border-violet-500/30'
+    case '动作':
+    default:
+      return 'text-sky-300/90 bg-sky-900/35 border-sky-500/30'
+  }
+}
+
+/** 动作标签徽章 */
+function ActionLabelBadge({ source, className = '' }) {
+  const label = resolveCombatMeanActionLabel(source)
+  return (
+    <span
+      className={`shrink-0 text-[10px] leading-none px-1 py-[1px] rounded border ${actionLabelClass(label)} ${className}`}
+      title={`动作类型：${label}`}
+    >
+      {label}
+    </span>
+  )
+}
+
 const EXHAUSTION_LEVELS = [0, 1, 2, 3, 4, 5, 6]
 
 function getExhaustionColor(level) {
@@ -189,6 +234,61 @@ function normalizeDeathSaves(ds) {
 const CONDITION_LABELS = Object.fromEntries(
   CONDITION_OPTIONS.filter((o) => o.value !== 'exhaustion').map((o) => [o.value, o.label])
 )
+
+/** 是否有生效中的「防死」效果（手动 Buff 或已同调装备附魔） */
+function hasActiveDeathWard(mergedBuffs) {
+  if (!Array.isArray(mergedBuffs)) return false
+  return mergedBuffs.some((b) => {
+    if (b.enabled === false) return false
+    const effects = getEffectsFromBuff(b)
+    return effects.some((e) => e.effectType === 'death_ward' && e.value)
+  })
+}
+
+/**
+ * 消耗第一个生效的「防死」效果，返回可传给 onSave 的 patch。
+ * 只处理手动 buff（char.buffs）与已同调装备附魔（inventory 条目 effects）。
+ */
+function consumeDeathWard(char, mergedBuffs) {
+  if (!Array.isArray(mergedBuffs)) return null
+  for (const b of mergedBuffs) {
+    if (b.enabled === false) continue
+    const effects = getEffectsFromBuff(b)
+    const idx = effects.findIndex((e) => e.effectType === 'death_ward' && e.value)
+    if (idx === -1) continue
+
+    if (b.fromItem) {
+      const entryId = typeof b.id === 'string' && b.id.startsWith('item_') ? b.id.slice(5) : null
+      if (!entryId || !char) continue
+      const inventory = Array.isArray(char.inventory) ? char.inventory : []
+      const entryIndex = inventory.findIndex((entry) => entry?.id === entryId)
+      if (entryIndex === -1) continue
+      const entry = inventory[entryIndex]
+      const newEffects = Array.isArray(entry.effects) ? entry.effects.map((e) => ({ ...e })) : []
+      const effectIdx = newEffects.findIndex((e) => e.effectType === 'death_ward' && e.value)
+      if (effectIdx === -1) continue
+      newEffects[effectIdx] = { ...newEffects[effectIdx], value: false }
+      return {
+        inventory: inventory.map((invEntry, i) =>
+          i === entryIndex ? { ...invEntry, effects: newEffects } : invEntry,
+        ),
+      }
+    }
+
+    const buffs = Array.isArray(char?.buffs) ? char.buffs : []
+    const buffIndex = buffs.findIndex((buff) => buff?.id === b.id)
+    if (buffIndex === -1) continue
+    const buff = buffs[buffIndex]
+    const newEffects = Array.isArray(buff.effects) ? buff.effects.map((e) => ({ ...e })) : []
+    const effectIdx = newEffects.findIndex((e) => e.effectType === 'death_ward' && e.value)
+    if (effectIdx === -1) continue
+    newEffects[effectIdx] = { ...newEffects[effectIdx], value: false }
+    return {
+      buffs: buffs.map((buffItem, i) => (i === buffIndex ? { ...buffItem, effects: newEffects } : buffItem)),
+    }
+  }
+  return null
+}
 
 /** 从背包中筛出武器（类型=武器或枪械），返回 { index, entry, proto, name, 攻击, 伤害 } */
 function getWeaponsFromInventory(inventory = []) {
@@ -333,6 +433,234 @@ function formatSignedModifier(n) {
 function isRangedWeaponProto(proto) {
   if (!proto) return false
   return proto.子类型 === '远程' || proto.类型 === '枪械'
+}
+
+/** 战斗手段增益类型定义 */
+const GAIN_TYPES = [
+  { key: 'extraDice', label: '增加伤害骰' },
+  { key: 'damageBonus', label: '增加伤害' },
+  { key: 'attackBonus', label: '增加命中' },
+  { key: 'diceFloor2', label: '伤害骰不能低于2' },
+  { key: 'perDieBonus', label: '每伤害骰+1' },
+  { key: 'advantage', label: '优劣势' },
+]
+
+/** 取战斗手段启用的增益列表 */
+function getEnabledGains(cm) {
+  return Array.isArray(cm?.gains) ? cm.gains.filter((g) => g && g.enabled !== false) : []
+}
+
+function sumGainAttackBonus(gains) {
+  return gains.filter((g) => g.type === 'attackBonus').reduce((s, g) => s + (Number(g.value) || 0), 0)
+}
+function sumGainDamageBonus(gains) {
+  return gains.filter((g) => g.type === 'damageBonus').reduce((s, g) => s + (Number(g.value) || 0), 0)
+}
+function sumGainPerDieBonus(gains) {
+  return gains.filter((g) => g.type === 'perDieBonus').reduce((s, g) => s + (Number(g.value) || 0), 0)
+}
+function getGainExtraDice(gains) {
+  return gains.filter((g) => g.type === 'extraDice' && g.dice).map((g) => g.dice)
+}
+function getGainAdvantage(gains) {
+  const adv = gains.find((g) => g.type === 'advantage' && g.enabled !== false)
+  return adv && (adv.advantage === 'advantage' || adv.advantage === 'disadvantage') ? adv.advantage : null
+}
+function hasGainDiceFloor2(gains) {
+  return gains.some((g) => g.type === 'diceFloor2' && g.enabled !== false)
+}
+
+/** 根据战斗手段类型与 Buff 统计，自动生成一组默认增益建议（仅在用户未手动设置时填充） */
+function buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs) {
+  const gains = []
+  const isPhysical = cm?.type === 'physical'
+  const pushOnce = (type, payload) => {
+    const id = 'g_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6)
+    gains.push({ id, type, enabled: true, ...payload })
+  }
+  const relevantScope = (scope) => {
+    if (!isPhysical) return scope === 'global' || scope == null || scope === ''
+    const ranged = cm?.weaponInventoryIndex != null
+      ? (() => {
+          const entry = (mergedBuffs?.__inventory || []).find((e) => e?.index === cm.weaponInventoryIndex)
+          return isRangedWeaponProto(entry?.proto)
+        })()
+      : false
+    if (ranged) return scope === 'ranged' || scope === 'firearm' || scope === 'global' || scope == null || scope === ''
+    return scope === 'melee' || scope === 'global' || scope == null || scope === ''
+  }
+  if (buffStats) {
+    const melee = Number(buffStats?.meleeAttackBonus) || 0
+    const ranged = Number(buffStats?.rangedAttackBonus) || 0
+    const meleeDmg = Number(buffStats?.meleeDamageBonus) || 0
+    const rangedDmg = Number(buffStats?.rangedDamageBonus) || 0
+    const attackVal = isPhysical ? (ranged || melee) : (melee || ranged)
+    const damageVal = isPhysical ? (rangedDmg || meleeDmg) : (meleeDmg || rangedDmg)
+    if (attackVal) pushOnce('attackBonus', { value: attackVal })
+    if (damageVal) pushOnce('damageBonus', { value: damageVal })
+  }
+  if (Array.isArray(mergedBuffs)) {
+    for (const b of mergedBuffs) {
+      if (b.enabled === false) continue
+      const effects = Array.isArray(b.effects) ? b.effects : [b]
+      for (const e of effects) {
+        if (!e) continue
+        const scopeOk = relevantScope(e.scope)
+        if (!scopeOk && isPhysical) continue
+        if (e.effectType === 'extra_damage_dice') {
+          const raw = e.value
+          let diceText = ''
+          if (typeof raw === 'string' && raw.trim()) {
+            diceText = raw.trim()
+          } else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+            diceText = formatDamageForAttack(raw)
+          }
+          if (diceText) pushOnce('extraDice', { dice: diceText })
+        }
+        if (e.effectType === 'attack_bonus' || e.effectType === 'damage_bonus' || e.effectType === 'attack_damage_bonus') {
+          const obj = typeof e.value === 'object' && e.value && !Array.isArray(e.value) ? e.value : null
+          const adv = obj?.advantage
+          if ((adv === 'advantage' || adv === 'disadvantage') && !gains.some((g) => g.type === 'advantage')) {
+            pushOnce('advantage', { advantage: adv })
+          }
+        }
+      }
+    }
+  }
+  return gains
+}
+
+/** 战斗手段增益编辑器 */
+function GainEditor({ gains, onChange }) {
+  const [addingType, setAddingType] = useState('')
+  const items = Array.isArray(gains) ? gains : []
+  const makeId = () => 'g_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6)
+  const updateItem = (id, patch) => {
+    onChange(items.map((g) => (g.id === id ? { ...g, ...patch } : g)))
+  }
+  const removeItem = (id) => {
+    onChange(items.filter((g) => g.id !== id))
+  }
+  const addItem = (type) => {
+    const base = { id: makeId(), type, enabled: true }
+    let payload = base
+    switch (type) {
+      case 'extraDice':
+        payload = { ...base, dice: '1d6' }
+        break
+      case 'damageBonus':
+      case 'attackBonus':
+      case 'perDieBonus':
+        payload = { ...base, value: 1 }
+        break
+      case 'advantage':
+        payload = { ...base, advantage: 'advantage' }
+        break
+      case 'diceFloor2':
+      default:
+        break
+    }
+    onChange([...items, payload])
+    setAddingType('')
+  }
+  return (
+    <div className="w-full border-t border-gray-600/80 pt-2 space-y-2">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <label className="text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">增益</label>
+        <div className="flex items-center gap-1.5">
+          {addingType ? (
+            <select
+              value={addingType}
+              onChange={(e) => {
+                const t = e.target.value
+                if (t) addItem(t)
+              }}
+              className={`${inputClass} h-7 text-[10px] py-0 px-1 min-w-[6rem]`}
+              autoFocus
+            >
+              <option value="">选择增益类型</option>
+              {GAIN_TYPES.map((t) => (
+                <option key={t.key} value={t.key}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setAddingType('extraDice')}
+              className="flex shrink-0 items-center gap-0.5 rounded border border-dashed border-dnd-gold/50 px-2 py-0.5 text-[10px] font-medium text-dnd-gold-light hover:bg-dnd-gold/15"
+            >
+              <Plus className="h-3 w-3" />
+              增加增益
+            </button>
+          )}
+        </div>
+      </div>
+      {items.length === 0 && <p className="text-dnd-text-muted text-[10px]">暂无增益，点击「增加增益」添加。</p>}
+      <div className="space-y-1.5">
+        {items.map((g) => {
+          const typeLabel = GAIN_TYPES.find((t) => t.key === g.type)?.label || g.type
+          return (
+            <div
+              key={g.id}
+              className={`flex items-center gap-1.5 rounded border border-gray-600 bg-gray-700/30 p-1.5 text-xs ${g.enabled === false ? 'opacity-60' : ''}`}
+            >
+              <input
+                type="checkbox"
+                checked={g.enabled !== false}
+                onChange={(e) => updateItem(g.id, { enabled: e.target.checked })}
+                className="rounded border-gray-500 shrink-0"
+                title={g.enabled === false ? '已禁用' : '已启用'}
+              />
+              <span className="shrink-0 text-dnd-text-muted w-20 truncate" title={typeLabel}>
+                {typeLabel}
+              </span>
+              <div className="flex-1 min-w-0">
+                {g.type === 'extraDice' && (
+                  <input
+                    type="text"
+                    value={g.dice || ''}
+                    onChange={(e) => updateItem(g.id, { dice: e.target.value })}
+                    placeholder="如 1d6 火焰"
+                    className={`${inputClass} w-full h-7 text-xs font-mono`}
+                  />
+                )}
+                {(g.type === 'damageBonus' || g.type === 'attackBonus' || g.type === 'perDieBonus') && (
+                  <NumberStepper
+                    className="!w-[5.5rem] !min-w-0 !px-2"
+                    value={Number(g.value) || 0}
+                    onChange={(v) => updateItem(g.id, { value: v })}
+                    min={-99}
+                    max={99}
+                    compact
+                    narrow
+                  />
+                )}
+                {g.type === 'advantage' && (
+                  <select
+                    value={g.advantage || 'advantage'}
+                    onChange={(e) => updateItem(g.id, { advantage: e.target.value })}
+                    className={`${inputClass} h-7 text-xs py-0 px-1 w-full`}
+                  >
+                    <option value="advantage">优势</option>
+                    <option value="disadvantage">劣势</option>
+                  </select>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => removeItem(g.id)}
+                className="shrink-0 rounded border border-gray-500 px-1.5 py-0.5 text-gray-400 hover:bg-gray-600"
+              >
+                移除
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 /**
@@ -488,6 +816,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
 
   const [hpCurrent, setHpCurrent] = useState(hp?.current ?? 0)
   const [hpTemp, setHpTemp] = useState(hp?.temp ?? 0)
+  const [hpBuffTemp, setHpBuffTemp] = useState(hp?.buffTemp ?? 0)
   const [deductVal, setDeductVal] = useState('')
   const [healVal, setHealVal] = useState('')
   const [tempInputVal, setTempInputVal] = useState('')
@@ -510,6 +839,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       itemInventoryIndex: m.itemInventoryIndex ?? null,
       spellId: m.spellId ?? null,
       spellName: m.spellName ?? '',
+      spellLevel: m.spellLevel ?? null,
       hitResolution: m.hitResolution ?? 'spell_attack',
       damageDice: m.damageDice ?? '',
       damageTypeSpell: m.damageTypeSpell ?? '',
@@ -518,6 +848,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       damageType: m.damageType ?? null,
       weaponProficient: m.weaponProficient !== false,
       weaponNameSuffix: m.weaponNameSuffix ?? '',
+      gains: Array.isArray(m.gains) ? m.gains : [],
     }))
   })
   const [showAddCombatMeanModal, setShowAddCombatMeanModal] = useState(false)
@@ -528,18 +859,22 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [addSpellAttackHitResolution, setAddSpellAttackHitResolution] = useState('spell_attack')
   const [addSpellAttackDice, setAddSpellAttackDice] = useState('')
   const [addSpellAttackDamageType, setAddSpellAttackDamageType] = useState('')
+  const [addSpellAttackSpellLevel, setAddSpellAttackSpellLevel] = useState('')
   const [addWeaponIndex, setAddWeaponIndex] = useState(null)
   const [addWeaponNameSuffix, setAddWeaponNameSuffix] = useState('')
   const [addAbility, setAddAbility] = useState('str')
   const [addDamageType, setAddDamageType] = useState('')
   const [addWeaponProficient, setAddWeaponProficient] = useState(true)
   const [addItemIndex, setAddItemIndex] = useState(null)
+  const [addItemSpellLevel, setAddItemSpellLevel] = useState('')
+  const [addGains, setAddGains] = useState([])
   const [showSpellModule, setShowSpellModule] = useState(() => char?.showSpellModule !== false)
   const [showMartialModule, setShowMartialModule] = useState(() => char?.showMartialModule !== false)
   const [showExtraSlotsEdit, setShowExtraSlotsEdit] = useState(false)
   const [showExtraSlotsModal, setShowExtraSlotsModal] = useState(false)
   const [explosiveUsePending, setExplosiveUsePending] = useState(null) // { inventoryIndex, name, diceExpr, damageType }
-  const [focusUsePending, setFocusUsePending] = useState(null) // { inventoryIndex, name } 法器投掷待确认
+  const [focusUsePending, setFocusUsePending] = useState(null) // { inventoryIndex, name, spellSub } 法器投掷待确认
+  const [focusSpellMap, setFocusSpellMap] = useState({}) // { [inventoryIndex]: spellSub } 法器当前选中的内含法术
   /** 当前启用的架势槽 id（全角色至多一个） */
   const [martialActiveStanceId, setMartialActiveStanceId] = useState(() =>
     typeof char?.martialActiveStanceId === 'string' && char.martialActiveStanceId.trim() ? char.martialActiveStanceId : null
@@ -606,7 +941,19 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   useEffect(() => {
     setHpCurrent(hp?.current ?? 0)
     setHpTemp(hp?.temp ?? 0)
-  }, [hp?.current, hp?.temp])
+    setHpBuffTemp(hp?.buffTemp ?? 0)
+  }, [hp?.current, hp?.temp, hp?.buffTemp])
+
+  /** BUFF 临时生命：BUFF 变化时同步到当前值；已扣减时不自动回涨 */
+  const prevBuffTempHpRef = useRef(0)
+  useEffect(() => {
+    const max = Math.max(0, Number(buffStats?.tempHp) || 0)
+    if (max !== prevBuffTempHpRef.current) {
+      setHpBuffTemp(max)
+      prevBuffTempHpRef.current = max
+      onSave({ hp: { current: hpCurrent, max: maxHp, temp: hpTemp, buffTemp: max } })
+    }
+  }, [buffStats?.tempHp])
 
   useEffect(() => {
     setConditions(Array.isArray(char?.conditions) ? [...char.conditions] : [])
@@ -634,6 +981,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       itemInventoryIndex: m.itemInventoryIndex ?? null,
       spellId: m.spellId ?? null,
       spellName: m.spellName ?? '',
+      spellLevel: m.spellLevel ?? null,
       hitResolution: m.hitResolution ?? 'spell_attack',
       damageDice: m.damageDice ?? '',
       damageTypeSpell: m.damageTypeSpell ?? '',
@@ -642,6 +990,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       damageType: m.damageType ?? null,
       weaponProficient: m.weaponProficient !== false,
       weaponNameSuffix: m.weaponNameSuffix ?? '',
+      gains: Array.isArray(m.gains) ? m.gains : [],
     })))
   }, [char?.id, char?.combatMeans])
 
@@ -880,6 +1229,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         itemInventoryIndex: m.itemInventoryIndex ?? null,
         spellId: m.spellId,
         spellName: m.spellName,
+        spellLevel: m.spellLevel,
         hitResolution: m.hitResolution,
         damageDice: m.damageDice,
         damageTypeSpell: m.damageTypeSpell,
@@ -888,6 +1238,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       damageType: m.damageType,
       weaponProficient: m.weaponProficient,
       weaponNameSuffix: m.weaponNameSuffix,
+      gains: Array.isArray(m.gains) ? m.gains : [],
       })),
     })
   }
@@ -907,6 +1258,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setAddWeaponExtraDice([])
     setShowWeaponExtraDiceEditor(false)
     setAddWeaponProficient(true)
+    setAddSpellAttackSpellLevel('')
+    setAddItemSpellLevel('')
+    setAddGains([])
     setShowAddCombatMeanModal(true)
   }
   const confirmAddWeaponMean = () => {
@@ -919,6 +1273,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       damageType: addDamageType || null,
       weaponProficient: addWeaponProficient,
       weaponNameSuffix: (addWeaponNameSuffix || '').trim(),
+      gains: addGains,
     }
     if (editingCombatMeanId) {
       updateCombatMean(editingCombatMeanId, patch)
@@ -930,8 +1285,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setShowAddCombatMeanModal(false)
   }
   const confirmAddItemMean = () => {
-    const newMean = {
-      id: 'cm_' + Date.now(),
+    const lvl = Number(addItemSpellLevel)
+    const patch = {
       type: 'item',
       weaponInventoryIndex: null,
       itemInventoryIndex: addItemIndex,
@@ -940,18 +1295,28 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       abilityForAttack: null,
       damageType: null,
       weaponProficient: true,
+      spellLevel: lvl >= 1 && lvl <= 9 ? lvl : null,
+      gains: addGains,
     }
-    saveCombatMeans([...combatMeans, newMean])
+    if (editingCombatMeanId) {
+      updateCombatMean(editingCombatMeanId, patch)
+      setEditingCombatMeanId(null)
+    } else {
+      saveCombatMeans([...combatMeans, { id: 'cm_' + Date.now(), ...patch }])
+    }
     setShowAddCombatMeanModal(false)
   }
   const confirmAddSpellAttackMean = () => {
     const name = (addSpellAttackSpellId ? (getSpellById(addSpellAttackSpellId)?.name ?? addSpellAttackName) : addSpellAttackName).trim() || '法术攻击'
+    const lvl = Number(addSpellAttackSpellLevel)
     const patch = {
       type: 'spell_attack',
       spellName: name,
+      spellLevel: lvl >= 1 && lvl <= 9 ? lvl : null,
       hitResolution: addSpellAttackHitResolution || 'spell_attack',
       damageDice: (addSpellAttackDice || '').trim(),
       damageTypeSpell: (addSpellAttackDamageType || '').trim(),
+      gains: addGains,
     }
     if (editingCombatMeanId) {
       updateCombatMean(editingCombatMeanId, patch)
@@ -976,6 +1341,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setAddSpellAttackHitResolution('spell_attack')
     setAddSpellAttackDice('')
     setAddSpellAttackDamageType('')
+    setAddSpellAttackSpellLevel('')
   }
   const openEditSpellAttack = (cm) => {
     setEditingCombatMeanId(cm.id)
@@ -984,7 +1350,17 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setAddSpellAttackHitResolution(cm.hitResolution || 'spell_attack')
     setAddSpellAttackDice(cm.damageDice || '')
     setAddSpellAttackDamageType(cm.damageTypeSpell || '')
+    setAddSpellAttackSpellLevel(cm.spellLevel != null ? String(cm.spellLevel) : '')
+    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs))
     setAddMeanStep('spell_attack')
+    setShowAddCombatMeanModal(true)
+  }
+  const openEditItemMean = (cm) => {
+    setEditingCombatMeanId(cm.id)
+    setAddItemIndex(cm.itemInventoryIndex ?? null)
+    setAddItemSpellLevel(cm.spellLevel != null ? String(cm.spellLevel) : '')
+    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs))
+    setAddMeanStep('item')
     setShowAddCombatMeanModal(true)
   }
   const consumeExplosiveAndRoll = (inventoryIndex, diceExpr, label, damageType) => {
@@ -999,52 +1375,63 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     onSave({ inventory: inv })
     setExplosiveUsePending(null)
     if (diceExpr && /^\d+d\d+/i.test(diceExpr)) {
-      const { total, rolls } = rollDice(diceExpr)
-      const anim = buildQuickRollAnimation(diceExpr, 0, rolls, false)
-      const expDt = damageType ? getDamageTypeLabel(damageType) : ''
-      setLastDamageRoll({
-        key: Date.now(),
+      const gains = getEnabledGains({ gains: explosiveUsePending?.gains })
+      const gainDamageBonus = sumGainDamageBonus(gains)
+      const gainPerDieBonus = sumGainPerDieBonus(gains)
+      const gainExtraDice = getGainExtraDice(gains)
+      const gainDiceFloor2 = hasGainDiceFloor2(gains)
+      const p = parseCombatDiceExpression(diceExpr)
+      const diceCount = p ? p.count : 0
+      const modifier = gainDamageBonus + gainPerDieBonus * diceCount
+      const damageTypeLabel = damageType ? getDamageTypeLabel(damageType) : ''
+      rollDamageDice(
+        diceExpr,
         label,
-        total,
-        rolls,
-        dice: diceExpr,
-        modifier: 0,
-        ...(anim ? { animate: true, formula: anim.formula, diceValues: anim.diceValues } : {}),
-        ...(expDt ? { damageTypeLabel: expDt } : {}),
-      })
+        'explosive-' + inventoryIndex + '-' + Date.now(),
+        modifier,
+        false,
+        damageTypeLabel,
+        { extraDice: gainExtraDice, floor2: gainDiceFloor2 },
+      )
     }
   }
-  const useFocusCharge = (inventoryIndex, displayName) => {
+  const useFocusCharge = (inventoryIndex, displayName, spellSub) => {
     const inv = [...(char?.inventory ?? [])]
     const entry = inv[inventoryIndex]
     if (!entry) {
       setFocusUsePending(null)
       return
     }
-    const nextCharge = Math.max(0, (Number(entry.charge) || 0) - 1)
+    const containedSpell = entry?.effects?.find((e) => e.effectType === 'contained_spell')?.value
+    const cs = normalizeContainedSpellValue(containedSpell, entry.charge)
+    const sub = spellSub && typeof spellSub === 'object' ? spellSub : (cs.spells[0] ?? null)
+    const cost = Math.max(0, Number(sub?.cost) || 1)
+    const nextCharge = Math.max(0, (Number(entry.charge) || 0) - cost)
     inv[inventoryIndex] = { ...entry, charge: nextCharge }
     onSave({ inventory: inv })
     setFocusUsePending(null)
-    const containedSpell = entry?.effects?.find((e) => e.effectType === 'contained_spell')?.value
-    const cs = containedSpell && typeof containedSpell === 'object' && !Array.isArray(containedSpell) ? containedSpell : null
-    const dCount = Math.max(0, Number(cs?.damageDiceCount) ?? 0)
-    const dSides = Math.max(1, Number(cs?.damageDiceSides) ?? 6)
+    const dCount = Math.max(0, Number(sub?.damageDiceCount) ?? 0)
+    const dSides = Math.max(1, Number(sub?.damageDiceSides) ?? 6)
     if (dCount > 0) {
       const diceExpr = `${dCount}d${dSides}`
-      const { total, rolls } = rollDice(diceExpr)
-      const damageTypeLabel = cs?.damageType ? getDamageTypeLabel(cs.damageType) : ''
-      const label = damageTypeLabel ? `${displayName || '魔杖'} ${damageTypeLabel}` : (displayName || '魔杖')
-      const anim = buildQuickRollAnimation(diceExpr, 0, rolls, false)
-      setLastDamageRoll({
-        key: Date.now(),
+      const damageTypeLabel = sub?.damageType ? getDamageTypeLabel(sub.damageType) : ''
+      const spellLabel = sub?.spellName?.trim() || displayName || '魔杖'
+      const label = damageTypeLabel ? `${spellLabel} ${damageTypeLabel}` : spellLabel
+      const gains = getEnabledGains({ gains: focusUsePending?.gains })
+      const gainDamageBonus = sumGainDamageBonus(gains)
+      const gainPerDieBonus = sumGainPerDieBonus(gains)
+      const gainExtraDice = getGainExtraDice(gains)
+      const gainDiceFloor2 = hasGainDiceFloor2(gains)
+      const modifier = gainDamageBonus + gainPerDieBonus * dCount
+      rollDamageDice(
+        diceExpr,
         label,
-        total,
-        rolls,
-        dice: diceExpr,
-        modifier: 0,
-        ...(anim ? { animate: true, formula: anim.formula, diceValues: anim.diceValues } : {}),
-        ...(damageTypeLabel ? { damageTypeLabel } : {}),
-      })
+        'focus-' + inventoryIndex + '-' + Date.now(),
+        modifier,
+        false,
+        damageTypeLabel,
+        { extraDice: gainExtraDice, floor2: gainDiceFloor2 },
+      )
     }
   }
   /** 使用卷轴：扣 1 数量，数量为 1 时从背包移除 */
@@ -1097,7 +1484,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       })
     })
     const rawT = cm.damageType || attackParsed.type
-    const extras = filterExtraDiceAgainstMain(attackParsed, rawT, getMergedWeaponExtraDiceStrings(cm, weaponOpt))
+    const gainExtras = getGainExtraDice(getEnabledGains(cm))
+    const extras = filterExtraDiceAgainstMain(attackParsed, rawT, [...getMergedWeaponExtraDiceStrings(cm, weaponOpt), ...gainExtras])
+    const floor2 = hasGainDiceFloor2(getEnabledGains(cm))
     extras.forEach((d) => {
       const parts = typeof d === 'string' && d.includes(' ') ? d.split(' ') : [d, displayDamageType || '钝击']
       const dice = parts[0]
@@ -1146,6 +1535,14 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       byType[type].rolls.push(...rolls)
       byType[type].modifier += sourceMod + exprFlatOnce
     })
+    if (floor2) {
+      Object.values(byType).forEach((bundle) => {
+        bundle.rolls = (bundle.rolls || []).map((n) => Math.max(2, Number(n) || 0))
+      })
+      for (let i = 0; i < animValues.length; i++) {
+        animValues[i] = Math.max(2, Number(animValues[i]) || 0)
+      }
+    }
     const animBundle =
       animParts.length > 0 && animValues.length > 0
         ? { animate: true, formula: animParts.join(','), diceValues: animValues }
@@ -1153,83 +1550,89 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setLastDamageRoll({ byType, ...animBundle })
   }
 
-  const rollDamageDice = (diceExpr, label, key, modifier = 0, isCrit = false, damageTypeLabel = '') => {
+  const rollDamageDice = (diceExpr, label, key, modifier = 0, isCrit = false, damageTypeLabel = '', options = {}) => {
     const mod = Number(modifier) || 0
     const raw = String(diceExpr || '').trim()
     const dt = String(damageTypeLabel || '').trim()
+    const { extraDice = [], floor2 = false } = options || {}
     const typeExtra = dt ? { damageTypeLabel: dt } : {}
-    if (isCrit) {
-      /** 法术/非武器伤害重击始终按规则 ×2；装备暴击× 仅作用于武器 rollAllWeaponDamage */
-      const critDiceMult = 2
-      const pools = []
-      for (let i = 0; i < critDiceMult; i++) pools.push(rollCombatDicePool(raw))
-      const r1 = pools[0]
-      if (!r1.parsed) {
-        const fb0 = rollDice(raw)
-        const rolls = [...(fb0.rolls ?? [])]
-        const sum0 = (fb0.rolls ?? []).reduce((s, n) => s + (Number(n) || 0), 0)
-        const exprFlatOnce = (Number(fb0.total) || 0) - sum0
-        for (let k = 1; k < critDiceMult; k++) {
-          const fb = rollDice(raw)
-          rolls.push(...(fb.rolls ?? []))
+    /** 法术/非武器伤害重击始终按规则 ×2；装备暴击× 仅作用于武器 rollAllWeaponDamage */
+    const critDiceMult = isCrit ? 2 : 1
+    const applyFloor2 = (vals) =>
+      floor2 ? vals.map((n) => Math.max(2, Number(n) || 0)) : vals.map((n) => Number(n) || 0)
+
+    /** 构造待投掷骰池：主表达式 + 增益额外骰；主表达式承载 modifier，额外骰无附加调整值 */
+    const pools = [{ dice: raw, modifier: mod, type: dt || '' }]
+    if (Array.isArray(extraDice)) {
+      extraDice.forEach((ed) => {
+        const s = String(ed || '').trim()
+        if (!s) return
+        const parts = s.includes(' ') ? s.split(' ') : [s, '']
+        const dice = parts[0]
+        const type = parts[1] ? getDamageTypeLabel(parts[1]) || parts[1] : dt || ''
+        if (dice) pools.push({ dice, modifier: 0, type })
+      })
+    }
+
+    let grandTotal = 0
+    const allRolls = []
+    const animParts = []
+    const animValues = []
+    const byType = {}
+
+    pools.forEach(({ dice, modifier, type }, idx) => {
+      const isMain = idx === 0
+      const poolRolls = []
+      let firstFlat = 0
+      let parsed = null
+      for (let k = 0; k < critDiceMult; k++) {
+        const p = rollCombatDicePool(dice)
+        if (k === 0) {
+          firstFlat = p.flatMod || 0
+          parsed = p.parsed
         }
-        const sumDice = rolls.reduce((s, n) => s + (Number(n) || 0), 0)
-        const finalTotal = sumDice + exprFlatOnce + mod
-        const anim = buildQuickRollAnimation(raw, mod, rolls, true, critDiceMult)
-        setLastDamageRoll({
-          key: key ?? Date.now(),
-          label: (label || raw) + ' (重击×2伤害骰)',
-          total: finalTotal,
-          rolls,
-          dice: raw,
-          modifier: mod,
-          isCrit: true,
-          ...(anim ? { animate: true, formula: anim.formula, diceValues: anim.diceValues } : {}),
-          ...typeExtra,
-        })
-        return
+        poolRolls.push(...(p.rolls || []))
       }
-      const rolls = pools.flatMap((p) => p.rolls)
-      const diceSum = pools.reduce((s, p) => s + p.diceSum, 0)
-      const finalTotal = diceSum + r1.flatMod + mod
-      const anim = buildQuickRollAnimation(raw, mod, rolls, true, critDiceMult)
-      setLastDamageRoll({
-        key: key ?? Date.now(),
-        label: (label || raw) + ' (重击×2伤害骰)',
-        total: finalTotal,
-        rolls,
-        dice: raw,
-        modifier: mod,
-        isCrit: true,
-        ...(anim ? { animate: true, formula: anim.formula, diceValues: anim.diceValues } : {}),
-        ...typeExtra,
-      })
-      return
-    }
-    const pool = rollCombatDicePool(raw)
-    if (!pool.parsed) {
-      const { total, rolls } = rollDice(raw)
-      setLastDamageRoll({
-        key: key ?? Date.now(),
-        label: label || raw,
-        total: total + mod,
-        rolls,
-        dice: raw,
-        modifier: mod,
-        ...typeExtra,
-      })
-      return
-    }
-    const finalTotal = pool.diceSum + pool.flatMod + mod
-    const anim = buildQuickRollAnimation(raw, mod, pool.rolls, false)
+      const rolls = applyFloor2(poolRolls)
+      const diceSum = rolls.reduce((s, n) => s + n, 0)
+      const sourceMod = isMain ? Number(modifier) || 0 : 0
+      grandTotal += diceSum + firstFlat + sourceMod
+      allRolls.push(...rolls)
+
+      if (parsed && rolls.length === parsed.count * critDiceMult) {
+        const effCount = parsed.count * critDiceMult
+        const totalFlat = sourceMod + firstFlat
+        const piece =
+          totalFlat !== 0
+            ? `${effCount}d${parsed.sides}${totalFlat >= 0 ? '+' : ''}${totalFlat}`
+            : `${effCount}d${parsed.sides}`
+        animParts.push(piece)
+        animValues.push(...rolls)
+      }
+
+      if (type) {
+        if (!byType[type]) byType[type] = { rolls: [], modifier: 0 }
+        byType[type].rolls.push(...rolls)
+        byType[type].modifier += firstFlat + sourceMod
+      }
+    })
+
+    const critLabel = isCrit ? ' (重击×2伤害骰)' : ''
+    const animBundle =
+      animParts.length > 0 && animValues.length > 0
+        ? { animate: true, formula: animParts.join(','), diceValues: animValues }
+        : {}
+
     setLastDamageRoll({
       key: key ?? Date.now(),
-      label: label || raw,
-      total: finalTotal,
-      rolls: pool.rolls,
+      label: (label || raw) + critLabel,
+      total: grandTotal,
+      rolls: allRolls,
       dice: raw,
       modifier: mod,
-      ...(anim ? { animate: true, formula: anim.formula, diceValues: anim.diceValues } : {}),
+      isCrit: !!isCrit,
+      byType,
+      ...animBundle,
       ...typeExtra,
     })
   }
@@ -1247,9 +1650,10 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setAddWeaponProficient(cm.weaponProficient !== false)
     setAddWeaponExtraDice(Array.isArray(cm.extraDamageDice) ? [...cm.extraDamageDice] : [])
     setShowWeaponExtraDiceEditor(false)
+    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs))
     setAddMeanStep('weapon')
     setShowAddCombatMeanModal(true)
-  }, [weaponsFromInv])
+  }, [weaponsFromInv, buffStats, mergedBuffs])
 
   const explosivesFromInv = useMemo(() => getExplosivesFromInventory(char?.inventory ?? []), [char?.inventory])
   const focusFromInv = useMemo(() => getFocusItemsFromInventory(char?.inventory ?? []), [char?.inventory])
@@ -1354,6 +1758,39 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const extraCur = Math.max(0, totalCur - baseMax)
     return { baseMax, extraMax, effectiveMax, baseCur, extraCur, totalCur }
   }, [baseMaxByRing, extraMaxByRing, spellSlotsCurrentLocal])
+
+  /** 同一轮施法内多次点击（法术攻击 + 伤害）避免重复扣法术位 */
+  const spentSpellSlotIdsRef = useRef(new Set())
+  const getSpellMeanSlotRing = useCallback((cm) => {
+    if (!cm) return null
+    if (cm.type === 'item') {
+      const lvl = Number(cm.spellLevel)
+      return lvl >= 1 && lvl <= 9 ? lvl : null
+    }
+    if (cm.type !== 'spell_attack' && cm.type !== 'spell') return null
+    const lvl = Number(cm.spellLevel)
+    if (lvl >= 1 && lvl <= 9) return lvl
+    const spell = cm.spellId
+      ? preparedSpellsList.find((p) => p.spellId === cm.spellId)?.spell
+      : getMergedSpells().find((s) => s.name && s.name.trim() === (cm.spellName || '').trim())
+    const inferred = Number(spell?.level)
+    return inferred >= 1 && inferred <= 9 ? inferred : null
+  }, [preparedSpellsList])
+  const consumeSpellSlotForMean = useCallback((cm, label) => {
+    const ring = getSpellMeanSlotRing(cm)
+    if (!ring) return true
+    if (spentSpellSlotIdsRef.current.has(cm.id)) return true
+    const { totalCur } = getSlotSplit(ring)
+    if (totalCur <= 0) {
+      window.alert(`${label || ring + ' 环法术位'}已耗尽`)
+      return false
+    }
+    setSpellSlotCurrentTotal(ring, totalCur - 1)
+    spentSpellSlotIdsRef.current.add(cm.id)
+    setTimeout(() => spentSpellSlotIdsRef.current.delete(cm.id), 8000)
+    return true
+  }, [getSpellMeanSlotRing, getSlotSplit])
+
   const setBaseSlotCurrent = (ring, remainingBase) => {
     const { extraCur, baseMax } = getSlotSplit(ring)
     const nextBase = Math.max(0, Math.min(baseMax, remainingBase))
@@ -1390,35 +1827,51 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     onSave({ extraSpellSlotsPoints: { ...extraSpellSlotsPoints, current: next } })
   }
 
-  const saveHp = (c, t) => {
+  const saveHp = (c, t, bt = hpBuffTemp) => {
     setHpCurrent(c)
     setHpTemp(t)
-    onSave({ hp: { current: c, max: maxHp, temp: t } })
+    setHpBuffTemp(bt)
+    onSave({ hp: { current: c, max: maxHp, temp: t, buffTemp: bt } })
   }
 
   const handleDeduct = () => {
     const raw = parseInt(String(deductVal).trim(), 10)
     if (isNaN(raw) || raw <= 0) return
     const n = buffDamageReduction > 0 ? Math.max(0, raw - buffDamageReduction) : raw
-    const fromTemp = Math.min(n, hpTemp)
-    const fromCur = n - fromTemp
+    let remaining = n
+    const fromTemp = Math.min(remaining, hpTemp)
+    remaining -= fromTemp
+    const fromBuffTemp = Math.min(remaining, hpBuffTemp)
+    remaining -= fromBuffTemp
     const newTemp = Math.max(0, hpTemp - fromTemp)
-    const newCur = hpCurrent - fromCur
-    saveHp(newCur, newTemp)
+    const newBuffTemp = Math.max(0, hpBuffTemp - fromBuffTemp)
+    const newCur = hpCurrent - remaining
+    if (newCur < 1 && hasActiveDeathWard(mergedBuffs)) {
+      const patch = consumeDeathWard(char, mergedBuffs)
+      if (patch) {
+        setHpCurrent(1)
+        setHpTemp(0)
+        setHpBuffTemp(0)
+        onSave({ hp: { current: 1, max: maxHp, temp: 0, buffTemp: 0 }, ...patch })
+        setDeductVal('')
+        return
+      }
+    }
+    saveHp(newCur, newTemp, newBuffTemp)
     setDeductVal('')
   }
 
   const handleAddTemp = () => {
     const n = parseInt(tempInputVal, 10)
     if (isNaN(n) || n <= 0) return
-    saveHp(hpCurrent, hpTemp + n)
+    saveHp(hpCurrent, hpTemp + n, hpBuffTemp)
     setTempInputVal('')
   }
 
   const handleHeal = () => {
     const n = parseInt(healVal, 10)
     if (isNaN(n)) return
-    saveHp(Math.min(maxHp, hpCurrent + n), hpTemp)
+    saveHp(Math.min(maxHp, hpCurrent + n), hpTemp, hpBuffTemp)
     setHealVal('')
   }
 
@@ -1459,7 +1912,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       setDeathSaves(next)
       onSave({
         deathSaves: next,
-        hp: { current: wakeHp, max: maxHp, temp: hpTemp },
+        hp: { current: wakeHp, max: maxHp, temp: hpTemp, buffTemp: hpBuffTemp },
       })
       return
     } else if (roll === 1) {
@@ -1518,8 +1971,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const dsResults = deathSaves.results?.length === DEATH_SAVE_COUNT ? deathSaves.results : getDefaultDeathSaves().results
   const deathFailures = dsResults.filter((r) => r === 'failure').length
   const deathSuccesses = dsResults.filter((r) => r === 'success').length
-  const displayCurrent = hpCurrent + hpTemp
-  const hasTempHp = hpTemp > 0
+  const effectiveTemp = hpTemp + hpBuffTemp
+  const displayCurrent = hpCurrent + effectiveTemp
+  const hasTempHp = effectiveTemp > 0
 
   let barColor = 'bg-gray-600'
   if (deathFailures >= 3 || hpCurrent <= -maxHp) {
@@ -1609,7 +2063,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       if (Array.isArray(b.effects)) {
         b.effects.forEach((e) => {
           if (e.effectType === 'max_hp_bonus') {
-            const v = (typeof e.value === 'object' && e.value && 'val' in e.value ? Number(e.value.val) : Number(e.value)) || 0
+            const v = evaluateBuffValue(e.value, itemFormulaContext)
             if (v !== 0) {
               const src = b.source?.trim() || '未知来源'
               hpBonusSources.push(`${src} ${v > 0 ? '+' : ''}${v}`)
@@ -1617,7 +2071,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           }
         })
       } else if (b.effectType === 'max_hp_bonus') {
-        const v = (typeof b.value === 'object' && b.value && 'val' in b.value ? Number(b.value.val) : Number(b.value)) || 0
+        const v = evaluateBuffValue(b.value, itemFormulaContext)
         if (v !== 0) {
           const src = b.source?.trim() || '未知来源'
           hpBonusSources.push(`${src} ${v > 0 ? '+' : ''}${v}`)
@@ -1631,7 +2085,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       if (Array.isArray(b.effects)) {
         b.effects.forEach((e) => {
           if (e.effectType === 'max_hp_multiplier') {
-            const v = Number(e.value) || 1
+            const v = evaluateBuffValue(e.value, itemFormulaContext) || 1
             if (v !== 1) {
               const src = b.source?.trim() || '未知来源'
               multSources.push(`${src} ×${v}`)
@@ -1639,7 +2093,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           }
         })
       } else if (b.effectType === 'max_hp_multiplier') {
-        const v = Number(b.value) || 1
+        const v = evaluateBuffValue(b.value, itemFormulaContext) || 1
         if (v !== 1) {
           const src = b.source?.trim() || '未知来源'
           multSources.push(`${src} ×${v}`)
@@ -1675,7 +2129,11 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider shrink-0">生命值</h3>
           <span className="text-white font-bold text-xl font-mono">
             {displayCurrent} / {maxHp}
-            {hasTempHp && <span className="text-blue-400 text-sm font-normal ml-1">（含 {hpTemp} 临时）</span>}
+            {hasTempHp && (
+              <span className="text-blue-400 text-sm font-normal ml-1">
+                （含 {effectiveTemp} 临时{hpBuffTemp > 0 ? `，BUFF ${hpBuffTemp}` : ''}）
+              </span>
+            )}
           </span>
         </div>
         <div className="h-3 rounded bg-gray-900 overflow-hidden">
@@ -1691,13 +2149,13 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               onChange={(e) => {
                 const v = parseInt(e.target.value, 10)
                 if (!isNaN(v) && v >= 1) {
-                  onSave({ hp: { current: hpCurrent, max: v, temp: hpTemp } })
+                  onSave({ hp: { current: hpCurrent, max: v, temp: hpTemp, buffTemp: hpBuffTemp } })
                 }
               }}
               onBlur={(e) => {
                 const v = parseInt(e.target.value, 10)
                 const safe = (isNaN(v) || v < 1) ? maxHpCalculated : v
-                onSave({ hp: { current: hpCurrent, max: safe, temp: hpTemp } })
+                onSave({ hp: { current: hpCurrent, max: safe, temp: hpTemp, buffTemp: hpBuffTemp } })
               }}
               placeholder={String(maxHpCalculated)}
               className={inputClass + ' h-8 w-24 font-mono'}
@@ -1788,7 +2246,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                 <button type="button" onClick={handleHeal} className="px-3 py-1.5 rounded bg-green-600 text-white text-sm font-medium">
                   恢复
                 </button>
-                <button type="button" onClick={() => saveHp(maxHp, hpTemp)} className="px-3 py-1.5 rounded border border-gray-500 text-gray-400 text-sm">
+                <button type="button" onClick={() => saveHp(maxHp, hpTemp, hpBuffTemp)} className="px-3 py-1.5 rounded border border-gray-500 text-gray-400 text-sm">
                   满血
                 </button>
               </div>
@@ -1807,7 +2265,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   加入
                 </button>
                 {hpTemp > 0 && (
-                  <button type="button" onClick={() => saveHp(hpCurrent, 0)} className="px-3 py-1.5 rounded border border-gray-500 text-gray-400 text-sm">
+                  <button type="button" onClick={() => saveHp(hpCurrent, 0, hpBuffTemp)} className="px-3 py-1.5 rounded border border-gray-500 text-gray-400 text-sm">
                     清除
                   </button>
                 )}
@@ -1882,12 +2340,12 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           <span className="text-gray-600 text-2xl">|</span>
           <span className="text-white font-bold text-4xl font-mono">{speed} 尺</span>
         </div>
-        <div className="col-span-2 sm:col-span-4 flex gap-2 min-w-0">
+        <div className="col-span-2 sm:col-span-4 flex flex-col sm:flex-row gap-2 min-w-0">
           <div
-            className={`flex-[3] min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-col gap-2 ${COMBAT_INNER_RIM_ONLY}`}
+            className={`flex-[2] min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-col gap-1.5 ${COMBAT_INNER_RIM_ONLY}`}
           >
             <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider leading-tight shrink-0">状态效果</h3>
-            <div className="flex flex-col gap-2 min-h-8 overflow-hidden min-w-0">
+            <div className="flex flex-col gap-1.5 min-h-8 overflow-hidden min-w-0">
               <div className="flex items-center gap-1 shrink-0">
                 {canEdit ? (
                   <>
@@ -1935,17 +2393,17 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                 ))}
               </div>
             </div>
-            <div className="min-h-[1.125rem] px-0.5 pt-2 text-xs text-gray-400 truncate border-t border-white/10 leading-tight" title={statusEffectDescription || undefined}>
+            <div className="min-h-[1.125rem] px-0.5 pt-1.5 text-xs text-gray-400 truncate border-t border-white/10 leading-tight" title={statusEffectDescription || undefined}>
               {statusEffectDescription || '\u00A0'}
             </div>
           </div>
 
           <div
-            className={`flex-[2] min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-col gap-2 ${COMBAT_INNER_RIM_ONLY}`}
+            className={`flex-1 min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-col gap-1.5 ${COMBAT_INNER_RIM_ONLY}`}
           >
             <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider leading-tight shrink-0">死亡豁免</h3>
-            <div className="flex flex-col gap-2 min-h-8 overflow-hidden min-w-0">
-              <div className="flex items-center gap-2 flex-wrap shrink-0">
+            <div className="flex flex-col gap-1.5 min-h-8 overflow-hidden min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap shrink-0">
                 <span className="text-gray-500 text-xs whitespace-nowrap">记录</span>
                 <span className="text-emerald-400/90 text-xs font-mono tabular-nums">
                   成功 {deathSuccesses}/3
@@ -1960,7 +2418,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   </span>
                 )}
               </div>
-              <div className="flex flex-wrap items-center gap-2 min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                 <div className="flex items-center gap-1.5">
                   {dsResults.map((r, i) => (
                     <span
@@ -1994,11 +2452,126 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               </div>
             </div>
             <div
-              className="min-h-[1.125rem] px-0.5 pt-2 text-xs text-gray-400 border-t border-white/10 leading-tight truncate"
+              className="min-h-[1.125rem] px-0.5 pt-1.5 text-xs text-gray-400 border-t border-white/10 leading-tight truncate"
               title={`${deathSaveSummaryLine}\n${DEATH_SAVE_RULE_HINT}`}
             >
               {deathSaveSummaryLine} · {DEATH_SAVE_RULE_HINT}
             </div>
+          </div>
+
+          {/* 其它职业资源 */}
+          <div
+            className={`flex-[2] min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-col gap-1.5 ${COMBAT_INNER_RIM_ONLY}`}
+          >
+            <div className="flex items-center justify-between gap-1 mb-1 shrink-0">
+              <h3 className={`text-dnd-gold-light ${CM_MEAN_LABEL} font-semibold uppercase tracking-wider leading-tight`}>其它职业资源</h3>
+                {canEdit && (
+                  <button type="button" onClick={() => setIsAddingResource(true)} className="text-white text-xs font-bold uppercase tracking-wider hover:underline shrink-0">
+                    + 添加
+                  </button>
+                )}
+              </div>
+              {canEdit ? (
+                <div className="flex flex-col min-h-0 overflow-hidden gap-0.5">
+                  {isAddingResource ? (
+                    <>
+                      <div className="flex items-center gap-1 flex-nowrap px-0.5 py-0.5 rounded border border-dashed border-gray-500 min-w-0 w-full">
+                        <input
+                          type="text"
+                          value={addResourceName}
+                          onChange={(e) => setAddResourceName(e.target.value)}
+                          placeholder="名称"
+                          className={inputClass + ' h-6 min-w-0 flex-1 text-sm'}
+                          autoFocus
+                        />
+                        <input
+                          type="number"
+                          min={1}
+                          value={addResourceMax}
+                          onChange={(e) => setAddResourceMax(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                          placeholder="上限"
+                          className={inputClass + ' h-6 !w-12 text-sm text-center shrink-0'}
+                        />
+  <button type="button" onClick={addClassResource} className="h-6 px-1.5 rounded bg-dnd-red text-white text-sm font-medium hover:bg-dnd-red-hover shrink-0">
+                        保存
+                      </button>
+                      <button type="button" onClick={() => { setIsAddingResource(false); setAddResourceName(''); setAddResourceMax(2) }} className="text-gray-400 hover:text-white text-sm shrink-0">
+                        取消
+                      </button>
+                      </div>
+                      <div className="grid grid-cols-[1fr_auto_2.5rem_2.5rem_2.5rem] gap-x-0 gap-y-0.5 min-w-0">
+                        {classResources.map((r) => (
+                          <React.Fragment key={r.id}>
+                            <div className="min-w-0 flex items-center px-0.5 py-0.5 rounded-l border border-gray-600 border-r-0 bg-gray-800/80">
+  <span className="text-dnd-text-body text-sm font-medium truncate">{r.name}</span>
+                          </div>
+                          <div className="flex items-center justify-end px-0.5 py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
+                            <span className="text-white font-mono text-sm tabular-nums whitespace-nowrap">{r.current}/{r.max}</span>
+                          </div>
+                          <div className="flex items-center justify-center py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
+                            <button type="button" onClick={() => adjustClassResource(r.id, -1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-white" title="减少">
+                                <Minus size={10} />
+                              </button>
+                            </div>
+                            <div className="flex items-center justify-center py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
+                              <button type="button" onClick={() => adjustClassResource(r.id, 1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-white" title="增加">
+                                <Plus size={10} />
+                              </button>
+                            </div>
+                            <div className="flex items-center justify-center py-0.5 rounded-r border border-gray-600 bg-gray-800/80">
+                              <button type="button" onClick={() => removeClassResource(r.id)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red" title="移除">
+                                <Trash2 size={10} />
+                              </button>
+                            </div>
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="grid grid-cols-[1fr_auto_2.5rem_2.5rem_2.5rem] gap-x-0 gap-y-0.5 min-w-0 w-full">
+                      {classResources.map((r) => (
+                        <React.Fragment key={r.id}>
+                          <div className="min-w-0 flex items-center px-0.5 py-0.5 rounded-l border border-gray-600 border-r-0 bg-gray-800/80">
+                            <span className="text-dnd-text-body text-sm font-medium truncate">{r.name}</span>
+                          </div>
+                          <div className="flex items-center justify-end px-0.5 py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
+                            <span className="text-white font-mono text-sm tabular-nums whitespace-nowrap">{r.current}/{r.max}</span>
+                          </div>
+                          <div className="flex items-center justify-center py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
+                            <button type="button" onClick={() => adjustClassResource(r.id, -1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-white" title="减少">
+                              <Minus size={10} />
+                            </button>
+                          </div>
+                          <div className="flex items-center justify-center py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
+                            <button type="button" onClick={() => adjustClassResource(r.id, 1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-white" title="增加">
+                              <Plus size={10} />
+                            </button>
+                          </div>
+                          <div className="flex items-center justify-center py-0.5 rounded-r border border-gray-600 bg-gray-800/80">
+                            <button type="button" onClick={() => removeClassResource(r.id)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red" title="移除">
+                              <Trash2 size={10} />
+                            </button>
+                          </div>
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-[1fr_auto] gap-x-0 gap-y-0.5 min-w-0 w-full">
+                  {classResources.map((r) => (
+                    <React.Fragment key={r.id}>
+                      <div className="min-w-0 flex items-center px-0.5 py-0.5 rounded-l border border-gray-600 border-r-0 bg-gray-800/80">
+                        <span className="text-dnd-text-body text-sm font-medium truncate">{r.name}</span>
+                      </div>
+                      <div className="flex items-center justify-end px-0.5 py-0.5 rounded-r border border-gray-600 bg-gray-800/80">
+                        <span className="text-white font-mono text-sm tabular-nums whitespace-nowrap">{r.current}/{r.max}</span>
+                      </div>
+                    </React.Fragment>
+                  ))}
+                  {classResources.length === 0 && <span className="text-gray-500 text-sm col-span-2">—</span>}
+                </div>
+              )}
           </div>
         </div>
       </div>
@@ -2316,8 +2889,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         </button>
       ) : null}
 
-      <div className="flex gap-2 mt-2 flex-col sm:flex-row sm:items-start">
-        <div className="min-w-0 flex-[3] flex flex-col gap-2">
+      <div className="flex flex-col gap-2 mt-2">
+        <div className="min-w-0 w-full flex flex-col gap-2">
       <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-2 w-full min-w-0">
         <h3 className={`text-dnd-gold-light ${CM_MEAN_LABEL} font-semibold uppercase tracking-wider mb-1`}>战斗手段</h3>
         <div className="space-y-2">
@@ -2341,9 +2914,21 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             const buffDamageBonus =
               (isRangedWeapon ? (buffStats?.rangedDamageBonus ?? 0) : (buffStats?.meleeDamageBonus ?? 0)) + weaponCategoryAttackFlat
             const weaponProficient = cm.weaponProficient !== false
-            const physicalAttackBonus = abilityMod + (weaponProficient ? prof : 0) + buffAttackBonus
+            const gains = getEnabledGains(cm)
+            const gainAttackBonus = sumGainAttackBonus(gains)
+            const gainDamageBonus = sumGainDamageBonus(gains)
+            const gainPerDieBonus = sumGainPerDieBonus(gains)
+            const gainExtraDice = getGainExtraDice(gains)
+            const gainAdvantage = getGainAdvantage(gains)
+            const gainDiceFloor2 = hasGainDiceFloor2(gains)
+            const physicalAttackBonus = abilityMod + (weaponProficient ? prof : 0) + buffAttackBonus + gainAttackBonus
             const damageMod = abilityMod
-            const totalDamageMod = damageMod + buffDamageBonus
+            const weaponExtraDiceStrings = [...getMergedWeaponExtraDiceStrings(cm, weaponOpt), ...gainExtraDice]
+            const allWeaponDiceCount =
+              (attackParsed.diceList || []).reduce((s, d) => s + (parseCombatDiceExpression(d)?.count || 0), 0) +
+              weaponExtraDiceStrings.reduce((s, d) => s + (parseCombatDiceExpression(String(d).split(' ')[0])?.count || 0), 0)
+            const weaponPerDieMod = gainPerDieBonus * allWeaponDiceCount
+            const totalDamageMod = damageMod + buffDamageBonus + gainDamageBonus + weaponPerDieMod
             const rawDamageType = cm.damageType || attackParsed.type
             const displayDamageType = rawDamageType ? getDamageTypeLabel(rawDamageType) : '—'
             const isSpellAttack = cm.type === 'spell_attack'
@@ -2365,7 +2950,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               >
                 {isItem && itemMeanOpt ? (
                   <div className={COMBAT_MEAN_ROW_GRID}>
-                    <span className={`col-span-4 text-white font-medium ${CM_MEAN_HI} truncate pr-2 min-w-0`}>{itemMeanOpt.name}</span>
+                    <div className="col-span-5 flex items-center gap-1 min-w-0 pr-2">
+                      <ActionLabelBadge source="1 动作" />
+                      <span className={`text-white font-medium ${CM_MEAN_HI} truncate min-w-0`}>{itemMeanOpt.name}</span>
+                      {canEdit && (
+                        <button type="button" onClick={() => openEditItemMean(cm)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-dnd-gold-light shrink-0" title="编辑道具攻击">
+                          <Pencil size={12} />
+                        </button>
+                      )}
+                    </div>
                     {itemMeanOpt.kind === 'explosive' ? (
                       (() => {
                         const currentEntry = char?.inventory?.[cm.itemInventoryIndex]
@@ -2378,17 +2971,26 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                               <span className="flex min-w-0 items-center gap-x-1"><span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>爆炸半径</span><span className={`text-white ${CM_MEAN_HI} truncate`}>{itemMeanOpt.爆炸半径 != null ? `${itemMeanOpt.爆炸半径}尺` : '—'}</span></span>
                             </div>
                             <div className={`${c} col-span-4`}><span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>命中</span><span className={`text-white ${CM_MEAN_HI} truncate`}>—</span></div>
-                            <div className={`${c} col-span-11 flex flex-wrap items-center gap-x-1 gap-y-1`}>
-                              <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
-                              <span className={`text-white font-mono ${CM_MEAN_HI} truncate whitespace-nowrap min-w-0`}>{(itemMeanOpt.dice || '—').toUpperCase()} {itemMeanOpt.damageType || '—'}</span>
-                              <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>数量</span>
-                              <span className={`text-white ${CM_MEAN_HI} tabular-nums`}>{currentQty}</span>
-                              {itemMeanOpt.dice && currentQty > 0 && (
-                                <button type="button" onClick={() => setExplosiveUsePending({ inventoryIndex: itemMeanOpt.index, name: itemMeanOpt.name, diceExpr: itemMeanOpt.dice, damageType: itemMeanOpt.damageType })} className={CM_BTN_GOLD} title={quickRollTitle('投掷伤害（使用后扣 1 数量）')} aria-label={quickRollTitle('投掷伤害（使用后扣 1 数量）')}>
-                                  <QuickRollIcon kind="damage" className={CM_DICE_IC_GOLD} />
-                                </button>
-                              )}
-                            </div>
+                            {(() => {
+                              const explosiveDiceCount = (() => { const p = parseCombatDiceExpression((itemMeanOpt.dice || '').trim()); return p ? p.count : 0 })()
+                              const explosiveDamageMod = gainDamageBonus + gainPerDieBonus * explosiveDiceCount
+                              const explosiveExtraText = gainExtraDice.length ? (' + ' + gainExtraDice.join(' + ')) : ''
+                              const explosiveModText = (explosiveDamageMod !== 0 && itemMeanOpt.dice) ? ` ${formatSignedModifier(explosiveDamageMod)}` : ''
+                              const damageText = itemMeanOpt.dice ? `${(itemMeanOpt.dice || '').toUpperCase()} ${itemMeanOpt.damageType || ''}${explosiveExtraText}${explosiveModText}`.trim() : (gainExtraDice.length ? gainExtraDice.join(' + ') : '—')
+                              return (
+                                <div className={`${c} col-span-10 flex flex-wrap items-center gap-x-1 gap-y-1`}>
+                                  <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
+                                  <span className={`text-white font-mono ${CM_MEAN_HI} truncate whitespace-nowrap min-w-0`}>{damageText}</span>
+                                  <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>数量</span>
+                                  <span className={`text-white ${CM_MEAN_HI} tabular-nums`}>{currentQty}</span>
+                                  {itemMeanOpt.dice && currentQty > 0 && (
+                                    <button type="button" onClick={() => setExplosiveUsePending({ inventoryIndex: itemMeanOpt.index, name: itemMeanOpt.name, diceExpr: itemMeanOpt.dice, damageType: itemMeanOpt.damageType, gains: getEnabledGains(cm) })} className={CM_BTN_GOLD} title={quickRollTitle('投掷伤害（使用后扣 1 数量）')} aria-label={quickRollTitle('投掷伤害（使用后扣 1 数量）')}>
+                                      <QuickRollIcon kind="damage" className={CM_DICE_IC_GOLD} />
+                                    </button>
+                                  )}
+                                </div>
+                              )
+                            })()}
                             <div className="col-span-1 pl-1 border-l border-gray-600 flex items-center justify-end gap-0.5 shrink-0 min-w-0">
                               {canEdit && (
                                 <button type="button" onClick={() => removeCombatMean(cm.id)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red shrink-0" title="移除">
@@ -2406,7 +3008,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         const c = 'pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden'
                         return (
                           <>
-                            <div className="col-span-[17] pl-2 border-l border-gray-600 min-h-7 min-w-0" aria-hidden />
+                            <div className="col-span-[16] pl-2 border-l border-gray-600 min-h-7 min-w-0" aria-hidden />
                             <div className={`${c} col-span-2 justify-center`}><span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>数量</span><span className={`text-white ${CM_MEAN_HI} tabular-nums`}>{currentQty}张</span></div>
                             <div className="col-span-1 pl-1 border-l border-gray-600 flex items-center justify-end gap-0.5 shrink-0 min-w-0">
                               {currentQty > 0 && (
@@ -2426,34 +3028,80 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                     ) : (() => {
                       const currentEntry = char?.inventory?.[cm.itemInventoryIndex]
                       const currentCharge = currentEntry != null ? Math.max(0, Number(currentEntry.charge) ?? 0) : 0
-                      const chargeMaxRaw = itemMeanOpt.chargeMax ?? currentEntry?.chargeMax ?? 0
-                      const chargeMax = chargeMaxRaw > 0 ? chargeMaxRaw : (currentCharge > 0 ? currentCharge : 0)
                       const containedSpell = currentEntry?.effects?.find((e) => e.effectType === 'contained_spell')?.value
-                      const cs = containedSpell && typeof containedSpell === 'object' && !Array.isArray(containedSpell) ? containedSpell : null
-                      const level = Math.max(0, Math.min(9, Number(cs?.level) ?? 0))
-                      const power = getWandScrollSpellPower(level)
-                      const hitRes = cs?.hitResolution && HIT_RESOLUTION_LABELS[cs.hitResolution] ? cs.hitResolution : 'dex_save'
+                      const cs = normalizeContainedSpellValue(containedSpell, currentEntry?.charge)
+                      const chargeMaxRaw = itemMeanOpt.chargeMax || currentEntry?.chargeMax || cs?.totalCharges || 0
+                      const chargeMax = chargeMaxRaw > 0 ? chargeMaxRaw : (currentCharge > 0 ? currentCharge : 0)
+                      const hasSpells = cs.spells.length > 0
+                      const selectedSub = hasSpells
+                        ? (cs.spells.find((s) => {
+                            const sel = focusSpellMap[cm.itemInventoryIndex]
+                            if (!sel) return false
+                            return (sel.spellId && sel.spellId === s.spellId && sel.spellName === s.spellName) ||
+                              (!sel.spellId && sel.spellName === s.spellName)
+                          }) || cs.spells.find((s) => (s.cost || 1) <= currentCharge) || cs.spells[0])
+                        : null
+                      const level = Math.max(0, Math.min(9, Number(selectedSub?.level) ?? 0))
+                      const itemProto = currentEntry?.itemId ? getItemById(currentEntry.itemId) : null
+                      const useWandScrollTable = !!(itemProto && (/魔杖|卷轴/.test(itemProto.类别 || '') || itemProto.子类型 === '卷轴'))
+                      const power = useWandScrollTable ? getWandScrollSpellPower(level) : null
+                      const hitRes = selectedSub?.hitResolution && (HIT_RESOLUTION_LABELS[selectedSub.hitResolution] || selectedSub.hitResolution === 'none') ? selectedSub.hitResolution : 'dex_save'
                       const hitLabel = HIT_RESOLUTION_LABELS[hitRes]
-                      const hitValue = hitRes === 'spell_attack' ? (power.attackBonus >= 0 ? '+' : '') + power.attackBonus : power.dc
-                      const hitText = hitRes === 'spell_attack' ? `${hitLabel} ${hitValue}` : `${hitLabel} DC ${hitValue}`
-                      const dCount = Math.max(0, Number(cs?.damageDiceCount) ?? 0)
-                      const dSides = Math.max(1, Number(cs?.damageDiceSides) ?? 6)
+                      const focusSpellAttackForMean = spellAttackBonus != null ? spellAttackBonus + gainAttackBonus : null
+                      const hitText = hitRes === 'none'
+                        ? ((selectedSub?.range || '').trim() || '—')
+                        : hitRes === 'spell_attack'
+                          ? `${hitLabel} ${power ? (power.attackBonus + gainAttackBonus >= 0 ? '+' : '') + (power.attackBonus + gainAttackBonus) : (focusSpellAttackForMean != null ? (focusSpellAttackForMean >= 0 ? '+' : '') + focusSpellAttackForMean : '—')}`
+                          : `${hitLabel} DC ${power ? power.dc : (spellDC != null ? spellDC : '—')}`
+                      const dCount = Math.max(0, Number(selectedSub?.damageDiceCount) ?? 0)
+                      const dSides = Math.max(1, Number(selectedSub?.damageDiceSides) ?? 6)
                       const damageDiceText = dCount > 0 ? `${dCount}d${dSides}` : ''
-                      const damageTypeLabel = cs?.damageType ? getDamageTypeLabel(cs.damageType) : ''
-                      const damageText = damageDiceText ? (damageTypeLabel ? `${damageDiceText} ${damageTypeLabel}` : damageDiceText) : '—'
-                      const spellRange = (cs?.range != null && String(cs.range).trim() !== '') ? (String(cs.range).trim() + (/^\d+$/.test(String(cs.range).trim()) ? '尺' : '')) : '—'
+                      const damageTypeLabel = selectedSub?.damageType ? getDamageTypeLabel(selectedSub.damageType) : ''
+                      const focusDamageMod = gainDamageBonus + gainPerDieBonus * dCount
+                      const focusExtraText = gainExtraDice.length ? (' + ' + gainExtraDice.join(' + ')) : ''
+                      const focusModText = (focusDamageMod !== 0 && damageDiceText) ? ` ${formatSignedModifier(focusDamageMod)}` : ''
+                      const damageText = damageDiceText ? (damageTypeLabel ? `${damageDiceText} ${damageTypeLabel}${focusExtraText}${focusModText}` : `${damageDiceText}${focusExtraText}${focusModText}`) : (gainExtraDice.length ? gainExtraDice.join(' + ') : '—')
+                      const spellRange = (selectedSub?.range != null && String(selectedSub.range).trim() !== '') ? (String(selectedSub.range).trim() + (/^\d+$/.test(String(selectedSub.range).trim()) ? '尺' : '')) : '—'
                       const cell = 'pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden'
+                      const selectedIdx = selectedSub ? cs.spells.indexOf(selectedSub) : -1
+                      const canCast = currentCharge > 0 && selectedSub && (selectedSub.cost || 1) <= currentCharge
                       return (
                         <>
                           <div className={`${cell} col-span-4`}><span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>距离</span><span className={`text-white ${CM_MEAN_HI} truncate`}>{spellRange}</span></div>
                           <div className={`${cell} col-span-4`}><span className={`text-white ${CM_MEAN_HI} truncate`}>{hitText || '—'}</span></div>
-                          <div className={`${cell} col-span-11 flex flex-wrap items-center gap-x-1 gap-y-1`}>
+                          <div className={`${cell} col-span-10 flex flex-wrap items-center gap-x-1 gap-y-1`}>
+                            {hasSpells && cs.spells.length > 1 && (
+                              <>
+                                <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>法术</span>
+                                <select
+                                  value={selectedIdx >= 0 ? selectedIdx : 0}
+                                  onChange={(e) => {
+                                    const idx = Number(e.target.value)
+                                    const sub = cs.spells[idx]
+                                    if (sub) {
+                                      setFocusSpellMap((prev) => ({ ...prev, [cm.itemInventoryIndex]: sub }))
+                                    }
+                                  }}
+                                  className={inputClass + ' !text-xs h-6 py-0 px-1 min-w-0 flex-1 max-w-[140px] bg-gray-800'}
+                                  title="选择要使用的内含法术"
+                                >
+                                  {cs.spells.map((s, idx) => (
+                                    <option key={idx} value={idx}>
+                                      {s.spellName?.trim() || '未命名'} · {s.level || 0}环
+                                    </option>
+                                  ))}
+                                </select>
+                              </>
+                            )}
+                            {hasSpells && cs.spells.length === 1 && (
+                              <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>{cs.spells[0].spellName?.trim() || '内含法术'} · {cs.spells[0].level || 0}环</span>
+                            )}
                             <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
                             <span className={`text-white font-mono ${CM_MEAN_HI} truncate whitespace-nowrap min-w-0`}>{damageText}</span>
                             <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>充能</span>
                             <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums`}>{currentCharge}/{chargeMax}</span>
-                            {currentCharge > 0 && (
-                              <button type="button" onClick={() => setFocusUsePending({ inventoryIndex: itemMeanOpt.index, name: itemMeanOpt.name })} className={CM_BTN_RED} title={quickRollTitle('法器投掷（确认后扣 1 充能）')} aria-label={quickRollTitle('法器投掷（确认后扣 1 充能）')}>
+                            {canCast && (
+                              <button type="button" onClick={() => setFocusUsePending({ inventoryIndex: itemMeanOpt.index, name: itemMeanOpt.name, combatMeanId: cm.id, spellSub: selectedSub, gains: getEnabledGains(cm) })} className={CM_BTN_RED} title={quickRollTitle(`法器投掷（确认后扣 ${selectedSub?.cost || 1} 充能）`)} aria-label={quickRollTitle(`法器投掷（确认后扣 ${selectedSub?.cost || 1} 充能）`)}>
                                 <QuickRollIcon kind="damage" className={CM_DICE_IC_GOLD} />
                               </button>
                             )}
@@ -2471,18 +3119,26 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   </div>
                 ) : isSpellAttack ? (
                   (() => {
+                    const matchedSpell = getMergedSpells().find((s) => s.id === cm.spellId || (s.name && s.name.trim() === (cm.spellName || '').trim()))
                     const hitRes = cm.hitResolution && HIT_RESOLUTION_LABELS[cm.hitResolution] ? cm.hitResolution : 'spell_attack'
                     const hitLabel = HIT_RESOLUTION_LABELS[hitRes]
-                    const hitValue = hitRes === 'spell_attack' ? (spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : null) : (spellDC != null ? spellDC : null)
+                    const spellAttackForMean = spellAttackBonus != null ? spellAttackBonus + gainAttackBonus : null
+                    const hitValue = hitRes === 'spell_attack' ? (spellAttackForMean != null ? (spellAttackForMean >= 0 ? '+' : '') + spellAttackForMean : null) : (spellDC != null ? spellDC : null)
                     /** 战斗手段行内空间有限，法术攻击用简称「法攻」避免截断 */
                     const hitLabelShort = hitRes === 'spell_attack' ? '法攻' : hitLabel
                     const hitText = hitRes === 'spell_attack' ? (hitValue != null ? `${hitLabelShort} ${hitValue}` : '—') : (hitValue != null ? `${hitLabel} DC ${hitValue}` : '—')
-                    const damageText = (cm.damageDice || '').trim() ? ((cm.damageDice || '').toUpperCase() + (cm.damageTypeSpell ? ' ' + getDamageTypeLabel(cm.damageTypeSpell) : '')) : '—'
+                    const spellDiceCount = (() => { const p = parseCombatDiceExpression((cm.damageDice || '').trim()); return p ? p.count : 0 })()
+                    const spellDamageMod = gainDamageBonus + gainPerDieBonus * spellDiceCount
+                    const baseDamageText = (cm.damageDice || '').trim() ? ((cm.damageDice || '').toUpperCase() + (cm.damageTypeSpell ? ' ' + getDamageTypeLabel(cm.damageTypeSpell) : '')) : ''
+                    const extraDamageText = gainExtraDice.length ? (' + ' + gainExtraDice.join(' + ')) : ''
+                    const modDamageText = (spellDamageMod !== 0 && baseDamageText) ? ` ${formatSignedModifier(spellDamageMod)}` : ''
+                    const damageText = baseDamageText ? `${baseDamageText}${extraDamageText}${modDamageText}` : '—'
                     const cell = 'pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden'
                     const empty = 'pl-2 border-l border-gray-600 min-w-0 overflow-hidden'
                     return (
                       <div className={COMBAT_MEAN_ROW_GRID}>
-                        <div className="col-span-4 flex items-center gap-1 min-w-0 pr-2">
+                        <div className="col-span-5 flex items-center gap-1 min-w-0 pr-2">
+                          <ActionLabelBadge source={matchedSpell?.castingTime || ''} />
                           <span className={`text-white font-medium ${CM_MEAN_HI} truncate min-w-0`}>{cm.spellName || '法术攻击'}</span>
                           {canEdit && (
                             <button type="button" onClick={() => openEditSpellAttack(cm)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-dnd-gold-light shrink-0" title="编辑法术">
@@ -2493,20 +3149,20 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         <div className={`${empty} col-span-4`}><span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>距离</span><span className={`text-white ${CM_MEAN_HI} truncate`}>—</span></div>
                         <div className={`${cell} col-span-4 flex items-center gap-x-1.5 min-w-0`}>
                           <span className={`text-white ${CM_MEAN_HI} truncate min-w-0`}>{hitText}</span>
-                          {hitRes === 'spell_attack' && spellAttackBonus != null && (
-                            <button type="button" onClick={() => openForCheck((cm.spellName || '法术攻击') + ' 法术攻击', spellAttackBonus, { quickRoll: true })} className={CM_BTN_RED} title={quickRollTitle('法术攻击')} aria-label={quickRollTitle('法术攻击')}>
+                          {hitRes === 'spell_attack' && spellAttackForMean != null && (
+                            <button type="button" onClick={() => { if (!consumeSpellSlotForMean(cm, cm.spellName || '法术')) return; openForCheck((cm.spellName || '法术攻击') + ' 法术攻击', spellAttackForMean, { quickRoll: true, advantage: gainAdvantage }) }} className={CM_BTN_RED} title={quickRollTitle('法术攻击')} aria-label={quickRollTitle('法术攻击')}>
                               <QuickRollIcon kind="d20" />
                             </button>
                           )}
                         </div>
-                        <div className="col-span-11 pl-2 border-l border-gray-600 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1">
+                        <div className="col-span-10 pl-2 border-l border-gray-600 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1">
                           <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
                           <span className={`min-w-0 flex-1 font-mono ${CM_MEAN_HI} tabular-nums text-white whitespace-nowrap sm:truncate`}>{damageText}</span>
                           {(cm.damageDice || '').trim() && (
                             <>
                               <button
                                 type="button"
-                                onClick={() => rollDamageDice((cm.damageDice || '').trim(), (cm.spellName || '法术') + ' ' + (getDamageTypeLabel(cm.damageTypeSpell) || ''), 'spell_attack-' + cm.id, 0, false, getDamageTypeLabel(cm.damageTypeSpell) || '')}
+                                onClick={() => { if (!consumeSpellSlotForMean(cm, cm.spellName || '法术')) return; rollDamageDice((cm.damageDice || '').trim(), (cm.spellName || '法术') + ' ' + (getDamageTypeLabel(cm.damageTypeSpell) || ''), 'spell_attack-' + cm.id, spellDamageMod, false, getDamageTypeLabel(cm.damageTypeSpell) || '', { extraDice: gainExtraDice, floor2: gainDiceFloor2 }) }}
                                 className={CM_BTN_GOLD}
                                 title={quickRollTitle('伤害')}
                                 aria-label={quickRollTitle('伤害')}
@@ -2516,7 +3172,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                               {hitRes === 'spell_attack' && (
                                 <button
                                   type="button"
-                                  onClick={() => rollDamageDice((cm.damageDice || '').trim(), (cm.spellName || '法术') + ' ' + (getDamageTypeLabel(cm.damageTypeSpell) || ''), 'spell_attack-' + cm.id, 0, true, getDamageTypeLabel(cm.damageTypeSpell) || '')}
+                                  onClick={() => { if (!consumeSpellSlotForMean(cm, cm.spellName || '法术')) return; rollDamageDice((cm.damageDice || '').trim(), (cm.spellName || '法术') + ' ' + (getDamageTypeLabel(cm.damageTypeSpell) || ''), 'spell_attack-' + cm.id, spellDamageMod, true, getDamageTypeLabel(cm.damageTypeSpell) || '', { extraDice: gainExtraDice, floor2: gainDiceFloor2 }) }}
                                   className={CM_BTN_CRIT}
                                   title={quickRollTitle('伤害（重击×2伤害骰）')}
                                   aria-label={quickRollTitle('伤害（重击×2伤害骰）')}
@@ -2539,7 +3195,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   })()
                 ) : isPhysical ? (
                   <div className={COMBAT_MEAN_ROW_GRID}>
-                    <div className="col-span-4 flex items-center gap-1 min-w-0 pr-2">
+                    <div className="col-span-5 flex items-center gap-1 min-w-0 pr-2">
+                      <ActionLabelBadge source="1 动作" />
                       <span className={`text-white font-medium ${CM_MEAN_HI} truncate min-w-0`}>{(weaponOpt?.name ?? '—') + (cm.weaponNameSuffix ? String(cm.weaponNameSuffix).trim() : '')}</span>
                       {canEdit && (
                         <button type="button" onClick={() => openEditWeaponMean(cm)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-dnd-gold-light shrink-0" title="编辑武器">
@@ -2575,25 +3232,25 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         <div className="col-span-4 pl-2 border-l border-gray-600 flex items-center gap-x-1.5 min-w-0 overflow-hidden">
                           <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>攻击</span>
                           <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums truncate`}>{physicalAttackBonus >= 0 ? '+' : ''}{physicalAttackBonus}</span>
-                          <button type="button" onClick={() => openForCheck(weaponOpt.name + ' 攻击', physicalAttackBonus, { quickRoll: true, critThreatMinNatural: weaponCritThreatMin })} className={CM_BTN_RED} title={quickRollTitle('攻击')} aria-label={quickRollTitle('攻击')}>
+                          <button type="button" onClick={() => openForCheck(weaponOpt.name + ' 攻击', physicalAttackBonus, { quickRoll: true, critThreatMinNatural: weaponCritThreatMin, advantage: gainAdvantage })} className={CM_BTN_RED} title={quickRollTitle('攻击')} aria-label={quickRollTitle('攻击')}>
                             <QuickRollIcon kind="d20" />
                           </button>
                         </div>
-                        <div className="col-span-11 pl-2 border-l border-gray-600 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1">
+                        <div className="col-span-10 pl-2 border-l border-gray-600 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1">
                           <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
                           <span className={`min-w-0 flex-1 font-mono ${CM_MEAN_HI} tabular-nums text-white whitespace-nowrap [overflow-wrap:anywhere] sm:truncate`}>
                             {formatWeaponAttackDiceDisplay(attackParsed)}
                             <span
-                              title={`伤害加值明细：属性调整值 ${abilityMod >= 0 ? '+' : ''}${abilityMod}，Buff 伤害加值 ${buffDamageBonus >= 0 ? '+' : ''}${buffDamageBonus}`}
+                              title={`伤害加值明细：属性调整值 ${abilityMod >= 0 ? '+' : ''}${abilityMod}，Buff 伤害加值 ${buffDamageBonus >= 0 ? '+' : ''}${buffDamageBonus}，增益伤害加值 ${gainDamageBonus >= 0 ? '+' : ''}${gainDamageBonus}${weaponPerDieMod !== 0 ? `，每骰加成 ${weaponPerDieMod >= 0 ? '+' : ''}${weaponPerDieMod}` : ''}`}
                               className="cursor-help"
                             >
                               {formatSignedModifier(totalDamageMod)}
                             </span>{' '}
                             {displayDamageType}
-                            {filterExtraDiceAgainstMain(attackParsed, rawDamageType, getMergedWeaponExtraDiceStrings(cm, weaponOpt)).map((d) => ` + ${d}`).join('')}
+                            {filterExtraDiceAgainstMain(attackParsed, rawDamageType, weaponExtraDiceStrings).map((d) => ` + ${d}`).join('')}
                           </span>
                           {((attackParsed.diceList?.length || attackParsed.dice)
-                            || filterExtraDiceAgainstMain(attackParsed, rawDamageType, getMergedWeaponExtraDiceStrings(cm, weaponOpt)).length > 0) && (
+                            || filterExtraDiceAgainstMain(attackParsed, rawDamageType, weaponExtraDiceStrings).length > 0) && (
                             <>
                               <button type="button" onClick={() => rollAllWeaponDamage(cm, weaponOpt, attackParsed, totalDamageMod, displayDamageType, false)} className={CM_BTN_GOLD} title={quickRollTitle('伤害')} aria-label={quickRollTitle('伤害')}>
                                 <QuickRollIcon kind="damage" />
@@ -2628,6 +3285,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         <option value="physical">物理攻击</option>
                         <option value="spell">法术攻击</option>
                       </select>
+                      <ActionLabelBadge source={spell?.castingTime || ''} />
                       {canEdit && (
                         <button type="button" onClick={() => removeCombatMean(cm.id)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red" title="移除">
                           <Trash2 size={12} />
@@ -2655,7 +3313,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                             <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>法术攻击</span>
                             <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums`}>{spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : '—'}</span>
                             {spellAttackBonus != null && (
-                              <button type="button" onClick={() => openForCheck(spell.name + ' 法术攻击', spellAttackBonus, { quickRoll: true })} className={CM_BTN_RED} title={quickRollTitle('法术攻击')} aria-label={quickRollTitle('法术攻击')}>
+                              <button type="button" onClick={() => { if (!consumeSpellSlotForMean(cm, spell.name)) return; openForCheck(spell.name + ' 法术攻击', spellAttackBonus, { quickRoll: true }) }} className={CM_BTN_RED} title={quickRollTitle('法术攻击')} aria-label={quickRollTitle('法术攻击')}>
                                 <QuickRollIcon kind="d20" />
                               </button>
                             )}
@@ -2671,11 +3329,11 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                             {spellDamageList.map((d, i) => (
                               <span key={i} className="inline-flex items-center gap-0.5">
                                 <span className={`text-white font-mono ${CM_MEAN_HI}`}>{d.dice} {d.type}</span>
-                                <button type="button" onClick={() => rollDamageDice(d.dice, spell.name + ' ' + d.type, 'spell-' + cm.id + '-' + i, 0, false, getDamageTypeLabel(d.type) || d.type || '')} className={CM_BTN_GOLD} title={quickRollTitle('伤害')} aria-label={quickRollTitle('伤害')}>
+                                <button type="button" onClick={() => { if (!consumeSpellSlotForMean(cm, spell.name)) return; rollDamageDice(d.dice, spell.name + ' ' + d.type, 'spell-' + cm.id + '-' + i, 0, false, getDamageTypeLabel(d.type) || d.type || '') }} className={CM_BTN_GOLD} title={quickRollTitle('伤害')} aria-label={quickRollTitle('伤害')}>
                                   <QuickRollIcon kind="damage" className={CM_DICE_IC_GOLD} />
                                 </button>
                                 {spellIsAttack && (
-                                  <button type="button" onClick={() => rollDamageDice(d.dice, spell.name + ' ' + d.type, 'spell-' + cm.id + '-' + i, 0, true, getDamageTypeLabel(d.type) || d.type || '')} className={CM_BTN_CRIT} title={quickRollTitle('伤害（重击×2伤害骰）')} aria-label={quickRollTitle('伤害（重击×2伤害骰）')}>
+                                  <button type="button" onClick={() => { if (!consumeSpellSlotForMean(cm, spell.name)) return; rollDamageDice(d.dice, spell.name + ' ' + d.type, 'spell-' + cm.id + '-' + i, 0, true, getDamageTypeLabel(d.type) || d.type || '') }} className={CM_BTN_CRIT} title={quickRollTitle('伤害（重击×2伤害骰）')} aria-label={quickRollTitle('伤害（重击×2伤害骰）')}>
                                     <QuickRollIcon kind="crit" className={CM_DICE_IC_GOLD} />
                                   </button>
                                 )}
@@ -2714,10 +3372,23 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50" onClick={() => setFocusUsePending(null)}>
               <div className="rounded-lg border border-gray-600 bg-gray-800 p-4 shadow-xl max-w-sm w-full mx-2" onClick={(e) => e.stopPropagation()}>
                 <h3 className="text-dnd-gold-light text-sm font-bold mb-2">是否使用？</h3>
-                <p className="text-gray-300 text-sm mb-3">使用将消耗 1 充能。</p>
+                <p className="text-gray-300 text-sm mb-3">
+                  {focusUsePending.spellSub ? (
+                    <>
+                      使用 <span className="text-white font-medium">{focusUsePending.spellSub.spellName?.trim() || focusUsePending.name || '法器'}</span>
+                      {' '}（{focusUsePending.spellSub.level || 0}环）将消耗 <span className="text-white font-medium">{focusUsePending.spellSub.cost || 1}</span> 充能。
+                    </>
+                  ) : (
+                    <>使用将消耗 1 充能。</>
+                  )}
+                </p>
                 <div className="flex gap-2">
                   <button type="button" onClick={() => setFocusUsePending(null)} className="flex-1 py-1.5 rounded border border-gray-500 text-gray-400 text-sm">取消</button>
-                  <button type="button" onClick={() => useFocusCharge(focusUsePending.inventoryIndex, focusUsePending.name)} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white text-sm">使用</button>
+                  <button type="button" onClick={() => {
+                    const cm = combatMeans.find((m) => m.id === focusUsePending?.combatMeanId)
+                    if (cm && !consumeSpellSlotForMean(cm, focusUsePending.name || '法器')) return
+                    useFocusCharge(focusUsePending.inventoryIndex, focusUsePending.name, focusUsePending.spellSub)
+                  }} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white text-sm">使用</button>
                 </div>
               </div>
             </div>
@@ -2788,7 +3459,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       <button type="button" onClick={() => { const w0 = weaponsFromInv[0]; const nextIdx = w0 ? w0.index : null; setAddWeaponIndex(nextIdx); setAddAbility(w0 ? inferPhysicalWeaponAbilityFromProto(w0.proto) : 'str'); setAddDamageType(''); setShowWeaponExtraDiceEditor(false); setAddMeanStep('weapon'); }} className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white font-medium text-sm">
                         武器攻击
                       </button>
-                      <button type="button" onClick={() => { const first = itemMeansFromInv[0]; setAddItemIndex(first ? first.index : null); setAddMeanStep('item'); }} disabled={itemMeansFromInv.length === 0} className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm">
+                      <button type="button" onClick={() => { const first = itemMeansFromInv[0]; setAddItemIndex(first ? first.index : null); setAddItemSpellLevel(''); setAddMeanStep('item'); }} disabled={itemMeansFromInv.length === 0} className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm">
                         道具攻击
                       </button>
                       <button type="button" onClick={() => { setAddSpellAttackName(''); setAddSpellAttackSpellId(''); setAddSpellAttackHitResolution('spell_attack'); setAddSpellAttackDice(''); setAddSpellAttackDamageType(''); setAddMeanStep('spell_attack'); }} className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white font-medium text-sm">
@@ -2818,6 +3489,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                             const spell = getMergedSpells().find((s) => s.name && s.name.trim() === name.trim())
                             if (spell) {
                               setAddSpellAttackSpellId(spell.id)
+                              const lvl = Number(spell.level)
+                              setAddSpellAttackSpellLevel(lvl >= 1 && lvl <= 9 ? String(lvl) : '')
                               const damages = parseSpellDamageFromDescription(spell.description ?? '')
                               const first = damages[0]
                               if (first) {
@@ -2862,7 +3535,17 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                           ))}
                         </select>
                       </div>
+                      <div>
+                        <label className="block text-dnd-text-muted text-xs mb-0.5">法术位环阶（自动扣减）</label>
+                        <select value={addSpellAttackSpellLevel} onChange={(e) => setAddSpellAttackSpellLevel(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
+                          <option value="">不扣法术位</option>
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((lvl) => (
+                            <option key={lvl} value={String(lvl)}>{lvl} 环</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
+                    <GainEditor gains={addGains} onChange={setAddGains} />
                     <div className="flex gap-2 mt-3">
                       <button type="button" onClick={() => { setEditingCombatMeanId(null); setAddMeanStep('type'); }} className="flex-1 py-1.5 rounded border border-gray-500 text-gray-400 text-xs">上一步</button>
                       <button type="button" onClick={confirmAddSpellAttackMean} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white text-xs">{editingCombatMeanId ? '保存' : '保存'}</button>
@@ -2870,7 +3553,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   </>
                 ) : addMeanStep === 'item' ? (
                   <>
-                    <h3 className="text-dnd-gold-light text-sm font-bold mb-3">道具攻击</h3>
+                    <h3 className="text-dnd-gold-light text-sm font-bold mb-3">{editingCombatMeanId ? '编辑道具攻击' : '道具攻击'}</h3>
                     <p className="text-dnd-text-muted text-xs mb-2">从背包中的消耗品（爆炸品）、法器（法杖/魔杖/权杖）或卷轴选择一项。</p>
                     <div className="space-y-2.5 text-sm">
                       <label className="block text-dnd-text-muted text-xs mb-0.5">道具</label>
@@ -2880,10 +3563,26 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                           <option key={it.index} value={it.index}>{it.label}</option>
                         ))}
                       </select>
+                      {(() => {
+                        const selected = addItemIndex != null ? itemMeansFromInv.find((it) => it.index === addItemIndex) : null
+                        if (selected?.kind !== 'focus') return null
+                        return (
+                          <div>
+                            <label className="block text-dnd-text-muted text-xs mb-0.5">法术位环阶（自动扣减）</label>
+                            <select value={addItemSpellLevel} onChange={(e) => setAddItemSpellLevel(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
+                              <option value="">不扣法术位</option>
+                              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((lvl) => (
+                                <option key={lvl} value={String(lvl)}>{lvl} 环</option>
+                              ))}
+                            </select>
+                          </div>
+                        )
+                      })()}
                     </div>
+                    <GainEditor gains={addGains} onChange={setAddGains} />
                     <div className="flex gap-2 mt-3">
                       <button type="button" onClick={() => setAddMeanStep('type')} className="flex-1 py-1.5 rounded border border-gray-500 text-gray-400 text-xs">上一步</button>
-                      <button type="button" onClick={confirmAddItemMean} disabled={addItemIndex == null} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 text-white text-xs">确认</button>
+                      <button type="button" onClick={confirmAddItemMean} disabled={addItemIndex == null} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 text-white text-xs">{editingCombatMeanId ? '保存' : '确认'}</button>
                     </div>
                   </>
                 ) : (
@@ -3028,6 +3727,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         )}
                       </div>
                     </div>
+                    <GainEditor gains={addGains} onChange={setAddGains} />
                     <div className="flex gap-2 mt-3">
                       <button type="button" onClick={() => { setEditingCombatMeanId(null); setShowWeaponExtraDiceEditor(false); setAddMeanStep('type'); }} className="flex-1 py-1.5 rounded border border-gray-500 text-gray-400 text-xs">上一步</button>
                       <button type="button" onClick={confirmAddWeaponMean} disabled={addWeaponIndex == null} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 text-white text-xs">{editingCombatMeanId ? '保存' : '确认'}</button>
@@ -3307,121 +4007,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               </div>
             </div>
           )}
-        </div>
-        <div className="min-w-0 flex-[1]">
-          <div
-            className={`rounded-lg border border-gray-600 bg-gray-800/50 px-1.5 py-1 min-w-0 flex flex-col min-h-0 ${COMBAT_INNER_RIM_ONLY}`}
-          >
-            <div className="flex items-center justify-between gap-1 mb-0.5 shrink-0">
-              <h3 className="text-dnd-gold-light text-sm font-bold uppercase tracking-wider leading-tight">其它职业资源</h3>
-              {canEdit && (
-                <button type="button" onClick={() => setIsAddingResource(true)} className="text-white text-xs font-bold uppercase tracking-wider hover:underline shrink-0">
-                  + 添加
-                </button>
-              )}
-            </div>
-            {canEdit ? (
-              <div className="flex flex-col min-h-0 overflow-hidden gap-0.5">
-                {isAddingResource ? (
-                  <>
-                    <div className="flex items-center gap-1 flex-nowrap px-0.5 py-0.5 rounded border border-dashed border-gray-500 min-w-0 w-full">
-                      <input
-                        type="text"
-                        value={addResourceName}
-                        onChange={(e) => setAddResourceName(e.target.value)}
-                        placeholder="名称"
-                        className={inputClass + ' h-6 min-w-0 flex-1 text-sm'}
-                        autoFocus
-                      />
-                      <input
-                        type="number"
-                        min={1}
-                        value={addResourceMax}
-                        onChange={(e) => setAddResourceMax(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                        placeholder="上限"
-                        className={inputClass + ' h-6 !w-12 text-sm text-center shrink-0'}
-                      />
-<button type="button" onClick={addClassResource} className="h-6 px-1.5 rounded bg-dnd-red text-white text-sm font-medium hover:bg-dnd-red-hover shrink-0">
-                      保存
-                    </button>
-                    <button type="button" onClick={() => { setIsAddingResource(false); setAddResourceName(''); setAddResourceMax(2) }} className="text-gray-400 hover:text-white text-sm shrink-0">
-                      取消
-                    </button>
-                    </div>
-                    <div className="grid grid-cols-[1fr_auto_2.5rem_2.5rem_2.5rem] gap-x-0 gap-y-0.5 min-w-0">
-                      {classResources.map((r) => (
-                        <React.Fragment key={r.id}>
-                          <div className="min-w-0 flex items-center px-0.5 py-0.5 rounded-l border border-gray-600 border-r-0 bg-gray-800/80">
-<span className="text-dnd-text-body text-sm font-medium truncate">{r.name}</span>
-                        </div>
-                        <div className="flex items-center justify-end px-0.5 py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
-                          <span className="text-white font-mono text-sm tabular-nums whitespace-nowrap">{r.current}/{r.max}</span>
-                        </div>
-                        <div className="flex items-center justify-center py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
-                          <button type="button" onClick={() => adjustClassResource(r.id, -1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-white" title="减少">
-                              <Minus size={10} />
-                            </button>
-                          </div>
-                          <div className="flex items-center justify-center py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
-                            <button type="button" onClick={() => adjustClassResource(r.id, 1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-white" title="增加">
-                              <Plus size={10} />
-                            </button>
-                          </div>
-                          <div className="flex items-center justify-center py-0.5 rounded-r border border-gray-600 bg-gray-800/80">
-                            <button type="button" onClick={() => removeClassResource(r.id)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red" title="移除">
-                              <Trash2 size={10} />
-                            </button>
-                          </div>
-                        </React.Fragment>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div className="grid grid-cols-[1fr_auto_2.5rem_2.5rem_2.5rem] gap-x-0 gap-y-0.5 min-w-0 w-full">
-                    {classResources.map((r) => (
-                      <React.Fragment key={r.id}>
-                        <div className="min-w-0 flex items-center px-0.5 py-0.5 rounded-l border border-gray-600 border-r-0 bg-gray-800/80">
-                          <span className="text-dnd-text-body text-sm font-medium truncate">{r.name}</span>
-                        </div>
-                        <div className="flex items-center justify-end px-0.5 py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
-                          <span className="text-white font-mono text-sm tabular-nums whitespace-nowrap">{r.current}/{r.max}</span>
-                        </div>
-                        <div className="flex items-center justify-center py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
-                          <button type="button" onClick={() => adjustClassResource(r.id, -1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-white" title="减少">
-                            <Minus size={10} />
-                          </button>
-                        </div>
-                        <div className="flex items-center justify-center py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
-                          <button type="button" onClick={() => adjustClassResource(r.id, 1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-white" title="增加">
-                            <Plus size={10} />
-                          </button>
-                        </div>
-                        <div className="flex items-center justify-center py-0.5 rounded-r border border-gray-600 bg-gray-800/80">
-                          <button type="button" onClick={() => removeClassResource(r.id)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red" title="移除">
-                            <Trash2 size={10} />
-                          </button>
-                        </div>
-                      </React.Fragment>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="grid grid-cols-[1fr_auto] gap-x-0 gap-y-0.5 min-w-0 w-full">
-                {classResources.map((r) => (
-                  <React.Fragment key={r.id}>
-                    <div className="min-w-0 flex items-center px-0.5 py-0.5 rounded-l border border-gray-600 border-r-0 bg-gray-800/80">
-                      <span className="text-dnd-text-body text-sm font-medium truncate">{r.name}</span>
-                    </div>
-                    <div className="flex items-center justify-end px-0.5 py-0.5 rounded-r border border-gray-600 bg-gray-800/80">
-                      <span className="text-white font-mono text-sm tabular-nums whitespace-nowrap">{r.current}/{r.max}</span>
-                    </div>
-                  </React.Fragment>
-                ))}
-                {classResources.length === 0 && <span className="text-gray-500 text-sm col-span-2">—</span>}
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
