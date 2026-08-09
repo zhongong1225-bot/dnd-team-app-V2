@@ -228,7 +228,7 @@ export function formatDamagePiercingTraitsValue(value) {
  * 第一级：大类 (category)
  * 第二级：具体效果 (key, label, dataType, subSelect, hidden)
  */
-const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'container', 'custom']
+const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'charge', 'container', 'custom']
 
 export const BUFF_TYPES = {
   ability: {
@@ -291,14 +291,17 @@ export const BUFF_TYPES = {
     color: 'orange',
     effects: [
       { key: 'ac_bonus', label: 'AC', dataType: 'number' },
-      { key: 'ac_cap_stone_layer', label: '瓦石层', dataType: 'number' },
       { key: 'resist_type', label: '伤害抗性', dataType: 'array', subSelect: 'damageType' },
       { key: 'immune_type', label: '伤害免疫', dataType: 'array', subSelect: 'damageType' },
       { key: 'vulnerable_type', label: '伤害易伤', dataType: 'array', subSelect: 'damageType' },
       /** 固定值：每次受到伤害时再减去该数值（在免疫/易伤/抗性之后结算，见 useBuffCalculator.calculateDamage） */
       { key: 'damage_reduction', label: '伤害减免', dataType: 'number' },
       { key: 'max_hp_bonus', label: '生命上限', dataType: 'number' },
+      { key: 'temp_hp', label: '临时生命', dataType: 'number' },
+      { key: 'regeneration', label: '再生', dataType: 'number' },
       { key: 'condition_immunity', label: '状态免疫', dataType: 'array', subSelect: 'condition' },
+      /** 防死：一次 HP 降至 0 以下时，强制改为 1 并消耗该效果 */
+      { key: 'death_ward', label: '防死', dataType: 'boolean' },
     ],
   },
   // 合并「移动与机动天赋」+「专注与施法优化」
@@ -322,13 +325,24 @@ export const BUFF_TYPES = {
       { key: 'spell_attack_bonus', label: '法术攻击加值', dataType: 'number' },
       // 表格：法术豁免 DC 加值。仅数值。
       { key: 'save_dc_bonus', label: 'DC', dataType: 'number' },
-      // 内含法术：物品/附魔内嵌法术，半输入半从法术大全识别；环位、命中判断、射程/范围自动带出
-      { key: 'contained_spell', label: '内含法术', dataType: 'object', subSelect: 'containedSpell' },
       // 以下保留旧 key，供已有数据与计算器解析
       { key: 'speed_bonus', label: '移动速度', dataType: 'number', hidden: true },
       { key: 'flight_speed', label: '飞行速度', dataType: 'object', subSelect: 'flightSpeed', hidden: true },
       { key: 'init_bonus', label: '先攻', dataType: 'number', hidden: true },
       { key: 'concentration', label: '专注', dataType: 'object', subSelect: 'numberAndAdvantage', hidden: true },
+      { key: 'charge', label: '充能数', dataType: 'number', hidden: true },
+    ],
+  },
+  /** 充能效果：由物品主动触发的法术或状态 */
+  charge: {
+    label: '充能效果',
+    color: 'cyan',
+    effects: [
+      // 内含法术：物品/附魔内嵌法术，半输入半从法术大全识别；环位、命中判断、射程/范围自动带出
+      { key: 'contained_spell', label: '内含法术', dataType: 'object', subSelect: 'containedSpell' },
+      // 瓦石层：由物品主动触发的临时防护层，归类为充能效果
+      { key: 'ac_cap_stone_layer', label: '瓦石层', dataType: 'number' },
+      // 以下保留旧 key，供已有数据与计算器解析
       { key: 'charge', label: '充能数', dataType: 'number', hidden: true },
     ],
   },
@@ -426,7 +440,6 @@ export function weaponProtoMatchesBuffWeaponCategories(proto, categories) {
 
 /** 已移除的效果类型（仅用于显示旧数据，不可新增） */
 const DEPRECATED_EFFECTS = {
-  temp_hp: { key: 'temp_hp', label: '临时生命值（已移至血条）', dataType: 'number' },
   dmg_bonus_all: { key: 'dmg_bonus_all', label: '通用伤害', dataType: 'number' },
   dmg_type_specific: { key: 'dmg_type_specific', label: '特定类型伤害', dataType: 'object', subSelect: 'damageType' },
   disadv_all: { key: 'disadv_all', label: '通用劣势', dataType: 'boolean' },

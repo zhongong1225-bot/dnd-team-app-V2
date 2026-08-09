@@ -77,6 +77,7 @@ describe('computeBuffStats：代表性效果可改变输出', () => {
         {
           id: ringId,
           name: '测试戒指',
+          isAttuned: true,
           effects: [{ effectType: 'save_dc_bonus', value: 3 }],
         },
       ],

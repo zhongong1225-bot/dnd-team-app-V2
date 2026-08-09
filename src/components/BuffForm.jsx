@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, Fragment } from 'react'
-import { Trash2, Plus, ChevronDown, Database, X } from 'lucide-react'
+import { useState, useEffect, useRef, useMemo, Fragment } from 'react'
+import { Trash2, Plus, ChevronDown, Database, X, Pencil } from 'lucide-react'
+import { getEffectSummaryShort } from './BuffListItem'
 import {
   BUFF_TYPES,
   getCategories,
@@ -15,11 +16,14 @@ import {
 } from '../data/buffTypes'
 import { WEAPON_BUFF_CATEGORY_SELECT_OPTIONS } from '../data/itemDatabase'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
-import { SPELLS, getWandScrollSpellPower } from '../data/spellDatabase'
+import { getMergedSpells, getSpellById, getWandScrollSpellPower } from '../data/spellDatabase'
 import { inputClass, inputClassInline, textareaClass } from '../lib/inputStyles'
 import { formatDisplayOneDecimal } from '../lib/encumbrance'
 import { isFormulaValue, formatFormulaLabel } from '../lib/formulas'
-import DragHandleIcon from './DragHandleIcon'
+import {
+  normalizeContainedSpellValue,
+  createEmptyContainedSpellSub,
+} from '../lib/containedSpellModel'
 import {
   BUFF_SOURCE_KIND_OPTIONS_EDITABLE,
   normalizeBuffSourceKindKey,
@@ -27,6 +31,24 @@ import {
 } from '../lib/buffSourceKind'
 
 const ABILITY_LABELS = { str: '力量', dex: '敏捷', con: '体质', int: '智力', wis: '感知', cha: '魅力' }
+
+/** Buff 效果「起效类型」：用于命中/伤害加值等可选择近战/远程/枪械/全局的效果 */
+const SCOPE_OPTIONS = [
+  { value: 'global', label: '全局' },
+  { value: 'melee', label: '近战武器' },
+  { value: 'ranged', label: '远程武器' },
+  { value: 'firearm', label: '枪械' },
+]
+
+/** 读取属性对象里的值：保留公式对象，避免 Number() 把公式转成 NaN */
+function getAbilityFieldValue(obj, key) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return 0
+  if (key === 'all') {
+    const firstKey = ABILITY_KEYS.find((k) => obj[k] != null)
+    return firstKey != null ? obj[firstKey] : 0
+  }
+  return obj[key] ?? 0
+}
 
 function resolveInitialSourceKind(initial, defaultSourceKind) {
   if (initial?.sourceKind != null && String(initial.sourceKind).trim() !== '') {
@@ -127,6 +149,7 @@ function normalizeInitialEffects(initial) {
         id: 'e_' + Math.random().toString(36).slice(2),
         category: normalizeEffectCategory(e.effectType ?? '', e.category),
         effectType: e.effectType ?? '',
+        scope: e.scope || 'global',
         value,
         customText: typeof e.value === 'string' && e.effectType !== 'concentration_save_enhance' ? e.value : '',
       }
@@ -140,11 +163,12 @@ function normalizeInitialEffects(initial) {
       id: 'e_' + Math.random().toString(36).slice(2),
       category: normalizeEffectCategory(initial.effectType ?? '', initial.category),
       effectType: initial.effectType ?? '',
+      scope: initial.scope || 'global',
       value,
       customText: typeof initial.value === 'string' && initial.effectType !== 'concentration_save_enhance' ? initial.value : '',
     }]
   }
-  return [{ id: 'e_' + Math.random().toString(36).slice(2), category: '', effectType: '', value: 0, customText: '' }]
+  return [{ id: 'e_' + Math.random().toString(36).slice(2), category: '', effectType: '', scope: 'global', value: 0, customText: '' }]
 }
 
 /** 根据效果类型把 value 转为保存用的最终值 */
@@ -240,6 +264,226 @@ function buildPlusFromDiceParts(count, sides, flatMod) {
   const fm = Number(flatMod) || 0
   if (fm === 0) return base
   return `${base}${fm > 0 ? '+' : ''}${fm}`
+}
+
+/** 内含法术编辑器：一个 effect 可包含多个法术，共享总充能 */
+function ContainedSpellEditor({
+  module,
+  onChange,
+  spellDC,
+  spellAttackBonus,
+  useWandScrollTable,
+  primaryOnly = false,
+  hideCharges = false,
+  rowPrefix,
+}) {
+  const value = module.value
+  const cs = normalizeContainedSpellValue(value)
+  const { totalCharges, spells } = cs
+  const labelCls = 'text-[10px] text-dnd-text-muted shrink-0 leading-none'
+  const inputCls = inputClass.replace(/\bh-10\b/, 'h-6').replace(/\bpx-3\b/, 'px-1').replace(/\btext-sm\b/, 'text-xs').replace(/\bw-full\b/, 'flex-1 min-w-0')
+  const selectCls = inputCls + ' cursor-pointer'
+  const HIT_RESOLUTION_OPTIONS = [
+    { value: 'dex_save', label: '敏捷豁免' },
+    { value: 'str_save', label: '力量豁免' },
+    { value: 'con_save', label: '体质豁免' },
+    { value: 'wis_save', label: '感知豁免' },
+    { value: 'int_save', label: '智力豁免' },
+    { value: 'cha_save', label: '魅力豁免' },
+    { value: 'spell_attack', label: '法术攻击' },
+    { value: 'none', label: '效应目标' },
+  ]
+
+  const patchValue = (next) => onChange({ ...module, value: next })
+  const patchSpells = (nextSpells) => patchValue({ ...cs, spells: nextSpells })
+  const updateSpell = (idx, patch) => patchSpells(spells.map((sp, i) => (i === idx ? { ...sp, ...patch } : sp)))
+  const removeSpell = (idx) => patchSpells(spells.filter((_, i) => i !== idx))
+  const addSpell = () => patchSpells([...spells, createEmptyContainedSpellSub()])
+
+  const resolveSpellName = (sp) => {
+    const name = (sp.spellName || '').trim()
+    if (name) return name
+    if (sp.spellId) {
+      const s = getSpellById(sp.spellId)
+      if (s) return s.name
+    }
+    return ''
+  }
+
+  const spellInputValue = (sp) => {
+    const name = (sp.spellName || '').trim()
+    if (name) return name
+    if (sp.spellId) {
+      const s = getSpellById(sp.spellId)
+      if (s) return s.name
+    }
+    return ''
+  }
+
+  return (
+    <div className="rounded-md bg-[#161e2b]/50 p-1.5 flex flex-col gap-y-1 text-xs w-full">
+      {!hideCharges && (
+        <div className="flex items-center gap-x-1 w-full">
+          <span className={labelCls}>总能量</span>
+          <NumberStepper
+            value={totalCharges}
+            onChange={(v) => patchValue({ ...cs, totalCharges: Math.max(0, Math.min(999, v)) })}
+            min={0}
+            max={999}
+            compact
+            narrow
+            className="!h-6"
+          />
+          <span className="text-gray-500 text-[10px]">所有内含法术共用</span>
+        </div>
+      )}
+      {spells.length === 0 && (
+        <p className="text-gray-500 text-[10px]">尚未添加法术</p>
+      )}
+      {spells.map((sp, idx) => {
+        const level = typeof sp.level === 'number' ? sp.level : (parseInt(sp.level, 10) || 0)
+        const hitResolution = HIT_RESOLUTION_OPTIONS.some((o) => o.value === sp.hitResolution) ? sp.hitResolution : 'dex_save'
+        const wandPower = useWandScrollTable ? getWandScrollSpellPower(level) : null
+        const hitValueDisplay = hitResolution === 'none'
+          ? null
+          : (useWandScrollTable && wandPower
+            ? (hitResolution === 'spell_attack' ? (wandPower.attackBonus >= 0 ? '+' : '') + wandPower.attackBonus : String(wandPower.dc))
+            : (hitResolution === 'spell_attack' && spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : (spellDC != null ? String(spellDC) : null)))
+        const prefix = rowPrefix != null ? String(rowPrefix).trim() : ''
+        return (
+          <div key={idx} className="flex flex-col gap-y-1 border-t border-gray-600/30 pt-1 first:border-t-0 first:pt-0">
+            <div className="flex items-center gap-x-1 w-full">
+              {prefix && <span className="text-dnd-text-muted shrink-0 tabular-nums select-none text-[10px]">{prefix.replace(/\d+$/, (n) => Number(n) + idx)}</span>}
+              <span className={labelCls}>法术</span>
+              <input
+                type="text"
+                value={spellInputValue(sp)}
+                onChange={(e) => {
+                  const name = e.target.value
+                  const match = name.trim() ? getMergedSpells().find((s) => s.name === name.trim()) : null
+                  const nextSpellId = match ? match.id : ''
+                  const nextLevel = match ? match.level : sp.level
+                  updateSpell(idx, {
+                    spellName: name,
+                    spellId: nextSpellId,
+                    level: nextLevel,
+                    range: match ? (match.range ?? '') : sp.range,
+                    area: match ? (match.range ?? '') : sp.area,
+                  })
+                }}
+                placeholder="名称"
+                className={inputCls}
+                list={'contained-spell-datalist-' + (module.id ?? '') + '-' + idx}
+                title="法术名称"
+              />
+              <datalist id={'contained-spell-datalist-' + (module.id ?? '') + '-' + idx}>
+                {getMergedSpells().map((s) => (
+                  <option key={s.id} value={s.name} />
+                ))}
+              </datalist>
+              <span className={labelCls}>环位</span>
+              <NumberStepper
+                value={Math.max(0, Math.min(9, level))}
+                onChange={(v) => updateSpell(idx, { level: Math.max(0, Math.min(9, v)) })}
+                min={0}
+                max={9}
+                compact
+                narrow
+                className="!h-6"
+              />
+              <span className={labelCls}>消耗</span>
+              <NumberStepper
+                value={sp.cost}
+                onChange={(v) => updateSpell(idx, { cost: Math.max(0, Math.min(99, v)) })}
+                min={0}
+                max={99}
+                compact
+                narrow
+                className="!h-6"
+              />
+              <button
+                type="button"
+                onClick={() => removeSpell(idx)}
+                className="p-1 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0"
+                title="删除该法术"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
+            {!primaryOnly && (
+              <div className="flex items-center gap-x-1 w-full">
+                <div className="flex-1 min-w-0 flex items-center gap-x-1">
+                  <span className={labelCls}>命中</span>
+                  <select
+                    value={hitResolution}
+                    onChange={(e) => updateSpell(idx, { hitResolution: e.target.value })}
+                    className={selectCls}
+                  >
+                    {HIT_RESOLUTION_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  {hitValueDisplay != null && (
+                    <span className="text-white font-mono tabular-nums shrink-0 text-xs">{hitValueDisplay}</span>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0 flex items-center gap-x-1">
+                  <span className={labelCls}>距离</span>
+                  <input
+                    type="text"
+                    value={sp.range ?? ''}
+                    onChange={(e) => updateSpell(idx, { range: e.target.value })}
+                    placeholder="自身"
+                    className={inputCls}
+                  />
+                </div>
+                <div className="flex-[2] min-w-0 flex items-center gap-x-1">
+                  <span className={labelCls}>伤害</span>
+                  <NumberStepper
+                    value={sp.damageDiceCount}
+                    onChange={(v) => updateSpell(idx, { damageDiceCount: Math.max(0, Math.min(99, v)) })}
+                    min={0}
+                    max={99}
+                    compact
+                    narrow
+                    className="!h-6 w-14 min-w-0 shrink-0"
+                  />
+                  <select
+                    value={sp.damageDiceSides}
+                    onChange={(e) => updateSpell(idx, { damageDiceSides: Number(e.target.value) })}
+                    className={selectCls + ' w-11 shrink-0'}
+                  >
+                    {DICE_SIDES_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value} className="bg-gray-800 text-white">{o.label}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={sp.damageType ?? ''}
+                    onChange={(e) => updateSpell(idx, { damageType: e.target.value })}
+                    className={selectCls + ' flex-1 min-w-0'}
+                    title="伤害类型"
+                  >
+                    <option value="">类型</option>
+                    {DAMAGE_TYPES.map((d) => (
+                      <option key={d.value} value={d.value}>{d.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
+      <button
+        type="button"
+        onClick={addSpell}
+        className="flex items-center justify-center gap-1 px-2 py-1 rounded border border-dnd-gold/60 text-dnd-gold-light hover:bg-dnd-gold/20 text-[10px] font-medium w-full"
+      >
+        <Plus className="w-3 h-3" />
+        添加法术
+      </button>
+    </div>
+  )
 }
 
 /** 伤害模块一行：narrowBlocks 更窄块宽；evenSpacing 统一间隔；unifiedColor 同色基线对齐；evenSpread 时占满宽度且模块内均分平铺 */
@@ -860,7 +1104,7 @@ function EffectValueEditor({
   useEffect(() => {
     if (!['abilityScores', 'abilityScoresAndAdvantage'].includes(needsSubSelect)) return
     if (!(value && typeof value === 'object' && !Array.isArray(value))) return
-    const preferred = ABILITY_KEYS.find((k) => value[k] != null && Number(value[k]) !== 0) || ABILITY_KEYS.find((k) => value[k] != null)
+    const preferred = ABILITY_KEYS.find((k) => value[k] != null && (typeof value[k] === 'object' || Number(value[k]) !== 0)) || ABILITY_KEYS.find((k) => value[k] != null)
     if (preferred && preferred !== selectedAbilityId) setSelectedAbilityId(preferred)
   }, [module.id, module.effectType, needsSubSelect])
 
@@ -973,9 +1217,7 @@ function EffectValueEditor({
             onChange={(e) => {
               const nextKey = e.target.value
               const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
-              const currentVal = selectedAbilityId === 'all'
-                ? (Number(obj[ABILITY_KEYS.find((k) => obj[k] != null) || ABILITY_KEYS[0]]) || 0)
-                : (Number(obj[selectedAbilityId]) || 0)
+              const currentVal = getAbilityFieldValue(obj, selectedAbilityId)
               const base = {}
               if (nextKey === 'all') ABILITY_KEYS.forEach((k) => { base[k] = currentVal })
               else base[nextKey] = currentVal
@@ -1017,9 +1259,7 @@ function EffectValueEditor({
               onChange={(e) => {
                 const nextKey = e.target.value
                 const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
-                const currentVal = selectedAbilityId === 'all'
-                  ? (Number(obj[ABILITY_KEYS.find((k) => obj[k] != null) || ABILITY_KEYS[0]]) || 0)
-                  : (Number(obj[selectedAbilityId]) || 0)
+                const currentVal = getAbilityFieldValue(obj, selectedAbilityId)
                 const base = {}
                 if (obj.advantage != null) base.advantage = obj.advantage
                 if (nextKey === 'all') ABILITY_KEYS.forEach((k) => { base[k] = currentVal })
@@ -1109,20 +1349,17 @@ function EffectValueEditor({
     }
     if (currentEffect?.key === 'crit_extra_dice') {
       return (
-        <>
-          <div className="min-w-0">
-            <NumberStepper referenceData={activeReferenceData}
-              value={value}
-              min={2}
-              max={10}
-              onChange={(v) => onChange({ ...module, value: v })}
-              compact
-            />
-            <p className="mt-0.5 text-[10px] leading-tight text-gray-500">仅本件物品生效；各武器重击倍数互不串用；Buff 栏此项不参与投掷；法术重击×2</p>
-          </div>
-          <div />
-          <div />
-        </>
+        <div className="min-w-0 w-full flex flex-col gap-0.5">
+          <NumberStepper
+            value={value}
+            min={2}
+            max={10}
+            onChange={(v) => onChange({ ...module, value: v })}
+            compact
+            narrow
+          />
+          <p className="text-[10px] leading-tight text-gray-500">仅本件物品生效；各武器重击倍数互不串用；Buff 栏此项不参与投掷；法术重击×2</p>
+        </div>
       )
     }
     if (isNumber) {
@@ -1310,7 +1547,7 @@ function EffectValueEditor({
         />
       ) : currentEffect?.key === 'crit_extra_dice' ? (
         <div className="space-y-1">
-          <NumberStepper referenceData={activeReferenceData}
+          <NumberStepper
             value={value}
             min={2}
             max={10}
@@ -1523,9 +1760,7 @@ function EffectValueEditor({
             onChange={(e) => {
               const nextKey = e.target.value
               const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
-              const currentVal = selectedAbilityId === 'all'
-                ? (Number(obj[ABILITY_KEYS.find((k) => obj[k] != null) || ABILITY_KEYS[0]]) || 0)
-                : (Number(obj[selectedAbilityId]) || 0)
+              const currentVal = getAbilityFieldValue(obj, selectedAbilityId)
               const base = {}
               if (obj.advantage != null) base.advantage = obj.advantage
               if (nextKey === 'all') ABILITY_KEYS.forEach((k) => { base[k] = currentVal })
@@ -1596,209 +1831,39 @@ function EffectValueEditor({
           </select>
         </div>
       ) : needsSubSelect === 'containedSpell' ? (
-        (() => {
-          const obj = value && typeof value === 'object' && !Array.isArray(value) ? value : { spellId: '', spellName: '', level: 0, hitResolution: 'dex_save', range: '', area: '', damageDice: '', damageDiceCount: 1, damageDiceSides: 6, damageType: '', charges: 0 }
-          const spellId = obj.spellId ?? ''
-          const spellName = obj.spellName ?? ''
-          const level = typeof obj.level === 'number' ? obj.level : (parseInt(obj.level, 10) || 0)
-          const charges = typeof obj.charges === 'number' ? Math.max(0, obj.charges) : (parseInt(obj.charges, 10) || 0)
-          const hitResolutionList = ['dex_save', 'str_save', 'con_save', 'wis_save', 'int_save', 'cha_save', 'spell_attack']
-          const hitResolution = hitResolutionList.includes(obj.hitResolution) ? obj.hitResolution : 'dex_save'
-          const spell = spellId ? SPELLS.find((s) => s.id === spellId) : null
-          const rangeValue = obj.range ?? spell?.range ?? ''
-          const sidesOpts = [4, 6, 8, 10, 12]
-          let damageDiceCount = typeof obj.damageDiceCount === 'number' ? Math.max(0, obj.damageDiceCount) : (parseInt(obj.damageDiceCount, 10) || 0)
-          let damageDiceSides = sidesOpts.includes(Number(obj.damageDiceSides)) ? Number(obj.damageDiceSides) : 6
-          if ((damageDiceCount === 0 || damageDiceSides === 6) && obj.damageDice && typeof obj.damageDice === 'string') {
-            const parsed = parseDamageString(obj.damageDice.trim())
-            const m = (parsed.plus || '').match(/^(\d*)d(\d+)$/i)
-            if (m) {
-              const c = parseInt(m[1], 10) || 1
-              const s = parseInt(m[2], 10)
-              if (sidesOpts.includes(s)) { damageDiceSides = s; if (damageDiceCount === 0) damageDiceCount = Math.max(1, c) }
-            }
-          }
-          const damageType = obj.damageType ?? ''
-          const HIT_RESOLUTION_OPTIONS = [
-            { value: 'dex_save', label: '敏捷豁免' },
-            { value: 'str_save', label: '力量豁免' },
-            { value: 'con_save', label: '体质豁免' },
-            { value: 'wis_save', label: '感知豁免' },
-            { value: 'int_save', label: '智力豁免' },
-            { value: 'cha_save', label: '魅力豁免' },
-            { value: 'spell_attack', label: '法术攻击加值' },
-          ]
-          const wandScrollPower = useWandScrollTable ? getWandScrollSpellPower(level) : null
-          const hitValueDisplay = useWandScrollTable && wandScrollPower
-            ? (hitResolution === 'spell_attack' ? (wandScrollPower.attackBonus >= 0 ? '+' : '') + wandScrollPower.attackBonus : String(wandScrollPower.dc))
-            : (hitResolution === 'spell_attack' && spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : (spellDC != null ? String(spellDC) : null))
-          const sep = <span className="text-dnd-text-muted shrink-0">|</span>
-          return (
-            <div className="flex flex-col gap-y-1 text-xs w-full">
-              {/* 第一行：宽度 5 份 — 内含法术 3 份 | 释放环位 1 份 | 充能数 1 份 */}
-              <div className="flex items-center gap-x-2 flex-nowrap min-w-0 whitespace-nowrap w-full overflow-hidden">
-                <div className="flex-[3] min-w-0 flex items-center gap-x-2">
-                  {containedSpellRowPrefix != null && String(containedSpellRowPrefix).trim() !== '' && (
-                    <span className="text-dnd-text-muted shrink-0 tabular-nums select-none">{containedSpellRowPrefix}</span>
-                  )}
-                  <span className="text-dnd-text-muted shrink-0">内含法术</span>
-                  <input
-                    type="text"
-                    value={spellName}
-                    onChange={(e) => {
-                      const name = e.target.value
-                      const match = name.trim() ? SPELLS.find((s) => s.name === name.trim()) : null
-                      const prevSpellId = (obj.spellId ?? '').trim()
-                      const nextSpellId = match ? match.id : ''
-                      let nextLevel = level
-                      if (match) {
-                        if (nextSpellId !== prevSpellId) {
-                          // 换了一道法术：用新法术默认环位；若刚从「未识别名」补全且玩家已填过环位则保留（避免重打字丢升环）
-                          nextLevel = prevSpellId === '' && level > 0 ? level : match.level
-                        }
-                        // 同一法术：不碰环位，玩家可自由改升环/戏法等
-                      }
-                      onChange({
-                        ...module,
-                        value: {
-                          ...obj,
-                          spellName: name,
-                          spellId: nextSpellId,
-                          range: match ? (match.range ?? '') : obj.range,
-                          area: match ? (match.range ?? '') : obj.area,
-                          level: nextLevel,
-                        },
-                      })
-                    }}
-                    placeholder="输入法术名称搜索"
-                    className={inputClass + ' h-7 text-xs flex-1 min-w-0 rounded-md border-2 border-gray-500 bg-gray-700/80 placeholder:text-gray-400 focus:border-amber-500/80'}
-                    list={'contained-spell-datalist-' + (module.id ?? '')}
-                    title="法术名称"
-                  />
-                  <datalist id={'contained-spell-datalist-' + (module.id ?? '')}>
-                    {SPELLS.map((s) => (
-                      <option key={s.id} value={s.name} />
-                    ))}
-                  </datalist>
-                </div>
-                {sep}
-                <div className={containedSpellHideChargesInPrimary ? 'flex-[2] min-w-0 flex items-center gap-x-2' : 'flex-[1] min-w-0 flex items-center gap-x-2'}>
-                  <span className="text-dnd-text-muted shrink-0">释放环位</span>
-                  <NumberStepper referenceData={activeReferenceData}
-                    value={Math.max(0, Math.min(9, level))}
-                    onChange={(v) =>
-                      onChange({
-                        ...module,
-                        value: { ...obj, level: Math.max(0, Math.min(9, v)) },
-                      })
-                    }
-                    min={0}
-                    max={9}
-                    compact
-                  />
-                </div>
-                {!containedSpellHideChargesInPrimary && (
-                  <>
-                    {sep}
-                    <div className="flex-[1] min-w-0 flex items-center gap-x-2">
-                      <span className="text-dnd-text-muted shrink-0">充能数</span>
-                      <NumberStepper referenceData={activeReferenceData}
-                        value={charges}
-                        onChange={(v) => onChange({ ...module, value: { ...obj, charges: Math.max(0, v) } })}
-                        min={0}
-                        max={99}
-                        compact
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-              {!containedSpellPrimaryOnly && (
-                <>
-                  {/* 第二行：宽度 5 份 — 命中判断 1 份 | 施法距离（可修改）1 份 | 伤害 3 份 */}
-                  <div className="flex items-center gap-x-2 flex-nowrap min-w-0 whitespace-nowrap w-full overflow-hidden">
-                    <div className="flex-[1] min-w-0 flex items-center gap-x-2">
-                      <span className="text-dnd-text-muted shrink-0">命中判断</span>
-                      <select
-                        value={hitResolution}
-                        onChange={(e) => onChange({ ...module, value: { ...obj, hitResolution: e.target.value } })}
-                        className={inputClass + ' h-7 text-xs flex-1 min-w-0'}
-                      >
-                        {HIT_RESOLUTION_OPTIONS.map((o) => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                      </select>
-                      {hitValueDisplay != null && (
-                        <span className="text-white font-mono tabular-nums shrink-0">{hitValueDisplay}</span>
-                      )}
-                    </div>
-                    {sep}
-                    <div className="flex-[1] min-w-0 flex items-center gap-x-2">
-                      <span className="text-dnd-text-muted shrink-0">施法距离</span>
-                      <input
-                        type="text"
-                        value={rangeValue}
-                        onChange={(e) => onChange({ ...module, value: { ...obj, range: e.target.value } })}
-                        placeholder="如 自身、60尺"
-                        className={inputClass + ' h-7 text-xs flex-1 min-w-0'}
-                      />
-                    </div>
-                    {sep}
-                    <div className="flex-[3] min-w-0 flex items-center gap-x-2">
-                      <span className="text-dnd-text-muted shrink-0">伤害</span>
-                      <NumberStepper referenceData={activeReferenceData}
-                        value={damageDiceCount}
-                        onChange={(v) => onChange({ ...module, value: { ...obj, damageDiceCount: Math.max(0, Math.min(99, v)) } })}
-                        min={0}
-                        max={99}
-                        compact
-                      />
-                      <select
-                        value={damageDiceSides}
-                        onChange={(e) => onChange({ ...module, value: { ...obj, damageDiceSides: Number(e.target.value) } })}
-                        className={inputClass + ' h-7 text-xs min-w-0 text-white bg-[var(--input-bg)]'}
-                      >
-                        {DICE_SIDES_OPTIONS.map((o) => (
-                          <option key={o.value} value={o.value} className="bg-gray-800 text-white">{o.label}</option>
-                        ))}
-                      </select>
-                      <div className="flex-1 min-w-[5rem] relative flex items-center rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] h-7 px-2">
-                        <span className="text-white text-xs flex-1 min-w-0 truncate pointer-events-none">
-                          {damageType ? (DAMAGE_TYPES.find((d) => d.value === damageType)?.label ?? damageType) : '— 类型 —'}
-                        </span>
-                        <select
-                          value={damageType}
-                          onChange={(e) => onChange({ ...module, value: { ...obj, damageType: e.target.value } })}
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                          title="伤害类型"
-                        >
-                          <option value="">— 类型 —</option>
-                          {DAMAGE_TYPES.map((d) => (
-                            <option key={d.value} value={d.value}>{d.label}</option>
-                          ))}
-                        </select>
-                        <ChevronDown className="w-4 h-4 text-gray-400 shrink-0 pointer-events-none" />
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          )
-        })()
+        <ContainedSpellEditor
+          module={module}
+          onChange={onChange}
+          spellDC={spellDC}
+          spellAttackBonus={spellAttackBonus}
+          useWandScrollTable={useWandScrollTable}
+          primaryOnly={containedSpellPrimaryOnly}
+          hideCharges={containedSpellHideChargesInPrimary}
+          rowPrefix={containedSpellRowPrefix}
+        />
       ) : null}
     </div>
   )
 }
 
-export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData }) {
+export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData, sourceNameOptions = [] }) {
   const sourceKindLocked = !!(initial?.fromFeat || initial?.fromItem)
   const [source, setSource] = useState(initial?.source ?? '')
   const [duration, setDuration] = useState(initial?.duration ?? '')
   const [sourceKind, setSourceKind] = useState(() =>
     sourceKindLocked ? normalizeBuffSourceKindKey('adventure') : resolveInitialSourceKind(initial, defaultSourceKind),
   )
+  const sourceListId = useMemo(() => 'buff-source-options-' + Math.random().toString(36).slice(2, 9), [])
+  /** 用于效果简写求值与内含法术 DC/法攻/充能显示 */
+  const effectSummaryContext = useMemo(() => ({
+    ...(referenceData || {}),
+    spellDC,
+    spellAttackBonus,
+    useWandScrollTable,
+  }), [referenceData, spellDC, spellAttackBonus, useWandScrollTable])
   const [effectModules, setEffectModules] = useState(() => normalizeInitialEffects(initial))
+  /** null | module object：弹窗内正在添加/编辑的效果模块 */
+  const [editingModule, setEditingModule] = useState(null)
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -1815,7 +1880,7 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
       if (currentEffect?.key?.startsWith('custom_')) {
         val = typeof mod.customText === 'string' ? mod.customText : (typeof val === 'string' ? val : '')
       }
-      return { category: mod.category, effectType, value: val }
+      return { category: mod.category, effectType, scope: mod.scope || 'global', value: val }
     }).filter((ef) => ef.effectType)
     if (!effects.length && !initial?.fromFeat) return
     const payload = {
@@ -1831,22 +1896,41 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
     onSave(payload)
   }
 
+  const newEmptyModule = () => ({
+    id: 'e_' + Math.random().toString(36).slice(2),
+    category: '',
+    effectType: '',
+    scope: 'global',
+    value: 0,
+    customText: '',
+  })
+
   const addModule = () => {
-    setEffectModules((prev) => [...prev, {
-      id: 'e_' + Math.random().toString(36).slice(2),
-      category: '',
-      effectType: '',
-      value: 0,
-      customText: '',
-    }])
+    setEditingModule(newEmptyModule())
   }
 
-  const updateModule = (id, next) => {
-    setEffectModules((prev) => prev.map((m) => (m.id === id ? (typeof next === 'function' ? next(m) : next) : m)))
+  const handleEditModule = (id) => {
+    const m = effectModules.find((x) => x.id === id)
+    if (m) setEditingModule({ ...m })
+  }
+
+  const handleSaveModule = (draft) => {
+    setEffectModules((prev) => {
+      const exists = prev.some((m) => m.id === draft.id)
+      if (exists) {
+        return prev.map((m) => (m.id === draft.id ? draft : m))
+      }
+      return [...prev, draft]
+    })
+    setEditingModule(null)
+  }
+
+  const handleCancelModule = () => {
+    setEditingModule(null)
   }
 
   const removeModule = (id) => {
-    setEffectModules((prev) => (prev.length <= 1 ? prev : prev.filter((m) => m.id !== id)))
+    setEffectModules((prev) => prev.filter((m) => m.id !== id))
   }
 
   return (
@@ -1855,12 +1939,20 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
         <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-1">来源名称 *</label>
         <input
           type="text"
+          list={sourceListId}
           value={source}
           onChange={(e) => setSource(e.target.value)}
           placeholder="牧师的祝福术、狂暴、法师护甲..."
           className={inputClass}
           required
         />
+        {sourceNameOptions.length > 0 && (
+          <datalist id={sourceListId}>
+            {sourceNameOptions.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+        )}
       </div>
       <div>
         <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-1">持续时间</label>
@@ -1903,171 +1995,91 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
       </div>
 
       <div>
-        <div className="flex items-center justify-between mb-0.5">
-          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">效果（可多条）</label>
-          <button type="button" onClick={addModule} className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500 text-amber-400 hover:bg-amber-500/20 text-[10px] font-medium">
+        <div className="flex items-center justify-between mb-1">
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">附魔效果（可多条）</label>
+          <button
+            type="button"
+            onClick={addModule}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500 text-amber-400 hover:bg-amber-500/20 text-[10px] font-medium"
+          >
             <Plus className="w-3 h-3" />
-            添加效果
+            添加附魔
           </button>
         </div>
-        <div className="space-y-1">
-          {effectModules.map((mod) => {
-            const catData = BUFF_TYPES[mod.category]
-            const effects = catData?.effects ?? []
-            const visibleEffects = effects.filter((e) => !e.hidden)
-            const hasCategory = !!mod.category && !!catData
-            const effectTypeValid = hasCategory && effects.some((e) => e.key === mod.effectType)
-            const effectiveEffectType = hasCategory && effectTypeValid ? mod.effectType : ''
-            const currentEffect = effects.find((e) => e.key === effectiveEffectType)
-            const complexValue = isComplexValueType(currentEffect)
-            const isAttackDamageBonus = effectiveEffectType === 'attack_damage_bonus'
-            const categorySelect = (
-              <select
-                value={mod.category || ''}
-                onChange={(e) => {
-                  const newCat = e.target.value
-                  const newEffects = BUFF_TYPES[newCat]?.effects ?? []
-                  updateModule(mod.id, { ...mod, category: newCat, effectType: newCat ? (newEffects[0]?.key ?? '') : '' })
-                }}
-                className={inputClass + ' h-7 text-xs w-full min-w-0'}
-              >
-                <option value="">&lt;效果大类&gt;</option>
-                {getCategories().map((c) => (
-                  <option key={c.key} value={c.key}>{c.label}</option>
-                ))}
-              </select>
-            )
-            const effectTypeSelect = (
-              <select
-                value={effectiveEffectType}
-                onChange={(e) => {
-                  const nextType = e.target.value
-                  const patch = { ...mod, effectType: nextType }
-                  if (nextType === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
-                  if (nextType === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(mod.value)
-                  updateModule(mod.id, patch)
-                }}
-                className={inputClass + ' h-7 text-xs w-full min-w-0'}
-                disabled={!hasCategory}
-              >
-                <option value="">&lt;具体效果&gt;</option>
-                {visibleEffects.map((e) => (
-                  <option key={e.key} value={e.key}>{e.label}</option>
-                ))}
-              </select>
-            )
-            const removeBtn = (
-              <button
-                type="button"
-                onClick={() => removeModule(mod.id)}
-                className="h-7 w-7 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 hover:border-red-600 flex items-center justify-center shrink-0"
-                title="删除此效果"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            )
-            const inlineValueEditor = (
-              <EffectValueEditor
-                module={{ ...mod, effectType: effectiveEffectType }}
-                onChange={(next) => updateModule(mod.id, next)}
-                catData={catData}
-                inline
+        <div className="space-y-1.5">
+          {effectModules.length === 0 ? (
+            <p className="text-gray-500 text-xs text-center py-2">暂无附魔效果，点击右上角添加</p>
+          ) : (
+            effectModules.map((mod) => {
+              const catData = BUFF_TYPES[mod.category]
+              const currentEffect = catData?.effects?.find((e) => e.key === mod.effectType)
+              const summary = currentEffect
+                ? getEffectSummaryShort({ effectType: mod.effectType, value: mod.value, customText: mod.customText }, effectSummaryContext)
+                : '未选择效果'
+              const label = currentEffect ? (currentEffect.label ?? mod.effectType) : '—'
+              return (
+                <div
+                  key={mod.id}
+                  className="rounded-lg border border-white/[0.08] bg-[#1a2333]/60 px-2 py-1.5 flex items-center justify-between gap-2"
+                >
+                  <div className="min-w-0 flex-1 flex items-center gap-2">
+                    <span className="text-dnd-gold-light/90 text-xs font-medium shrink-0">{label}</span>
+                    <span className="text-gray-200 text-sm truncate" title={summary}>{summary}</span>
+                  </div>
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleEditModule(mod.id)}
+                      className="p-1 rounded text-gray-400 hover:bg-gray-700 hover:text-dnd-gold transition-colors"
+                      title="编辑"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeModule(mod.id)}
+                      className="p-1 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors"
+                      title="删除"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </div>
+
+      {editingModule && (
+        <>
+          <div
+            className="fixed inset-0 z-[200] bg-black/50"
+            onClick={handleCancelModule}
+            aria-hidden
+          />
+          <div
+            className="fixed inset-0 z-[201] flex items-center justify-center p-4 sm:p-8 overflow-auto"
+            onClick={handleCancelModule}
+          >
+            <div
+              className="w-full max-w-2xl max-h-[90vh] overflow-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <EffectModuleModal
+                module={editingModule}
+                onSave={handleSaveModule}
+                onCancel={handleCancelModule}
+                referenceData={referenceData}
+                baseReferenceData={baseReferenceData}
                 spellDC={spellDC}
                 spellAttackBonus={spellAttackBonus}
                 useWandScrollTable={useWandScrollTable}
-                referenceData={referenceData}
-                baseReferenceData={baseReferenceData}
               />
-            )
-            const attackDamageCompactClass = inputClassInline + ' h-7 text-xs'
-            const attackDamageModule = { ...mod, effectType: effectiveEffectType }
-            const attackDamageOnChange = (next) => updateModule(mod.id, next)
-            const addAttackDamageLocalRow = () => {
-              const obj = normalizeAttackDamageBonusModuleValue(mod.value)
-              updateModule(mod.id, {
-                ...mod,
-                value: { ...obj, categoryRows: [...(obj.categoryRows || []), newWeaponBonusRow('', 0)] },
-              })
-            }
-            return (
-              <div key={mod.id} className="rounded border border-gray-600 bg-gray-700/30 p-1.5 space-y-1">
-                {isAttackDamageBonus ? (
-                  <div className="flex flex-col gap-2.5 w-full min-w-0">
-                    <div className="flex flex-wrap items-center gap-1 w-full min-w-0 overflow-x-hidden">
-                      <div className="flex items-center justify-center shrink-0 w-5 pointer-events-none select-none" aria-hidden>
-                        <DragHandleIcon className="w-3.5 h-3.5 text-dnd-text-muted opacity-70" />
-                      </div>
-                      <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{categorySelect}</div>
-                      <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{effectTypeSelect}</div>
-                      <AttackDamageBonusFields
-                        module={attackDamageModule}
-                        onChange={attackDamageOnChange}
-                        compactClass={attackDamageCompactClass}
-                        inline
-                        variant="global"
-                        referenceData={referenceData}
-                      />
-                      <div className="ml-auto flex items-center gap-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={addAttackDamageLocalRow}
-                          className="shrink-0 rounded border border-amber-500/60 bg-gray-800/90 px-2 py-0.5 text-[10px] font-medium text-amber-400/95 hover:bg-amber-500/15 h-7 flex items-center"
-                          title="添加一条按武器类型/类别的额外加值"
-                        >
-                          局部生效
-                        </button>
-                        {removeBtn}
-                      </div>
-                    </div>
-                    <div className="w-full min-w-0 overflow-x-hidden border-t border-gray-600/50 pt-2.5">
-                      <AttackDamageBonusFields
-                        module={attackDamageModule}
-                        onChange={attackDamageOnChange}
-                        compactClass={attackDamageCompactClass}
-                        inline
-                        variant="weapons"
-                        hideWeaponAddButtons
-                        referenceData={referenceData}
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-1 w-full min-w-0">
-                      <div className="flex items-center justify-center shrink-0 w-5 pointer-events-none select-none" aria-hidden>
-                        <DragHandleIcon className="w-3.5 h-3.5 text-dnd-text-muted opacity-70" />
-                      </div>
-                      <div className="min-w-0">{categorySelect}</div>
-                      <div className="min-w-0">{effectTypeSelect}</div>
-                      {!complexValue && (
-                        <div className="col-span-2 min-w-0 flex flex-nowrap items-center gap-1 overflow-hidden">
-                          {inlineValueEditor}
-                        </div>
-                      )}
-                      {complexValue && <div className="col-span-2" />}
-                      {removeBtn}
-                    </div>
-                    {complexValue && (
-                      <div className="pt-0.5 border-t border-gray-600/80">
-                        <EffectValueEditor
-                          module={{ ...mod, effectType: effectiveEffectType }}
-                          onChange={(next) => updateModule(mod.id, next)}
-                          catData={catData}
-                          spellDC={spellDC}
-                          spellAttackBonus={spellAttackBonus}
-                          useWandScrollTable={useWandScrollTable}
-                          referenceData={referenceData}
-                          baseReferenceData={baseReferenceData}
-                        />
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      </div>
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="flex gap-1.5 justify-end pt-1.5">
         <button type="button" onClick={onCancel} className="px-4 py-2 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700">
@@ -2081,4 +2093,136 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
   )
 }
 
-export { EffectValueEditor, isComplexValueType, DamageDiceInlineRow, NumberStepper, AttackDamageBonusFields, newWeaponBonusRow }
+/** 单条效果（附魔）弹窗编辑器：选择分类/效果类型/scope 后用 EffectValueEditor 编辑值 */
+function EffectModuleModal({
+  module,
+  onSave,
+  onCancel,
+  referenceData,
+  baseReferenceData,
+  spellDC,
+  spellAttackBonus,
+  useWandScrollTable,
+  isNew = false,
+}) {
+  const [draft, setDraft] = useState(module)
+
+  const catData = BUFF_TYPES[draft.category]
+  const effects = catData?.effects ?? []
+  const visibleEffects = effects.filter((e) => !e.hidden)
+  const hasCategory = !!draft.category && !!catData
+  const effectTypeValid = hasCategory && effects.some((e) => e.key === draft.effectType)
+  const effectiveEffectType = hasCategory && effectTypeValid ? draft.effectType : ''
+  const currentEffect = effects.find((e) => e.key === effectiveEffectType)
+  const showScope = ['attack_bonus', 'damage_bonus', 'attack_damage_bonus'].includes(effectiveEffectType)
+
+  const updateDraft = (patch) => setDraft((prev) => ({ ...prev, ...patch }))
+
+  return (
+    <div className="rounded-xl border border-white/[0.11] bg-gradient-to-b from-[#2c384c] via-[#242f42] to-[#1b2433] shadow-[0_6px_22px_rgba(0,0,0,0.48),0_2px_6px_rgba(0,0,0,0.28),inset_0_-1px_0_rgba(0,0,0,0.22)] p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-dnd-gold-light text-sm font-bold uppercase tracking-wider">
+          {isNew || !module.id ? '添加附魔' : '编辑附魔'}
+        </h3>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="p-1 rounded text-gray-400 hover:bg-gray-700 hover:text-white"
+          title="关闭"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div>
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">效果大类</label>
+          <select
+            value={draft.category || ''}
+            onChange={(e) => {
+              const newCat = e.target.value
+              const newEffects = BUFF_TYPES[newCat]?.effects ?? []
+              updateDraft({ category: newCat, effectType: newCat ? (newEffects[0]?.key ?? '') : '' })
+            }}
+            className={inputClass + ' h-8 text-xs w-full min-w-0'}
+          >
+            <option value="">&lt;选择大类&gt;</option>
+            {getCategories().map((c) => (
+              <option key={c.key} value={c.key}>{c.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">具体效果</label>
+          <select
+            value={effectiveEffectType}
+            onChange={(e) => {
+              const nextType = e.target.value
+              const patch = { effectType: nextType }
+              if (nextType === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
+              if (nextType === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(draft.value)
+              updateDraft(patch)
+            }}
+            className={inputClass + ' h-8 text-xs w-full min-w-0'}
+            disabled={!hasCategory}
+          >
+            <option value="">&lt;选择效果&gt;</option>
+            {visibleEffects.map((e) => (
+              <option key={e.key} value={e.key}>{e.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {showScope && (
+        <div>
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">起效范围</label>
+          <select
+            value={draft.scope || 'global'}
+            onChange={(e) => updateDraft({ scope: e.target.value || 'global' })}
+            className={inputClass + ' h-8 text-xs w-full sm:w-48 min-w-0'}
+          >
+            {SCOPE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {currentEffect && (
+        <div className="rounded-lg bg-[#161e2b]/50 p-2.5 space-y-2">
+          <EffectValueEditor
+            module={{ ...draft, effectType: effectiveEffectType }}
+            onChange={(next) => setDraft(next)}
+            catData={catData}
+            spellDC={spellDC}
+            spellAttackBonus={spellAttackBonus}
+            useWandScrollTable={useWandScrollTable}
+            referenceData={referenceData}
+            baseReferenceData={baseReferenceData}
+          />
+        </div>
+      )}
+
+      <div className="flex gap-1.5 justify-end pt-1">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-3 py-1.5 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 text-sm"
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          onClick={() => onSave(draft)}
+          disabled={!effectiveEffectType}
+          className="px-3 py-1.5 rounded-lg bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm"
+        >
+          保存
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export { EffectValueEditor, isComplexValueType, DamageDiceInlineRow, NumberStepper, AttackDamageBonusFields, newWeaponBonusRow, EffectModuleModal }

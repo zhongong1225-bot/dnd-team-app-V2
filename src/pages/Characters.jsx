@@ -453,13 +453,14 @@ export default function Characters({ embedded = false, embeddedModuleId = null }
                 return out
               })()
 
+              const totalTemp = (hp.temp || 0) + (hp.buffTemp || 0)
               const hpLine = (
                 <p
                   className={`font-mono font-semibold shrink-0 tabular-nums ${compactSubordinate ? 'text-[10px]' : isSubordinate ? 'text-[10px]' : 'text-xs'} ${isLowHp ? 'text-dnd-red' : 'text-dnd-text-muted'}`}
-                  title={`生命值 ${cur}/${max}${hp.temp ? `，临时 ${hp.temp}` : ''}`}
+                  title={`生命值 ${cur}/${max}${totalTemp ? `，临时 ${totalTemp}` : ''}`}
                 >
                   HP {cur}/{max}
-                  {hp.temp ? ` +${hp.temp} 临时` : ''}
+                  {totalTemp ? ` +${totalTemp} 临时` : ''}
                 </p>
               )
               const summaryBlock = (

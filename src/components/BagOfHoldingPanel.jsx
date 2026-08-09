@@ -19,6 +19,8 @@ import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { NumberStepper } from './BuffForm'
 import { isFormulaValue, formatFormulaLabel } from '../lib/formulas'
 import { inputClassInline } from '../lib/inputStyles'
+import { hasContainedSpellEffect } from '../lib/containedSpellModel'
+import ContainedSpellUseButton from './ContainedSpellUseButton'
 import {
   inventoryItemCardListGapClass,
   inventoryItemActionsCellClass,
@@ -653,7 +655,7 @@ export function BagModuleSection({
                     )
                   }
 
-                  const showChargeCol = (Number(entry.charge) || 0) > 0
+                  const showChargeCol = (Number(entry.charge) || 0) > 0 || hasContainedSpellEffect(entry)
                   const bagRowGridItem = canEdit
                     ? showChargeCol
                       ? inventoryItemRowGridEditableWithCharge
@@ -691,6 +693,12 @@ export function BagModuleSection({
                           <div className={inventoryItemNameTitleGroupClass}>
                             <span className={inventoryItemNameTextClass}>{invDisplayName(entry)}</span>
                             <span className={inventoryItemNameExtrasClass}>{renderNameExtras(entry)}</span>
+                            {hasContainedSpellEffect(entry) && (
+                              <ContainedSpellUseButton
+                                entry={entry}
+                                onChargeChange={(v) => patchBag(i, { charge: v })}
+                              />
+                            )}
                           </div>
                         </div>
                         {showChargeCol ? (

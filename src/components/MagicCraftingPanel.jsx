@@ -47,6 +47,7 @@ import { inputClass, textareaClass } from '../lib/inputStyles'
 import { BUFF_TYPES } from '../data/buffTypes'
 import { EffectValueEditor } from './BuffForm'
 import CharacterPickSelect from './CharacterPickSelect'
+import { createEmptyContainedSpellSub } from '../lib/containedSpellModel'
 
 /** 自动计算字段：无描边 */
 const autoCalcClass = 'border-0 bg-gray-700/50 cursor-default'
@@ -121,7 +122,30 @@ function CraftingAutoStatsRow({ tradePrice, craftCost, days, xp }) {
   )
 }
 
-/** 入库条目：魔杖/法杖可带内含法术与充能（与 ItemAddForm 存盘结构一致；法杖可多条约 contained_spell） */
+/** 把制作面板的单条法术草稿转为新结构子法术（cost 默认 1，总能量由外层统一提供） */
+function craftSpellToContainedSub(sp) {
+  const base = createEmptyContainedSpellSub()
+  const level = typeof sp.level === 'number' ? sp.level : (parseInt(sp.level, 10) || 1)
+  const damageDiceCount = typeof sp.damageDiceCount === 'number' ? sp.damageDiceCount : (parseInt(sp.damageDiceCount, 10) || 1)
+  const rawSides = typeof sp.damageDiceSides === 'number' ? sp.damageDiceSides : (parseInt(sp.damageDiceSides, 10) || 6)
+  const damageDiceSides = [4, 6, 8, 10, 12].includes(rawSides) ? rawSides : 6
+  const hitList = ['dex_save', 'str_save', 'con_save', 'wis_save', 'int_save', 'cha_save', 'spell_attack']
+  return {
+    ...base,
+    spellName: (sp.spellName ?? '').trim(),
+    spellId: (sp.spellId ?? '').trim(),
+    level: Math.max(0, Math.min(9, level)),
+    hitResolution: hitList.includes(sp.hitResolution) ? sp.hitResolution : 'dex_save',
+    range: sp.range ?? '',
+    area: sp.area ?? '',
+    damageDiceCount: Math.max(0, Math.min(99, damageDiceCount)),
+    damageDiceSides,
+    damageType: sp.damageType ?? '',
+    cost: 1,
+  }
+}
+
+/** 入库条目：魔杖/法杖可带内含法术与充能（与 ItemAddForm 存盘结构一致；一个 effect 含多法术共享总充能） */
 function buildCraftedInventoryEntry(p) {
   const name = p.物品名称?.trim() || '未命名魔法物品'
   const desc = p.详细介绍?.trim() ?? ''
@@ -130,39 +154,37 @@ function buildCraftedInventoryEntry(p) {
   const topCharges = Math.max(0, Number(p.充能次数) || 0)
 
   if (t === 'staff' && Array.isArray(p.内含法术列表) && p.内含法术列表.length > 0) {
-    const effects = p.内含法术列表
+    const spells = p.内含法术列表
       .filter((sp) => sp && typeof sp === 'object' && isCraftContainedSpellFilled(sp))
-      .map((sp) => {
-        const charges = topCharges || Math.max(0, Number(sp.charges) || 0)
-        return {
-          category: 'mobility_casting',
-          effectType: 'contained_spell',
-          value: { ...sp, charges },
-          customText: '',
-        }
-      })
-    if (effects.length === 0) return base
-    const charge = topCharges || Math.max(0, Number(effects[0].value.charges) || 0)
-    return { ...base, charge, effects }
+      .map(craftSpellToContainedSub)
+    if (spells.length === 0) return base
+    const value = { totalCharges: topCharges, spells }
+    return {
+      ...base,
+      charge: topCharges,
+      effects: [{
+        category: 'charge',
+        effectType: 'contained_spell',
+        value,
+        customText: '',
+      }],
+    }
   }
 
   if ((t === 'wand' || t === 'staff') && p.内含法术 && typeof p.内含法术 === 'object') {
     const sp = p.内含法术
     const hasSpell = (sp.spellName && String(sp.spellName).trim()) || (sp.spellId && String(sp.spellId).trim())
     if (!hasSpell) return base
-    const charges = topCharges || Math.max(0, Number(sp.charges) || 0)
-    const value = { ...sp, charges }
+    const value = { totalCharges: topCharges, spells: [craftSpellToContainedSub(sp)] }
     return {
       ...base,
-      charge: charges,
-      effects: [
-        {
-          category: 'mobility_casting',
-          effectType: 'contained_spell',
-          value,
-          customText: '',
-        },
-      ],
+      charge: topCharges,
+      effects: [{
+        category: 'charge',
+        effectType: 'contained_spell',
+        value,
+        customText: '',
+      }],
     }
   }
   return base

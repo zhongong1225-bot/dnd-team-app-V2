@@ -23,6 +23,8 @@ import { rollDice } from '../data/weaponDatabase'
 import { inputClass, textareaClass, labelClass } from '../lib/inputStyles'
 import { NumberStepper } from './BuffForm'
 import { appendContainedSpellsBrief } from '../lib/containedSpellBrief'
+import { hasContainedSpellEffect } from '../lib/containedSpellModel'
+import ContainedSpellUseButton from './ContainedSpellUseButton'
 import BagOfHoldingPanel from './BagOfHoldingPanel'
 import {
   getNormalizedBagModules,
@@ -860,20 +862,24 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                                 ? <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>
                                 : null
                             })()}
+                            {hasContainedSpellEffect(entry) && (
+                              <ContainedSpellUseButton
+                                entry={entry}
+                                onChargeChange={(v) => setCharge(i, v)}
+                              />
+                            )}
                           </span>
                         </td>
                         <td className="py-1 px-2 align-middle border-l border-gray-600 text-center overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
                           {canEdit ? (
-                            <div className="flex justify-center">
-                              <NumberStepper
-                                value={Number(entry.charge) || 0}
-                                onChange={(v) => setCharge(i, v)}
-                                min={0}
-                                compact
-                                pill
-                              />
-                            </div>
-                          ) : (Number(entry.charge) || 0) > 0 ? (
+                            <NumberStepper
+                              value={Number(entry.charge) || 0}
+                              onChange={(v) => setCharge(i, v)}
+                              min={0}
+                              compact
+                              pill
+                            />
+                          ) : (Number(entry.charge) || 0) > 0 || hasContainedSpellEffect(entry) ? (
                             <span className="tabular-nums text-dnd-text-body text-xs">{entry.charge}</span>
                           ) : null}
                         </td>

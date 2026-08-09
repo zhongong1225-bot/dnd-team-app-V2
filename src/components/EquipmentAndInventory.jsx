@@ -56,6 +56,8 @@ import { inputClass, inputClassInline } from '../lib/inputStyles'
 import { logTeamActivity } from '../lib/activityLog'
 import { NumberStepper } from './BuffForm'
 import { appendContainedSpellsBrief } from '../lib/containedSpellBrief'
+import { hasContainedSpellEffect } from '../lib/containedSpellModel'
+import ContainedSpellUseButton from './ContainedSpellUseButton'
 import { BagModuleSection, parseDragInventoryIndex, deliverBagDrop } from './BagOfHoldingPanel'
 import { normalizeBagOfHoldingVisibility } from '../lib/bagOfHoldingVisibility'
 import {
@@ -333,6 +335,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   const [transferDirection, setTransferDirection] = useState('toVault')
   const [addFormOpen, setAddFormOpen] = useState(false)
   const [editingIndex, setEditingIndex] = useState(null)
+  const [editingNested, setEditingNested] = useState(null) // { containerId, nestedIndex }
   const [storeToVaultIndex, setStoreToVaultIndex] = useState(null)
   const [storeToVaultQty, setStoreToVaultQty] = useState(1)
   const [isStoreToVaulting, setIsStoreToVaulting] = useState(false)
@@ -1066,6 +1069,19 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     onSave({ inventory: next })
     setEditingIndex(null)
   }
+  const applyNestedEditSave = (entry) => {
+    if (!editingNested) return
+    const { containerId, nestedIndex } = editingNested
+    const containerIdx = inv.findIndex((e) => e.id === containerId)
+    if (containerIdx < 0) return
+    const container = inv[containerIdx]
+    const nested = Array.isArray(container.nestedInventory) ? [...container.nestedInventory] : []
+    nested[nestedIndex] = entry
+    onSave({
+      inventory: inv.map((e, i) => (i === containerIdx ? { ...e, nestedInventory: nested } : e)),
+    })
+    setEditingNested(null)
+  }
 
   const openStoreToVault = (index) => {
     setStoreToVaultIndex(index)
@@ -1556,6 +1572,21 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                   referenceData={referenceData}
                 />
                 <ItemAddForm open={editingIndex !== null} onClose={() => setEditingIndex(null)} onSave={applyEditSave} submitLabel="保存" editEntry={editingIndex != null ? inv[editingIndex] : null} inventory={inv} spellDC={spellDC} spellAttackBonus={spellAttackBonus} referenceData={referenceData} />
+                <ItemAddForm
+                  open={editingNested !== null}
+                  onClose={() => setEditingNested(null)}
+                  onSave={applyNestedEditSave}
+                  submitLabel="保存"
+                  editEntry={
+                    editingNested
+                      ? inv.find((e) => e.id === editingNested.containerId)?.nestedInventory?.[editingNested.nestedIndex] ?? null
+                      : null
+                  }
+                  inventory={inv}
+                  spellDC={spellDC}
+                  spellAttackBonus={spellAttackBonus}
+                  referenceData={referenceData}
+                />
               </>
             )}
           </div>
@@ -1602,7 +1633,9 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                       : Math.max(1, Math.floor(Number(entry?.qty) || 1))
                   const anchorBagExpanded = isAnchor && modForAnchor ? bagModuleExpanded[modForAnchor.id] !== false : false
                   const showChargeCol =
-                    !isAnchor && !entry?.walletCurrencyId && (Number(entry.charge) || 0) > 0
+                    !isAnchor &&
+                    !entry?.walletCurrencyId &&
+                    ((Number(entry.charge) || 0) > 0 || hasContainedSpellEffect(entry))
                   const backpackRowGrid = isAnchor
                     ? canEdit
                       ? inventoryItemRowGridEditableWithCharge
@@ -1703,6 +1736,12 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                     模块 {modIndexAnchor + 1} ·{' '}
                                     {normalizeBagOfHoldingVisibility(modForAnchor.visibility) === 'public' ? '公家' : '私人'}
                                   </span>
+                                  {hasContainedSpellEffect(entry) && (
+                                    <ContainedSpellUseButton
+                                      entry={entry}
+                                      onChargeChange={(v) => setCharge(i, v)}
+                                    />
+                                  )}
                                 </div>
                               </div>
                             ) : (
@@ -1760,6 +1799,12 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                       ) : null
                                     })()}
                                   </span>
+                                  {hasContainedSpellEffect(entry) && (
+                                    <ContainedSpellUseButton
+                                      entry={entry}
+                                      onChargeChange={(v) => setCharge(i, v)}
+                                    />
+                                  )}
                                 </div>
                               </div>
                             )}
@@ -2049,6 +2094,16 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                       <span className="text-dnd-text-muted text-[10px] tabular-nums w-12 text-right shrink-0">
                                         {nestedLb > 0 ? `${formatDisplayWeightLb(nestedLb)} lb` : '—'}
                                       </span>
+                                      {canEdit && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setEditingNested({ containerId: entry.id, nestedIndex: nestedIdx })}
+                                          title="编辑"
+                                          className="p-1 rounded text-dnd-gold-light hover:bg-dnd-gold/20 shrink-0"
+                                        >
+                                          <Pencil size={13} />
+                                        </button>
+                                      )}
                                       {canEdit && (
                                         <button
                                           type="button"

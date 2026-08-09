@@ -1535,6 +1535,39 @@ export default function CharacterSheet() {
     return arr
   }, [char, level])
 
+  const sheetOverridesMap = useRuleTextOverridesMap(sheetModuleId)
+  const sourceNameOptions = useMemo(() => {
+    if (!char) return []
+    const names = []
+    const seen = new Set()
+    // 专长
+    for (const f of char.selectedFeats ?? []) {
+      const featId = typeof f === 'string' ? f : (f.featId ?? f.id ?? '')
+      if (!featId || seen.has(featId)) continue
+      seen.add(featId)
+      const feat = FEATS.find((x) => x.id === featId)
+      const name = feat?.name
+        ? resolveRuleText(sheetOverridesMap, buildFeatNameKey(featId), feat.name)
+        : ''
+      if (name && !seen.has(name)) {
+        seen.add(name)
+        names.push(name)
+      }
+    }
+    // 职业特性
+    for (const f of resolveSelectedFeatures(char)) {
+      const nameKey = f.sourceSubclass
+        ? buildSubclassFeatureNameKey(f.sourceClass, f.sourceSubclass, f.id)
+        : buildClassFeatureNameKey(f.sourceClass, f.id)
+      const name = resolveRuleText(sheetOverridesMap, nameKey, f.name)
+      if (name && !seen.has(name)) {
+        seen.add(name)
+        names.push(name)
+      }
+    }
+    return names
+  }, [char, sheetModuleId])
+
   const buffFormulaContext = useMemo(() => {
     if (!char) return { level: 1, abilities: {}, prof: 0, spellDC: 0, spellAttack: 0 }
     const abilities = buffStats?.abilities ?? char?.abilities ?? {}
@@ -1822,6 +1855,7 @@ export default function CharacterSheet() {
             <BuffManager
               buffs={mergedBuffs}
               baseAbilities={char.abilities ?? {}}
+              sourceNameOptions={sourceNameOptions}
               onSave={(buffsList) => {
                 const manual = buffsList.filter((b) => !b.fromItem && !b.fromFeat)
                 const selectedFeats = mergeFeatBuffPatchesFromMergedList(char, buffsList)

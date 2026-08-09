@@ -68,6 +68,8 @@ import TeamWarehouseTopBar from '../components/TeamWarehouseTopBar'
 import { NumberStepper } from '../components/BuffForm'
 import { inputClass } from '../lib/inputStyles'
 import { appendContainedSpellsBrief } from '../lib/containedSpellBrief'
+import { hasContainedSpellEffect } from '../lib/containedSpellModel'
+import ContainedSpellUseButton from '../components/ContainedSpellUseButton'
 import { TOPBAR_BACK_ARROW_CLASS, TOPBAR_BACK_LINK_CLASS } from '../lib/topBarShared'
 import {
   inventoryItemActionsCellClass,
@@ -1977,7 +1979,7 @@ export default function Warehouse() {
                   <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{nEntry.magicBonus}</span>
                 ) : null
               const stackLb = getInventoryEntryStackWeightLb(nEntry)
-              const showCharge = (Number(nEntry.charge) || 0) > 0
+              const showCharge = (Number(nEntry.charge) || 0) > 0 || hasContainedSpellEffect(nEntry)
               const nBrief = getEntryBriefFull(nEntry)
               const nBriefKey = `wni-${nk}`
               return (
@@ -2338,7 +2340,7 @@ export default function Warehouse() {
                                   <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>
                                 ) : null
                               const stackLb = getInventoryEntryStackWeightLb(entry)
-                              const showCharge = (Number(entry.charge) || 0) > 0
+                              const showCharge = (Number(entry.charge) || 0) > 0 || hasContainedSpellEffect(entry)
                               const pubBrief = getEntryBriefFull(entry)
                               const pubBriefKey = `pio-${c.id}-${entry?.id ?? invIdx}`
                               return (
@@ -2839,7 +2841,7 @@ export default function Warehouse() {
                         <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>
                       ) : null
                     const stackLb = getInventoryEntryStackWeightLb(entry)
-                    const showCharge = (Number(entry.charge) || 0) > 0
+                    const showCharge = (Number(entry.charge) || 0) > 0 || hasContainedSpellEffect(entry)
                     const topItemBrief = getEntryBriefFull(entry)
                     const topItemBriefKey = `ati-${rowKey}`
                     return (
@@ -2868,6 +2870,12 @@ export default function Warehouse() {
                             <div className={inventoryItemNameTitleGroupClass}>
                               <span className={inventoryItemNameTextClass}>{displayName(entry)}</span>
                               <span className={inventoryItemNameExtrasClass}>{nameExtra}</span>
+                              {hasContainedSpellEffect(entry) && (
+                                <ContainedSpellUseButton
+                                  entry={entry}
+                                  onChargeChange={(v) => setCharge(i, v)}
+                                />
+                              )}
                             </div>
                           </div>
                           {showCharge ? (

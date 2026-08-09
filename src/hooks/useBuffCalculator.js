@@ -42,18 +42,24 @@ export function getCritDamageDiceMultiplierFromItemEntry(entry, context = {}) {
 }
 
 /** 按武器 proto 累加「分武器加值」条目（categoryRows 每行单独数值；兼容旧 weaponCategories + 统一 val） */
-export function sumWeaponCategoryAttackDamageBonus(entries, proto) {
+export function sumWeaponCategoryAttackDamageBonus(entries, proto, context = {}) {
   if (!Array.isArray(entries) || entries.length === 0 || !proto) return 0
   let sum = 0
   for (const e of entries) {
     const rows = Array.isArray(e.categoryRows) ? e.categoryRows : []
     if (rows.length > 0) {
       for (const r of rows) {
-        if (protoMatchesWeaponBuffKey(proto, r.key)) sum += Number(r.val) || 0
+        if (protoMatchesWeaponBuffKey(proto, r.key)) {
+          const n = evaluateBuffValue(r.val, context)
+          if (!Number.isNaN(n)) sum += n
+        }
       }
     } else {
       const cats = Array.isArray(e.weaponCategories) ? e.weaponCategories : []
-      if (weaponProtoMatchesBuffWeaponCategories(proto, cats)) sum += Number(e.val) || 0
+      if (weaponProtoMatchesBuffWeaponCategories(proto, cats)) {
+        const n = evaluateBuffValue(e.val, context)
+        if (!Number.isNaN(n)) sum += n
+      }
     }
   }
   return sum
@@ -71,6 +77,75 @@ export function getCritThreatMinNaturalFromItemEntry(entry) {
     }
   }
   return min
+}
+
+/** 解析「施法距离延伸」的倍率与固定增量，兼容旧文本/纯数字/公式/对象 */
+function parseSpellRangeExtension(raw, evalVal) {
+  let multiplier = 1
+  let bonus = 0
+  if (raw == null) return { multiplier, bonus }
+  if (typeof raw === 'number' || isFormulaValue(raw)) {
+    const n = evalVal(raw)
+    if (!Number.isNaN(n)) bonus += n
+  } else if (typeof raw === 'object' && !Array.isArray(raw)) {
+    const m = raw.multiplier ?? raw.mult
+    if (m === 2 || m === '2' || (typeof m === 'string' && /x\s*2|2\s*倍|×\s*2/i.test(m))) multiplier = 2
+    const val = raw.bonus ?? raw.val ?? raw.value
+    const n = evalVal(val)
+    if (!Number.isNaN(n)) bonus += n
+  } else if (typeof raw === 'string') {
+    const s = String(raw)
+    if (/x\s*2|2\s*倍|×\s*2/i.test(s)) multiplier = 2
+    const plusMatch = s.match(/[+＋]?(\d+)/)
+    if (plusMatch) bonus += (parseInt(plusMatch[1], 10) || 0)
+  }
+  return { multiplier, bonus }
+}
+
+/** 解析「速度增加」为 { walk, fly, swim, climb }，兼容旧文本/对象/公式 */
+function parseBaseSpeedIncrement(raw, evalVal) {
+  const result = { walk: 0, fly: 0, swim: 0, climb: 0 }
+  if (raw == null) return result
+  if (typeof raw === 'number' || isFormulaValue(raw)) {
+    const n = evalVal(raw)
+    if (!Number.isNaN(n)) result.walk = n
+    return result
+  }
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    const read = (key) => {
+      const v = raw[key]
+      if (v == null) return 0
+      if (typeof v === 'number' || isFormulaValue(v)) {
+        const n = evalVal(v)
+        return Number.isNaN(n) ? 0 : n
+      }
+      const s = String(v)
+      const m = s.match(/[+＋]?(\d+)/)
+      return m ? parseInt(m[1], 10) || 0 : 0
+    }
+    result.walk = read('val') || read('speed') || read('walk') || 0
+    result.fly = read('fly') || read('flight') || 0
+    result.swim = read('swim') || 0
+    result.climb = read('climb') || 0
+    return result
+  }
+  if (typeof raw === 'string') {
+    const s = String(raw)
+    const typeRe = (word) => new RegExp(`${word}(?:速度)?\\s*[+＋]?\\s*(\\d+)`, 'i')
+    const walkMatch = s.match(typeRe('行走'))
+    const flyMatch = s.match(typeRe('飞行'))
+    const swimMatch = s.match(typeRe('游泳'))
+    const climbMatch = s.match(typeRe('攀爬'))
+    if (walkMatch) result.walk = parseInt(walkMatch[1], 10) || 0
+    if (flyMatch) result.fly = parseInt(flyMatch[1], 10) || 0
+    if (swimMatch) result.swim = parseInt(swimMatch[1], 10) || 0
+    if (climbMatch) result.climb = parseInt(climbMatch[1], 10) || 0
+    if (result.walk === 0 && result.fly === 0 && result.swim === 0 && result.climb === 0) {
+      const plainMatch = s.match(/[+＋]?(\d+)/)
+      if (plainMatch) result.walk = parseInt(plainMatch[1], 10) || 0
+    }
+  }
+  return result
 }
 
 /**
@@ -196,8 +271,9 @@ export function computeBuffStats(character, activeBuffs) {
           continue
         }
         if (globalVal !== 0) {
-          attackAll += globalVal
-          dmgAll += globalVal
+          if (b.scope === 'melee') { attackMelee += globalVal; dmgMelee += globalVal }
+          else if (b.scope === 'ranged' || b.scope === 'firearm') { attackRanged += globalVal; dmgRanged += globalVal }
+          else { attackAll += globalVal; dmgAll += globalVal }
         }
         if (rows.length > 0) {
           weaponCategoryAttackDamageBonuses.push({ categoryRows: rows, advantage: adv })
@@ -208,14 +284,25 @@ export function computeBuffStats(character, activeBuffs) {
       if (!Number.isNaN(v)) {
         if (b.effectType === 'attack_melee') attackMelee += v
         else if (b.effectType === 'attack_ranged') attackRanged += v
-        else if (b.effectType === 'attack_all' || b.effectType === 'attack_bonus') attackAll += v
+        else if (b.effectType === 'attack_all') attackAll += v
+        else if (b.effectType === 'attack_bonus') {
+          if (b.scope === 'melee') attackMelee += v
+          else if (b.scope === 'ranged' || b.scope === 'firearm') attackRanged += v
+          else attackAll += v
+        }
         else if (b.effectType === 'dmg_bonus_melee') dmgMelee += v
         else if (b.effectType === 'dmg_bonus_ranged') dmgRanged += v
-        else if (b.effectType === 'dmg_bonus_all' || b.effectType === 'damage_bonus') dmgAll += v
-        // 新表：命中/伤害加值（数字输入），数值同时加到命中与伤害（全局；武器类别见 weaponCategoryAttackDamageBonuses）
+        else if (b.effectType === 'dmg_bonus_all') dmgAll += v
+        else if (b.effectType === 'damage_bonus') {
+          if (b.scope === 'melee') dmgMelee += v
+          else if (b.scope === 'ranged' || b.scope === 'firearm') dmgRanged += v
+          else dmgAll += v
+        }
+        // 新表：命中/伤害加值（数字输入），数值同时加到命中与伤害；scope 可限定近战/远程/枪械
         else if (b.effectType === 'attack_damage_bonus') {
-          attackAll += v
-          dmgAll += v
+          if (b.scope === 'melee') { attackMelee += v; dmgMelee += v }
+          else if (b.scope === 'ranged' || b.scope === 'firearm') { attackRanged += v; dmgRanged += v }
+          else { attackAll += v; dmgAll += v }
         }
       }
     }
@@ -245,7 +332,7 @@ export function computeBuffStats(character, activeBuffs) {
         else if (objAdv === 'disadvantage') disadvSkill++
       }
       // 命中/伤害加值上的优势/劣势：视为所有攻击的优势/劣势来源（「武器类别」限定的不计入全局，由武器行单独处理时可扩展）
-      if (b.effectType === 'attack_damage_bonus' || b.effectType === 'attack_bonus') {
+      if (b.effectType === 'attack_damage_bonus' || b.effectType === 'attack_bonus' || b.effectType === 'damage_bonus') {
         const rawA = b.value
         if (rawA && typeof rawA === 'object' && !Array.isArray(rawA)) {
           const gv = evalVal(rawA.val)
@@ -367,9 +454,10 @@ export function computeBuffStats(character, activeBuffs) {
           const n = evalVal(raw[k])
           if (!Number.isNaN(n)) saveBonusPerAbility[k] = (saveBonusPerAbility[k] || 0) + n
         }
-      } else if (b.effectType === 'skill_bonus' && raw && typeof raw === 'object') {
+      } else if (b.effectType === 'skill_bonus' && raw && typeof raw === 'object' && !Array.isArray(raw)) {
         for (const [k, val] of Object.entries(raw)) {
-          if (k === 'advantage') continue
+          if (k === 'advantage' || ['ref', 'ability', 'mult', 'add'].includes(k)) continue
+          if (val == null) continue
           const n = evalVal(val)
           if (!Number.isNaN(n)) skillBonusPerSkill[k] = (skillBonusPerSkill[k] || 0) + n
         }
@@ -394,42 +482,35 @@ export function computeBuffStats(character, activeBuffs) {
       else if (b.effectType === 'terrain_ignore' && (raw === true || raw === 'true' || raw === 1)) {
         ignoreDifficultTerrain = true
       }
-      // 新表：专注增强（对象：val + advantage；兼容旧文本）
+      // 新表：专注增强（对象：val + advantage；兼容旧文本/纯数字/公式）
       else if (b.effectType === 'concentration_save_enhance') {
-        if (raw && typeof raw === 'object') {
+        if (typeof raw === 'number' || isFormulaValue(raw)) {
+          const cb = evalVal(raw)
+          if (!Number.isNaN(cb)) concentrationBonus += cb
+        } else if (raw && typeof raw === 'object') {
           const cb = evalVal(raw.val)
           if (!Number.isNaN(cb)) concentrationBonus += cb
           if (raw.advantage === 'advantage') concentrationAdvantage = 'advantage'
           else if (raw.advantage === 'disadvantage') concentrationAdvantage = 'disadvantage'
         } else if (typeof raw === 'string') {
-          if (/优势/i.test(raw)) concentrationAdvantage = 'advantage'
-          const plusMatch = raw.match(/[+＋](\d+)/)
-          if (plusMatch) concentrationBonus += (parseInt(plusMatch[1], 10) || 0)
+          const s = String(raw).trim()
+          if (/优势/i.test(s)) concentrationAdvantage = 'advantage'
+          else if (/劣势/i.test(s)) concentrationAdvantage = 'disadvantage'
+          const numMatch = s.match(/[+＋]?(\d+)/)
+          if (numMatch) concentrationBonus += (parseInt(numMatch[1], 10) || 0)
         }
       }
-      // 新表：施法距离延伸（x2 或 +N）
-      else if (b.effectType === 'spell_range_extension' && typeof raw === 'string') {
-        if (/x\s*2|2\s*倍|×\s*2/i.test(raw)) spellRangeMultiplier = Math.max(spellRangeMultiplier, 2)
-        const plusMatch = raw.match(/[+＋](\d+)/)
-        if (plusMatch) spellRangeBonus += (parseInt(plusMatch[1], 10) || 0)
+      // 新表：施法距离延伸（x2 或 +N；兼容旧文本/纯数字/公式/对象）
+      else if (b.effectType === 'spell_range_extension') {
+        const parsed = parseSpellRangeExtension(raw, evalVal)
+        if (parsed.multiplier > 1) spellRangeMultiplier = Math.max(spellRangeMultiplier, parsed.multiplier)
+        spellRangeBonus += parsed.bonus
       }
-      // 新表：速度增加（统一数值，默认为地面速度 +X）
+      // 新表：速度增加（统一数值，默认为地面速度 +X；兼容旧文本/对象/公式）
       else if (b.effectType === 'base_speed_increment') {
-        if (typeof raw === 'number' || isFormulaValue(raw)) {
-          speedBonus += evalVal(raw)
-        } else if (typeof raw === 'string') {
-          const walkMatch = raw.match(/行走\s*[+＋]?\s*(\d+)/i)
-          const flyMatch = raw.match(/飞行\s*[+＋]?\s*(\d+)/i)
-          if (walkMatch) speedBonus += (parseInt(walkMatch[1], 10) || 0)
-          if (flyMatch) {
-            const n = parseInt(flyMatch[1], 10) || 0
-            if (n > flightSpeed) flightSpeed = n
-          }
-          const swimMatch = raw.match(/游泳\s*[+＋]?\s*(\d+)/i)
-          const climbMatch = raw.match(/攀爬\s*[+＋]?\s*(\d+)/i)
-          if (swimMatch) speedBonus += (parseInt(swimMatch[1], 10) || 0)
-          if (climbMatch) speedBonus += (parseInt(climbMatch[1], 10) || 0)
-        }
+        const spd = parseBaseSpeedIncrement(raw, evalVal)
+        speedBonus += spd.walk + spd.swim + spd.climb
+        if (spd.fly > flightSpeed) flightSpeed = spd.fly
       }
     }
 

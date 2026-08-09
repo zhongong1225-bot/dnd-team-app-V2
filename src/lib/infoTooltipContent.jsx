@@ -154,8 +154,6 @@ export function ItemTooltipContent({ proto, entry }) {
         <Field label="伤害" value={proto.伤害} />
         <Field label="精通" value={proto.精通} />
         <Field label="附注" value={proto.附注} />
-        <Field label="重量" value={proto.重量 != null ? `${proto.重量} 磅` : ''} />
-        <Field label="价格" value={proto.价格 != null ? `${proto.价格} GP` : ''} />
         {hasCharge && <Field label="充能" value={`${charge}`} />}
       </div>
     </div>

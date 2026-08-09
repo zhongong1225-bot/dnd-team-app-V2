@@ -225,14 +225,16 @@ export default function CharacterSheetTopBar({
     setTargetKey(`stellar:${meta.id}`)
   }
 
-  const mainHp = char?.hp ?? { current: 0, max: 0, temp: 0 }
+  const mainHp = char?.hp ?? { current: 0, max: 0, temp: 0, buffTemp: 0 }
   const mCur = Math.max(0, Number(mainHp.current) || 0)
   const mMax = Math.max(0, Number(mainHp.max) || 0)
   const mTemp = Math.max(0, Number(mainHp.temp) || 0)
-  const { curW, tempW } = hpBarWidths(mCur, mMax, mTemp)
+  const mBuffTemp = Math.max(0, Number(mainHp.buffTemp) || 0)
+  const totalTemp = mTemp + mBuffTemp
+  const { curW, tempW } = hpBarWidths(mCur, mMax, totalTemp)
   const curFillClass = hpBarMainFillClass(mCur, mMax)
-  const mainPct = mainHpPercent(mCur, mMax, mTemp)
-  const hpLabel = mTemp > 0 ? `${mCur}+${mTemp} / ${mMax}` : `${mCur} / ${mMax}`
+  const mainPct = mainHpPercent(mCur, mMax, totalTemp)
+  const hpLabel = totalTemp > 0 ? `${mCur}+${totalTemp} / ${mMax}` : `${mCur} / ${mMax}`
 
   const addStellarToSlot = (slotIndex) => {
     if (!canEdit) return

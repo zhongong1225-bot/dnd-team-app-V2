@@ -31,6 +31,7 @@ export default function BuffManager({
   referenceData,
   baseReferenceData,
   formulaContext = {},
+  sourceNameOptions = [],
 }) {
   const [formState, setFormState] = useState(null)
   /** null | { mode: 'active'|'stash', id: string|null } */
@@ -336,6 +337,7 @@ export default function BuffManager({
                 onCancel={() => setFormState(null)}
                 referenceData={referenceData}
                 baseReferenceData={baseReferenceData}
+                sourceNameOptions={sourceNameOptions}
               />
             </div>
           </div>

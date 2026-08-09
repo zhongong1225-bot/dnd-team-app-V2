@@ -14,25 +14,43 @@ function formatFormulaLabelWithEval(value, context = {}) {
   return `${label}（${sign}${num}）`
 }
 
+/** 统一把属性/豁免/技能条目的值格式化为带符号字符串，避免直接 Number(数组/对象) 得到 NaN */
+function formatSignedEntryVal(val, context = {}) {
+  if (isFormulaValue(val)) return formatFormulaLabelWithEval(val, context)
+  const num = evaluateBuffValue(val, context)
+  const sign = num >= 0 ? '+' : ''
+  return `${sign}${num}`
+}
+
+/** 判断一个对象是否是「属性/豁免/技能」配置对象（键为属性名，而非数字索引） */
+function isPlainAbilityObject(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v) || isFormulaValue(v)) return false
+  const keys = Object.keys(v).filter((k) => k !== 'advantage')
+  if (keys.length === 0) return true
+  return keys.every((k) => !/^\d+$/.test(k))
+}
+
 /** 命中/伤害加值摘要：全局 + 分武器行 / 旧版 weaponScope + weaponCategories */
 function formatAttackDamageBonusSummaryText(effectType, v, context = {}) {
-  if (effectType !== 'attack_damage_bonus' || !v || typeof v !== 'object') return ''
+  if (effectType !== 'attack_damage_bonus' || !v || typeof v !== 'object' || Array.isArray(v)) return ''
   const adv = v.advantage === 'advantage' ? ' 优势' : v.advantage === 'disadvantage' ? ' 劣势' : ''
   const parts = []
-  const gv = isFormulaValue(v.val) ? formatFormulaLabelWithEval(v.val, context) : Number(v.val) || 0
-  if (gv !== 0) parts.push(`全局${typeof gv === 'number' && gv >= 0 ? '+' : ''}${gv}`)
+  const gnum = evaluateBuffValue(v.val, context)
+  const gdisp = isFormulaValue(v.val) ? formatFormulaLabelWithEval(v.val, context) : gnum
+  if (gnum !== 0) parts.push(`全局${gnum >= 0 ? '+' : ''}${gdisp}`)
   const rows = Array.isArray(v.categoryRows) ? v.categoryRows.filter((r) => String(r.key || '').trim()) : []
   if (rows.length) {
     rows.forEach((r) => {
-      const n = isFormulaValue(r.val) ? formatFormulaLabelWithEval(r.val, context) : Number(r.val) || 0
-      parts.push(`${r.key}${typeof n === 'number' && n >= 0 ? '+' : ''}${n}`)
+      const nnum = evaluateBuffValue(r.val, context)
+      const ndisp = isFormulaValue(r.val) ? formatFormulaLabelWithEval(r.val, context) : nnum
+      parts.push(`${r.key}${nnum >= 0 ? '+' : ''}${ndisp}`)
     })
   }
   if (parts.length === 0 && v.weaponScope === 'weapon_category') {
     const cats = Array.isArray(v.weaponCategories) ? v.weaponCategories.filter(Boolean) : []
     if (cats.length) {
-      const val = isFormulaValue(v.val) ? formatFormulaLabelWithEval(v.val, context) : Number(v.val) || 0
-      const numStr = val !== 0 ? (typeof val === 'number' && val >= 0 ? '+' : '') + val : ''
+      const num = evaluateBuffValue(v.val, context)
+      const numStr = num !== 0 ? (num >= 0 ? '+' : '') + (isFormulaValue(v.val) ? formatFormulaLabelWithEval(v.val, context) : num) : ''
       return `${cats.join('、')}${numStr}${adv}`.trim()
     }
   }
@@ -40,7 +58,7 @@ function formatAttackDamageBonusSummaryText(effectType, v, context = {}) {
 }
 
 /** 单条效果的简化文案（用于外层一行展示），如 "心灵抗性"、"智力-2，感知+2"、"生命上限+26" */
-function getEffectSummaryShort(buff, context = {}, baseContext = context) {
+export function getEffectSummaryShort(buff, context = {}, baseContext = context) {
   const info = getEffectInfo(buff.effectType)
   if (!info) return buff.value != null ? String(buff.value) : ''
   // 自由填写：优先 value（与保存一致），兼容 customText；空时显示占位便于记录“仅描述”类效果
@@ -61,6 +79,7 @@ function getEffectSummaryShort(buff, context = {}, baseContext = context) {
     return `${effectLabel}${sign}${v}`
   }
   if (info.effect.dataType === 'object' && v) {
+    if (Array.isArray(v) || isFormulaValue(v)) return effectLabel
     if (v.type != null && (typeof v.val === 'number' || isFormulaValue(v.val))) {
       const typeLabel = getDamageTypeLabel(v.type)
       if (isFormulaValue(v.val)) return `${typeLabel}${formatFormulaLabelWithEval(v.val, context)}`
@@ -83,60 +102,62 @@ function getEffectSummaryShort(buff, context = {}, baseContext = context) {
       return effectLabel + (numStr ? numStr : '') + (adv ? (numStr ? ' ' : '') + adv : '')
     }
     if (info.effect.subSelect === 'flightSpeed') {
-      const speed = v.speed ?? (typeof v === 'number' ? v : 0)
+      const speed = evaluateBuffValue(v.speed, context) ?? (typeof v === 'number' ? v : 0)
       const hover = v.hover ? '悬浮' : ''
       return (speed ? speed + '尺' : '') + (hover ? (speed ? ' ' : '') + hover : '') || effectLabel
     }
     if (info.effect.subSelect === 'initBonusAndProficiency' || buff.effectType === 'initiative_buff') {
       const parts = []
       if (v.bonus != null && v.bonus !== 0) {
-        if (isFormulaValue(v.bonus)) parts.push(formatFormulaLabelWithEval(v.bonus, context))
-        else parts.push((Number(v.bonus) >= 0 ? '+' : '') + Number(v.bonus))
+        const num = evaluateBuffValue(v.bonus, context)
+        if (!Number.isNaN(num)) {
+          if (isFormulaValue(v.bonus)) parts.push(formatFormulaLabelWithEval(v.bonus, context))
+          else parts.push((num >= 0 ? '+' : '') + num)
+        }
       }
       if (v.proficient) parts.push('熟练')
       return parts.length ? `${effectLabel} ${parts.join(' ')}` : effectLabel
     }
-    if (info.effect.subSelect === 'abilityScoresAndAdvantage') {
+    if (info.effect.subSelect === 'abilityScoresAndAdvantage' && isPlainAbilityObject(v)) {
       const labels = buff.effectType === 'save_bonus' ? SAVE_NAMES : ABILITY_NAMES_ZH
       const parts = Object.entries(v)
         .filter(([k, val]) => k !== 'advantage' && val != null && val !== 0)
         .map(([k, val]) => {
           const nameZh = labels[k] ?? k
-          if (isFormulaValue(val)) return `${nameZh}${formatFormulaLabelWithEval(val, context)}`
-          const num = Number(val)
-          const sign = num >= 0 ? '+' : ''
-          return `${nameZh}${sign}${num}`
+          return `${nameZh}${formatSignedEntryVal(val, context)}`
         })
       const adv = v.advantage === 'advantage' ? '优势' : v.advantage === 'disadvantage' ? '劣势' : ''
       return parts.join('，') + (adv ? (parts.length ? '，' : '') + adv : '')
     }
-    if (info.effect.subSelect === 'skillsAndAdvantage') {
+    if (info.effect.subSelect === 'skillsAndAdvantage' && isPlainAbilityObject(v)) {
       const parts = Object.entries(v)
         .filter(([k, val]) => k !== 'advantage' && val != null && val !== 0)
         .map(([k, val]) => {
           const sk = SKILLS.find((s) => s.id === k)
           const nameZh = sk ? sk.name : k
-          if (isFormulaValue(val)) return `${nameZh}${formatFormulaLabelWithEval(val, context)}`
-          const num = Number(val)
-          const sign = num >= 0 ? '+' : ''
-          return `${nameZh}${sign}${num}`
+          return `${nameZh}${formatSignedEntryVal(val, context)}`
         })
       const adv = v.advantage === 'advantage' ? '优势' : v.advantage === 'disadvantage' ? '劣势' : ''
       return parts.join('，') + (adv ? (parts.length ? '，' : '') + adv : '')
     }
-    if (buff.effectType === 'ability_score' || buff.effectType === 'ability_override' || buff.effectType === 'ability_score_uncapped') {
+    if ((buff.effectType === 'ability_score' || buff.effectType === 'ability_override' || buff.effectType === 'ability_score_uncapped') && isPlainAbilityObject(v)) {
       const parts = Object.entries(v)
         .filter(([k, val]) => k !== 'advantage' && val != null && val !== 0)
         .map(([k, val]) => {
           const nameZh = ABILITY_NAMES_ZH[k] ?? k
           if (isFormulaValue(val)) return `${nameZh}${formatFormulaLabelWithEval(val, baseContext)}`
-          const num = Number(val)
+          const num = evaluateBuffValue(val, baseContext)
           if (buff.effectType === 'ability_override') return `${nameZh}${num}`
           const sign = num >= 0 ? '+' : ''
           return `${nameZh}${sign}${num}`
         })
       return parts.join('，')
     }
+    if (buff.effectType === 'contained_spell' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const spellLine = formatContainedSpellBrief(v, context)
+      return spellLine || effectLabel
+    }
+    return effectLabel
   }
   if (buff.effectType === 'damage_piercing_traits' && v && typeof v === 'object' && !Array.isArray(v)) {
     const str = formatDamagePiercingTraitsValue(v)
@@ -163,10 +184,6 @@ function getEffectSummaryShort(buff, context = {}, baseContext = context) {
     if (buff.effectType === 'condition_immunity') {
       return v.map(getConditionLabel).join('、') + '免疫'
     }
-  }
-  if (buff.effectType === 'contained_spell' && v && typeof v === 'object' && !Array.isArray(v)) {
-    const spellLine = formatContainedSpellBrief(v)
-    return spellLine || effectLabel
   }
   return v != null ? `${effectLabel}${String(v)}` : effectLabel
 }
@@ -252,53 +269,54 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
       return { label: effectLabel, value: core || null }
     }
     if (info.effect.subSelect === 'flightSpeed') {
-      const speed = v.speed ?? (typeof v === 'number' ? v : 0)
+      const speed = evaluateBuffValue(v.speed, context) ?? (typeof v === 'number' ? v : 0)
       const hover = v.hover ? '悬浮' : ''
       return { label: effectLabel, value: speed ? `${speed}尺${hover ? ' ' + hover : ''}` : (hover || null) }
     }
     if (info.effect.subSelect === 'initBonusAndProficiency' || buff.effectType === 'initiative_buff') {
       const parts = []
       if (v.bonus != null && v.bonus !== 0) {
-        if (isFormulaValue(v.bonus)) parts.push(formatFormulaLabelWithEval(v.bonus, context))
-        else parts.push((Number(v.bonus) >= 0 ? '+' : '') + Number(v.bonus))
+        const num = evaluateBuffValue(v.bonus, context)
+        if (!Number.isNaN(num)) {
+          if (isFormulaValue(v.bonus)) parts.push(formatFormulaLabelWithEval(v.bonus, context))
+          else parts.push((num >= 0 ? '+' : '') + num)
+        }
       }
       if (v.proficient) parts.push('熟练加值')
       return { label: effectLabel, value: parts.length ? parts.join(' ') : null }
     }
-    if (info.effect.subSelect === 'abilityScoresAndAdvantage') {
+    if (info.effect.subSelect === 'abilityScoresAndAdvantage' && isPlainAbilityObject(v)) {
       const labels = buff.effectType === 'save_bonus' ? SAVE_NAMES : ABILITY_NAMES_ZH
       const parts = Object.entries(v)
         .filter(([k, val]) => k !== 'advantage' && val != null && val !== 0)
         .map(([k, val]) => {
-          if (isFormulaValue(val)) return `${labels[k] ?? k} ${formatFormulaLabelWithEval(val, context)}`
-          return `${labels[k] ?? k} ${val >= 0 ? '+' : ''}${val}`
+          return `${labels[k] ?? k} ${formatSignedEntryVal(val, context)}`
         })
       const adv = v.advantage === 'advantage' ? '优势' : v.advantage === 'disadvantage' ? '劣势' : ''
       return { label: effectLabel, value: parts.length ? parts.join('、') + (adv ? ' ' + adv : '') : (adv || null) }
     }
-    if (info.effect.subSelect === 'skillsAndAdvantage') {
+    if (info.effect.subSelect === 'skillsAndAdvantage' && isPlainAbilityObject(v)) {
       const parts = Object.entries(v)
         .filter(([k, val]) => k !== 'advantage' && val != null && val !== 0)
         .map(([k, val]) => {
           const sk = SKILLS.find((s) => s.id === k)
           const nameZh = sk ? sk.name : k
-          if (isFormulaValue(val)) return `${nameZh} ${formatFormulaLabelWithEval(val, context)}`
-          return `${nameZh} ${val >= 0 ? '+' : ''}${val}`
+          return `${nameZh} ${formatSignedEntryVal(val, context)}`
         })
       const adv = v.advantage === 'advantage' ? '优势' : v.advantage === 'disadvantage' ? '劣势' : ''
       return { label: effectLabel, value: parts.length ? parts.join('、') + (adv ? ' ' + adv : '') : (adv || null) }
     }
     if (buff.effectType === 'contained_spell' && v && typeof v === 'object' && !Array.isArray(v)) {
-      const spellLine = formatContainedSpellBrief(v)
+      const spellLine = formatContainedSpellBrief(v, context)
       return { label: effectLabel, value: spellLine || null }
     }
-    if (buff.effectType === 'ability_score' || buff.effectType === 'ability_override' || buff.effectType === 'ability_score_uncapped') {
+    if ((buff.effectType === 'ability_score' || buff.effectType === 'ability_override' || buff.effectType === 'ability_score_uncapped') && isPlainAbilityObject(buff.value)) {
       const parts = Object.entries(buff.value)
         .filter(([, v]) => v != null && v !== 0)
         .map(([k, val]) => {
           const nameZh = ABILITY_NAMES_ZH[k] ?? k
           if (isFormulaValue(val)) return `${nameZh} ${formatFormulaLabelWithEval(val, baseContext)}`
-          const num = Number(val)
+          const num = evaluateBuffValue(val, baseContext)
           if (buff.effectType === 'ability_override') return `${nameZh} ${num}`
           const sign = num >= 0 ? '+' : ''
           return `${nameZh} ${sign}${num}`
@@ -309,8 +327,11 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
       const str = typeof v === 'string' ? v.trim() : [' - ', v.minus, ' + ', v.plus, ' ', v.type].join('').replace(/\s+/g, ' ').trim()
       return { label: effectLabel, value: str || null }
     }
-    const parts = Object.entries(v).filter(([k, val]) => k !== 'advantage' && val != null && val !== 0).map(([k, val]) => `${ABILITY_NAMES_ZH[k] ?? k}+${val}`)
-    return { label: effectLabel, value: parts.length ? parts.join(', ') : null }
+    if (isPlainAbilityObject(v)) {
+      const parts = Object.entries(v).filter(([k, val]) => k !== 'advantage' && val != null && val !== 0).map(([k, val]) => `${ABILITY_NAMES_ZH[k] ?? k}+${formatSignedEntryVal(val, context)}`)
+      return { label: effectLabel, value: parts.length ? parts.join(', ') : null }
+    }
+    return { label: effectLabel, value: null }
   }
   if (Array.isArray(buff.value) && buff.value.length) {
     const isDamageType = ['resist_type', 'immune_type', 'vulnerable_type', 'ignore_resistance'].includes(buff.effectType)
