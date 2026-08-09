@@ -184,6 +184,13 @@ export function getEffectsFromItem(entry) {
       value: { val: Number(entry.spellDC) || 0, advantage: '' },
     })
   }
+  if (entry.spellAttackBonus != null && entry.spellAttackBonus !== '') {
+    out.push({
+      category: 'mobility_casting',
+      effectType: 'spell_attack_bonus',
+      value: { val: Number(entry.spellAttackBonus) || 0, advantage: '' },
+    })
+  }
   const 攻击距离 = (entry.攻击距离 ?? '').trim()
   const reachNum = 攻击距离.match(/(\d+)/)?.[1]
   if (reachNum) {

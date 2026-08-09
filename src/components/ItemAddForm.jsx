@@ -186,6 +186,7 @@ function entryToEffectModules(entry, proto) {
   const acMatch = 附注.match(/AC\s*\+\s*(\d+)/i)
   if (acMatch && !isShield) add('defense', 'ac_bonus', { value: parseInt(acMatch[1], 10) || 0 })
   if (entry.spellDC != null && entry.spellDC !== '') add('mobility_casting', 'save_dc_bonus', { value: { val: Number(entry.spellDC) || 0, advantage: '' } })
+  if (entry.spellAttackBonus != null && entry.spellAttackBonus !== '') add('mobility_casting', 'spell_attack_bonus', { value: { val: Number(entry.spellAttackBonus) || 0, advantage: '' } })
   const 攻击距离 = (entry.攻击距离 ?? '').trim()
   const reachNum = 攻击距离.match(/(\d+)/)?.[1]
   if (reachNum) add('offense', 'reach_bonus', { value: parseInt(reachNum, 10) || 0 })
@@ -223,7 +224,8 @@ function effectModuleToEntryParts(mod, currentEffect, context = {}) {
   if (key === 'reach_bonus') return { 攻击距离: num > 0 ? num + '尺' : '' }
   if (key === 'attack_range') return { 攻击范围: text.trim() || '' }
   if (key === 'charge') return { charge: num }
-  if (key === 'save_dc_bonus' || key === 'spell_attack_bonus') return { spellDC: evaluateBuffValue(val?.val, context) || 0 }
+  if (key === 'save_dc_bonus') return { spellDC: evaluateBuffValue(val?.val, context) || 0 }
+  if (key === 'spell_attack_bonus') return { spellAttackBonus: evaluateBuffValue(val?.val, context) || 0 }
   if (key === 'dmg_bonus_melee') return { 附注Part: num > 0 ? '近战伤害+' + num : '' }
   if (key === 'dmg_bonus_ranged') return { 附注Part: num > 0 ? '远程伤害+' + num : '' }
   if (key === 'crit_extra_dice') return { 附注Part: num >= 2 ? '暴击×' + num : '' }
@@ -494,6 +496,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     let magicBonus = 0
     let charge = 0
     let spellDC = undefined
+    let itemSpellAttackBonus = undefined
     const effectsForSave = []
     workingModules.forEach((mod) => {
       const catData = BUFF_TYPES[mod.category]
@@ -526,6 +529,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       if (parts.magicBonus != null) magicBonus = parts.magicBonus
       if (parts.charge != null) charge = parts.charge
       if (parts.spellDC != null) spellDC = parts.spellDC
+      if (parts.spellAttackBonus != null) itemSpellAttackBonus = parts.spellAttackBonus
       if (parts.攻击距离 !== undefined) 攻击距离 = parts.攻击距离 || undefined
       if (parts.攻击范围 !== undefined) 攻击范围 = parts.攻击范围 || undefined
     })
@@ -551,6 +555,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       magicBonus,
       charge,
       ...(spellDC != null ? { spellDC } : {}),
+      ...(itemSpellAttackBonus != null ? { spellAttackBonus: itemSpellAttackBonus } : {}),
       effects: effectsForSave,
       ...(isExplosive ? { 爆炸半径: Number(explosiveRadius) || 0 } : {}),
       // 保留容器内的嵌套物品（若编辑的是已有容器）

@@ -24,7 +24,7 @@ import {
   getCritDamageDiceMultiplierFromItemEntry,
   getCritThreatMinNaturalFromItemEntry,
 } from '../hooks/useBuffCalculator'
-import { getMergedBuffsForCalculator, getEffectsFromBuff } from '../lib/effects/effectMapping'
+import { getMergedBuffsForCalculator, getEffectsFromBuff, getEffectsFromItem } from '../lib/effects/effectMapping'
 import { skillProfFactor } from '../data/dndSkills'
 import { CONDITION_OPTIONS, CONDITION_DESCRIPTIONS, EXHAUSTION_DESCRIPTIONS, DAMAGE_TYPES, ABILITY_NAMES_ZH, getDamageTypeLabel, formatDamageForAttack } from '../data/buffTypes'
 import { inputClass, inputClassInline } from '../lib/inputStyles'
@@ -53,6 +53,33 @@ import { NumberStepper } from './BuffForm'
 import InfoTooltip from './InfoTooltip'
 import { MartialTechTooltipContent } from '../lib/infoTooltipContent'
 import { isNewContainedSpellValue, normalizeContainedSpellValue } from '../lib/containedSpellModel'
+
+/** 判断物品是否已装备并同调（用于避免法器自身加成与全局 BUFF 重复叠加） */
+function isEntryEquippedAndAttuned(entry, char) {
+  if (!entry || entry.isAttuned !== true) return false
+  const id = entry.id
+  if (!id) return false
+  const heldIds = new Set((char?.equippedHeld || []).map((s) => s?.inventoryId).filter(Boolean))
+  const wornIds = new Set((char?.equippedWorn || []).map((s) => s?.inventoryId).filter(Boolean))
+  return heldIds.has(id) || wornIds.has(id)
+}
+
+/** 从物品条目（含 effects 与 legacy 字段）提取法术命中/DC 加值；若已装备同调则返回 0，避免重复 */
+function getEntrySpellPowerBonus(entry, char, context) {
+  if (isEntryEquippedAndAttuned(entry, char)) return { atk: 0, dc: 0 }
+  let atk = 0
+  let dc = 0
+  for (const e of getEffectsFromItem(entry)) {
+    if (e.effectType === 'spell_attack_bonus') {
+      const raw = e.value && typeof e.value === 'object' && 'val' in e.value ? e.value.val : e.value
+      atk += evaluateBuffValue(raw, context) || 0
+    } else if (e.effectType === 'save_dc_bonus') {
+      const raw = e.value && typeof e.value === 'object' && 'val' in e.value ? e.value.val : e.value
+      dc += evaluateBuffValue(raw, context) || 0
+    }
+  }
+  return { atk, dc }
+}
 
 /** 战斗手段行：24 细分为 12 份 — 名称2 | 射程2 | 命中2 | 伤害5.5 | 删除0.5（删列=1/24；Tailwind 无 grid-cols-24 故用任意值） */
 const COMBAT_MEAN_ROW_GRID =
@@ -3040,15 +3067,22 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       const level = Math.max(0, Math.min(9, Number(selectedSub?.level) ?? 0))
                       const itemProto = currentEntry?.itemId ? getItemById(currentEntry.itemId) : null
                       const useWandScrollTable = !!(itemProto && (/魔杖|卷轴/.test(itemProto.类别 || '') || itemProto.子类型 === '卷轴'))
-                      const power = useWandScrollTable ? getWandScrollSpellPower(level) : null
+                      const basePower = useWandScrollTable ? getWandScrollSpellPower(level) : null
+                      const evalContext = { abilities: effectiveAbilities, level, prof, spellDC, spellAttack: spellAttackBonus }
+                      const entrySpellBonus = getEntrySpellPowerBonus(currentEntry, char, evalContext)
+                      const focusSpellAttackForMean = basePower
+                        ? basePower.attackBonus + entrySpellBonus.atk + gainAttackBonus
+                        : (spellAttackBonus != null ? spellAttackBonus + entrySpellBonus.atk + gainAttackBonus : null)
+                      const focusDcForMean = basePower
+                        ? basePower.dc + entrySpellBonus.dc
+                        : (spellDC != null ? spellDC + entrySpellBonus.dc : null)
                       const hitRes = selectedSub?.hitResolution && (HIT_RESOLUTION_LABELS[selectedSub.hitResolution] || selectedSub.hitResolution === 'none') ? selectedSub.hitResolution : 'dex_save'
                       const hitLabel = HIT_RESOLUTION_LABELS[hitRes]
-                      const focusSpellAttackForMean = spellAttackBonus != null ? spellAttackBonus + gainAttackBonus : null
                       const hitText = hitRes === 'none'
                         ? ((selectedSub?.range || '').trim() || '—')
                         : hitRes === 'spell_attack'
-                          ? `${hitLabel} ${power ? (power.attackBonus + gainAttackBonus >= 0 ? '+' : '') + (power.attackBonus + gainAttackBonus) : (focusSpellAttackForMean != null ? (focusSpellAttackForMean >= 0 ? '+' : '') + focusSpellAttackForMean : '—')}`
-                          : `${hitLabel} DC ${power ? power.dc : (spellDC != null ? spellDC : '—')}`
+                          ? `${hitLabel} ${focusSpellAttackForMean != null ? (focusSpellAttackForMean >= 0 ? '+' : '') + focusSpellAttackForMean : '—'}`
+                          : `${hitLabel} DC ${focusDcForMean != null ? focusDcForMean : '—'}`
                       const dCount = Math.max(0, Number(selectedSub?.damageDiceCount) ?? 0)
                       const dSides = Math.max(1, Number(selectedSub?.damageDiceSides) ?? 6)
                       const damageDiceText = dCount > 0 ? `${dCount}d${dSides}` : ''
