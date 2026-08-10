@@ -1,6 +1,6 @@
 import { Trash2, Pencil } from 'lucide-react'
 import { getBuffSourceKindLabel, getBuffSourceKindTitle } from '../lib/buffSourceKind'
-import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue, formatDamageForAttack } from '../data/buffTypes'
+import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue, formatDamageForAttack, formatScopeBrief, normalizeScope, formatSpellDamageBonusValue } from '../data/buffTypes'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { formatContainedSpellBrief } from '../lib/containedSpellBrief'
 import { isFormulaValue, formatFormulaLabel, evaluateBuffValue } from '../lib/formulas'
@@ -28,6 +28,13 @@ function isPlainAbilityObject(v) {
   const keys = Object.keys(v).filter((k) => k !== 'advantage')
   if (keys.length === 0) return true
   return keys.every((k) => !/^\d+$/.test(k))
+}
+
+/** 命中/伤害/攻击伤害加值：若非全局，附加起效范围摘要 */
+function getScopeSuffix(effectType, scope, scopeDetail) {
+  if (!['attack_bonus', 'damage_bonus', 'attack_damage_bonus'].includes(effectType)) return ''
+  const { scope: ns, scopeDetail: nd } = normalizeScope(scope, scopeDetail)
+  return formatScopeBrief(ns, nd)
 }
 
 /** 命中/伤害加值摘要：全局 + 分武器行 / 旧版 weaponScope + weaponCategories */
@@ -66,7 +73,9 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
     const text = (buff.value != null && buff.value !== '' ? String(buff.value) : '') || (buff.customText != null && buff.customText !== '' ? String(buff.customText) : '')
     return text || '（自由填写）'
   }
-  const effectLabel = info.effect.label ?? buff.effectType
+  const rawLabel = info.effect.label ?? buff.effectType
+  const scopeSuffix = getScopeSuffix(buff.effectType, buff.scope, buff.scopeDetail)
+  const effectLabel = scopeSuffix ? `${rawLabel}${scopeSuffix}` : rawLabel
   const v = buff.value
 
   if (info.effect.dataType === 'boolean') return buff.value ? effectLabel : ''
@@ -157,6 +166,10 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       const spellLine = formatContainedSpellBrief(v, context)
       return spellLine || effectLabel
     }
+    if (buff.effectType === 'spell_damage_bonus' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const text = formatSpellDamageBonusValue(v)
+      return text ? effectLabel + text : effectLabel
+    }
     return effectLabel
   }
   if (buff.effectType === 'damage_piercing_traits' && v && typeof v === 'object' && !Array.isArray(v)) {
@@ -196,7 +209,7 @@ export function getBuffSummaryLine(buff, baseAbilities = {}, context = {}) {
   const effectParts = []
   if (Array.isArray(buff.effects) && buff.effects.length) {
     buff.effects.forEach((e) => {
-      const s = getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText }, context, baseContext)
+      const s = getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText, scope: e.scope, scopeDetail: e.scopeDetail }, context, baseContext)
       if (s) effectParts.push(s)
     })
   } else {
@@ -213,7 +226,7 @@ export function getBuffEffectsList(buff, baseAbilities = {}, suppressedEffectTyp
   const effectParts = []
   if (Array.isArray(buff.effects) && buff.effects.length) {
     buff.effects.forEach((e) => {
-      const s = getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText }, context, baseContext)
+      const s = getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText, scope: e.scope, scopeDetail: e.scopeDetail }, context, baseContext)
       if (s) effectParts.push({ text: s, suppressed: suppressedEffectTypes.has(e.effectType) })
     })
   } else {
@@ -310,6 +323,10 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
     if (buff.effectType === 'contained_spell' && v && typeof v === 'object' && !Array.isArray(v)) {
       const spellLine = formatContainedSpellBrief(v, context)
       return { label: effectLabel, value: spellLine || null }
+    }
+    if (buff.effectType === 'spell_damage_bonus' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const text = formatSpellDamageBonusValue(v)
+      return { label: effectLabel, value: text || null }
     }
     if ((buff.effectType === 'ability_score' || buff.effectType === 'ability_override' || buff.effectType === 'ability_score_uncapped') && isPlainAbilityObject(buff.value)) {
       const entries = Object.entries(buff.value).filter(([, val]) => val != null && val !== 0)

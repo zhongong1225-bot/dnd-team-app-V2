@@ -2,7 +2,15 @@ import { useMemo } from 'react'
 import { abilityModifier, getAC, proficiencyBonus, evaluateBuffValue, isFormulaValue } from '../lib/formulas'
 import { getPrimarySpellcastingAbility } from '../data/classDatabase'
 import { levelFromXP } from '../lib/xp5e'
-import { ABILITY_KEYS, getDamageTypeValue, weaponProtoMatchesBuffWeaponCategories, protoMatchesWeaponBuffKey } from '../data/buffTypes'
+import {
+  ABILITY_KEYS,
+  getDamageTypeValue,
+  weaponProtoMatchesBuffWeaponCategories,
+  protoMatchesWeaponBuffKey,
+  SCOPE_KIND,
+  normalizeScope,
+  scopeMatchesCombatMean,
+} from '../data/buffTypes'
 import { getFlatEffectEntries } from '../lib/effects/effectMapping'
 
 /**
@@ -228,7 +236,9 @@ export function computeBuffStats(character, activeBuffs) {
     }
     const evalVal = (raw) => evaluateBuffValue(raw, formulaContext)
 
-    // 2. 攻击加值：melee / ranged / all 分离累加
+    // 2. 攻击加值：全局 vs 条件范围分离。
+    //    命中/伤害加值只有 scope === 'global' 时才聚合到全局 all；
+    //    条件范围（本武器/某类生物/某类伤害类型/某类武器）由 CombatStatus 按具体战斗手段匹配后追加。
     let attackMelee = 0
     let attackRanged = 0
     let attackAll = 0
@@ -239,11 +249,16 @@ export function computeBuffStats(character, activeBuffs) {
 
     for (const b of entries) {
       const raw = b.value
+      const { scope } = normalizeScope(b.scope, b.scopeDetail)
+      const isGlobal = scope === SCOPE_KIND.global || scope === ''
+
       if (b.effectType === 'attack_damage_bonus' && typeof raw === 'string') {
         const attackMatch = raw.match(/攻击\s*[+＋]?\s*(\d+)/i)
         const dmgMatch = raw.match(/伤害\s*[+＋]?\s*(\d+)/i)
-        if (attackMatch) attackAll += (parseInt(attackMatch[1], 10) || 0)
-        if (dmgMatch) dmgAll += (parseInt(dmgMatch[1], 10) || 0)
+        if (isGlobal) {
+          if (attackMatch) attackAll += (parseInt(attackMatch[1], 10) || 0)
+          if (dmgMatch) dmgAll += (parseInt(dmgMatch[1], 10) || 0)
+        }
         continue
       }
       if (b.effectType === 'attack_damage_bonus' && raw && typeof raw === 'object' && !Array.isArray(raw)) {
@@ -270,10 +285,9 @@ export function computeBuffStats(character, activeBuffs) {
           }
           continue
         }
-        if (globalVal !== 0) {
-          if (b.scope === 'melee') { attackMelee += globalVal; dmgMelee += globalVal }
-          else if (b.scope === 'ranged' || b.scope === 'firearm') { attackRanged += globalVal; dmgRanged += globalVal }
-          else { attackAll += globalVal; dmgAll += globalVal }
+        if (isGlobal && globalVal !== 0) {
+          attackAll += globalVal
+          dmgAll += globalVal
         }
         if (rows.length > 0) {
           weaponCategoryAttackDamageBonuses.push({ categoryRows: rows, advantage: adv })
@@ -286,23 +300,17 @@ export function computeBuffStats(character, activeBuffs) {
         else if (b.effectType === 'attack_ranged') attackRanged += v
         else if (b.effectType === 'attack_all') attackAll += v
         else if (b.effectType === 'attack_bonus') {
-          if (b.scope === 'melee') attackMelee += v
-          else if (b.scope === 'ranged' || b.scope === 'firearm') attackRanged += v
-          else attackAll += v
+          if (isGlobal) attackAll += v
         }
         else if (b.effectType === 'dmg_bonus_melee') dmgMelee += v
         else if (b.effectType === 'dmg_bonus_ranged') dmgRanged += v
         else if (b.effectType === 'dmg_bonus_all') dmgAll += v
         else if (b.effectType === 'damage_bonus') {
-          if (b.scope === 'melee') dmgMelee += v
-          else if (b.scope === 'ranged' || b.scope === 'firearm') dmgRanged += v
-          else dmgAll += v
+          if (isGlobal) dmgAll += v
         }
-        // 新表：命中/伤害加值（数字输入），数值同时加到命中与伤害；scope 可限定近战/远程/枪械
+        // 新表：命中/伤害加值（数字输入），数值同时加到命中与伤害；仅全局生效
         else if (b.effectType === 'attack_damage_bonus') {
-          if (b.scope === 'melee') { attackMelee += v; dmgMelee += v }
-          else if (b.scope === 'ranged' || b.scope === 'firearm') { attackRanged += v; dmgRanged += v }
-          else { attackAll += v; dmgAll += v }
+          if (isGlobal) { attackAll += v; dmgAll += v }
         }
       }
     }
@@ -402,6 +410,7 @@ export function computeBuffStats(character, activeBuffs) {
     let initBonus = 0
     const saveDcValues = []
     const spellAttackValues = []
+    const spellDamageBonuses = [] // { type, diceFloor, perDieBonus, extraDice, flatBonus }
     let flightSpeed = 0
     let flightHover = false
     const saveBonusPerAbility = { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 }
@@ -440,6 +449,16 @@ export function computeBuffStats(character, activeBuffs) {
       }
       else if (b.effectType === 'save_dc_bonus') { const dv = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw) || 0; saveDcValues.push(dv) }
       else if (b.effectType === 'spell_attack_bonus') { const sv = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw) || 0; spellAttackValues.push(sv) }
+      else if (b.effectType === 'spell_damage_bonus' && raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        const sdb = {
+          type: raw.type ? String(raw.type).trim() : '',
+          diceFloor: Number(raw.diceFloor) > 1 ? Number(raw.diceFloor) : null,
+          perDieBonus: Number(raw.perDieBonus) || 0,
+          extraDice: raw.extraDice ? String(raw.extraDice).trim() : '',
+          flatBonus: raw.flatBonus != null && raw.flatBonus !== '' ? raw.flatBonus : 0,
+        }
+        spellDamageBonuses.push(sdb)
+      }
       else if (b.effectType === 'flight_speed' && raw && typeof raw === 'object') {
         const sp = evalVal(raw.speed)
         if (!Number.isNaN(sp) && sp > flightSpeed) flightSpeed = sp
@@ -570,6 +589,7 @@ export function computeBuffStats(character, activeBuffs) {
       initBonus,
       saveDcBonus,
       spellAttackBonus,
+      spellDamageBonuses,
       proficiencyOverride: profOverride,
       flightSpeed,
       flightHover,

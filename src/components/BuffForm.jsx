@@ -13,6 +13,11 @@ import {
   DAMAGE_DICE_ARROW_OPTIONS,
   DICE_SIDES_OPTIONS,
   parseDamageString,
+  SCOPE_KIND,
+  SCOPE_KIND_OPTIONS,
+  CREATURE_TYPE_OPTIONS,
+  WEAPON_SCOPE_CATEGORY_OPTIONS,
+  normalizeScope,
 } from '../data/buffTypes'
 import { WEAPON_BUFF_CATEGORY_SELECT_OPTIONS } from '../data/itemDatabase'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
@@ -32,13 +37,8 @@ import {
 
 const ABILITY_LABELS = { str: '力量', dex: '敏捷', con: '体质', int: '智力', wis: '感知', cha: '魅力' }
 
-/** Buff 效果「起效类型」：用于命中/伤害加值等可选择近战/远程/枪械/全局的效果 */
-const SCOPE_OPTIONS = [
-  { value: 'global', label: '全局' },
-  { value: 'melee', label: '近战武器' },
-  { value: 'ranged', label: '远程武器' },
-  { value: 'firearm', label: '枪械' },
-]
+/** Buff 效果「起效类型」：用于命中/伤害加值等可选择起效范围的效果 */
+const SCOPE_OPTIONS = SCOPE_KIND_OPTIONS
 
 /** 读取属性对象里的值：保留公式对象，避免 Number() 把公式转成 NaN */
 function getAbilityFieldValue(obj, key) {
@@ -140,35 +140,28 @@ export function serializeAttackDamageBonusForSave(value) {
 
 /** 从 initial 归一化为 effects 数组（兼容旧单条与新版 effects[]，旧 4 大类规范化为 6 大类） */
 function normalizeInitialEffects(initial) {
+  const mapEffect = (e) => {
+    let value = e.value ?? 0
+    if (e.effectType === 'concentration_save_enhance') value = normalizeConcentrationSaveEnhanceValue(value)
+    if (e.effectType === 'attack_damage_bonus') value = normalizeAttackDamageBonusModuleValue(value)
+    const { scope, scopeDetail } = normalizeScope(e.scope, e.scopeDetail)
+    return {
+      id: 'e_' + Math.random().toString(36).slice(2),
+      category: normalizeEffectCategory(e.effectType ?? '', e.category),
+      effectType: e.effectType ?? '',
+      scope,
+      scopeDetail,
+      value,
+      customText: typeof e.value === 'string' && e.effectType !== 'concentration_save_enhance' ? e.value : '',
+    }
+  }
   if (Array.isArray(initial?.effects) && initial.effects.length) {
-    return initial.effects.map((e) => {
-      let value = e.value ?? 0
-      if (e.effectType === 'concentration_save_enhance') value = normalizeConcentrationSaveEnhanceValue(value)
-      if (e.effectType === 'attack_damage_bonus') value = normalizeAttackDamageBonusModuleValue(value)
-      return {
-        id: 'e_' + Math.random().toString(36).slice(2),
-        category: normalizeEffectCategory(e.effectType ?? '', e.category),
-        effectType: e.effectType ?? '',
-        scope: e.scope || 'global',
-        value,
-        customText: typeof e.value === 'string' && e.effectType !== 'concentration_save_enhance' ? e.value : '',
-      }
-    })
+    return initial.effects.map(mapEffect)
   }
   if (initial?.category != null || initial?.effectType != null) {
-    let value = initial.value ?? 0
-    if (initial.effectType === 'concentration_save_enhance') value = normalizeConcentrationSaveEnhanceValue(value)
-    if (initial.effectType === 'attack_damage_bonus') value = normalizeAttackDamageBonusModuleValue(value)
-    return [{
-      id: 'e_' + Math.random().toString(36).slice(2),
-      category: normalizeEffectCategory(initial.effectType ?? '', initial.category),
-      effectType: initial.effectType ?? '',
-      scope: initial.scope || 'global',
-      value,
-      customText: typeof initial.value === 'string' && initial.effectType !== 'concentration_save_enhance' ? initial.value : '',
-    }]
+    return [mapEffect(initial)]
   }
-  return [{ id: 'e_' + Math.random().toString(36).slice(2), category: '', effectType: '', scope: 'global', value: 0, customText: '' }]
+  return [{ id: 'e_' + Math.random().toString(36).slice(2), category: '', effectType: '', scope: SCOPE_KIND.global, scopeDetail: [], value: 0, customText: '' }]
 }
 
 /** 根据效果类型把 value 转为保存用的最终值 */
@@ -212,6 +205,18 @@ function normalizeValueForSave(module, currentEffect) {
   if (needsSubSelect === 'containedSpell') {
     if (value && typeof value === 'object' && !Array.isArray(value)) return value
     return { spellId: '', spellName: '', level: 0, hitResolution: 'dex_save', range: '', area: '', damageDice: '', damageDiceCount: 1, damageDiceSides: 6, damageType: '', charges: 0 }
+  }
+  if (currentEffect.key === 'spell_damage_bonus') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return {
+        type: value.type ? String(value.type).trim() : '',
+        diceFloor: Number(value.diceFloor) > 1 ? Number(value.diceFloor) : 0,
+        perDieBonus: Number(value.perDieBonus) || 0,
+        extraDice: value.extraDice ? String(value.extraDice).trim() : '',
+        flatBonus: value.flatBonus != null && value.flatBonus !== '' ? value.flatBonus : 0,
+      }
+    }
+    return { type: '', diceFloor: 0, perDieBonus: 0, extraDice: '', flatBonus: 0 }
   }
   if (currentEffect.key === 'extra_damage_dice') {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -856,6 +861,70 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
   )
 }
 
+/** 施法增伤编辑器：伤害类型 / 伤害骰下限 / 每骰 +X / 追加骰 / 公式固定加值 */
+function SpellDamageBonusEditor({ value, onChange, referenceData }) {
+  const v = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  const update = (patch) => onChange({ ...v, ...patch })
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">伤害类型（可选）</label>
+          <select
+            value={v.type || ''}
+            onChange={(e) => update({ type: e.target.value })}
+            className={inputClass + ' h-8 text-xs w-full min-w-0'}
+          >
+            <option value="">全部</option>
+            {DAMAGE_TYPES.map((d) => (
+              <option key={d.value} value={d.value}>{d.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">伤害骰下限</label>
+          <NumberStepper
+            value={v.diceFloor ?? 0}
+            min={0}
+            max={20}
+            onChange={(n) => update({ diceFloor: n })}
+            compact
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">每骰 +X</label>
+          <NumberStepper
+            value={v.perDieBonus ?? 0}
+            onChange={(n) => update({ perDieBonus: n })}
+            compact
+          />
+        </div>
+        <div>
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">追加骰（如 1d6）</label>
+          <input
+            type="text"
+            value={v.extraDice || ''}
+            onChange={(e) => update({ extraDice: e.target.value })}
+            placeholder="1d6"
+            className={inputClass + ' h-8 text-xs w-full min-w-0'}
+          />
+        </div>
+      </div>
+      <div>
+        <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">固定加值（支持公式）</label>
+        <NumberStepper
+          referenceData={referenceData}
+          value={v.flatBonus ?? 0}
+          onChange={(n) => update({ flatBonus: n })}
+          compact
+        />
+      </div>
+    </div>
+  )
+}
+
 /** 多选下拉：点击显示已选，展开后为复选框列表，选择感强 */
 function MultiSelectDropdown({ options, selected, onChange, placeholder, id, className }) {
   const [open, setOpen] = useState(false)
@@ -1419,16 +1488,6 @@ function EffectValueEditor({
     }
     const numAdvVal = typeof value === 'object' && value && !Array.isArray(value) ? value : { val: typeof value === 'number' ? value : 0, advantage: '' }
     if (needsSubSelect === 'numberAndAdvantage') {
-      if (currentEffect?.key === 'attack_damage_bonus') {
-        return (
-          <AttackDamageBonusFields
-            module={module}
-            onChange={onChange}
-            compactClass={inputClassInline + ' h-7 text-xs'}
-            inline
-          />
-        )
-      }
       return (
         <div className="flex items-center gap-1.5 flex-nowrap">
           <NumberStepper referenceData={activeReferenceData}
@@ -1713,29 +1772,25 @@ function EffectValueEditor({
           )
         })()
       ) : needsSubSelect === 'numberAndAdvantage' ? (
-        currentEffect?.key === 'attack_damage_bonus' ? (
-          <AttackDamageBonusFields module={module} onChange={onChange} compactClass={inputClass + ' h-8 text-xs'} inline={false} />
-        ) : (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <NumberStepper referenceData={activeReferenceData}
-              value={(typeof value === 'object' && value && 'val' in value ? value.val : (typeof value === 'number' ? value : 0)) ?? 0}
-              onChange={(v) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), val: v } })}
-              compact
-            />
-            <div className="relative">
-              <select
-                value={(typeof value === 'object' && value && value.advantage != null ? value.advantage : '') ?? ''}
-                onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), advantage: e.target.value } })}
-                className={inputClass + ' min-w-[6rem] pr-6'}
-              >
-                {ADVANTAGE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-              <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-            </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <NumberStepper referenceData={activeReferenceData}
+            value={(typeof value === 'object' && value && 'val' in value ? value.val : (typeof value === 'number' ? value : 0)) ?? 0}
+            onChange={(v) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), val: v } })}
+            compact
+          />
+          <div className="relative">
+            <select
+              value={(typeof value === 'object' && value && value.advantage != null ? value.advantage : '') ?? ''}
+              onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), advantage: e.target.value } })}
+              className={inputClass + ' min-w-[6rem] pr-6'}
+            >
+              {ADVANTAGE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
-        )
+        </div>
       ) : needsSubSelect === 'flightSpeed' ? (
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5">
@@ -1858,6 +1913,12 @@ function EffectValueEditor({
             ))}
           </select>
         </div>
+      ) : needsSubSelect === 'spellDamageBonus' ? (
+        <SpellDamageBonusEditor
+          value={value}
+          onChange={(v) => onChange({ ...module, value: v })}
+          referenceData={activeReferenceData}
+        />
       ) : needsSubSelect === 'containedSpell' ? (
         <ContainedSpellEditor
           module={module}
@@ -1908,7 +1969,8 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
       if (currentEffect?.key?.startsWith('custom_')) {
         val = typeof mod.customText === 'string' ? mod.customText : (typeof val === 'string' ? val : '')
       }
-      return { category: mod.category, effectType, scope: mod.scope || 'global', value: val }
+      const { scope, scopeDetail } = normalizeScope(mod.scope, mod.scopeDetail)
+      return { category: mod.category, effectType, scope, scopeDetail, value: val }
     }).filter((ef) => ef.effectType)
     if (!effects.length && !initial?.fromFeat) return
     const payload = {
@@ -1928,7 +1990,8 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
     id: 'e_' + Math.random().toString(36).slice(2),
     category: '',
     effectType: '',
-    scope: 'global',
+    scope: SCOPE_KIND.global,
+    scopeDetail: [],
     value: 0,
     customText: '',
   })
@@ -2042,7 +2105,7 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
               const catData = BUFF_TYPES[mod.category]
               const currentEffect = catData?.effects?.find((e) => e.key === mod.effectType)
               const summary = currentEffect
-                ? getEffectSummaryShort({ effectType: mod.effectType, value: mod.value, customText: mod.customText }, effectSummaryContext)
+                ? getEffectSummaryShort({ effectType: mod.effectType, value: mod.value, customText: mod.customText, scope: mod.scope, scopeDetail: mod.scopeDetail }, effectSummaryContext)
                 : '未选择效果'
               const label = currentEffect ? (currentEffect.label ?? mod.effectType) : '—'
               return (
@@ -2121,6 +2184,67 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
   )
 }
 
+/** scope 条件编辑器：命中/伤害加值选择起效范围后，按 kind 渲染对应的 scopeDetail 多选 */
+function ScopeEditor({ scope, scopeDetail, onChange }) {
+  const currentScope = scope || SCOPE_KIND.global
+  const details = Array.isArray(scopeDetail) ? scopeDetail.filter(Boolean) : []
+  const showDetail = currentScope === SCOPE_KIND.creature_type || currentScope === SCOPE_KIND.damage_type || currentScope === SCOPE_KIND.weapon_category
+
+  const detailOptions = useMemo(() => {
+    if (currentScope === SCOPE_KIND.creature_type) return CREATURE_TYPE_OPTIONS
+    if (currentScope === SCOPE_KIND.damage_type) return DAMAGE_TYPES
+    if (currentScope === SCOPE_KIND.weapon_category) return WEAPON_SCOPE_CATEGORY_OPTIONS
+    return []
+  }, [currentScope])
+
+  const handleScopeChange = (nextScope) => {
+    onChange({ scope: nextScope || SCOPE_KIND.global, scopeDetail: [] })
+  }
+
+  const toggleDetail = (value, checked) => {
+    const next = checked ? [...details, value] : details.filter((v) => v !== value)
+    onChange({ scopeDetail: next })
+  }
+
+  return (
+    <div className="space-y-2">
+      <div>
+        <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">起效范围</label>
+        <select
+          value={currentScope}
+          onChange={(e) => handleScopeChange(e.target.value)}
+          className={inputClass + ' h-8 text-xs w-full sm:w-48 min-w-0'}
+        >
+          {SCOPE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+      {showDetail && (
+        <div className="flex flex-wrap gap-2">
+          {detailOptions.map((o) => {
+            const checked = details.includes(o.value)
+            return (
+              <label key={o.value} className="flex items-center gap-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => toggleDetail(o.value, e.target.checked)}
+                  className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                />
+                <span className="text-sm text-gray-300">{o.label}</span>
+              </label>
+            )
+          })}
+        </div>
+      )}
+      {currentScope === SCOPE_KIND.self_weapon && (
+        <p className="text-xs text-gray-500">仅对来自同一件物品的武器战斗手段生效。</p>
+      )}
+    </div>
+  )
+}
+
 /** 单条效果（附魔）弹窗编辑器：选择分类/效果类型/scope 后用 EffectValueEditor 编辑值 */
 function EffectModuleModal({
   module,
@@ -2189,6 +2313,7 @@ function EffectModuleModal({
               const patch = { effectType: nextType }
               if (nextType === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
               if (nextType === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(draft.value)
+              if (nextType === 'spell_damage_bonus') patch.value = { type: '', diceFloor: 0, perDieBonus: 0, extraDice: '', flatBonus: 0 }
               updateDraft(patch)
             }}
             className={inputClass + ' h-8 text-xs w-full min-w-0'}
@@ -2203,18 +2328,11 @@ function EffectModuleModal({
       </div>
 
       {showScope && (
-        <div>
-          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">起效范围</label>
-          <select
-            value={draft.scope || 'global'}
-            onChange={(e) => updateDraft({ scope: e.target.value || 'global' })}
-            className={inputClass + ' h-8 text-xs w-full sm:w-48 min-w-0'}
-          >
-            {SCOPE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
+        <ScopeEditor
+          scope={draft.scope}
+          scopeDetail={draft.scopeDetail}
+          onChange={(next) => updateDraft(next)}
+        />
       )}
 
       {currentEffect && (

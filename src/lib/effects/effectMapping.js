@@ -137,13 +137,19 @@ export function getEffectsFromBuff(buff) {
   if (!buff) return []
   if (Array.isArray(buff.effects) && buff.effects.length) {
     return buff.effects.map((e) => ({
+      ...e,
       effectType: e.effectType ?? '',
       value: e.value,
       category: normalizeEffectCategory(e.effectType ?? '', e.category),
     }))
   }
   if (buff.effectType != null || buff.category != null) {
-    return [{ effectType: buff.effectType ?? '', value: buff.value, category: normalizeEffectCategory(buff.effectType ?? '', buff.category) }]
+    return [{
+      ...buff,
+      effectType: buff.effectType ?? '',
+      value: buff.value,
+      category: normalizeEffectCategory(buff.effectType ?? '', buff.category),
+    }]
   }
   return []
 }
@@ -287,7 +293,7 @@ export function getBuffsFromEquipmentAndInventory(character) {
     out.push({
       id: 'item_' + (entry.id || 'inv_' + Math.random().toString(36).slice(2)),
       source: displayName,
-      effects: effects.map((e) => ({ effectType: e.effectType, value: e.value, category: e.category })),
+      effects: effects.map((e) => ({ effectType: e.effectType, value: e.value, category: e.category, itemInventoryId: entry.id })),
       enabled: true,
       fromItem: true,
     })

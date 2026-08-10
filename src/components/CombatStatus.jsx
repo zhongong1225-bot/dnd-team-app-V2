@@ -26,7 +26,7 @@ import {
 } from '../hooks/useBuffCalculator'
 import { getMergedBuffsForCalculator, getEffectsFromBuff, getEffectsFromItem } from '../lib/effects/effectMapping'
 import { skillProfFactor } from '../data/dndSkills'
-import { CONDITION_OPTIONS, CONDITION_DESCRIPTIONS, EXHAUSTION_DESCRIPTIONS, DAMAGE_TYPES, ABILITY_NAMES_ZH, getDamageTypeLabel, formatDamageForAttack } from '../data/buffTypes'
+import { CONDITION_OPTIONS, CONDITION_DESCRIPTIONS, EXHAUSTION_DESCRIPTIONS, DAMAGE_TYPES, ABILITY_NAMES_ZH, getDamageTypeLabel, getDamageTypeValue, formatDamageForAttack, scopeMatchesCombatMean, SCOPE_KIND, normalizeScope, CREATURE_TYPE_OPTIONS } from '../data/buffTypes'
 import { inputClass, inputClassInline } from '../lib/inputStyles'
 import { hpBarMainFillClass, HP_BAR_TEMP_FILL_CLASS } from '../lib/hpBarShared'
 
@@ -53,6 +53,66 @@ import { NumberStepper } from './BuffForm'
 import InfoTooltip from './InfoTooltip'
 import { MartialTechTooltipContent } from '../lib/infoTooltipContent'
 import { isNewContainedSpellValue, normalizeContainedSpellValue } from '../lib/containedSpellModel'
+import { getFlatEffectEntries } from '../lib/effects/effectMapping'
+
+/**
+ * 计算条件范围命中/伤害加值（非 global 的 attack_bonus / damage_bonus / attack_damage_bonus）。
+ * 本武器 / 某类生物 / 某类伤害类型 / 某类武器 等条件在此处按具体战斗手段上下文匹配后追加。
+ */
+function calculateConditionalAttackDamageBonus(cm, flatEffects, ctxExtra = {}, formulaContext = {}) {
+  let attack = 0
+  let damage = 0
+  if (!cm || !Array.isArray(flatEffects)) return { attackBonus: attack, damageBonus: damage }
+  const sourceKind = cm.type === 'physical' ? 'physical' : cm.type === 'spell_attack' ? 'spell_attack' : 'item'
+  for (const e of flatEffects) {
+    const { scope } = normalizeScope(e.scope, e.scopeDetail)
+    if (scope === SCOPE_KIND.global || scope === '') continue
+    if (!['attack_bonus', 'damage_bonus', 'attack_damage_bonus'].includes(e.effectType)) continue
+    const matches = scopeMatchesCombatMean(e, {
+      sourceKind,
+      weaponProto: ctxExtra.weaponProto,
+      damageType: ctxExtra.damageType,
+      targetCreatureType: cm.targetCreatureType || '',
+      sourceItemInventoryId: ctxExtra.sourceItemInventoryId,
+    })
+    if (!matches) continue
+    const rawVal = (() => {
+      if (e.value && typeof e.value === 'object' && !Array.isArray(e.value) && 'val' in e.value) {
+        return e.value.val
+      }
+      return e.value
+    })()
+    const v = evaluateBuffValue(rawVal, formulaContext)
+    if (!Number.isFinite(v)) continue
+    if (e.effectType === 'attack_bonus') attack += v
+    else if (e.effectType === 'damage_bonus') damage += v
+    else if (e.effectType === 'attack_damage_bonus') { attack += v; damage += v }
+  }
+  return { attackBonus: attack, damageBonus: damage }
+}
+
+/** 收集作用于指定伤害类型的 spell_damage_bonus 增益；无 type 视为通用 */
+function getSpellDamageBonusExtras(damageType, spellDamageBonuses, formulaContext = {}) {
+  const out = { perDieBonus: 0, flatBonus: 0, extraDice: [], diceFloor2: false }
+  if (!Array.isArray(spellDamageBonuses) || spellDamageBonuses.length === 0) return out
+  const targetValue = damageType ? getDamageTypeValue(damageType) : ''
+  for (const b of spellDamageBonuses) {
+    const bonusType = b.type ? String(b.type).trim() : ''
+    if (bonusType) {
+      const bonusValue = getDamageTypeValue(bonusType)
+      if (bonusValue !== targetValue) continue
+    }
+    const pdb = Number(b.perDieBonus) || 0
+    if (pdb) out.perDieBonus += pdb
+    if (b.flatBonus != null && b.flatBonus !== '') {
+      const fv = evaluateBuffValue(b.flatBonus, formulaContext)
+      if (Number.isFinite(fv)) out.flatBonus += fv
+    }
+    if (b.extraDice) out.extraDice.push(String(b.extraDice).trim())
+    if (Number(b.diceFloor) > 1) out.diceFloor2 = true
+  }
+  return out
+}
 
 /** 判断物品是否已装备并同调（用于避免法器自身加成与全局 BUFF 重复叠加） */
 function isEntryEquippedAndAttuned(entry, char) {
@@ -824,6 +884,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       spellAttack: spellAbility ? prof + spellMod : 0,
     }
   }, [char, level, abilities, buffStats])
+  const flatBuffEffects = useMemo(() => getFlatEffectEntries(mergedBuffs), [mergedBuffs])
   const acResult = getAC(char)
   const acTotal = buffStats?.ac != null ? buffStats.ac : (acResult.total + (buffStats?.acBonus ?? 0))
   const acModeOptions = useMemo(() => getACModeOptionsForCharacter(char), [char?.['class'], char?.multiclass, char?.prestige])
@@ -877,6 +938,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       damageType: m.damageType ?? null,
       weaponProficient: m.weaponProficient !== false,
       weaponNameSuffix: m.weaponNameSuffix ?? '',
+      targetCreatureType: m.targetCreatureType ?? '',
       gains: Array.isArray(m.gains) ? m.gains : [],
     }))
   })
@@ -894,6 +956,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [addAbility, setAddAbility] = useState('str')
   const [addDamageType, setAddDamageType] = useState('')
   const [addWeaponProficient, setAddWeaponProficient] = useState(true)
+  const [addTargetCreatureType, setAddTargetCreatureType] = useState('')
   const [addItemIndex, setAddItemIndex] = useState(null)
   const [addGains, setAddGains] = useState([])
   const [showSpellModule, setShowSpellModule] = useState(() => char?.showSpellModule !== false)
@@ -1266,6 +1329,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       damageType: m.damageType,
       weaponProficient: m.weaponProficient,
       weaponNameSuffix: m.weaponNameSuffix,
+      targetCreatureType: m.targetCreatureType,
       gains: Array.isArray(m.gains) ? m.gains : [],
       })),
     })
@@ -1286,6 +1350,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setAddWeaponExtraDice([])
     setShowWeaponExtraDiceEditor(false)
     setAddWeaponProficient(true)
+    setAddTargetCreatureType('')
     setAddSpellAttackSpellLevel('')
     setAddGains([])
     setShowAddCombatMeanModal(true)
@@ -1300,6 +1365,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       damageType: addDamageType || null,
       weaponProficient: addWeaponProficient,
       weaponNameSuffix: (addWeaponNameSuffix || '').trim(),
+      targetCreatureType: addTargetCreatureType || '',
       gains: addGains,
     }
     if (editingCombatMeanId) {
@@ -1322,6 +1388,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       damageType: null,
       weaponProficient: true,
       spellLevel: null,
+      targetCreatureType: addTargetCreatureType || '',
       gains: addGains,
     }
     if (editingCombatMeanId) {
@@ -1342,6 +1409,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       hitResolution: addSpellAttackHitResolution || 'spell_attack',
       damageDice: (addSpellAttackDice || '').trim(),
       damageTypeSpell: (addSpellAttackDamageType || '').trim(),
+      targetCreatureType: addTargetCreatureType || '',
       gains: addGains,
     }
     if (editingCombatMeanId) {
@@ -1377,6 +1445,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setAddSpellAttackDice(cm.damageDice || '')
     setAddSpellAttackDamageType(cm.damageTypeSpell || '')
     setAddSpellAttackSpellLevel(cm.spellLevel != null ? String(cm.spellLevel) : '')
+    setAddTargetCreatureType(cm.targetCreatureType || '')
     setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, true))
     setAddMeanStep('spell_attack')
     setShowAddCombatMeanModal(true)
@@ -1386,6 +1455,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setAddItemIndex(cm.itemInventoryIndex ?? null)
     const itemOpt = cm.itemInventoryIndex != null ? itemMeansFromInv.find((x) => x.index === cm.itemInventoryIndex) : null
     const isSpellItem = itemOpt && (itemOpt.kind === 'focus' || itemOpt.kind === 'scroll')
+    setAddTargetCreatureType(cm.targetCreatureType || '')
     setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellItem))
     setAddMeanStep('item')
     setShowAddCombatMeanModal(true)
@@ -1449,7 +1519,10 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       const gainPerDieBonus = sumGainPerDieBonus(gains)
       const gainExtraDice = getGainExtraDice(gains)
       const gainDiceFloor2 = hasGainDiceFloor2(gains)
-      const modifier = gainDamageBonus + gainPerDieBonus * dCount
+      const spellDamageExtras = focusUsePending?.spellDamageExtras || getSpellDamageBonusExtras(sub?.damageType, buffStats?.spellDamageBonuses, itemFormulaContext)
+      const allExtraDice = [...gainExtraDice, ...spellDamageExtras.extraDice]
+      const modifier = gainDamageBonus + gainPerDieBonus * dCount + spellDamageExtras.perDieBonus * dCount + spellDamageExtras.flatBonus
+      const floor2 = gainDiceFloor2 || focusUsePending?.damageFloor2 || spellDamageExtras.diceFloor2
       rollDamageDice(
         diceExpr,
         label,
@@ -1457,7 +1530,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         modifier,
         false,
         damageTypeLabel,
-        { extraDice: gainExtraDice, floor2: gainDiceFloor2 },
+        { extraDice: allExtraDice, floor2 },
       )
     }
   }
@@ -1675,6 +1748,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setAddAbility(resolvePhysicalWeaponAbilityKind(cm, wForEdit))
     setAddDamageType(cm.damageType ? String(cm.damageType) : '')
     setAddWeaponProficient(cm.weaponProficient !== false)
+    setAddTargetCreatureType(cm.targetCreatureType || '')
     setAddWeaponExtraDice(Array.isArray(cm.extraDamageDice) ? [...cm.extraDamageDice] : [])
     setShowWeaponExtraDiceEditor(false)
     setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs))
@@ -2948,15 +3022,22 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             const gainExtraDice = getGainExtraDice(gains)
             const gainAdvantage = getGainAdvantage(gains)
             const gainDiceFloor2 = hasGainDiceFloor2(gains)
-            const physicalAttackBonus = abilityMod + (weaponProficient ? prof : 0) + buffAttackBonus + gainAttackBonus
+            const rawDamageType = cm.damageType || attackParsed.type
+            const conditionalBonuses = isPhysical
+              ? calculateConditionalAttackDamageBonus(cm, flatBuffEffects, {
+                  weaponProto: weaponOpt?.proto,
+                  damageType: rawDamageType,
+                  sourceItemInventoryId: weaponOpt?.entry?.id,
+                }, itemFormulaContext)
+              : { attackBonus: 0, damageBonus: 0 }
+            const physicalAttackBonus = abilityMod + (weaponProficient ? prof : 0) + buffAttackBonus + gainAttackBonus + (conditionalBonuses?.attackBonus || 0)
             const damageMod = abilityMod
             const weaponExtraDiceStrings = [...getMergedWeaponExtraDiceStrings(cm, weaponOpt), ...gainExtraDice]
             const allWeaponDiceCount =
               (attackParsed.diceList || []).reduce((s, d) => s + (parseCombatDiceExpression(d)?.count || 0), 0) +
               weaponExtraDiceStrings.reduce((s, d) => s + (parseCombatDiceExpression(String(d).split(' ')[0])?.count || 0), 0)
             const weaponPerDieMod = gainPerDieBonus * allWeaponDiceCount
-            const totalDamageMod = damageMod + buffDamageBonus + gainDamageBonus + weaponPerDieMod
-            const rawDamageType = cm.damageType || attackParsed.type
+            const totalDamageMod = damageMod + buffDamageBonus + gainDamageBonus + weaponPerDieMod + (conditionalBonuses?.damageBonus || 0)
             const displayDamageType = rawDamageType ? getDamageTypeLabel(rawDamageType) : '—'
             const isSpellAttack = cm.type === 'spell_attack'
             const spellOpt = !isPhysical && !isItem && !isSpellAttack && cm.spellId ? preparedSpellsList.find((p) => p.spellId === cm.spellId) : null
@@ -3091,10 +3172,13 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       const dSides = Math.max(1, Number(selectedSub?.damageDiceSides) ?? 6)
                       const damageDiceText = dCount > 0 ? `${dCount}d${dSides}` : ''
                       const damageTypeLabel = selectedSub?.damageType ? getDamageTypeLabel(selectedSub.damageType) : ''
-                      const focusDamageMod = gainDamageBonus + gainPerDieBonus * dCount
-                      const focusExtraText = gainExtraDice.length ? (' + ' + gainExtraDice.join(' + ')) : ''
+                      const focusSpellDamageExtras = getSpellDamageBonusExtras(selectedSub?.damageType, buffStats?.spellDamageBonuses, itemFormulaContext)
+                      const focusDamageMod = gainDamageBonus + gainPerDieBonus * dCount + focusSpellDamageExtras.perDieBonus * dCount + focusSpellDamageExtras.flatBonus
+                      const focusAllExtraDice = [...gainExtraDice, ...focusSpellDamageExtras.extraDice]
+                      const focusExtraText = focusAllExtraDice.length ? (' + ' + focusAllExtraDice.join(' + ')) : ''
                       const focusModText = (focusDamageMod !== 0 && damageDiceText) ? ` ${formatSignedModifier(focusDamageMod)}` : ''
-                      const damageText = damageDiceText ? (damageTypeLabel ? `${damageDiceText} ${damageTypeLabel}${focusExtraText}${focusModText}` : `${damageDiceText}${focusExtraText}${focusModText}`) : (gainExtraDice.length ? gainExtraDice.join(' + ') : '—')
+                      const focusDamageFloor2 = gainDiceFloor2 || focusSpellDamageExtras.diceFloor2
+                      const damageText = damageDiceText ? (damageTypeLabel ? `${damageDiceText} ${damageTypeLabel}${focusExtraText}${focusModText}` : `${damageDiceText}${focusExtraText}${focusModText}`) : (focusAllExtraDice.length ? focusAllExtraDice.join(' + ') : '—')
                       const spellRange = (selectedSub?.range != null && String(selectedSub.range).trim() !== '') ? (String(selectedSub.range).trim() + (/^\d+$/.test(String(selectedSub.range).trim()) ? '尺' : '')) : '—'
                       const cell = 'pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden'
                       const selectedIdx = selectedSub ? cs.spells.indexOf(selectedSub) : -1
@@ -3135,7 +3219,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                             <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>充能</span>
                             <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums`}>{currentCharge}/{chargeMax}</span>
                             {canCast && (
-                              <button type="button" onClick={() => setFocusUsePending({ inventoryIndex: itemMeanOpt.index, name: itemMeanOpt.name, combatMeanId: cm.id, spellSub: selectedSub, gains: getEnabledGains(cm) })} className={CM_BTN_RED} title={quickRollTitle(`法器投掷（确认后扣 ${selectedSub?.cost || 1} 充能）`)} aria-label={quickRollTitle(`法器投掷（确认后扣 ${selectedSub?.cost || 1} 充能）`)}>
+                              <button type="button" onClick={() => setFocusUsePending({ inventoryIndex: itemMeanOpt.index, name: itemMeanOpt.name, combatMeanId: cm.id, spellSub: selectedSub, gains: getEnabledGains(cm), spellDamageExtras: focusSpellDamageExtras, damageFloor2: focusDamageFloor2 })} className={CM_BTN_RED} title={quickRollTitle(`法器投掷（确认后扣 ${selectedSub?.cost || 1} 充能）`)} aria-label={quickRollTitle(`法器投掷（确认后扣 ${selectedSub?.cost || 1} 充能）`)}>
                                 <QuickRollIcon kind="damage" className={CM_DICE_IC_GOLD} />
                               </button>
                             )}
@@ -3156,17 +3240,23 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                     const matchedSpell = getMergedSpells().find((s) => s.id === cm.spellId || (s.name && s.name.trim() === (cm.spellName || '').trim()))
                     const hitRes = cm.hitResolution && HIT_RESOLUTION_LABELS[cm.hitResolution] ? cm.hitResolution : 'spell_attack'
                     const hitLabel = HIT_RESOLUTION_LABELS[hitRes]
-                    const spellAttackForMean = spellAttackBonus != null ? spellAttackBonus + gainAttackBonus : null
+                    const spellConditionalBonuses = calculateConditionalAttackDamageBonus(cm, flatBuffEffects, {
+                      damageType: cm.damageTypeSpell,
+                    }, itemFormulaContext)
+                    const spellAttackForMean = spellAttackBonus != null ? spellAttackBonus + gainAttackBonus + (spellConditionalBonuses?.attackBonus || 0) : null
                     const hitValue = hitRes === 'spell_attack' ? (spellAttackForMean != null ? (spellAttackForMean >= 0 ? '+' : '') + spellAttackForMean : null) : (spellDC != null ? spellDC : null)
                     /** 战斗手段行内空间有限，法术攻击用简称「法攻」避免截断 */
                     const hitLabelShort = hitRes === 'spell_attack' ? '法攻' : hitLabel
                     const hitText = hitRes === 'spell_attack' ? (hitValue != null ? `${hitLabelShort} ${hitValue}` : '—') : (hitValue != null ? `${hitLabel} DC ${hitValue}` : '—')
                     const spellDiceCount = (() => { const p = parseCombatDiceExpression((cm.damageDice || '').trim()); return p ? p.count : 0 })()
-                    const spellDamageMod = gainDamageBonus + gainPerDieBonus * spellDiceCount
+                    const spellDamageExtras = getSpellDamageBonusExtras(cm.damageTypeSpell, buffStats?.spellDamageBonuses, itemFormulaContext)
+                    const spellDamageMod = gainDamageBonus + gainPerDieBonus * spellDiceCount + (spellConditionalBonuses?.damageBonus || 0) + spellDamageExtras.perDieBonus * spellDiceCount + spellDamageExtras.flatBonus
                     const baseDamageText = (cm.damageDice || '').trim() ? ((cm.damageDice || '').toUpperCase() + (cm.damageTypeSpell ? ' ' + getDamageTypeLabel(cm.damageTypeSpell) : '')) : ''
-                    const extraDamageText = gainExtraDice.length ? (' + ' + gainExtraDice.join(' + ')) : ''
+                    const allSpellExtraDice = [...gainExtraDice, ...spellDamageExtras.extraDice]
+                    const extraDamageText = allSpellExtraDice.length ? (' + ' + allSpellExtraDice.join(' + ')) : ''
                     const modDamageText = (spellDamageMod !== 0 && baseDamageText) ? ` ${formatSignedModifier(spellDamageMod)}` : ''
-                    const damageText = baseDamageText ? `${baseDamageText}${extraDamageText}${modDamageText}` : '—'
+                    const damageText = baseDamageText ? `${baseDamageText}${extraDamageText}${modDamageText}` : (allSpellExtraDice.length ? allSpellExtraDice.join(' + ') : '—')
+                    const spellDamageFloor2 = gainDiceFloor2 || spellDamageExtras.diceFloor2
                     const cell = 'pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden'
                     const empty = 'pl-2 border-l border-gray-600 min-w-0 overflow-hidden'
                     return (
@@ -3196,7 +3286,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                             <>
                               <button
                                 type="button"
-                                onClick={() => { if (!consumeSpellSlotForMean(cm, cm.spellName || '法术')) return; rollDamageDice((cm.damageDice || '').trim(), (cm.spellName || '法术') + ' ' + (getDamageTypeLabel(cm.damageTypeSpell) || ''), 'spell_attack-' + cm.id, spellDamageMod, false, getDamageTypeLabel(cm.damageTypeSpell) || '', { extraDice: gainExtraDice, floor2: gainDiceFloor2 }) }}
+                                onClick={() => { if (!consumeSpellSlotForMean(cm, cm.spellName || '法术')) return; rollDamageDice((cm.damageDice || '').trim(), (cm.spellName || '法术') + ' ' + (getDamageTypeLabel(cm.damageTypeSpell) || ''), 'spell_attack-' + cm.id, spellDamageMod, false, getDamageTypeLabel(cm.damageTypeSpell) || '', { extraDice: allSpellExtraDice, floor2: spellDamageFloor2 }) }}
                                 className={CM_BTN_GOLD}
                                 title={quickRollTitle('伤害')}
                                 aria-label={quickRollTitle('伤害')}
@@ -3206,7 +3296,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                               {hitRes === 'spell_attack' && (
                                 <button
                                   type="button"
-                                  onClick={() => { if (!consumeSpellSlotForMean(cm, cm.spellName || '法术')) return; rollDamageDice((cm.damageDice || '').trim(), (cm.spellName || '法术') + ' ' + (getDamageTypeLabel(cm.damageTypeSpell) || ''), 'spell_attack-' + cm.id, spellDamageMod, true, getDamageTypeLabel(cm.damageTypeSpell) || '', { extraDice: gainExtraDice, floor2: gainDiceFloor2 }) }}
+                                  onClick={() => { if (!consumeSpellSlotForMean(cm, cm.spellName || '法术')) return; rollDamageDice((cm.damageDice || '').trim(), (cm.spellName || '法术') + ' ' + (getDamageTypeLabel(cm.damageTypeSpell) || ''), 'spell_attack-' + cm.id, spellDamageMod, true, getDamageTypeLabel(cm.damageTypeSpell) || '', { extraDice: allSpellExtraDice, floor2: spellDamageFloor2 }) }}
                                   className={CM_BTN_CRIT}
                                   title={quickRollTitle('伤害（重击×2伤害骰）')}
                                   aria-label={quickRollTitle('伤害（重击×2伤害骰）')}
@@ -3275,7 +3365,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                           <span className={`min-w-0 flex-1 font-mono ${CM_MEAN_HI} tabular-nums text-white whitespace-nowrap [overflow-wrap:anywhere] sm:truncate`}>
                             {formatWeaponAttackDiceDisplay(attackParsed)}
                             <span
-                              title={`伤害加值明细：属性调整值 ${abilityMod >= 0 ? '+' : ''}${abilityMod}，Buff 伤害加值 ${buffDamageBonus >= 0 ? '+' : ''}${buffDamageBonus}，增益伤害加值 ${gainDamageBonus >= 0 ? '+' : ''}${gainDamageBonus}${weaponPerDieMod !== 0 ? `，每骰加成 ${weaponPerDieMod >= 0 ? '+' : ''}${weaponPerDieMod}` : ''}`}
+                              title={`伤害加值明细：属性调整值 ${abilityMod >= 0 ? '+' : ''}${abilityMod}，Buff 伤害加值 ${buffDamageBonus >= 0 ? '+' : ''}${buffDamageBonus}${conditionalBonuses?.damageBonus ? `，条件范围伤害加值 ${conditionalBonuses.damageBonus >= 0 ? '+' : ''}${conditionalBonuses.damageBonus}` : ''}，增益伤害加值 ${gainDamageBonus >= 0 ? '+' : ''}${gainDamageBonus}${weaponPerDieMod !== 0 ? `，每骰加成 ${weaponPerDieMod >= 0 ? '+' : ''}${weaponPerDieMod}` : ''}`}
                               className="cursor-help"
                             >
                               {formatSignedModifier(totalDamageMod)}
@@ -3578,6 +3668,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                           ))}
                         </select>
                       </div>
+                      <div>
+                        <label className="block text-dnd-text-muted text-xs mb-0.5">目标生物类型（条件范围生效用）</label>
+                        <select value={addTargetCreatureType} onChange={(e) => setAddTargetCreatureType(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
+                          <option value="">—</option>
+                          {CREATURE_TYPE_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                     <GainEditor gains={addGains} onChange={setAddGains} />
                     <div className="flex gap-2 mt-3">
@@ -3595,6 +3694,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         <option value="">—</option>
                         {itemMeansFromInv.map((it) => (
                           <option key={it.index} value={it.index}>{it.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-dnd-text-muted text-xs mb-0.5">目标生物类型（条件范围生效用）</label>
+                      <select value={addTargetCreatureType} onChange={(e) => setAddTargetCreatureType(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
+                        <option value="">—</option>
+                        {CREATURE_TYPE_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
                         ))}
                       </select>
                     </div>
@@ -3643,6 +3751,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         <input type="checkbox" checked={addWeaponProficient} onChange={(e) => setAddWeaponProficient(e.target.checked)} className="rounded border-gray-500" />
                         <span className="text-dnd-text-body text-xs">武器熟练</span>
                       </label>
+                      <div>
+                        <label className="block text-dnd-text-muted text-xs mb-0.5">目标生物类型（条件范围生效用）</label>
+                        <select value={addTargetCreatureType} onChange={(e) => setAddTargetCreatureType(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
+                          <option value="">—</option>
+                          {CREATURE_TYPE_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                      </div>
                       <div className="w-full border-t border-gray-600/80 pt-2">
                         <div className="mb-1 flex items-center justify-between gap-2">
                           <label className="text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">额外伤害骰（可选）</label>

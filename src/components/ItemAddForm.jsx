@@ -68,10 +68,10 @@ function buildArmorNoteFromFields(fields) {
   return `${acPart}；力量${strPart}；隐匿${stealthPart}`
 }
 
-/** 武器基础/多用伤害不应包含固定加值（加值来自能力调整、熟练、魔法加值等 Buff），去掉 legacy 中的 flat mod */
+/** 武器基础/多用伤害不应包含固定加值（加值来自能力调整、熟练、魔法加值等 Buff），去掉 legacy 中的 flat mod（兼容 1d8 + 0 空格） */
 function stripDiceFlatMod(plus) {
   if (!plus || typeof plus !== 'string') return plus
-  const m = plus.trim().match(/^(\d+)d(\d+)([+-]\d+)?$/i)
+  const m = plus.trim().match(/^(\d+)d(\d+)\s*([+-])\s*(\d+)$/i)
   if (!m) return plus
   return `${m[1]}d${m[2]}`
 }

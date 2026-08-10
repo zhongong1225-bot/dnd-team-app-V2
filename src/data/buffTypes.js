@@ -181,12 +181,12 @@ export function parseDamageString(str) {
   if (withPlus) {
     return { minus: (withPlus[1] || '').trim(), plus: String(withPlus[2]).toLowerCase(), o1: '', o2: '', type: (withPlus[3] || '').trim(), o3 }
   }
-  /** 2d6+5 钝击、13d6+13 闪电（骰子段可含末尾加值） */
-  const diceType = s.match(/^(\d*d\d+(?:[+-]\d+)?)\s+(.+)$/i)
+  /** 2d6+5 钝击、13d6+13 闪电（骰子段可含末尾加值，兼容 1d8 + 0 钝击 等旧格式空格） */
+  const diceType = s.match(/^(\d*d\d+(?:\s*[+-]\s*\d+)?)\s+(.+)$/i)
   if (diceType) return { minus: '', plus: String(diceType[1]).toLowerCase(), o1: '', o2: '', type: (diceType[2] || '').trim(), o3 }
   const simple = s.match(/^(\d*d\d+|\d+)\s+(.+)$/i)
   if (simple) return { minus: '', plus: String(simple[1]).toLowerCase(), o1: '', o2: '', type: (simple[2] || '').trim(), o3 }
-  const diceOnly = s.match(/^(\d*d\d+(?:[+-]\d+)?)$/i)
+  const diceOnly = s.match(/^(\d*d\d+(?:\s*[+-]\s*\d+)?)$/i)
   if (diceOnly) return { minus: '', plus: String(diceOnly[1]).toLowerCase(), o1: '', o2: '', type: '', o3 }
   /** 仅存附注时经外层 .trim() 可能变成「#备注」 */
   const onlyNote = s.match(/^#(.+)$/)
@@ -325,6 +325,8 @@ export const BUFF_TYPES = {
       { key: 'spell_attack_bonus', label: '法术攻击加值', dataType: 'number' },
       // 表格：法术豁免 DC 加值。仅数值。
       { key: 'save_dc_bonus', label: 'DC', dataType: 'number' },
+      // 表格：施法增伤。伤害类型 / 伤害骰下限 / 每骰 +X / 追加骰 / 公式固定加值
+      { key: 'spell_damage_bonus', label: '施法增伤', dataType: 'object', subSelect: 'spellDamageBonus' },
       // 以下保留旧 key，供已有数据与计算器解析
       { key: 'speed_bonus', label: '移动速度', dataType: 'number', hidden: true },
       { key: 'flight_speed', label: '飞行速度', dataType: 'object', subSelect: 'flightSpeed', hidden: true },
@@ -486,4 +488,209 @@ export function normalizeEffectCategory(effectType, oldCategory) {
   if (info) return info.category
   if (oldCategory && OLD_CATEGORY_TO_NEW[oldCategory]) return OLD_CATEGORY_TO_NEW[oldCategory]
   return 'ability'
+}
+
+/** ═════════════════════════════════════════════════════════════════════════════
+ * 命中/伤害加值「起效范围」扩展：本武器 / 全局 / 某类生物 / 某类伤害类型 / 某类武器
+ * ═════════════════════════════════════════════════════════════════════════════ */
+
+/** 范围 kind */
+export const SCOPE_KIND = {
+  global: 'global',
+  self_weapon: 'self_weapon',
+  creature_type: 'creature_type',
+  damage_type: 'damage_type',
+  weapon_category: 'weapon_category',
+}
+
+/** 范围 kind 下拉选项（用于 BuffForm） */
+export const SCOPE_KIND_OPTIONS = [
+  { value: SCOPE_KIND.global, label: '全局' },
+  { value: SCOPE_KIND.self_weapon, label: '本武器' },
+  { value: SCOPE_KIND.creature_type, label: '某类生物' },
+  { value: SCOPE_KIND.damage_type, label: '某类伤害类型' },
+  { value: SCOPE_KIND.weapon_category, label: '某类武器' },
+]
+
+/** 生物类型选项（D&D 5e 常见生物类型） */
+export const CREATURE_TYPE_OPTIONS = [
+  { value: 'aberration', label: '异怪' },
+  { value: 'beast', label: '野兽' },
+  { value: 'celestial', label: '天界生物' },
+  { value: 'construct', label: '构装生物' },
+  { value: 'dragon', label: '龙' },
+  { value: 'elemental', label: '元素生物' },
+  { value: 'fey', label: '妖精' },
+  { value: 'fiend', label: '恶魔' },
+  { value: 'giant', label: '巨人' },
+  { value: 'monstrosity', label: '怪兽' },
+  { value: 'ooze', label: '泥怪' },
+  { value: 'plant', label: '植物' },
+  { value: 'undead', label: '不死生物' },
+  { value: 'humanoid', label: '类人生物' },
+]
+
+/** 范围用武器类别选项（抽象类别） */
+export const WEAPON_SCOPE_CATEGORY_OPTIONS = [
+  { value: '简易武器', label: '简易武器' },
+  { value: '军用武器', label: '军用武器' },
+  { value: '近战武器', label: '近战武器' },
+  { value: '远程武器', label: '远程武器' },
+  { value: '触及武器', label: '触及武器' },
+  { value: '枪械', label: '枪械' },
+]
+
+/** 已知简易武器类别（2014 规则常用；可扩展） */
+const SIMPLE_WEAPON_CATEGORIES = new Set([
+  '短棒', '匕首', '巨棒', '手斧', '标枪', '轻锤', '硬头锤', '长棍', '镰刀',
+  '轻弩', '短弓', '投石索', '吹箭筒',
+])
+
+/** 已知军用武器类别（2014 规则常用；可扩展） */
+const MARTIAL_WEAPON_CATEGORIES = new Set([
+  '战斧', '链枷', '巨斧', '巨剑', '弯刀', '长剑', '刺剑', '短剑', '三叉戟', '战锤', '战镰',
+  '晨星', '矛', '戟', '钐镰', '长矛', '网', '轻剑', '重弩', '长弓', '手弩',
+])
+
+/** 武器是否属于简易武器 */
+function isSimpleWeaponProto(proto) {
+  if (!proto) return false
+  if (proto.isSimple === true) return true
+  if (proto.isMartial === true) return false
+  const cat = String(proto.类别 ?? '').trim()
+  if (SIMPLE_WEAPON_CATEGORIES.has(cat)) return true
+  if (MARTIAL_WEAPON_CATEGORIES.has(cat)) return false
+  return false
+}
+
+/** 武器是否属于军用武器 */
+function isMartialWeaponProto(proto) {
+  if (!proto) return false
+  if (proto.isMartial === true) return true
+  if (proto.isSimple === true) return false
+  const cat = String(proto.类别 ?? '').trim()
+  if (MARTIAL_WEAPON_CATEGORIES.has(cat)) return true
+  if (SIMPLE_WEAPON_CATEGORIES.has(cat)) return false
+  return false
+}
+
+/** 武器是否触及武器 */
+function isReachWeaponProto(proto) {
+  if (!proto) return false
+  return /触及/i.test(String(proto.附注 ?? ''))
+}
+
+/**
+ * 规范化 scope：旧版 scope（global/melee/ranged/firearm/空）统一迁移到新的 { scope, scopeDetail } 结构。
+ * 返回 { scope, scopeDetail }，scopeDetail 始终为数组（空数组表示无条件）。
+ */
+export function normalizeScope(rawScope, rawScopeDetail) {
+  const s = String(rawScope ?? '').trim()
+  // 新的 kind 直接保留
+  if (SCOPE_KIND_OPTIONS.some((o) => o.value === s)) {
+    return { scope: s, scopeDetail: Array.isArray(rawScopeDetail) ? rawScopeDetail : [] }
+  }
+  // 旧版近战/远程/枪械迁移到「某类武器」
+  if (s === 'melee') return { scope: SCOPE_KIND.weapon_category, scopeDetail: ['近战武器'] }
+  if (s === 'ranged') return { scope: SCOPE_KIND.weapon_category, scopeDetail: ['远程武器'] }
+  if (s === 'firearm') return { scope: SCOPE_KIND.weapon_category, scopeDetail: ['枪械'] }
+  // 默认全局
+  return { scope: SCOPE_KIND.global, scopeDetail: [] }
+}
+
+/**
+ * 判断一个条件范围 effect 是否匹配当前战斗手段。
+ * @param {Object} effect - { scope, scopeDetail, itemInventoryId? }
+ * @param {Object} ctx - 战斗手段上下文
+ * @param {string} ctx.sourceKind - 'physical' | 'spell_attack' | 'item'
+ * @param {Object} [ctx.weaponProto] - 武器原型
+ * @param {string} [ctx.damageType] - 当前伤害类型（中文 label）
+ * @param {string} [ctx.targetCreatureType] - 目标生物类型（英文 value）
+ * @param {string} [ctx.sourceItemInventoryId] - 本武器范围所需的来源物品 id
+ * @returns {boolean}
+ */
+export function scopeMatchesCombatMean(effect, ctx = {}) {
+  if (!effect) return false
+  const scope = String(effect.scope ?? 'global').trim()
+  if (scope === SCOPE_KIND.global || scope === '') return true
+  if (scope === SCOPE_KIND.self_weapon) {
+    if (!ctx.sourceItemInventoryId || !effect.itemInventoryId) return false
+    return String(effect.itemInventoryId) === String(ctx.sourceItemInventoryId)
+  }
+  const details = Array.isArray(effect.scopeDetail) ? effect.scopeDetail.filter(Boolean) : []
+  if (details.length === 0) return false
+  if (scope === SCOPE_KIND.creature_type) {
+    if (!ctx.targetCreatureType) return false
+    return details.includes(String(ctx.targetCreatureType))
+  }
+  if (scope === SCOPE_KIND.damage_type) {
+    if (!ctx.damageType) return false
+    return details.some((d) => getDamageTypeLabel(d) === getDamageTypeLabel(ctx.damageType))
+  }
+  if (scope === SCOPE_KIND.weapon_category) {
+    if (!ctx.weaponProto) return false
+    return details.some((key) => {
+      const k = String(key).trim()
+      if (k === '近战武器') return ctx.weaponProto.类型 === '近战武器'
+      if (k === '远程武器') return ctx.weaponProto.类型 === '远程武器' || ctx.weaponProto.子类型 === '远程'
+      if (k === '枪械') return ctx.weaponProto.类型 === '枪械'
+      if (k === '触及武器') return isReachWeaponProto(ctx.weaponProto)
+      if (k === '简易武器') return isSimpleWeaponProto(ctx.weaponProto)
+      if (k === '军用武器') return isMartialWeaponProto(ctx.weaponProto)
+      // 兼容旧版具体类别（如长剑、短弓）
+      return protoMatchesWeaponBuffKey(ctx.weaponProto, k)
+    })
+  }
+  return false
+}
+
+/**
+ * 将范围条件格式化为简短文本，用于 BuffListItem 摘要。
+ */
+export function formatScopeBrief(scope, scopeDetail) {
+  const s = String(scope ?? 'global').trim()
+  if (s === SCOPE_KIND.global || s === '') return ''
+  if (s === SCOPE_KIND.self_weapon) return '（本武器）'
+  const details = Array.isArray(scopeDetail) ? scopeDetail.filter(Boolean) : []
+  if (details.length === 0) return ''
+  if (s === SCOPE_KIND.creature_type) {
+    const labels = details.map((v) => CREATURE_TYPE_OPTIONS.find((o) => o.value === v)?.label ?? v)
+    return `（${labels.join('/')}）`
+  }
+  if (s === SCOPE_KIND.damage_type) {
+    const labels = details.map((v) => getDamageTypeLabel(v))
+    return `（${labels.join('/')}）`
+  }
+  if (s === SCOPE_KIND.weapon_category) {
+    return `（${details.join('/')}）`
+  }
+  return ''
+}
+
+/** ═════════════════════════════════════════════════════════════════════════════
+ * 施法增伤（spell_damage_bonus）：伤害类型 / 伤害骰下限 / 每骰 +X / 追加骰 / 公式固定加值
+ * ═════════════════════════════════════════════════════════════════════════════ */
+
+/** 施法增伤 value 结构说明：
+ * {
+ *   type: 'fire',          // 伤害类型（英文 value 或中文 label）
+ *   diceFloor: 2,          // 伤害骰结果不能低于此值（>=2 生效）
+ *   perDieBonus: 1,        // 每颗伤害骰 +X
+ *   extraDice: '1d6',      // 追加伤害骰
+ *   flatBonus: 0 | formula // 固定加值，支持公式
+ * }
+ */
+
+/** 格式化施法增伤为展示文本 */
+export function formatSpellDamageBonusValue(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return ''
+  const parts = []
+  if (value.type) parts.push(getDamageTypeLabel(value.type))
+  if (value.diceFloor != null && Number(value.diceFloor) > 1) parts.push(`骰子最低${value.diceFloor}`)
+  if (value.perDieBonus) parts.push(`每骰+${value.perDieBonus}`)
+  if (value.extraDice) parts.push(`追加${value.extraDice}`)
+  if (value.flatBonus != null && value.flatBonus !== 0 && value.flatBonus !== '') {
+    parts.push(`固定${value.flatBonus}`)
+  }
+  return parts.join('，')
 }
