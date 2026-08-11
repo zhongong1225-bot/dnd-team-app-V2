@@ -170,20 +170,20 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       const text = formatSpellDamageBonusValue(v)
       return text ? effectLabel + text : effectLabel
     }
+    if (buff.effectType === 'extra_damage_dice') {
+      if (typeof v === 'string' && v.trim()) return v.trim()
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        const s = formatDamageForAttack(v)
+        if (!s) return ''
+        const signed = /^[+-]/.test(s) ? s : `+${s}`
+        return v.onlySpellDamage ? `${signed}（仅法术伤害）` : signed
+      }
+    }
     return effectLabel
   }
   if (buff.effectType === 'damage_piercing_traits' && v && typeof v === 'object' && !Array.isArray(v)) {
     const str = formatDamagePiercingTraitsValue(v)
     return str || effectLabel
-  }
-  if (buff.effectType === 'extra_damage_dice') {
-    if (typeof v === 'string' && v.trim()) return v.trim()
-    if (v && typeof v === 'object' && !Array.isArray(v)) {
-      const s = formatDamageForAttack(v)
-      if (!s) return ''
-      return v.onlySpellDamage ? `${s}（仅法术伤害）` : s
-    }
-    return ''
   }
   if (Array.isArray(v) && v.length) {
     if (['resist_type', 'immune_type', 'vulnerable_type'].includes(buff.effectType)) {
@@ -344,7 +344,8 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
     if (buff.effectType === 'extra_damage_dice') {
       const str = typeof v === 'string' ? v.trim() : formatDamageForAttack(v)
       if (!str) return { label: effectLabel, value: null }
-      return { label: effectLabel, value: v?.onlySpellDamage ? `${str}（仅法术伤害）` : str }
+      const signed = /^[+-]/.test(str) ? str : `+${str}`
+      return { label: effectLabel, value: v?.onlySpellDamage ? `${signed}（仅法术伤害）` : signed }
     }
     if (isPlainAbilityObject(v)) {
       const parts = Object.entries(v).filter(([k, val]) => k !== 'advantage' && val != null && val !== 0).map(([k, val]) => `${ABILITY_NAMES_ZH[k] ?? k}+${formatSignedEntryVal(val, context)}`)
