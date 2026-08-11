@@ -515,17 +515,34 @@ function stripDiceFlatMod(plus) {
   return `${m[1]}d${m[2]}`
 }
 
+function getWeaponNote(weaponOpt) {
+  return String(weaponOpt?.entry?.附注 ?? weaponOpt?.proto?.附注 ?? '')
+}
+
+/** 武器是否带「双手」词条 */
+function weaponHasTwoHanded(weaponOpt) {
+  return /双手/i.test(getWeaponNote(weaponOpt))
+}
+
+/** 武器是否带「投掷」词条 */
+function weaponHasThrown(weaponOpt) {
+  return /投掷/i.test(getWeaponNote(weaponOpt))
+}
+
 /** 武器是否带「多用」词条 */
 function weaponHasVersatile(weaponOpt) {
-  const note = String(weaponOpt?.entry?.附注 ?? weaponOpt?.proto?.附注 ?? '')
-  return /多用/i.test(note)
+  return /多用/i.test(getWeaponNote(weaponOpt))
 }
 
 /** 根据武器推断默认战斗模式 */
 function getDefaultWeaponMode(weaponOpt) {
   if (!weaponOpt) return 'one_hand'
   if (isRangedWeaponProto(weaponOpt.proto)) return 'ranged'
-  if (weaponHasVersatile(weaponOpt)) return 'one_hand'
+  const hasTwo = weaponHasTwoHanded(weaponOpt)
+  const hasVersatile = weaponHasVersatile(weaponOpt)
+  const hasThrown = weaponHasThrown(weaponOpt)
+  // 纯双手武器（双手且非多用、非投掷）默认双手
+  if (hasTwo && !hasVersatile && !hasThrown) return 'two_hand'
   return 'one_hand'
 }
 
@@ -533,7 +550,22 @@ function getDefaultWeaponMode(weaponOpt) {
 function getWeaponModeOptions(weaponOpt) {
   if (!weaponOpt) return WEAPON_MODE_OPTIONS
   if (isRangedWeaponProto(weaponOpt.proto)) return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'ranged')
-  if (weaponHasVersatile(weaponOpt)) return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand' || o.value === 'two_hand')
+  const hasTwo = weaponHasTwoHanded(weaponOpt)
+  const hasVersatile = weaponHasVersatile(weaponOpt)
+  const hasThrown = weaponHasThrown(weaponOpt)
+  // 纯双手武器：只显示双手（不需要下拉）
+  if (hasTwo && !hasVersatile && !hasThrown) {
+    return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'two_hand')
+  }
+  // 多用 + 投掷：单手/投掷
+  if (hasVersatile && hasThrown) {
+    return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand' || o.value === 'ranged')
+  }
+  // 多用：单手/双手
+  if (hasVersatile) {
+    return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand' || o.value === 'two_hand')
+  }
+  // 单独投掷：单手
   return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand')
 }
 
@@ -3868,11 +3900,24 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       </div>
                       <div>
                         <label className="block text-dnd-text-muted text-xs mb-0.5">战斗模式</label>
-                        <select value={addWeaponMode} onChange={(e) => setAddWeaponMode(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
-                          {getWeaponModeOptions(addWeaponIndex != null ? weaponsFromInv.find((x) => x.index === addWeaponIndex) : null).map((o) => (
-                            <option key={o.value} value={o.value}>{o.label}</option>
-                          ))}
-                        </select>
+                        {(() => {
+                          const modeOptions = getWeaponModeOptions(addWeaponIndex != null ? weaponsFromInv.find((x) => x.index === addWeaponIndex) : null)
+                          const currentLabel = modeOptions.find((o) => o.value === addWeaponMode)?.label ?? modeOptions[0]?.label ?? ''
+                          if (modeOptions.length <= 1) {
+                            return (
+                              <div className={inputClass + ' w-full h-8 text-xs flex items-center text-white'}>
+                                {currentLabel || '—'}
+                              </div>
+                            )
+                          }
+                          return (
+                            <select value={addWeaponMode} onChange={(e) => setAddWeaponMode(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
+                              {modeOptions.map((o) => (
+                                <option key={o.value} value={o.value}>{o.label}</option>
+                              ))}
+                            </select>
+                          )
+                        })()}
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="min-w-0">
