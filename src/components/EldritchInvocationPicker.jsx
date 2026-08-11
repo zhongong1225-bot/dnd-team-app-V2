@@ -127,7 +127,7 @@ export default function EldritchInvocationPicker({ isOpen, onClose, onConfirm, s
                   <div
                     key={inv.id}
                     onClick={() => setPreviewId(inv.id)}
-                    className={`flex items-start gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
                       previewId === inv.id
                         ? 'border-dnd-gold/50 bg-dnd-gold/10'
                         : active
@@ -138,7 +138,7 @@ export default function EldritchInvocationPicker({ isOpen, onClose, onConfirm, s
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); toggle(inv.id) }}
-                      className={`mt-0.5 shrink-0 w-5 h-5 rounded border flex items-center justify-center transition-colors ${
+                      className={`shrink-0 w-5 h-5 rounded border flex items-center justify-center transition-colors ${
                         active
                           ? 'bg-dnd-red border-dnd-red text-white'
                           : 'border-gray-500 bg-gray-800 text-transparent hover:border-gray-400'
@@ -146,15 +146,12 @@ export default function EldritchInvocationPicker({ isOpen, onClose, onConfirm, s
                     >
                       <Check className="w-3.5 h-3.5" />
                     </button>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm text-white font-medium">{inv.name}</span>
-                        <span className="text-xs text-gray-500">{inv.nameEn}</span>
-                      </div>
-                      <div className="text-[11px] text-dnd-text-muted mt-0.5">
-                        {inv.level === 1 ? '1级可用' : `先决：${inv.prerequisite || `魔契师等级${inv.level}+`}`}
-                        {inv.repeatable && <span className="ml-2 text-dnd-gold-light/80">可重复</span>}
-                      </div>
+                    <div className="flex-1 min-w-0 flex items-center gap-2 overflow-hidden">
+                      <span className="text-sm text-white font-medium truncate">{inv.name}</span>
+                      <span className="text-[11px] text-dnd-text-muted shrink-0">
+                        {inv.level === 1 ? '1级' : (inv.prerequisite || `魔契师等级${inv.level}+`)}
+                        {inv.repeatable && <span className="ml-1.5 text-dnd-gold-light/80">可重复</span>}
+                      </span>
                     </div>
                   </div>
                 )
