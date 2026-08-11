@@ -5,7 +5,7 @@
  */
 import { BUFF_TYPES } from '../data/buffTypes'
 
-const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'container', 'custom']
+const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'charge', 'container', 'custom']
 
 export function getAllVisibleBuffEffectKeys() {
   const keys = []
@@ -58,6 +58,7 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   spell_range_extension: 'calculator',
   spell_attack_bonus: 'calculator',
   save_dc_bonus: 'calculator',
+  spell_damage_bonus: 'calculator',
   contained_spell: 'metadata',
   // container
   item_storage: 'metadata',

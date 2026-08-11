@@ -32,13 +32,13 @@ describe('computeBuffStats：代表性效果可改变输出', () => {
     expect(s.acBonus).toBe(2)
   })
 
-  it('BUFF 栏：力量 +2（属性调整）', () => {
+  it('BUFF 栏：力量 +2（可突破20属性）', () => {
     const c = baseChar()
     const buffs = [
       {
         id: '1',
         source: 't',
-        effects: [{ effectType: 'ability_score', value: { str: 2, dex: 0, con: 0, int: 0, wis: 0, cha: 0 } }],
+        effects: [{ effectType: 'ability_score_uncapped', value: { str: 2, dex: 0, con: 0, int: 0, wis: 0, cha: 0 } }],
         enabled: true,
       },
     ]
@@ -109,7 +109,7 @@ describe('computeBuffStats：代表性效果可改变输出', () => {
   it('非属性类公式使用 BUFF 后属性：感知 +10 后 AC 感知调整值按 +5 计算', () => {
     const c = { ...baseChar(), abilities: { ...baseChar().abilities, wis: 10 } }
     const buffs = [
-      { id: '1', source: 'x', effects: [{ effectType: 'ability_score', value: { wis: 10 } }], enabled: true },
+      { id: '1', source: 'x', effects: [{ effectType: 'ability_score_uncapped', value: { wis: 10 } }], enabled: true },
       { id: '2', source: 'y', effects: [{ effectType: 'ac_bonus', value: { ref: 'abilityModifier', ability: 'wis' } }], enabled: true },
     ]
     const s = computeBuffStats(c, buffs)
@@ -117,19 +117,34 @@ describe('computeBuffStats：代表性效果可改变输出', () => {
     expect(s.ac).toBe(15) // 10 基础 + 0 敏调 + 5 感知调整值
   })
 
-  it('属性类公式使用基础属性：ability_score 的感知调整值按基础感知计算', () => {
+  it('属性类公式使用基础属性：ability_score_uncapped 的感知调整值按基础感知计算', () => {
     const c = { ...baseChar(), abilities: { ...baseChar().abilities, wis: 16 } }
     const buffs = [
       {
         id: '1',
         source: 'x',
-        effects: [{ effectType: 'ability_score', value: { wis: { ref: 'abilityModifier', ability: 'wis' } } }],
+        effects: [{ effectType: 'ability_score_uncapped', value: { wis: { ref: 'abilityModifier', ability: 'wis' } } }],
         enabled: true,
       },
     ]
     const s = computeBuffStats(c, buffs)
-    // 基础感知 16 调值 +3，ability_score 按基础属性求值，最终感知 = 16 + 3 = 19
+    // 基础感知 16 调值 +3，ability_score_uncapped 按基础属性求值，最终感知 = 16 + 3 = 19
     expect(s.abilities.wis).toBe(19)
+  })
+
+  it('BUFF 栏：属性熟练调整授予力量豁免熟练', () => {
+    const c = baseChar()
+    const buffs = [
+      {
+        id: '1',
+        source: 't',
+        effects: [{ effectType: 'ability_score', value: { str: true, dex: false, con: false, int: false, wis: false, cha: false } }],
+        enabled: true,
+      },
+    ]
+    const s = computeBuffStats(c, buffs)
+    expect(s.saveProficiencyGranted.str).toBe(true)
+    expect(s.saveProficiencyGranted.dex).toBe(false)
   })
 
   it('proficiency_override 影响公式引用', () => {

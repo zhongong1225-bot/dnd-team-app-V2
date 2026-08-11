@@ -1862,6 +1862,63 @@ function EffectValueEditor({
             )
           })()}
         </div>
+      ) : needsSubSelect === 'abilityScores' ? (
+        <div className="flex items-center gap-2 flex-nowrap">
+          <select
+            value={selectedAbilityId}
+            onChange={(e) => {
+              const nextKey = e.target.value
+              const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
+              const currentVal = getAbilityFieldValue(obj, selectedAbilityId)
+              const base = {}
+              if (nextKey === 'all') ABILITY_KEYS.forEach((k) => { base[k] = currentVal })
+              else base[nextKey] = currentVal
+              setSelectedAbilityId(nextKey)
+              onChange({ ...module, value: base })
+            }}
+            className={inputClass + ' h-8 min-w-[6.5rem]'}
+          >
+            <option value="all">全属性</option>
+            {ABILITY_KEYS.map((k) => (
+              <option key={k} value={k}>{ABILITY_LABELS[k]}</option>
+            ))}
+          </select>
+          <NumberStepper referenceData={activeReferenceData}
+            value={(typeof value === 'object' && value && selectedAbilityId !== 'all' && value[selectedAbilityId] != null ? value[selectedAbilityId] : 0) ?? 0}
+            onChange={(v) => {
+              const base = typeof value === 'object' && value && !Array.isArray(value) ? { ...value } : {}
+              if (selectedAbilityId === 'all') {
+                ABILITY_KEYS.forEach((k) => { base[k] = v })
+              } else {
+                base[selectedAbilityId] = v
+              }
+              onChange({ ...module, value: base })
+            }}
+            compact
+          />
+        </div>
+      ) : needsSubSelect === 'abilityProficiency' ? (
+        <div className="flex flex-wrap gap-2">
+          {ABILITY_KEYS.map((k) => {
+            const toBool = (v) => {
+              if (typeof v === 'boolean') return v
+              if (typeof v === 'number') return v !== 0
+              return !!v
+            }
+            const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
+            return (
+              <label key={k} className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={toBool(obj[k])}
+                  onChange={(e) => onChange({ ...module, value: { ...obj, [k]: e.target.checked } })}
+                  className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                />
+                <span className="text-sm text-gray-300">{ABILITY_LABELS[k]}</span>
+              </label>
+            )
+          })}
+        </div>
       ) : needsSubSelect === 'abilityScoresAndAdvantage' ? (
         <div className="flex items-center gap-2 flex-nowrap">
           <select
