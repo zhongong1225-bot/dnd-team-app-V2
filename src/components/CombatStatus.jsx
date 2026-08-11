@@ -546,27 +546,82 @@ function getDefaultWeaponMode(weaponOpt) {
   return 'one_hand'
 }
 
-/** 根据武器返回可用的模式下拉选项 */
-function getWeaponModeOptions(weaponOpt) {
+/** 武器是否带「轻型」词条 */
+function weaponHasLight(weaponOpt) {
+  return /轻型/i.test(getWeaponNote(weaponOpt))
+}
+
+/** 角色当前是否双持两把轻型武器 */
+function isDualWieldingLightWeapons(character) {
+  const held = character?.equippedHeld ?? []
+  const inv = character?.inventory ?? []
+  let lightCount = 0
+  for (const slot of held) {
+    if (!slot?.inventoryId) continue
+    const entry = inv.find((e) => e.id === slot.inventoryId)
+    if (!entry) continue
+    const proto = entry?.itemId ? getItemById(entry.itemId) : null
+    const note = String(proto?.附注 ?? '')
+    if (/轻型/i.test(note)) lightCount++
+  }
+  return lightCount >= 2
+}
+
+/** 根据武器返回可用的模式下拉选项；character 用于判断双持附赠攻击 */
+function getWeaponModeOptions(weaponOpt, character) {
   if (!weaponOpt) return WEAPON_MODE_OPTIONS
   if (isRangedWeaponProto(weaponOpt.proto)) return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'ranged')
   const hasTwo = weaponHasTwoHanded(weaponOpt)
   const hasVersatile = weaponHasVersatile(weaponOpt)
   const hasThrown = weaponHasThrown(weaponOpt)
+  let options
   // 纯双手武器：只显示双手（不需要下拉）
   if (hasTwo && !hasVersatile && !hasThrown) {
-    return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'two_hand')
+    options = WEAPON_MODE_OPTIONS.filter((o) => o.value === 'two_hand')
+  } else if (hasVersatile && hasThrown) {
+    // 多用 + 投掷：单手/投掷
+    options = WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand' || o.value === 'ranged')
+  } else if (hasVersatile) {
+    // 多用：单手/双手
+    options = WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand' || o.value === 'two_hand')
+  } else {
+    // 单独投掷 / 普通单手：单手
+    options = WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand')
   }
-  // 多用 + 投掷：单手/投掷
-  if (hasVersatile && hasThrown) {
-    return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand' || o.value === 'ranged')
+  // 双持轻型武器且当前武器为轻型单手：增加附赠攻击（副手）
+  if (
+    character &&
+    isDualWieldingLightWeapons(character) &&
+    weaponHasLight(weaponOpt) &&
+    !hasTwo &&
+    !isRangedWeaponProto(weaponOpt.proto)
+  ) {
+    options = [...options, { value: 'bonus_action', label: '附赠攻击' }]
   }
-  // 多用：单手/双手
-  if (hasVersatile) {
-    return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand' || o.value === 'two_hand')
+  return options
+}
+
+/** 根据武器返回可用的属性选项；非灵巧近战固定力量，远程固定敏捷，灵巧可切换力/敏 */
+function getAbilityOptions(weaponOpt, currentAbility) {
+  const ranged = weaponOpt && isRangedWeaponProto(weaponOpt.proto)
+  const dex = weaponOpt && weaponUsesDex(weaponOpt.proto)
+  let options
+  if (ranged) {
+    options = [{ value: 'dex', label: '敏捷' }]
+  } else if (dex) {
+    options = [
+      { value: 'str', label: '力量' },
+      { value: 'dex', label: '敏捷' },
+    ]
+  } else {
+    options = [{ value: 'str', label: '力量' }]
   }
-  // 单独投掷：单手
-  return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand')
+  // 兼容旧存档中保存的 spell 等其它值
+  if (currentAbility && !options.some((o) => o.value === currentAbility)) {
+    const label = currentAbility === 'spell' ? '施法属性' : currentAbility
+    options = [...options, { value: currentAbility, label }]
+  }
+  return options
 }
 
 /** 从武器「攻击」字段拆出单手/双手伤害对象（结构同 parseDamageString） */
@@ -590,6 +645,7 @@ function getWeaponBaseDamageObjects(weaponOpt) {
 function getWeaponAttackStringForParsing(weaponOpt, mode) {
   if (!weaponOpt) return ''
   const { base, versa } = getWeaponBaseDamageObjects(weaponOpt)
+  // 双持副手附赠攻击使用单手伤害骰
   const baseAttack = formatDamageForAttack(mode === 'two_hand' ? versa : base)
   let attack = baseAttack
   const appendDiceFromText = (text) => {
@@ -673,7 +729,8 @@ function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
     sourceItemInventoryId: weaponOpt?.entry?.id,
   }, itemFormulaContext)
   const physicalAttackBonus = abilityMod + (weaponProficient ? prof : 0) + buffAttackBonus + gainAttackBonus + (conditionalBonuses?.attackBonus || 0)
-  const damageMod = abilityMod
+  // 双持副手附赠攻击伤害不加属性调整值
+  const damageMod = cm.weaponVersatileMode === 'bonus_action' ? 0 : abilityMod
   const weaponExtraDiceStrings = [...getMergedWeaponExtraDiceStrings(cm, weaponOpt), ...gainExtraDice]
   const allWeaponDiceCount = (attackParsed.diceList || []).reduce((s, d) => s + (parseCombatDiceExpression(d)?.count || 0), 0) +
     weaponExtraDiceStrings.reduce((s, d) => s + (parseCombatDiceExpression(String(d).split(' ')[0])?.count || 0), 0)
@@ -3898,46 +3955,64 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                           <input type="text" value={addWeaponNameSuffix} onChange={(e) => setAddWeaponNameSuffix(e.target.value)} placeholder="追加名称" className={inputClass + ' h-8 text-xs flex-1 min-w-0'} />
                         </div>
                       </div>
-                      <div>
-                        <label className="block text-dnd-text-muted text-xs mb-0.5">战斗模式</label>
-                        {(() => {
-                          const modeOptions = getWeaponModeOptions(addWeaponIndex != null ? weaponsFromInv.find((x) => x.index === addWeaponIndex) : null)
-                          const currentLabel = modeOptions.find((o) => o.value === addWeaponMode)?.label ?? modeOptions[0]?.label ?? ''
-                          if (modeOptions.length <= 1) {
-                            return (
-                              <div className={inputClass + ' w-full h-8 text-xs flex items-center text-white'}>
-                                {currentLabel || '—'}
-                              </div>
-                            )
-                          }
-                          return (
-                            <select value={addWeaponMode} onChange={(e) => setAddWeaponMode(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
-                              {modeOptions.map((o) => (
-                                <option key={o.value} value={o.value}>{o.label}</option>
-                              ))}
-                            </select>
-                          )
-                        })()}
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="min-w-0">
-                          <label className="block text-dnd-text-muted text-xs mb-0.5">武器所用属性</label>
-                          <select value={addAbility} onChange={(e) => setAddAbility(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
-                            <option value="str">力量</option>
-                            <option value="dex">敏捷</option>
-                            <option value="spell">施法属性</option>
-                          </select>
-                        </div>
-                        <div className="min-w-0">
-                          <label className="block text-dnd-text-muted text-xs mb-0.5">伤害类型</label>
-                          <select value={addDamageType} onChange={(e) => setAddDamageType(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
-                            <option value="">—</option>
-                            {DAMAGE_TYPE_OPTIONS.map((d) => (
-                              <option key={d.value} value={d.value}>{d.label}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
+                      {(() => {
+                        const currentWeapon = addWeaponIndex != null ? weaponsFromInv.find((x) => x.index === addWeaponIndex) : null
+                        return (
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="min-w-0">
+                              <label className="block text-dnd-text-muted text-xs mb-0.5">战斗模式</label>
+                              {(() => {
+                                const modeOptions = getWeaponModeOptions(currentWeapon, char)
+                                const currentLabel = modeOptions.find((o) => o.value === addWeaponMode)?.label ?? modeOptions[0]?.label ?? ''
+                                if (modeOptions.length <= 1) {
+                                  return (
+                                    <div className={inputClass + ' w-full h-8 text-xs flex items-center text-white'}>
+                                      {currentLabel || '—'}
+                                    </div>
+                                  )
+                                }
+                                return (
+                                  <select value={addWeaponMode} onChange={(e) => setAddWeaponMode(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
+                                    {modeOptions.map((o) => (
+                                      <option key={o.value} value={o.value}>{o.label}</option>
+                                    ))}
+                                  </select>
+                                )
+                              })()}
+                            </div>
+                            <div className="min-w-0">
+                              <label className="block text-dnd-text-muted text-xs mb-0.5">属性</label>
+                              {(() => {
+                                const abilityOptions = getAbilityOptions(currentWeapon, addAbility)
+                                const currentLabel = abilityOptions.find((o) => o.value === addAbility)?.label ?? abilityOptions[0]?.label ?? ''
+                                if (abilityOptions.length <= 1) {
+                                  return (
+                                    <div className={inputClass + ' w-full h-8 text-xs flex items-center text-white'}>
+                                      {currentLabel || '—'}
+                                    </div>
+                                  )
+                                }
+                                return (
+                                  <select value={addAbility} onChange={(e) => setAddAbility(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
+                                    {abilityOptions.map((o) => (
+                                      <option key={o.value} value={o.value}>{o.label}</option>
+                                    ))}
+                                  </select>
+                                )
+                              })()}
+                            </div>
+                            <div className="min-w-0">
+                              <label className="block text-dnd-text-muted text-xs mb-0.5">伤害类型</label>
+                              <select value={addDamageType} onChange={(e) => setAddDamageType(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
+                                <option value="">—</option>
+                                {DAMAGE_TYPE_OPTIONS.map((d) => (
+                                  <option key={d.value} value={d.value}>{d.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                        )
+                      })()}
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input type="checkbox" checked={addWeaponProficient} onChange={(e) => setAddWeaponProficient(e.target.checked)} className="rounded border-gray-500" />
                         <span className="text-dnd-text-body text-xs">武器熟练</span>
