@@ -91,6 +91,25 @@ function calculateConditionalAttackDamageBonus(cm, flatEffects, ctxExtra = {}, f
   return { attackBonus: attack, damageBonus: damage }
 }
 
+/** 从 flatEffects 中查找生效的「施法属性命中」效果，返回应使用的属性 key（int/wis/cha） */
+function getSpellAbilityForAttackFromBuffs(flatEffects, ctx) {
+  if (!Array.isArray(flatEffects)) return null
+  for (const e of flatEffects) {
+    if (e.effectType !== 'spell_ability_attack') continue
+    const { scope } = normalizeScope(e.scope, e.scopeDetail)
+    if (scope === SCOPE_KIND.global || scope === '') return e.value?.ability || null
+    const matches = scopeMatchesCombatMean(e, {
+      sourceKind: 'physical',
+      weaponProto: ctx.weaponProto,
+      damageType: ctx.damageType,
+      targetCreatureType: ctx.targetCreatureType || '',
+      sourceItemInventoryId: ctx.sourceItemInventoryId,
+    })
+    if (matches) return e.value?.ability || null
+  }
+  return null
+}
+
 /** 收集作用于指定伤害类型的 spell_damage_bonus 增益；无 type 视为通用 */
 function getSpellDamageBonusExtras(damageType, spellDamageBonuses, formulaContext = {}) {
   const out = { perDieBonus: 0, flatBonus: 0, extraDice: [], diceFloor2: false }
@@ -702,9 +721,6 @@ function hasGainDiceFloor2(gains) {
 /** 统一计算物理战斗手段的命中、伤害与 Buff 分解（行展示与弹窗预览共用） */
 function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
   const { effectiveAbilities, prof, spellAbility, buffStats, flatBuffEffects, itemFormulaContext } = ctx
-  const weaponAbilityKind = resolvePhysicalWeaponAbilityKind(cm, weaponOpt)
-  const abilityKey = weaponAbilityKind === 'spell' ? spellAbility : weaponAbilityKind
-  const abilityMod = abilityModifier(effectiveAbilities?.[abilityKey] ?? 10)
   const isRangedWeapon = weaponOpt ? isRangedWeaponProto(weaponOpt.proto) : false
   const weaponCategoryAttackFlat = weaponOpt?.proto
     ? sumWeaponCategoryAttackDamageBonus(buffStats?.weaponCategoryAttackDamageBonuses ?? [], weaponOpt.proto)
@@ -723,6 +739,14 @@ function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
     ? parseWeaponAttack(getWeaponAttackStringForParsing(weaponOpt, cm.weaponVersatileMode))
     : { dice: null, diceList: [], type: '—' }
   const rawDamageType = cm.damageType || attackParsed.type
+  const spellAbilityOverride = getSpellAbilityForAttackFromBuffs(flatBuffEffects, {
+    weaponProto: weaponOpt?.proto,
+    damageType: rawDamageType,
+    sourceItemInventoryId: weaponOpt?.entry?.id,
+  })
+  const weaponAbilityKind = resolvePhysicalWeaponAbilityKind(cm, weaponOpt, spellAbilityOverride)
+  const abilityKey = weaponAbilityKind === 'spell' ? spellAbility : weaponAbilityKind
+  const abilityMod = abilityModifier(effectiveAbilities?.[abilityKey] ?? 10)
   const conditionalBonuses = calculateConditionalAttackDamageBonus(cm, flatBuffEffects, {
     weaponProto: weaponOpt?.proto,
     damageType: rawDamageType,
@@ -1012,13 +1036,15 @@ function inferPhysicalWeaponAbilityFromProto(proto) {
 /**
  * 战斗手段「武器所用属性」：
  * - 施法属性 / 敏捷 明确保存则沿用；
+ * - 若存在生效的「施法属性命中」BUFF，则优先使用其指定的智力/感知/魅力；
  * - 远程与枪械在 5e 中攻击与伤害用敏调；旧存档常误存为「力量」，仍用力调会导致伤害只显示附魔 +5 而无敏调。
  * - 未指定时按武器类型推断。
  */
-function resolvePhysicalWeaponAbilityKind(cm, weaponOpt) {
+function resolvePhysicalWeaponAbilityKind(cm, weaponOpt, spellAbilityOverride) {
   const ex = cm?.abilityForAttack
   const proto = weaponOpt?.proto
   const ranged = proto && isRangedWeaponProto(proto)
+  if (spellAbilityOverride) return spellAbilityOverride
   if (ex === 'spell') return 'spell'
   if (ex === 'dex') return 'dex'
   if (ex === 'str') {
@@ -1941,7 +1967,14 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setAddWeaponNameSuffix(cm.weaponNameSuffix ?? '')
     const wForEdit =
       cm.weaponInventoryIndex != null ? weaponsFromInv.find((x) => x.index === cm.weaponInventoryIndex) : null
-    setAddAbility(resolvePhysicalWeaponAbilityKind(cm, wForEdit))
+    const rawDamageType = cm.damageType || (wForEdit ? parseWeaponAttack(getWeaponAttackStringForParsing(wForEdit, cm.weaponVersatileMode)).type : null)
+    const flatEffects = getFlatEffectEntries(mergedBuffs)
+    const spellAbilityOverride = getSpellAbilityForAttackFromBuffs(flatEffects, {
+      weaponProto: wForEdit?.proto,
+      damageType: rawDamageType,
+      sourceItemInventoryId: wForEdit?.entry?.id,
+    })
+    setAddAbility(resolvePhysicalWeaponAbilityKind(cm, wForEdit, spellAbilityOverride))
     setAddDamageType(cm.damageType ? String(cm.damageType) : '')
     setAddWeaponMode(cm.weaponVersatileMode || getDefaultWeaponMode(wForEdit))
     setAddWeaponProficient(cm.weaponProficient !== false)
@@ -3232,8 +3265,16 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   itemFormulaContext,
                 })
               : null
-            const attackParsed = physStats?.attackParsed ?? { dice: null, diceList: [], type: '—' }
-            const weaponAbilityKind = physStats?.weaponAbilityKind ?? resolvePhysicalWeaponAbilityKind(cm, weaponOpt)
+            const attackParsed = physStats?.attackParsed ?? (weaponOpt ? parseWeaponAttack(getWeaponAttackStringForParsing(weaponOpt, cm.weaponVersatileMode)) : { dice: null, diceList: [], type: '—' })
+            const rawDamageType = physStats?.rawDamageType ?? (cm.damageType || attackParsed.type)
+            const spellAbilityOverride = physStats?.weaponAbilityKind
+              ? null
+              : getSpellAbilityForAttackFromBuffs(flatBuffEffects, {
+                  weaponProto: weaponOpt?.proto,
+                  damageType: rawDamageType,
+                  sourceItemInventoryId: weaponOpt?.entry?.id,
+                })
+            const weaponAbilityKind = physStats?.weaponAbilityKind ?? resolvePhysicalWeaponAbilityKind(cm, weaponOpt, spellAbilityOverride)
             const abilityKey = physStats?.abilityKey ?? (weaponAbilityKind === 'spell' ? spellAbility : weaponAbilityKind)
             const abilityMod = physStats?.abilityMod ?? abilityModifier(effectiveAbilities?.[abilityKey] ?? 10)
             const isRangedWeapon = physStats?.isRangedWeapon ?? (weaponOpt ? isRangedWeaponProto(weaponOpt.proto) : false)
@@ -3250,7 +3291,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             const gainExtraDice = physStats?.gainExtraDice ?? getGainExtraDice(gains)
             const gainAdvantage = physStats?.gainAdvantage ?? getGainAdvantage(gains)
             const gainDiceFloor2 = physStats?.gainDiceFloor2 ?? hasGainDiceFloor2(gains)
-            const rawDamageType = physStats?.rawDamageType ?? (cm.damageType || attackParsed.type)
             const conditionalBonuses = physStats?.conditionalBonuses ?? (isPhysical
               ? calculateConditionalAttackDamageBonus(cm, flatBuffEffects, {
                   weaponProto: weaponOpt?.proto,

@@ -1259,6 +1259,24 @@ function EffectValueEditor({
         </>
       )
     }
+    if (currentEffect?.key === 'spell_ability_attack') {
+      const obj = value && typeof value === 'object' && !Array.isArray(value) ? value : { ability: 'int' }
+      return (
+        <>
+          <select
+            value={obj.ability || 'int'}
+            onChange={(e) => onChange({ ...module, value: { ...obj, ability: e.target.value || 'int' } })}
+            className={compactClass + ' w-full min-w-0'}
+          >
+            <option value="int">智力</option>
+            <option value="wis">感知</option>
+            <option value="cha">魅力</option>
+          </select>
+          <div />
+          <div />
+        </>
+      )
+    }
     if (currentEffect?.key === 'extra_damage_dice' || needsSubSelect === 'damageDiceInline') {
       const raw = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
       return (
@@ -1470,6 +1488,22 @@ function EffectValueEditor({
             narrow
           />
           <p className="text-[10px] leading-tight text-gray-500">仅本件物品生效；各武器重击倍数互不串用；Buff 栏此项不参与投掷；法术重击×2</p>
+        </div>
+      )
+    }
+    if (currentEffect?.key === 'spell_ability_attack') {
+      const obj = value && typeof value === 'object' && !Array.isArray(value) ? value : { ability: 'int' }
+      return (
+        <div className="min-w-0 w-full">
+          <select
+            value={obj.ability || 'int'}
+            onChange={(e) => onChange({ ...module, value: { ...obj, ability: e.target.value || 'int' } })}
+            className={compactClass + ' w-full min-w-0'}
+          >
+            <option value="int">智力</option>
+            <option value="wis">感知</option>
+            <option value="cha">魅力</option>
+          </select>
         </div>
       )
     }
@@ -2376,7 +2410,7 @@ function EffectModuleModal({
   const effectTypeValid = hasCategory && effects.some((e) => e.key === draft.effectType)
   const effectiveEffectType = hasCategory && effectTypeValid ? draft.effectType : ''
   const currentEffect = effects.find((e) => e.key === effectiveEffectType)
-  const showScope = ['attack_bonus', 'damage_bonus', 'attack_damage_bonus'].includes(effectiveEffectType)
+  const showScope = ['attack_bonus', 'damage_bonus', 'attack_damage_bonus', 'spell_ability_attack'].includes(effectiveEffectType)
 
   const updateDraft = (patch) => setDraft((prev) => ({ ...prev, ...patch }))
 
@@ -2424,6 +2458,7 @@ function EffectModuleModal({
               if (nextType === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
               if (nextType === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(draft.value)
               if (nextType === 'spell_damage_bonus') patch.value = { type: '', diceFloor: 0, perDieBonus: 0, extraDice: '', flatBonus: 0 }
+              if (nextType === 'spell_ability_attack') patch.value = { ability: 'int' }
               updateDraft(patch)
             }}
             className={inputClass + ' h-8 text-xs w-full min-w-0'}

@@ -287,6 +287,8 @@ export const BUFF_TYPES = {
       // 表格：弹药无限
       // 互动调整方式：勾选开关，表示「远程攻击不消耗弹药」。
       { key: 'infinite_ammo', label: '弹药无限', dataType: 'boolean' },
+      // 武器攻击改为使用施法属性（智力/感知/魅力）计算命中与伤害
+      { key: 'spell_ability_attack', label: '施法属性命中', dataType: 'object', subSelect: 'spellAbilityForAttack' },
     ],
   },
   defense: {
