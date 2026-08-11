@@ -181,6 +181,9 @@ export function parseDamageString(str) {
   if (withPlus) {
     return { minus: (withPlus[1] || '').trim(), plus: String(withPlus[2]).toLowerCase(), o1: '', o2: '', type: (withPlus[3] || '').trim(), o3 }
   }
+  /** 多用武器：1d8/1d10 钝击、1d8+1/1d10+1 钝击 */
+  const versatile = s.match(/^(\d+d\d+(?:\s*[+-]\s*\d+)?)\s*\/\s*(\d+d\d+(?:\s*[+-]\s*\d+)?)(?:\s+(.+))?$/i)
+  if (versatile) return { minus: '', plus: `${String(versatile[1]).toLowerCase()}/${String(versatile[2]).toLowerCase()}`, o1: '', o2: '', type: (versatile[3] || '').trim(), o3 }
   /** 2d6+5 钝击、13d6+13 闪电（骰子段可含末尾加值，兼容 1d8 + 0 钝击 等旧格式空格） */
   const diceType = s.match(/^(\d*d\d+(?:\s*[+-]\s*\d+)?)\s+(.+)$/i)
   if (diceType) return { minus: '', plus: String(diceType[1]).toLowerCase(), o1: '', o2: '', type: (diceType[2] || '').trim(), o3 }

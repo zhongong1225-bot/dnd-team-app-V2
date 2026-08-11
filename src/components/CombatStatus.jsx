@@ -26,7 +26,7 @@ import {
 } from '../hooks/useBuffCalculator'
 import { getMergedBuffsForCalculator, getEffectsFromBuff, getEffectsFromItem } from '../lib/effects/effectMapping'
 import { skillProfFactor } from '../data/dndSkills'
-import { CONDITION_OPTIONS, CONDITION_DESCRIPTIONS, EXHAUSTION_DESCRIPTIONS, DAMAGE_TYPES, ABILITY_NAMES_ZH, getDamageTypeLabel, getDamageTypeValue, formatDamageForAttack, scopeMatchesCombatMean, SCOPE_KIND, normalizeScope, CREATURE_TYPE_OPTIONS } from '../data/buffTypes'
+import { CONDITION_OPTIONS, CONDITION_DESCRIPTIONS, EXHAUSTION_DESCRIPTIONS, DAMAGE_TYPES, ABILITY_NAMES_ZH, getDamageTypeLabel, getDamageTypeValue, formatDamageForAttack, parseDamageString, scopeMatchesCombatMean, SCOPE_KIND, normalizeScope, CREATURE_TYPE_OPTIONS } from '../data/buffTypes'
 import { inputClass, inputClassInline } from '../lib/inputStyles'
 import { hpBarMainFillClass, HP_BAR_TEMP_FILL_CLASS } from '../lib/hpBarShared'
 
@@ -487,12 +487,79 @@ function formatWeaponAttackDiceDisplay(attackParsed) {
   return list.join('+').toUpperCase()
 }
 
-/**
- * 合并背包武器「攻击」与「伤害」/「附注」中的骰子（多段骰有时只写在伤害栏或附注里）
- */
-function getWeaponAttackStringForParsing(weaponOpt) {
+/** 非零时输出 +N / -N；为 0 时输出空串（避免出现「2d6+」后无数字） */
+function formatSignedModifier(n) {
+  const m = Number(n)
+  if (Number.isNaN(m) || m === 0) return ''
+  return m > 0 ? `+${m}` : `${m}`
+}
+
+/** 远程武器与枪械在命中/伤害 Buff 上与近战区分（枪械原型子类型常为空） */
+function isRangedWeaponProto(proto) {
+  if (!proto) return false
+  return proto.子类型 === '远程' || proto.类型 === '枪械'
+}
+
+/** 武器战斗模式选项 */
+const WEAPON_MODE_OPTIONS = [
+  { value: 'one_hand', label: '单手' },
+  { value: 'two_hand', label: '双手' },
+  { value: 'ranged', label: '远程' },
+]
+
+/** 武器基础伤害不应包含固定加值，去掉 legacy 中的 flat mod（兼容 1d8 + 0 空格） */
+function stripDiceFlatMod(plus) {
+  if (!plus || typeof plus !== 'string') return plus
+  const m = plus.trim().match(/^(\d+)d(\d+)\s*([+-])\s*(\d+)$/i)
+  if (!m) return plus
+  return `${m[1]}d${m[2]}`
+}
+
+/** 武器是否带「多用」词条 */
+function weaponHasVersatile(weaponOpt) {
+  const note = String(weaponOpt?.entry?.附注 ?? weaponOpt?.proto?.附注 ?? '')
+  return /多用/i.test(note)
+}
+
+/** 根据武器推断默认战斗模式 */
+function getDefaultWeaponMode(weaponOpt) {
+  if (!weaponOpt) return 'one_hand'
+  if (isRangedWeaponProto(weaponOpt.proto)) return 'ranged'
+  if (weaponHasVersatile(weaponOpt)) return 'one_hand'
+  return 'one_hand'
+}
+
+/** 根据武器返回可用的模式下拉选项 */
+function getWeaponModeOptions(weaponOpt) {
+  if (!weaponOpt) return WEAPON_MODE_OPTIONS
+  if (isRangedWeaponProto(weaponOpt.proto)) return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'ranged')
+  if (weaponHasVersatile(weaponOpt)) return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand' || o.value === 'two_hand')
+  return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand')
+}
+
+/** 从武器「攻击」字段拆出单手/双手伤害对象（结构同 parseDamageString） */
+function getWeaponBaseDamageObjects(weaponOpt) {
+  const attack = String(weaponOpt?.攻击 ?? '').trim()
+  const parsed = parseDamageString(attack)
+  const plus = parsed.plus || ''
+  const base = { ...parsed, plus: '', minus: '', o1: '', o2: '', o3: parsed.o3 }
+  const versa = { ...parsed, plus: '', minus: '', o1: '', o2: '', o3: parsed.o3 }
+  if (plus.includes('/')) {
+    const [p1, p2] = plus.split('/')
+    base.plus = stripDiceFlatMod(p1.trim()) || ''
+    versa.plus = stripDiceFlatMod(p2.trim()) || ''
+  } else {
+    base.plus = stripDiceFlatMod(plus) || ''
+  }
+  return { base, versa }
+}
+
+/** 获取按模式处理后的武器攻击字符串（用于解析骰子与类型） */
+function getWeaponAttackStringForParsing(weaponOpt, mode) {
   if (!weaponOpt) return ''
-  let attack = String(weaponOpt.攻击 ?? '').trim()
+  const { base, versa } = getWeaponBaseDamageObjects(weaponOpt)
+  const baseAttack = formatDamageForAttack(mode === 'two_hand' ? versa : base)
+  let attack = baseAttack
   const appendDiceFromText = (text) => {
     if (!text || String(text).trim() === '' || String(text).trim() === '—') return
     const extra = String(text).match(WEAPON_DICE_CHUNK_RE) || []
@@ -507,19 +574,6 @@ function getWeaponAttackStringForParsing(weaponOpt) {
   appendDiceFromText(weaponOpt.entry?.附注)
   appendDiceFromText(weaponOpt.proto?.附注)
   return attack
-}
-
-/** 非零时输出 +N / -N；为 0 时输出空串（避免出现「2d6+」后无数字） */
-function formatSignedModifier(n) {
-  const m = Number(n)
-  if (Number.isNaN(m) || m === 0) return ''
-  return m > 0 ? `+${m}` : `${m}`
-}
-
-/** 远程武器与枪械在命中/伤害 Buff 上与近战区分（枪械原型子类型常为空） */
-function isRangedWeaponProto(proto) {
-  if (!proto) return false
-  return proto.子类型 === '远程' || proto.类型 === '枪械'
 }
 
 /** 战斗手段增益类型定义 */
@@ -555,6 +609,52 @@ function getGainAdvantage(gains) {
 }
 function hasGainDiceFloor2(gains) {
   return gains.some((g) => g.type === 'diceFloor2' && g.enabled !== false)
+}
+
+/** 统一计算物理战斗手段的命中、伤害与 Buff 分解（行展示与弹窗预览共用） */
+function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
+  const { effectiveAbilities, prof, spellAbility, buffStats, flatBuffEffects, itemFormulaContext } = ctx
+  const weaponAbilityKind = resolvePhysicalWeaponAbilityKind(cm, weaponOpt)
+  const abilityKey = weaponAbilityKind === 'spell' ? spellAbility : weaponAbilityKind
+  const abilityMod = abilityModifier(effectiveAbilities?.[abilityKey] ?? 10)
+  const isRangedWeapon = weaponOpt ? isRangedWeaponProto(weaponOpt.proto) : false
+  const weaponCategoryAttackFlat = weaponOpt?.proto
+    ? sumWeaponCategoryAttackDamageBonus(buffStats?.weaponCategoryAttackDamageBonuses ?? [], weaponOpt.proto)
+    : 0
+  const buffAttackBonus = (isRangedWeapon ? (buffStats?.rangedAttackBonus ?? 0) : (buffStats?.meleeAttackBonus ?? 0)) + weaponCategoryAttackFlat
+  const buffDamageBonus = (isRangedWeapon ? (buffStats?.rangedDamageBonus ?? 0) : (buffStats?.meleeDamageBonus ?? 0)) + weaponCategoryAttackFlat
+  const weaponProficient = cm.weaponProficient !== false
+  const gains = getEnabledGains(cm)
+  const gainAttackBonus = sumGainAttackBonus(gains)
+  const gainDamageBonus = sumGainDamageBonus(gains)
+  const gainPerDieBonus = sumGainPerDieBonus(gains)
+  const gainExtraDice = getGainExtraDice(gains)
+  const gainAdvantage = getGainAdvantage(gains)
+  const gainDiceFloor2 = hasGainDiceFloor2(gains)
+  const attackParsed = weaponOpt
+    ? parseWeaponAttack(getWeaponAttackStringForParsing(weaponOpt, cm.weaponVersatileMode))
+    : { dice: null, diceList: [], type: '—' }
+  const rawDamageType = cm.damageType || attackParsed.type
+  const conditionalBonuses = calculateConditionalAttackDamageBonus(cm, flatBuffEffects, {
+    weaponProto: weaponOpt?.proto,
+    damageType: rawDamageType,
+    sourceItemInventoryId: weaponOpt?.entry?.id,
+  }, itemFormulaContext)
+  const physicalAttackBonus = abilityMod + (weaponProficient ? prof : 0) + buffAttackBonus + gainAttackBonus + (conditionalBonuses?.attackBonus || 0)
+  const damageMod = abilityMod
+  const weaponExtraDiceStrings = [...getMergedWeaponExtraDiceStrings(cm, weaponOpt), ...gainExtraDice]
+  const allWeaponDiceCount = (attackParsed.diceList || []).reduce((s, d) => s + (parseCombatDiceExpression(d)?.count || 0), 0) +
+    weaponExtraDiceStrings.reduce((s, d) => s + (parseCombatDiceExpression(String(d).split(' ')[0])?.count || 0), 0)
+  const weaponPerDieMod = gainPerDieBonus * allWeaponDiceCount
+  const totalDamageMod = damageMod + buffDamageBonus + gainDamageBonus + weaponPerDieMod + (conditionalBonuses?.damageBonus || 0)
+  const displayDamageType = rawDamageType ? getDamageTypeLabel(rawDamageType) : '—'
+  return {
+    weaponAbilityKind, abilityKey, abilityMod, isRangedWeapon, weaponCategoryAttackFlat,
+    buffAttackBonus, buffDamageBonus, weaponProficient, gains, gainAttackBonus, gainDamageBonus,
+    gainPerDieBonus, gainExtraDice, gainAdvantage, gainDiceFloor2, attackParsed, rawDamageType,
+    conditionalBonuses, physicalAttackBonus, damageMod, weaponExtraDiceStrings, allWeaponDiceCount,
+    weaponPerDieMod, totalDamageMod, displayDamageType,
+  }
 }
 
 /** 根据战斗手段类型与 Buff 统计，自动生成一组默认增益建议（仅在用户未手动设置时填充） */
@@ -885,6 +985,31 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     }
   }, [char, level, abilities, buffStats])
   const flatBuffEffects = useMemo(() => getFlatEffectEntries(mergedBuffs), [mergedBuffs])
+  const previewWeaponStats = useMemo(() => {
+    if (addMeanStep !== 'weapon' || addWeaponIndex == null) return null
+    const w = weaponsFromInv.find((x) => x.index === addWeaponIndex)
+    if (!w) return null
+    const previewCm = {
+      id: 'preview',
+      type: 'physical',
+      weaponInventoryIndex: addWeaponIndex,
+      abilityForAttack: addAbility,
+      damageType: addDamageType || null,
+      weaponVersatileMode: addWeaponMode || null,
+      weaponProficient: addWeaponProficient,
+      targetCreatureType: addTargetCreatureType || '',
+      extraDamageDice: [...addWeaponExtraDice],
+      gains: addGains,
+    }
+    return computePhysicalWeaponStats(previewCm, w, {
+      effectiveAbilities,
+      prof,
+      spellAbility,
+      buffStats,
+      flatBuffEffects,
+      itemFormulaContext,
+    })
+  }, [addMeanStep, addWeaponIndex, addAbility, addDamageType, addWeaponMode, addWeaponProficient, addTargetCreatureType, addWeaponExtraDice, addGains, weaponsFromInv, effectiveAbilities, prof, spellAbility, buffStats, flatBuffEffects, itemFormulaContext])
   const acResult = getAC(char)
   const acTotal = buffStats?.ac != null ? buffStats.ac : (acResult.total + (buffStats?.acBonus ?? 0))
   const acModeOptions = useMemo(() => getACModeOptionsForCharacter(char), [char?.['class'], char?.multiclass, char?.prestige])
@@ -936,6 +1061,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       extraDamageDice: Array.isArray(m.extraDamageDice) ? m.extraDamageDice : [],
       abilityForAttack: m.abilityForAttack ?? null,
       damageType: m.damageType ?? null,
+      weaponVersatileMode: m.weaponVersatileMode || null,
       weaponProficient: m.weaponProficient !== false,
       weaponNameSuffix: m.weaponNameSuffix ?? '',
       targetCreatureType: m.targetCreatureType ?? '',
@@ -955,6 +1081,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [addWeaponNameSuffix, setAddWeaponNameSuffix] = useState('')
   const [addAbility, setAddAbility] = useState('str')
   const [addDamageType, setAddDamageType] = useState('')
+  const [addWeaponMode, setAddWeaponMode] = useState('one_hand')
   const [addWeaponProficient, setAddWeaponProficient] = useState(true)
   const [addTargetCreatureType, setAddTargetCreatureType] = useState('')
   const [addItemIndex, setAddItemIndex] = useState(null)
@@ -1079,6 +1206,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       extraDamageDice: Array.isArray(m.extraDamageDice) ? m.extraDamageDice : [],
       abilityForAttack: m.abilityForAttack ?? null,
       damageType: m.damageType ?? null,
+      weaponVersatileMode: m.weaponVersatileMode || null,
       weaponProficient: m.weaponProficient !== false,
       weaponNameSuffix: m.weaponNameSuffix ?? '',
       gains: Array.isArray(m.gains) ? m.gains : [],
@@ -1327,6 +1455,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         extraDamageDice: m.extraDamageDice,
       abilityForAttack: m.abilityForAttack,
       damageType: m.damageType,
+      weaponVersatileMode: m.weaponVersatileMode || null,
       weaponProficient: m.weaponProficient,
       weaponNameSuffix: m.weaponNameSuffix,
       targetCreatureType: m.targetCreatureType,
@@ -1341,9 +1470,11 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     if (first) {
       setAddWeaponIndex(first.index)
       setAddAbility(inferPhysicalWeaponAbilityFromProto(first.proto))
+      setAddWeaponMode(getDefaultWeaponMode(first))
     } else {
       setAddWeaponIndex(null)
       setAddAbility('str')
+      setAddWeaponMode('one_hand')
     }
     setAddDamageType('')
     setAddWeaponNameSuffix('')
@@ -1363,6 +1494,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       extraDamageDice: [...addWeaponExtraDice],
       abilityForAttack: addAbility,
       damageType: addDamageType || null,
+      weaponVersatileMode: addWeaponMode || null,
       weaponProficient: addWeaponProficient,
       weaponNameSuffix: (addWeaponNameSuffix || '').trim(),
       targetCreatureType: addTargetCreatureType || '',
@@ -1747,6 +1879,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       cm.weaponInventoryIndex != null ? weaponsFromInv.find((x) => x.index === cm.weaponInventoryIndex) : null
     setAddAbility(resolvePhysicalWeaponAbilityKind(cm, wForEdit))
     setAddDamageType(cm.damageType ? String(cm.damageType) : '')
+    setAddWeaponMode(cm.weaponVersatileMode || getDefaultWeaponMode(wForEdit))
     setAddWeaponProficient(cm.weaponProficient !== false)
     setAddTargetCreatureType(cm.targetCreatureType || '')
     setAddWeaponExtraDice(Array.isArray(cm.extraDamageDice) ? [...cm.extraDamageDice] : [])
@@ -3000,45 +3133,50 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             const isItem = cm.type === 'item'
             const itemMeanOpt = isItem && cm.itemInventoryIndex != null ? itemMeansFromInv.find((x) => x.index === cm.itemInventoryIndex) : null
             const weaponOpt = isPhysical && cm.weaponInventoryIndex != null ? weaponsFromInv.find((w) => w.index === cm.weaponInventoryIndex) : null
-            const attackParsed = weaponOpt
-              ? parseWeaponAttack(getWeaponAttackStringForParsing(weaponOpt))
-              : { dice: null, diceList: [], type: '—' }
-            const weaponAbilityKind = resolvePhysicalWeaponAbilityKind(cm, weaponOpt)
-            const abilityKey = weaponAbilityKind === 'spell' ? spellAbility : weaponAbilityKind
-            const abilityMod = abilityModifier(effectiveAbilities?.[abilityKey] ?? 10)
-            const isRangedWeapon = weaponOpt ? isRangedWeaponProto(weaponOpt.proto) : false
-            const weaponCategoryAttackFlat = weaponOpt?.proto
+            const physStats = isPhysical && weaponOpt
+              ? computePhysicalWeaponStats(cm, weaponOpt, {
+                  effectiveAbilities,
+                  prof,
+                  spellAbility,
+                  buffStats,
+                  flatBuffEffects,
+                  itemFormulaContext,
+                })
+              : null
+            const attackParsed = physStats?.attackParsed ?? { dice: null, diceList: [], type: '—' }
+            const weaponAbilityKind = physStats?.weaponAbilityKind ?? resolvePhysicalWeaponAbilityKind(cm, weaponOpt)
+            const abilityKey = physStats?.abilityKey ?? (weaponAbilityKind === 'spell' ? spellAbility : weaponAbilityKind)
+            const abilityMod = physStats?.abilityMod ?? abilityModifier(effectiveAbilities?.[abilityKey] ?? 10)
+            const isRangedWeapon = physStats?.isRangedWeapon ?? (weaponOpt ? isRangedWeaponProto(weaponOpt.proto) : false)
+            const weaponCategoryAttackFlat = physStats?.weaponCategoryAttackFlat ?? (weaponOpt?.proto
               ? sumWeaponCategoryAttackDamageBonus(buffStats?.weaponCategoryAttackDamageBonuses ?? [], weaponOpt.proto)
-              : 0
-            const buffAttackBonus =
-              (isRangedWeapon ? (buffStats?.rangedAttackBonus ?? 0) : (buffStats?.meleeAttackBonus ?? 0)) + weaponCategoryAttackFlat
-            const buffDamageBonus =
-              (isRangedWeapon ? (buffStats?.rangedDamageBonus ?? 0) : (buffStats?.meleeDamageBonus ?? 0)) + weaponCategoryAttackFlat
-            const weaponProficient = cm.weaponProficient !== false
-            const gains = getEnabledGains(cm)
-            const gainAttackBonus = sumGainAttackBonus(gains)
-            const gainDamageBonus = sumGainDamageBonus(gains)
-            const gainPerDieBonus = sumGainPerDieBonus(gains)
-            const gainExtraDice = getGainExtraDice(gains)
-            const gainAdvantage = getGainAdvantage(gains)
-            const gainDiceFloor2 = hasGainDiceFloor2(gains)
-            const rawDamageType = cm.damageType || attackParsed.type
-            const conditionalBonuses = isPhysical
+              : 0)
+            const buffAttackBonus = physStats?.buffAttackBonus ?? ((isRangedWeapon ? (buffStats?.rangedAttackBonus ?? 0) : (buffStats?.meleeAttackBonus ?? 0)) + weaponCategoryAttackFlat)
+            const buffDamageBonus = physStats?.buffDamageBonus ?? ((isRangedWeapon ? (buffStats?.rangedDamageBonus ?? 0) : (buffStats?.meleeDamageBonus ?? 0)) + weaponCategoryAttackFlat)
+            const weaponProficient = physStats?.weaponProficient ?? (cm.weaponProficient !== false)
+            const gains = physStats?.gains ?? getEnabledGains(cm)
+            const gainAttackBonus = physStats?.gainAttackBonus ?? sumGainAttackBonus(gains)
+            const gainDamageBonus = physStats?.gainDamageBonus ?? sumGainDamageBonus(gains)
+            const gainPerDieBonus = physStats?.gainPerDieBonus ?? sumGainPerDieBonus(gains)
+            const gainExtraDice = physStats?.gainExtraDice ?? getGainExtraDice(gains)
+            const gainAdvantage = physStats?.gainAdvantage ?? getGainAdvantage(gains)
+            const gainDiceFloor2 = physStats?.gainDiceFloor2 ?? hasGainDiceFloor2(gains)
+            const rawDamageType = physStats?.rawDamageType ?? (cm.damageType || attackParsed.type)
+            const conditionalBonuses = physStats?.conditionalBonuses ?? (isPhysical
               ? calculateConditionalAttackDamageBonus(cm, flatBuffEffects, {
                   weaponProto: weaponOpt?.proto,
                   damageType: rawDamageType,
                   sourceItemInventoryId: weaponOpt?.entry?.id,
                 }, itemFormulaContext)
-              : { attackBonus: 0, damageBonus: 0 }
-            const physicalAttackBonus = abilityMod + (weaponProficient ? prof : 0) + buffAttackBonus + gainAttackBonus + (conditionalBonuses?.attackBonus || 0)
-            const damageMod = abilityMod
-            const weaponExtraDiceStrings = [...getMergedWeaponExtraDiceStrings(cm, weaponOpt), ...gainExtraDice]
-            const allWeaponDiceCount =
-              (attackParsed.diceList || []).reduce((s, d) => s + (parseCombatDiceExpression(d)?.count || 0), 0) +
-              weaponExtraDiceStrings.reduce((s, d) => s + (parseCombatDiceExpression(String(d).split(' ')[0])?.count || 0), 0)
-            const weaponPerDieMod = gainPerDieBonus * allWeaponDiceCount
-            const totalDamageMod = damageMod + buffDamageBonus + gainDamageBonus + weaponPerDieMod + (conditionalBonuses?.damageBonus || 0)
-            const displayDamageType = rawDamageType ? getDamageTypeLabel(rawDamageType) : '—'
+              : { attackBonus: 0, damageBonus: 0 })
+            const physicalAttackBonus = physStats?.physicalAttackBonus ?? (abilityMod + (weaponProficient ? prof : 0) + buffAttackBonus + gainAttackBonus + (conditionalBonuses?.attackBonus || 0))
+            const damageMod = physStats?.damageMod ?? abilityMod
+            const weaponExtraDiceStrings = physStats?.weaponExtraDiceStrings ?? [...getMergedWeaponExtraDiceStrings(cm, weaponOpt), ...gainExtraDice]
+            const allWeaponDiceCount = physStats?.allWeaponDiceCount ?? ((attackParsed.diceList || []).reduce((s, d) => s + (parseCombatDiceExpression(d)?.count || 0), 0) +
+              weaponExtraDiceStrings.reduce((s, d) => s + (parseCombatDiceExpression(String(d).split(' ')[0])?.count || 0), 0))
+            const weaponPerDieMod = physStats?.weaponPerDieMod ?? (gainPerDieBonus * allWeaponDiceCount)
+            const totalDamageMod = physStats?.totalDamageMod ?? (damageMod + buffDamageBonus + gainDamageBonus + weaponPerDieMod + (conditionalBonuses?.damageBonus || 0))
+            const displayDamageType = physStats?.displayDamageType ?? (rawDamageType ? getDamageTypeLabel(rawDamageType) : '—')
             const isSpellAttack = cm.type === 'spell_attack'
             const spellOpt = !isPhysical && !isItem && !isSpellAttack && cm.spellId ? preparedSpellsList.find((p) => p.spellId === cm.spellId) : null
             const spell = spellOpt?.spell
@@ -3580,7 +3718,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   <>
                     <h3 className="text-dnd-gold-light text-sm font-bold mb-3">添加战斗手段</h3>
                     <div className="flex flex-col gap-2">
-                      <button type="button" onClick={() => { const w0 = weaponsFromInv[0]; const nextIdx = w0 ? w0.index : null; setAddWeaponIndex(nextIdx); setAddAbility(w0 ? inferPhysicalWeaponAbilityFromProto(w0.proto) : 'str'); setAddDamageType(''); setShowWeaponExtraDiceEditor(false); setAddMeanStep('weapon'); }} className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white font-medium text-sm">
+                      <button type="button" onClick={() => { const w0 = weaponsFromInv[0]; const nextIdx = w0 ? w0.index : null; setAddWeaponIndex(nextIdx); setAddAbility(w0 ? inferPhysicalWeaponAbilityFromProto(w0.proto) : 'str'); setAddDamageType(''); setAddWeaponMode(w0 ? getDefaultWeaponMode(w0) : 'one_hand'); setShowWeaponExtraDiceEditor(false); setAddMeanStep('weapon'); }} className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white font-medium text-sm">
                         武器攻击
                       </button>
                       <button type="button" onClick={() => { const first = itemMeansFromInv[0]; setAddItemIndex(first ? first.index : null); setAddMeanStep('item'); }} disabled={itemMeansFromInv.length === 0} className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm">
@@ -3719,7 +3857,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       <div>
                         <label className="block text-dnd-text-muted text-xs mb-0.5">武器</label>
                         <div className="flex items-center gap-1.5 w-full min-w-0 flex-nowrap">
-                          <select value={addWeaponIndex ?? ''} onChange={(e) => { const v = e.target.value === '' ? null : parseInt(e.target.value, 10); setAddWeaponIndex(v); const w = v != null ? weaponsFromInv.find((x) => x.index === v) : null; if (w?.proto) setAddAbility(inferPhysicalWeaponAbilityFromProto(w.proto)); }} className={inputClass + ' h-8 text-xs shrink-0 max-w-[10rem]'} disabled={!canEdit} style={{ width: 'auto', minWidth: '6rem' }}>
+                          <select value={addWeaponIndex ?? ''} onChange={(e) => { const v = e.target.value === '' ? null : parseInt(e.target.value, 10); setAddWeaponIndex(v); const w = v != null ? weaponsFromInv.find((x) => x.index === v) : null; if (w?.proto) { setAddAbility(inferPhysicalWeaponAbilityFromProto(w.proto)); const parsed = parseWeaponAttack(w.攻击); const autoType = parsed.type && parsed.type !== '—' ? parsed.type : ''; setAddDamageType(autoType); setAddWeaponMode(getDefaultWeaponMode(w)); } else { setAddDamageType(''); setAddWeaponMode('one_hand'); } }} className={inputClass + ' h-8 text-xs shrink-0 max-w-[10rem]'} disabled={!canEdit} style={{ width: 'auto', minWidth: '6rem' }}>
                             <option value="">—</option>
                             {weaponsFromInv.map((w) => (
                               <option key={w.index} value={w.index}>{w.name}</option>
@@ -3727,6 +3865,14 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                           </select>
                           <input type="text" value={addWeaponNameSuffix} onChange={(e) => setAddWeaponNameSuffix(e.target.value)} placeholder="追加名称" className={inputClass + ' h-8 text-xs flex-1 min-w-0'} />
                         </div>
+                      </div>
+                      <div>
+                        <label className="block text-dnd-text-muted text-xs mb-0.5">战斗模式</label>
+                        <select value={addWeaponMode} onChange={(e) => setAddWeaponMode(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
+                          {getWeaponModeOptions(addWeaponIndex != null ? weaponsFromInv.find((x) => x.index === addWeaponIndex) : null).map((o) => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="min-w-0">
@@ -3760,6 +3906,35 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                           ))}
                         </select>
                       </div>
+                      {previewWeaponStats && (
+                        <div className="rounded border border-gray-600/80 bg-gray-900/40 p-2 space-y-1.5">
+                          <div className="text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">实时预览</div>
+                          <div className="text-xs">
+                            <span className="text-dnd-text-muted">命中</span>{' '}
+                            <span className="text-white font-mono tabular-nums">{previewWeaponStats.physicalAttackBonus >= 0 ? '+' : ''}{previewWeaponStats.physicalAttackBonus}</span>
+                            <span className="text-dnd-text-muted text-[10px] ml-1">
+                              = 属性{previewWeaponStats.abilityMod >= 0 ? '+' : ''}{previewWeaponStats.abilityMod}
+                              {' '}· 熟练{previewWeaponStats.weaponProficient ? `+${prof}` : '+0'}
+                              {previewWeaponStats.buffAttackBonus !== 0 && ` · Buff${previewWeaponStats.buffAttackBonus >= 0 ? '+' : ''}${previewWeaponStats.buffAttackBonus}`}
+                              {previewWeaponStats.gainAttackBonus !== 0 && ` · 增益${previewWeaponStats.gainAttackBonus >= 0 ? '+' : ''}${previewWeaponStats.gainAttackBonus}`}
+                              {previewWeaponStats.conditionalBonuses?.attackBonus ? ` · 条件${previewWeaponStats.conditionalBonuses.attackBonus >= 0 ? '+' : ''}${previewWeaponStats.conditionalBonuses.attackBonus}` : ''}
+                            </span>
+                          </div>
+                          <div className="text-xs">
+                            <span className="text-dnd-text-muted">伤害</span>{' '}
+                            <span className="text-white font-mono tabular-nums">
+                              {formatWeaponAttackDiceDisplay(previewWeaponStats.attackParsed)}
+                              {formatSignedModifier(previewWeaponStats.totalDamageMod)} {previewWeaponStats.displayDamageType}
+                              {filterExtraDiceAgainstMain(previewWeaponStats.attackParsed, previewWeaponStats.rawDamageType, previewWeaponStats.weaponExtraDiceStrings).map((d) => ` + ${d}`).join('')}
+                            </span>
+                            <span className="text-dnd-text-muted text-[10px] ml-1">
+                              = 主骰 {formatWeaponAttackDiceDisplay(previewWeaponStats.attackParsed)}
+                              {previewWeaponStats.weaponExtraDiceStrings.length > 0 && ` · 额外 ${previewWeaponStats.weaponExtraDiceStrings.join(' ')}`}
+                              {previewWeaponStats.totalDamageMod !== 0 && ` · 加值${previewWeaponStats.totalDamageMod >= 0 ? '+' : ''}${previewWeaponStats.totalDamageMod}`}
+                            </span>
+                          </div>
+                        </div>
+                      )}
                       <div className="w-full border-t border-gray-600/80 pt-2">
                         <div className="mb-1 flex items-center justify-between gap-2">
                           <label className="text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">额外伤害骰（可选）</label>
