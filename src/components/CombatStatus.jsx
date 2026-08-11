@@ -985,31 +985,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     }
   }, [char, level, abilities, buffStats])
   const flatBuffEffects = useMemo(() => getFlatEffectEntries(mergedBuffs), [mergedBuffs])
-  const previewWeaponStats = useMemo(() => {
-    if (addMeanStep !== 'weapon' || addWeaponIndex == null) return null
-    const w = weaponsFromInv.find((x) => x.index === addWeaponIndex)
-    if (!w) return null
-    const previewCm = {
-      id: 'preview',
-      type: 'physical',
-      weaponInventoryIndex: addWeaponIndex,
-      abilityForAttack: addAbility,
-      damageType: addDamageType || null,
-      weaponVersatileMode: addWeaponMode || null,
-      weaponProficient: addWeaponProficient,
-      targetCreatureType: addTargetCreatureType || '',
-      extraDamageDice: [...addWeaponExtraDice],
-      gains: addGains,
-    }
-    return computePhysicalWeaponStats(previewCm, w, {
-      effectiveAbilities,
-      prof,
-      spellAbility,
-      buffStats,
-      flatBuffEffects,
-      itemFormulaContext,
-    })
-  }, [addMeanStep, addWeaponIndex, addAbility, addDamageType, addWeaponMode, addWeaponProficient, addTargetCreatureType, addWeaponExtraDice, addGains, weaponsFromInv, effectiveAbilities, prof, spellAbility, buffStats, flatBuffEffects, itemFormulaContext])
   const acResult = getAC(char)
   const acTotal = buffStats?.ac != null ? buffStats.ac : (acResult.total + (buffStats?.acBonus ?? 0))
   const acModeOptions = useMemo(() => getACModeOptionsForCharacter(char), [char?.['class'], char?.multiclass, char?.prestige])
@@ -1908,6 +1883,31 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   }, [char?.spells])
   const effectiveAbilities = buffStats?.abilities ?? abilities
   const { spellAbility, spellAttackBonus, spellDC, prof } = getSpellcastingCombatStats(char, buffStats, level, abilities)
+  const previewWeaponStats = useMemo(() => {
+    if (addMeanStep !== 'weapon' || addWeaponIndex == null) return null
+    const w = weaponsFromInv.find((x) => x.index === addWeaponIndex)
+    if (!w) return null
+    const previewCm = {
+      id: 'preview',
+      type: 'physical',
+      weaponInventoryIndex: addWeaponIndex,
+      abilityForAttack: addAbility,
+      damageType: addDamageType || null,
+      weaponVersatileMode: addWeaponMode || null,
+      weaponProficient: addWeaponProficient,
+      targetCreatureType: addTargetCreatureType || '',
+      extraDamageDice: [...addWeaponExtraDice],
+      gains: addGains,
+    }
+    return computePhysicalWeaponStats(previewCm, w, {
+      effectiveAbilities,
+      prof,
+      spellAbility,
+      buffStats,
+      flatBuffEffects,
+      itemFormulaContext,
+    })
+  }, [addMeanStep, addWeaponIndex, addAbility, addDamageType, addWeaponMode, addWeaponProficient, addTargetCreatureType, addWeaponExtraDice, addGains, weaponsFromInv, effectiveAbilities, prof, spellAbility, buffStats, flatBuffEffects, itemFormulaContext])
   const spellcastingLevel = getSpellcastingLevel(char)
   const maxSlotsByRing = useMemo(() => getMaxSpellSlotsByRing(char), [char])
   const spellSlotsMaxOverride = char?.spellSlotsMax && typeof char.spellSlotsMax === 'object' ? char.spellSlotsMax : {}

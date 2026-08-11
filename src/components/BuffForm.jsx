@@ -1625,6 +1625,33 @@ function EffectValueEditor({
     )
   }
 
+  if (currentEffect?.key === 'attack_area' || needsSubSelect === 'attackAreaSize') {
+    const obj = value && typeof value === 'object' && !Array.isArray(value) ? value : { kind: 'radius', size: 0 }
+    return (
+      <div className="space-y-0.5">
+        {!hideSectionLabel && (
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5 leading-none">范围</label>
+        )}
+        <div className="flex items-center gap-2">
+          <select
+            value={obj.kind || 'radius'}
+            onChange={(e) => onChange({ ...module, value: { ...obj, kind: e.target.value || 'radius' } })}
+            className={inputClass + ' min-w-[6rem]'}
+          >
+            <option value="radius">半径</option>
+            <option value="diameter">直径</option>
+          </select>
+          <NumberStepper referenceData={activeReferenceData}
+            value={obj.size}
+            onChange={(v) => onChange({ ...module, value: { ...obj, size: v } })}
+            step={5}
+          />
+          <span className="text-gray-500 text-sm">尺</span>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-0.5">
       {!hideSectionLabel && (
