@@ -14,7 +14,15 @@ const LEVEL_GROUPS = [
   { label: '15级+', value: 15 },
 ]
 
-export default function EldritchInvocationPicker({ isOpen, onClose, onConfirm, selectedIds = [] }) {
+export default function EldritchInvocationPicker({
+  isOpen,
+  onClose,
+  onConfirm,
+  selectedIds = [],
+  warlockLevel = 0,
+  maxInvocations = 0,
+  selectedCount = 0,
+}) {
   const [query, setQuery] = useState('')
   const [levelFilter, setLevelFilter] = useState(0)
   const [selected, setSelected] = useState(new Set(selectedIds))
@@ -164,6 +172,22 @@ export default function EldritchInvocationPicker({ isOpen, onClose, onConfirm, s
 
           {/* Preview */}
           <div className="w-80 sm:w-96 bg-[#141f2e]/60 flex flex-col overflow-hidden">
+            <div className="px-4 py-2 border-b border-white/10 bg-[#1b2738]/80 shrink-0">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-dnd-text-muted">魔契师等级</span>
+                <span className="text-white font-medium">{warlockLevel > 0 ? `${warlockLevel} 级` : '—'}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs mt-1">
+                <span className="text-dnd-text-muted">已选 / 上限</span>
+                <span className="text-white font-medium">{selectedCount} / {maxInvocations}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs mt-1">
+                <span className="text-dnd-text-muted">剩余可选</span>
+                <span className={`font-medium ${maxInvocations - selectedCount > 0 ? 'text-dnd-gold-light' : 'text-gray-400'}`}>
+                  {maxInvocations - selectedCount > 0 ? `${maxInvocations - selectedCount} 个` : '无'}
+                </span>
+              </div>
+            </div>
             <div className="flex-1 overflow-y-auto p-4">
               {preview ? (
                 <div className="space-y-3">

@@ -23,6 +23,7 @@ import {
   getAvailableFeatures,
   resolveSelectedFeatures,
   getPrimarySpellcastingAbility,
+  getCharacterClasses,
 } from '../data/classDatabase'
 import { useRuleTextOverridesMap } from '../hooks/useRuleTextOverridesMap'
 import {
@@ -738,6 +739,17 @@ function mergeSelectedInvocations(current, nextIds) {
   })
 }
 
+function getMaxInvocationsByWarlockLevel(level) {
+  if (level >= 18) return 7
+  if (level >= 15) return 6
+  if (level >= 12) return 5
+  if (level >= 9) return 4
+  if (level >= 5) return 3
+  if (level >= 2) return 2
+  if (level >= 1) return 1
+  return 0
+}
+
 /** 魔能祈唤：在「魔能祈唤」特性卡片内提供选择器与已选列表 */
 function EldritchInvocationsBlock({ char, canEdit, onSave }) {
   const [modalOpen, setModalOpen] = useState(false)
@@ -746,6 +758,13 @@ function EldritchInvocationsBlock({ char, canEdit, onSave }) {
   const selectedIds = selected.map((x) =>
     typeof x === 'string' ? x : (x?.invocationId ?? x?.id ?? ''),
   )
+
+  const warlockLevel = useMemo(() => {
+    const classes = getCharacterClasses(char)
+    return classes.find((c) => c.name === '魔契师')?.level ?? 0
+  }, [char])
+  const maxInvocations = getMaxInvocationsByWarlockLevel(warlockLevel)
+  const selectedCount = selected.length
 
   const handleConfirm = (ids) => {
     const next = mergeSelectedInvocations(char?.selectedInvocations, ids)
@@ -791,6 +810,9 @@ function EldritchInvocationsBlock({ char, canEdit, onSave }) {
         onClose={() => setModalOpen(false)}
         onConfirm={handleConfirm}
         selectedIds={selectedIds}
+        warlockLevel={warlockLevel}
+        maxInvocations={maxInvocations}
+        selectedCount={selectedCount}
       />
     </div>
   )
