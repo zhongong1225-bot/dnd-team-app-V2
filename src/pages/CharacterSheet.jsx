@@ -37,11 +37,17 @@ import {
 import { FANXING_PRESTIGE_CLASSES } from '../data/fanxing'
 import { ABILITY_NAMES_ZH } from '../data/buffTypes'
 import { FEATS, FEATS_BY_CATEGORY, formatFeatDescriptionForDisplay } from '../data/feats'
+import { ELDRITCH_INVOCATIONS } from '../data/eldritchInvocations'
 import { useCombatState } from '../hooks/useCombatState'
 import { useBuffCalculator } from '../hooks/useBuffCalculator'
-import { getMergedBuffsForCalculator, mergeFeatBuffPatchesFromMergedList } from '../lib/effects/effectMapping'
+import {
+  getMergedBuffsForCalculator,
+  mergeFeatBuffPatchesFromMergedList,
+  mergeInvocationBuffPatchesFromMergedList,
+} from '../lib/effects/effectMapping'
 import { cloneBuffTemplateToManual } from '../lib/buffStash'
 import BuffManager from '../components/BuffManager'
+import EldritchInvocationPicker from '../components/EldritchInvocationPicker'
 import CombatStatus from '../components/CombatStatus'
 import EquipmentAndInventory from '../components/EquipmentAndInventory'
 import AbilityModule from '../components/AbilityModule'
@@ -711,6 +717,85 @@ function featureKey(f) {
   return f.sourceSubclass ? `${f.sourceClass}:${f.sourceSubclass}:${f.id}` : `${f.sourceClass}:${f.id}`
 }
 
+function mergeSelectedInvocations(current, nextIds) {
+  const pool = (current || []).map((x) => {
+    const invocationId = typeof x === 'string' ? x : (x?.invocationId ?? x?.id ?? '')
+    return {
+      invocationId,
+      patch: typeof x === 'string' ? undefined : x?.invocationBuffPatch,
+    }
+  })
+  const used = new Set()
+  return nextIds.map((id) => {
+    const idx = pool.findIndex((p, i) => p.invocationId === id && !used.has(i))
+    if (idx >= 0) {
+      used.add(idx)
+      return pool[idx].patch
+        ? { invocationId: id, invocationBuffPatch: pool[idx].patch }
+        : { invocationId: id }
+    }
+    return { invocationId: id }
+  })
+}
+
+/** 魔能祈唤：在「魔能祈唤」特性卡片内提供选择器与已选列表 */
+function EldritchInvocationsBlock({ char, canEdit, onSave }) {
+  const [modalOpen, setModalOpen] = useState(false)
+  const selected = char?.selectedInvocations ?? []
+  const byId = useMemo(() => new Map(ELDRITCH_INVOCATIONS.map((x) => [x.id, x])), [])
+  const selectedIds = selected.map((x) =>
+    typeof x === 'string' ? x : (x?.invocationId ?? x?.id ?? ''),
+  )
+
+  const handleConfirm = (ids) => {
+    const next = mergeSelectedInvocations(char?.selectedInvocations, ids)
+    onSave({ selectedInvocations: next })
+  }
+
+  return (
+    <div className="mt-3 border-t border-gray-600/35 pt-3">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <span className="text-xs text-dnd-text-muted">已习得魔能祈唤</span>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setModalOpen(true)}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium bg-dnd-red/90 text-white hover:bg-dnd-red transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            选择魔能祈唤
+          </button>
+        )}
+      </div>
+      {selected.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {selected.map((x, i) => {
+            const id = typeof x === 'string' ? x : (x?.invocationId ?? x?.id ?? '')
+            const inv = byId.get(id)
+            return (
+              <span
+                key={`${id}-${i}`}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-white/10 bg-[#243147]/60 text-xs text-gray-200"
+                title={inv?.description ?? ''}
+              >
+                {inv?.name ?? id}
+              </span>
+            )
+          })}
+        </div>
+      ) : (
+        <p className="text-gray-500 text-xs">未选择魔能祈唤</p>
+      )}
+      <EldritchInvocationPicker
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onConfirm={handleConfirm}
+        selectedIds={selectedIds}
+      />
+    </div>
+  )
+}
+
 /** 职业特性：从职业库调出可选特性，在角色卡上勾选展示；已添加的显示在上方列表 */
 function ClassFeaturesSection({ char, canEdit, onSave }) {
   const { currentModuleId } = useModule()
@@ -842,6 +927,9 @@ function ClassFeaturesSection({ char, canEdit, onSave }) {
                   <p className={`${CS_LIST_BODY} mt-2 border-t border-gray-700/35 pt-2 whitespace-pre-line`}>
                     {descText}
                   </p>
+                )}
+                {f.id === 'eldritch_invocations' && (
+                  <EldritchInvocationsBlock char={char} canEdit={canEdit} onSave={onSave} />
                 )}
               </li>
               )
@@ -1475,6 +1563,7 @@ export default function CharacterSheet() {
     [
       char?.buffs,
       char?.selectedFeats,
+      char?.selectedInvocations,
       char?.inventory,
       char?.equippedHeld,
       char?.equippedWorn,
@@ -1563,6 +1652,17 @@ export default function CharacterSheet() {
       if (name && !seen.has(name)) {
         seen.add(name)
         names.push(name)
+      }
+    }
+    // 魔能祈唤
+    for (const x of char.selectedInvocations ?? []) {
+      const invocationId = typeof x === 'string' ? x : (x?.invocationId ?? x?.id ?? '')
+      if (!invocationId || seen.has(invocationId)) continue
+      seen.add(invocationId)
+      const inv = ELDRITCH_INVOCATIONS.find((i) => i.id === invocationId)
+      if (inv?.name && !seen.has(inv.name)) {
+        seen.add(inv.name)
+        names.push(inv.name)
       }
     }
     return names
@@ -1857,9 +1957,10 @@ export default function CharacterSheet() {
               baseAbilities={char.abilities ?? {}}
               sourceNameOptions={sourceNameOptions}
               onSave={(buffsList) => {
-                const manual = buffsList.filter((b) => !b.fromItem && !b.fromFeat)
+                const manual = buffsList.filter((b) => !b.fromItem && !b.fromFeat && !b.fromInvocation)
                 const selectedFeats = mergeFeatBuffPatchesFromMergedList(char, buffsList)
-                persist({ buffs: manual, selectedFeats })
+                const selectedInvocations = mergeInvocationBuffPatchesFromMergedList(char, buffsList)
+                persist({ buffs: manual, selectedFeats, selectedInvocations })
               }}
               stashBuffs={char.buffStash ?? []}
               onStashChange={canEdit ? (next) => persist({ buffStash: next }) : undefined}

@@ -6,10 +6,12 @@
 import { EFFECT_SOURCE_KIND } from './effectModel'
 import { normalizeEffectCategory } from '../../data/buffTypes'
 import { FEATS } from '../../data/feats'
+import { ELDRITCH_INVOCATIONS, getEldritchInvocationById } from '../../data/eldritchInvocations'
 import { getItemById, getItemDisplayName } from '../../data/itemDatabase'
 import { loadRuleTextOverrides, resolveRuleText, buildFeatNameKey } from '../ruleTextOverrides'
 
 const FEAT_BY_ID = new Map(FEATS.map((x) => [x.id, x]))
+const INVOCATION_BY_ID = new Map(ELDRITCH_INVOCATIONS.map((x) => [x.id, x]))
 
 function normalizeSelectedFeatsForBuffs(character) {
   const raw = character?.selectedFeats ?? []
@@ -116,16 +118,104 @@ export function getBuffsFromSelectedFeats(character, moduleId) {
   return out
 }
 
+function normalizeSelectedInvocationsForBuffs(character) {
+  const raw = character?.selectedInvocations ?? []
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((x) => {
+      if (typeof x === 'string') return { invocationId: x }
+      const patch = x?.invocationBuffPatch
+      return {
+        invocationId: x?.invocationId ?? x?.id ?? '',
+        invocationBuffPatch:
+          patch && typeof patch === 'object'
+            ? {
+                effects: Array.isArray(patch.effects) ? patch.effects : [],
+                ...(patch.duration != null && String(patch.duration).trim() !== ''
+                  ? { duration: String(patch.duration).trim() }
+                  : {}),
+                ...(patch.enabled === false ? { enabled: false } : {}),
+              }
+            : undefined,
+      }
+    })
+    .filter((x) => x.invocationId && INVOCATION_BY_ID.has(x.invocationId))
+}
+
 /**
- * 与角色卡 Buff 栏一致：专长虚拟条 + 手动 buff + 装备附魔。
- * 凡调用 useBuffCalculator 且需与栏内数值一致处，应使用此列表（勿只合并 buffs + 装备而漏掉专长）。
+ * 根据合并后的 BUFF 列表写回魔能祈唤行的 invocationBuffPatch
+ * @param {Object} character
+ * @param {Array} buffsList - 含 fromInvocation 的虚拟条
+ * @returns {Array} 新的 selectedInvocations
+ */
+export function mergeInvocationBuffPatchesFromMergedList(character, buffsList) {
+  const raw = character?.selectedInvocations ?? []
+  if (!Array.isArray(raw)) return raw
+  const invBuffs = buffsList.filter((b) => b.fromInvocation)
+  return raw.map((x, idx) => {
+    const invocationId = typeof x === 'string' ? x : (x?.invocationId ?? x?.id ?? '')
+    if (!invocationId) return x
+    const stableId = `invocation_${invocationId}_${idx}`
+    const fb = invBuffs.find((b) => b.id === stableId && b.invocationId === invocationId)
+    if (!fb) return x
+
+    const base = typeof x === 'string' ? { invocationId } : { ...x }
+    const eff = Array.isArray(fb.effects) ? fb.effects : []
+    const durRaw = fb.duration
+    const dur = durRaw != null && String(durRaw).trim() !== '' ? String(durRaw).trim() : undefined
+    const en = fb.enabled !== false
+
+    const shouldClear = eff.length === 0 && !dur && en
+    if (shouldClear) {
+      if (typeof x === 'string') return x
+      const { invocationBuffPatch: _drop, ...rest } = base
+      return rest
+    }
+
+    const patch = { effects: eff.map((e) => ({ ...e })) }
+    if (dur) patch.duration = dur
+    if (!en) patch.enabled = false
+
+    return { ...base, invocationBuffPatch: patch }
+  })
+}
+
+/**
+ * 从角色已选魔能祈唤生成虚拟 BUFF（类似专长，数值由用户在编辑中填写，存于 invocationBuffPatch）
+ * @param {Object} character
+ * @returns {Array<{ id: string, source: string, effects: Array, enabled: boolean, fromInvocation: true, invocationId: string }>}
+ */
+export function getBuffsFromSelectedInvocations(character) {
+  const rows = normalizeSelectedInvocationsForBuffs(character)
+  return rows.map((item, index) => {
+    const def = INVOCATION_BY_ID.get(item.invocationId)
+    const patch = item.invocationBuffPatch
+    const effects = Array.isArray(patch?.effects) && patch.effects.length ? patch.effects : []
+    const duration = patch?.duration
+    const enabled = patch?.enabled !== false
+    return {
+      id: `invocation_${item.invocationId}_${index}`,
+      source: def?.name ?? item.invocationId,
+      effects,
+      ...(duration ? { duration } : {}),
+      enabled,
+      fromInvocation: true,
+      invocationId: item.invocationId,
+    }
+  })
+}
+
+/**
+ * 与角色卡 Buff 栏一致：专长虚拟条 + 祈唤虚拟条 + 手动 buff + 装备附魔。
+ * 凡调用 useBuffCalculator 且需与栏内数值一致处，应使用此列表。
  */
 export function getMergedBuffsForCalculator(character, moduleId) {
   if (!character) return []
   const manual = character.buffs ?? []
   const fromFeats = getBuffsFromSelectedFeats(character, moduleId)
+  const fromInvocations = getBuffsFromSelectedInvocations(character)
   const fromItems = getBuffsFromEquipmentAndInventory(character)
-  return [...fromFeats, ...manual, ...fromItems]
+  return [...fromFeats, ...fromInvocations, ...manual, ...fromItems]
 }
 
 /**

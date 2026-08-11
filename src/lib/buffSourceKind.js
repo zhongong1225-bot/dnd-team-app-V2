@@ -53,7 +53,7 @@ export function normalizeBuffColumnOrder(order) {
  */
 export function getColumnKeyForBuff(buff) {
   if (!buff) return 'adventure'
-  if (buff.fromFeat) return 'feat'
+  if (buff.fromFeat || buff.fromInvocation) return 'feat'
   if (buff.fromItem) return 'equipment'
   return normalizeBuffSourceKindKey(buff.sourceKind)
 }
@@ -91,6 +91,7 @@ export function normalizeBuffSourceKindKey(raw) {
  */
 export function getBuffSourceKindLabel(buff) {
   if (!buff) return LABEL_BY_KEY.adventure
+  if (buff.fromInvocation) return '魔能祈唤'
   if (buff.fromFeat) return '专长'
   if (buff.fromItem) return '装备'
   return LABEL_BY_KEY[normalizeBuffSourceKindKey(buff.sourceKind)] ?? '冒险'
@@ -102,6 +103,7 @@ export function getBuffSourceKindLabel(buff) {
  */
 export function getBuffSourceKindTitle(buff) {
   if (!buff) return '冒险'
+  if (buff.fromInvocation) return '魔能祈唤：来自已选魔能祈唤，数值写入祈唤补丁'
   if (buff.fromFeat) return '专长：来自已选专长，数值写入专长补丁'
   if (buff.fromItem) return '装备：来自已装备物品的附魔效果'
   const key = normalizeBuffSourceKindKey(buff.sourceKind)
