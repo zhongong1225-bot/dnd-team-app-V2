@@ -149,7 +149,7 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       const adv = v.advantage === 'advantage' ? '优势' : v.advantage === 'disadvantage' ? '劣势' : ''
       return parts.join('，') + (adv ? (parts.length ? '，' : '') + adv : '')
     }
-    if ((buff.effectType === 'ability_score' || buff.effectType === 'ability_override' || buff.effectType === 'ability_score_uncapped') && isPlainAbilityObject(v)) {
+    if ((buff.effectType === 'ability_override' || buff.effectType === 'ability_score_uncapped') && isPlainAbilityObject(v)) {
       const entries = Object.entries(v).filter(([k, val]) => k !== 'advantage' && val != null && val !== 0)
       if (entries.length === 0) return ''
       const parts = entries.map(([k, val]) => {
@@ -159,6 +159,22 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
         if (buff.effectType === 'ability_override') return `${nameZh}${num}`
         const sign = num >= 0 ? '+' : ''
         return `${nameZh}${sign}${num}`
+      })
+      return parts.join('，')
+    }
+    // ability_score 现在表示「属性熟练调整」：显示为"力量熟练，敏捷熟练"
+    if (buff.effectType === 'ability_score' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const entries = Object.entries(v).filter(([k, val]) => {
+        if (k === 'advantage') return false
+        // 支持布尔值或旧数字值（非零视为 true）
+        if (typeof val === 'boolean') return val
+        if (typeof val === 'number') return val !== 0
+        return !!val
+      })
+      if (entries.length === 0) return ''
+      const parts = entries.map(([k]) => {
+        const nameZh = ABILITY_NAMES_ZH[k] ?? k
+        return `${nameZh}熟练`
       })
       return parts.join('，')
     }
@@ -328,7 +344,7 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
       const text = formatSpellDamageBonusValue(v)
       return { label: effectLabel, value: text || null }
     }
-    if ((buff.effectType === 'ability_score' || buff.effectType === 'ability_override' || buff.effectType === 'ability_score_uncapped') && isPlainAbilityObject(buff.value)) {
+    if ((buff.effectType === 'ability_override' || buff.effectType === 'ability_score_uncapped') && isPlainAbilityObject(buff.value)) {
       const entries = Object.entries(buff.value).filter(([, val]) => val != null && val !== 0)
       if (entries.length === 0) return { label: effectLabel, value: null }
       const parts = entries.map(([k, val]) => {
@@ -338,6 +354,21 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
         if (buff.effectType === 'ability_override') return `${nameZh} ${num}`
         const sign = num >= 0 ? '+' : ''
         return `${nameZh} ${sign}${num}`
+      })
+      return { label: effectLabel, value: parts.join('、') }
+    }
+    // ability_score 现在表示「属性熟练调整」：显示为"力量 熟练、敏捷 熟练"
+    if (buff.effectType === 'ability_score' && buff.value && typeof buff.value === 'object' && !Array.isArray(buff.value)) {
+      const entries = Object.entries(buff.value).filter(([k, val]) => {
+        if (k === 'advantage') return false
+        if (typeof val === 'boolean') return val
+        if (typeof val === 'number') return val !== 0
+        return !!val
+      })
+      if (entries.length === 0) return { label: effectLabel, value: null }
+      const parts = entries.map(([k]) => {
+        const nameZh = ABILITY_NAMES_ZH[k] ?? k
+        return `${nameZh} 熟练`
       })
       return { label: effectLabel, value: parts.join('、') }
     }

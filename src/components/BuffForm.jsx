@@ -1160,7 +1160,6 @@ function EffectValueEditor({
   const effects = catData?.effects ?? []
   const currentEffect = effects.find((e) => e.key === module.effectType)
   const isAbilityScoreEffect =
-    currentEffect?.key === 'ability_score' ||
     currentEffect?.key === 'ability_override' ||
     currentEffect?.key === 'ability_score_uncapped'
   const activeReferenceData = isAbilityScoreEffect ? (baseReferenceData ?? referenceData) : referenceData
@@ -1333,6 +1332,33 @@ function EffectValueEditor({
             />
           </div>
         </>
+      )
+    }
+    if (needsSubSelect === 'abilityProficiency') {
+      const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
+      // 迁移：旧数字值（非零）视为 true
+      const toBool = (v) => {
+        if (typeof v === 'boolean') return v
+        if (typeof v === 'number') return v !== 0
+        return !!v
+      }
+      return (
+        <div className="flex flex-wrap gap-2 min-w-0">
+          {ABILITY_KEYS.map((k) => (
+            <label key={k} className="flex items-center gap-1 cursor-pointer text-xs text-gray-200">
+              <input
+                type="checkbox"
+                checked={toBool(obj[k])}
+                onChange={(e) => {
+                  const next = { ...obj, [k]: e.target.checked }
+                  onChange({ ...module, value: next })
+                }}
+                className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+              />
+              {ABILITY_LABELS[k]}
+            </label>
+          ))}
+        </div>
       )
     }
     if (needsSubSelect === 'abilityScoresAndAdvantage') {

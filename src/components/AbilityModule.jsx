@@ -210,7 +210,19 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
   const prof = buffStats?.proficiencyOverride != null ? buffStats.proficiencyOverride : proficiencyBonus(level ?? 1)
   /** 豁免检定：仅用角色等级熟练加值 + 是否豁免熟练，不受 proficiency_override 影响（与 PHB 一致） */
   const profBonusForSaves = proficiencyBonus(level ?? 1)
-  const saves = char?.savingThrows ?? { str: false, dex: false, con: false, int: false, wis: false, cha: false }
+  const savesBase = char?.savingThrows ?? { str: false, dex: false, con: false, int: false, wis: false, cha: false }
+  // 合并 Buff 授予的豁免熟练
+  const saves = useMemo(() => {
+    const buffGranted = buffStats?.saveProficiencyGranted ?? {}
+    return {
+      str: !!savesBase.str || !!buffGranted.str,
+      dex: !!savesBase.dex || !!buffGranted.dex,
+      con: !!savesBase.con || !!buffGranted.con,
+      int: !!savesBase.int || !!buffGranted.int,
+      wis: !!savesBase.wis || !!buffGranted.wis,
+      cha: !!savesBase.cha || !!buffGranted.cha,
+    }
+  }, [savesBase.str, savesBase.dex, savesBase.con, savesBase.int, savesBase.wis, savesBase.cha, buffStats?.saveProficiencyGranted])
   const skillsState = char?.skills ?? {}
   const proficiencies = useMemo(() => normalizeProfState(char?.proficiencies), [char?.proficiencies])
   const toolOptions = useMemo(() => {

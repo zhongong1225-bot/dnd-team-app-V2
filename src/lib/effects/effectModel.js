@@ -48,10 +48,12 @@ export const EFFECT_CATEGORY = {
  * @returns {Effect}
  */
 export function createEmptyEffect(category = 'ability', effectType = 'ability_score') {
+  // ability_score 现在表示「属性熟练调整」，默认值为空对象
+  const defaultValue = effectType === 'ability_score' ? {} : 0
   return {
     category: category || 'ability',
     effectType: effectType || 'ability_score',
-    value: 0,
+    value: defaultValue,
     customText: '',
   }
 }

@@ -193,10 +193,12 @@ export function computeBuffStats(character, activeBuffs) {
     }
     const baseEvalVal = (raw) => evaluateBuffValue(raw, baseFormulaContext)
 
-    // 1. 属性：override 优先，否则 base + ability_score
+    // 1. 属性：override 优先，否则 base + ability_score_uncapped
+    // ability_score 现在表示「属性熟练调整」：授予豁免熟练，不再修改属性值
     let hasAbilityOverride = false
     const abilityOverride = {}
     const abilityBonus = { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 }
+    const saveProficiencyGranted = { str: false, dex: false, con: false, int: false, wis: false, cha: false }
 
     for (const b of entries) {
       if (b.effectType === 'ability_override' && b.value && typeof b.value === 'object') {
@@ -206,10 +208,20 @@ export function computeBuffStats(character, activeBuffs) {
           if (!Number.isNaN(v)) abilityOverride[k] = v
         }
       }
-      if ((b.effectType === 'ability_score' || b.effectType === 'ability_score_uncapped') && b.value && typeof b.value === 'object') {
+      // ability_score_uncapped：累加属性值（可突破20）
+      if (b.effectType === 'ability_score_uncapped' && b.value && typeof b.value === 'object') {
         for (const k of ABILITY_KEYS) {
           const v = baseEvalVal(b.value[k])
           if (!Number.isNaN(v)) abilityBonus[k] = (abilityBonus[k] || 0) + v
+        }
+      }
+      // ability_score：授予豁免熟练（值为 true 或非零数字时生效）
+      if (b.effectType === 'ability_score' && b.value && typeof b.value === 'object') {
+        for (const k of ABILITY_KEYS) {
+          const v = b.value[k]
+          // 支持布尔值或旧数字值（非零视为 true）
+          const granted = typeof v === 'boolean' ? v : (typeof v === 'number' ? v !== 0 : !!v)
+          if (granted) saveProficiencyGranted[k] = true
         }
       }
     }
@@ -577,6 +589,7 @@ export function computeBuffStats(character, activeBuffs) {
 
     return {
       abilities: finalAbilities,
+      saveProficiencyGranted,
       meleeAttackBonus,
       rangedAttackBonus,
       meleeDamageBonus,

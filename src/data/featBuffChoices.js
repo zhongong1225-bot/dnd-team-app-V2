@@ -98,8 +98,8 @@ export const FEAT_BUFF_SCHEMAS = {
       id: k,
       label: ABILITY_NAMES_ZH[k],
       effects: [
-        { effectType: 'ability_score', value: { [k]: 1 } },
-        { effectType: 'custom_condition', value: `获得${ABILITY_NAMES_ZH[k]}豁免熟练` },
+        { effectType: 'ability_score_uncapped', value: { [k]: 1 } },
+        { effectType: 'ability_score', value: { [k]: true } },
       ],
     })),
   },
@@ -154,15 +154,15 @@ export function buildFeatBuffEffects(featId, state) {
   switch (schema.kind) {
     case 'abilitySingle': {
       const value = schema.value ?? ABILITY_SINGLE_VALUE_DEFAULT
-      return withCategory([{ effectType: 'ability_score', value: { [state.ability]: value } }])
+      return withCategory([{ effectType: 'ability_score_uncapped', value: { [state.ability]: value } }])
     }
     case 'abilityAsi': {
       if (state.mode === 'single') {
-        return withCategory([{ effectType: 'ability_score', value: { [state.single]: 2 } }])
+        return withCategory([{ effectType: 'ability_score_uncapped', value: { [state.single]: 2 } }])
       }
       const [a, b] = state.double || []
       if (!a || !b) return []
-      return withCategory([{ effectType: 'ability_score', value: { [a]: 1, [b]: 1 } }])
+      return withCategory([{ effectType: 'ability_score_uncapped', value: { [a]: 1, [b]: 1 } }])
     }
     case 'damageTypeSingle': {
       const cfg = DAMAGE_TYPES.find((d) => d.value === state.type)

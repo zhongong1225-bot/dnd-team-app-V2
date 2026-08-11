@@ -239,7 +239,7 @@ export const BUFF_TYPES = {
     label: '属性/技能',
     color: 'gold',
     effects: [
-      { key: 'ability_score', label: '属性调整', dataType: 'object', subSelect: 'abilityScores' },
+      { key: 'ability_score', label: '属性熟练调整', dataType: 'object', subSelect: 'abilityProficiency' },
       { key: 'ability_override', label: '属性值上限', dataType: 'object', subSelect: 'abilityScores' },
       { key: 'ability_score_uncapped', label: '可突破20属性', dataType: 'object', subSelect: 'abilityScores' },
       { key: 'extra_attunement_slots', label: '额外同调位', dataType: 'number' },
