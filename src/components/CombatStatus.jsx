@@ -3935,15 +3935,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                           ))}
                         </select>
                       </div>
-                      <div>
-                        <label className="block text-dnd-text-muted text-xs mb-0.5">目标生物类型（条件范围生效用）</label>
-                        <select value={addTargetCreatureType} onChange={(e) => setAddTargetCreatureType(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
-                          <option value="">—</option>
-                          {CREATURE_TYPE_OPTIONS.map((o) => (
-                            <option key={o.value} value={o.value}>{o.label}</option>
-                          ))}
-                        </select>
-                      </div>
                     </div>
                     <GainEditor gains={addGains} onChange={setAddGains} />
                     <div className="flex gap-2 mt-3">
@@ -3961,15 +3952,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         <option value="">—</option>
                         {itemMeansFromInv.map((it) => (
                           <option key={it.index} value={it.index}>{it.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-dnd-text-muted text-xs mb-0.5">目标生物类型（条件范围生效用）</label>
-                      <select value={addTargetCreatureType} onChange={(e) => setAddTargetCreatureType(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
-                        <option value="">—</option>
-                        {CREATURE_TYPE_OPTIONS.map((o) => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
                         ))}
                       </select>
                     </div>
@@ -4057,15 +4039,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         <input type="checkbox" checked={addWeaponProficient} onChange={(e) => setAddWeaponProficient(e.target.checked)} className="rounded border-gray-500" />
                         <span className="text-dnd-text-body text-xs">武器熟练</span>
                       </label>
-                      <div>
-                        <label className="block text-dnd-text-muted text-xs mb-0.5">目标生物类型（条件范围生效用）</label>
-                        <select value={addTargetCreatureType} onChange={(e) => setAddTargetCreatureType(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
-                          <option value="">—</option>
-                          {CREATURE_TYPE_OPTIONS.map((o) => (
-                            <option key={o.value} value={o.value}>{o.label}</option>
-                          ))}
-                        </select>
-                      </div>
                       {previewWeaponStats && (
                         <div className="rounded border border-gray-600/80 bg-gray-900/40 p-2 space-y-1.5">
                           <div className="text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">实时预览</div>
