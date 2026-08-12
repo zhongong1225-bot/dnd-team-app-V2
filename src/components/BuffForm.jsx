@@ -37,6 +37,18 @@ import {
 
 const ABILITY_LABELS = { str: '力量', dex: '敏捷', con: '体质', int: '智力', wis: '感知', cha: '魅力' }
 
+/** 默认公式引用数据：调用方未提供 referenceData 时仍允许选择常见变量 */
+const DEFAULT_FORMULA_REFERENCE_DATA = [
+  { label: '力量调整值', value: 0, ref: 'abilityModifier', ability: 'str' },
+  { label: '敏捷调整值', value: 0, ref: 'abilityModifier', ability: 'dex' },
+  { label: '体质调整值', value: 0, ref: 'abilityModifier', ability: 'con' },
+  { label: '智力调整值', value: 0, ref: 'abilityModifier', ability: 'int' },
+  { label: '感知调整值', value: 0, ref: 'abilityModifier', ability: 'wis' },
+  { label: '魅力调整值', value: 0, ref: 'abilityModifier', ability: 'cha' },
+  { label: '熟练加值', value: 0, ref: 'proficiency' },
+  { label: '等级', value: 0, ref: 'level' },
+]
+
 /** Buff 效果「起效类型」：用于命中/伤害加值等可选择起效范围的效果 */
 const SCOPE_OPTIONS = SCOPE_KIND_OPTIONS
 
@@ -1162,7 +1174,8 @@ function EffectValueEditor({
   const isAbilityScoreEffect =
     currentEffect?.key === 'ability_override' ||
     currentEffect?.key === 'ability_score_uncapped'
-  const activeReferenceData = isAbilityScoreEffect ? (baseReferenceData ?? referenceData) : referenceData
+  const effectiveReferenceData = referenceData?.length ? referenceData : DEFAULT_FORMULA_REFERENCE_DATA
+  const activeReferenceData = isAbilityScoreEffect ? (baseReferenceData ?? effectiveReferenceData) : effectiveReferenceData
   const isBoolean = currentEffect?.dataType === 'boolean'
   const isText = currentEffect?.dataType === 'text'
   const isCustom = currentEffect?.key?.startsWith('custom_')
