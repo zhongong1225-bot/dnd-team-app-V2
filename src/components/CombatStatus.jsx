@@ -463,9 +463,27 @@ function getScrollsFromInventory(inventory = []) {
 /** 匹配 XdY / XDY / 全角ｄ 等骰子片段（不含前导加值数字） */
 const WEAPON_DICE_CHUNK_RE = /\d+[dD\uFF44]\d+/gi
 
+/** 合并相同面数的骰子列表，如 ['2d6','2d6','2d4','2d6','2d4'] → ['6d6','4d4'] */
+function mergeDuplicateDice(diceList) {
+  if (!Array.isArray(diceList)) return diceList
+  const counts = {}
+  let hasMergeable = false
+  for (const d of diceList) {
+    const s = String(d).trim().toLowerCase()
+    const m = s.match(/^(\d+)d(\d+)$/)
+    if (!m) return diceList
+    hasMergeable = true
+    counts[m[2]] = (counts[m[2]] || 0) + (parseInt(m[1], 10) || 0)
+  }
+  if (!hasMergeable) return diceList
+  return Object.entries(counts)
+    .sort(([a], [b]) => Number(b) - Number(a))
+    .map(([size, count]) => `${count}d${size}`)
+}
+
 /**
  * 解析武器「攻击」字符串：支持多段伤害骰如 "2d8+1d6+5 贯通"
- * - diceList：全部骰段（统一小写 d）；dice：首段（兼容旧逻辑）
+ * - diceList：全部骰段（统一小写 d），相同面数自动合并；dice：首段（兼容旧逻辑）
  * - type：去掉所有骰子与独立数值加值后的余下文案（多为伤害类型）
  */
 function parseWeaponAttack(attackStr) {
@@ -475,7 +493,7 @@ function parseWeaponAttack(attackStr) {
   if (hashIdx >= 0) s = s.slice(0, hashIdx).trim()
   if (!s || s === '—') return { dice: null, diceList: [], type: '—' }
   const rawMatches = s.match(WEAPON_DICE_CHUNK_RE)
-  const diceList = rawMatches ? rawMatches.map((d) => d.replace(/\uFF44/g, 'd').replace(/D/g, 'd').toLowerCase()) : []
+  const diceList = mergeDuplicateDice(rawMatches ? rawMatches.map((d) => d.replace(/\uFF44/g, 'd').replace(/D/g, 'd').toLowerCase()) : [])
   const dice = diceList[0] ?? null
   let rest = s
   for (const raw of rawMatches || []) {
