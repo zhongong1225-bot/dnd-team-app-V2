@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, forwardRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ChevronUp, ChevronDown, Trash2, Star, Upload, X, Plus } from 'lucide-react'
-import DragHandleIcon from '../components/DragHandleIcon'
+
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
 import { getCharacter, updateCharacter, loadCharacterById, getCharactersInModule } from '../lib/characterStore'
@@ -24,6 +24,7 @@ import {
   resolveSelectedFeatures,
   getPrimarySpellcastingAbility,
   getCharacterClasses,
+  getClassData,
 } from '../data/classDatabase'
 import { useRuleTextOverridesMap } from '../hooks/useRuleTextOverridesMap'
 import {
@@ -39,16 +40,19 @@ import { FANXING_PRESTIGE_CLASSES } from '../data/fanxing'
 import { ABILITY_NAMES_ZH } from '../data/buffTypes'
 import { FEATS, FEATS_BY_CATEGORY, formatFeatDescriptionForDisplay } from '../data/feats'
 import { ELDRITCH_INVOCATIONS } from '../data/eldritchInvocations'
+import { FIGHTING_STYLES, getFightingStyleById } from '../data/fightingStyles'
 import { useCombatState } from '../hooks/useCombatState'
 import { useBuffCalculator } from '../hooks/useBuffCalculator'
 import {
   getMergedBuffsForCalculator,
   mergeFeatBuffPatchesFromMergedList,
   mergeInvocationBuffPatchesFromMergedList,
+  mergeFightingStyleBuffPatchesFromMergedList,
 } from '../lib/effects/effectMapping'
 import { cloneBuffTemplateToManual } from '../lib/buffStash'
 import BuffManager from '../components/BuffManager'
 import EldritchInvocationPicker from '../components/EldritchInvocationPicker'
+import FightingStylePicker from '../components/FightingStylePicker'
 import CombatStatus from '../components/CombatStatus'
 import EquipmentAndInventory from '../components/EquipmentAndInventory'
 import AbilityModule from '../components/AbilityModule'
@@ -718,6 +722,205 @@ function featureKey(f) {
   return f.sourceSubclass ? `${f.sourceClass}:${f.sourceSubclass}:${f.id}` : `${f.sourceClass}:${f.id}`
 }
 
+/** 是否启用星辰专长槽（繁星模组特供，后续可通过配置关闭） */
+const ENABLE_STAR_FEAT_SLOT = true
+
+/** 各职业属性值提升/额外专长的获得等级（未列出的职业视为无 ASI 槽位） */
+const CLASS_ASI_LEVELS = {
+  // 基础职业（5e 2024）
+  野蛮人: [4, 8, 12, 16],
+  吟游诗人: [4, 8, 12, 16],
+  牧师: [4, 8, 12, 16],
+  德鲁伊: [4, 8, 12, 16],
+  战士: [4, 6, 8, 12, 14, 16],
+  武僧: [4, 8, 12, 16],
+  圣武士: [4, 8, 12, 16],
+  游侠: [4, 8, 12, 16],
+  游荡者: [4, 8, 10, 12, 16],
+  术士: [4, 8, 12, 16],
+  魔契师: [4, 8, 12, 16],
+  法师: [4, 8, 12, 16],
+  奇械师: [4, 8, 12, 16, 19],
+  // 繁星基础职业
+  狂念者: [4, 8, 12, 16, 19],
+  火铳手: [4, 8, 12, 16, 19],
+  魂灵学者: [4, 8, 12, 16, 19],
+  器魂术士: [4, 8, 12, 16, 20],
+  武道家: [4, 8, 12, 16],
+  // 繁星进阶职业
+  圣魂之刃: [4, 8],
+  岚御法师: [4, 8],
+  斯兰亲卫: [2],
+  无相影门: [3, 7],
+}
+
+/** 各职业灵能专长槽获得等级（繁星模组特供） */
+const CLASS_PSIONIC_FEAT_LEVELS = {
+  魂灵学者: [5, 9, 15, 20],
+}
+
+/** 根据角色职业与总等级，计算应获得的专长槽位 */
+function computeFeatSlots(character, totalLevel) {
+  const slots = []
+  if (totalLevel >= 1) {
+    slots.push({ id: 'origin', level: 1, sourceClass: '', category: '起源专长', label: '1级 · 起源专长' })
+  }
+  const classes = getCharacterClasses(character)
+  for (const { name, level } of classes) {
+    const data = getClassData(name)
+    if (!data) continue
+
+    // 属性值提升（通用专长）槽位
+    let asiLevels = CLASS_ASI_LEVELS[name] || []
+    // 自定义职业回退：扫描特性中名为「属性值提升/属性提升/额外专长」的等级
+    if (asiLevels.length === 0 && data?.features) {
+      const seen = new Set()
+      for (const f of data.features) {
+        if (/^(属性值提升|属性提升|额外专长)$/.test(f.name)) {
+          seen.add(f.level)
+        }
+      }
+      asiLevels = [...seen]
+    }
+    for (const asiLevel of asiLevels) {
+      if (level >= asiLevel) {
+        slots.push({
+          id: `asi_${name}_${asiLevel}`,
+          level: asiLevel,
+          sourceClass: name,
+          category: '通用专长',
+          label: `${name}${asiLevel}级 · 通用专长`,
+        })
+      }
+    }
+
+    // 灵能专长槽位（繁星模组特供）
+    const psionicLevels = CLASS_PSIONIC_FEAT_LEVELS[name] || []
+    for (const psionicLevel of psionicLevels) {
+      if (level >= psionicLevel) {
+        slots.push({
+          id: `psionic_${name}_${psionicLevel}`,
+          level: psionicLevel,
+          sourceClass: name,
+          category: '灵能专长',
+          label: `${name}${psionicLevel}级 · 灵能专长`,
+        })
+      }
+    }
+
+    // 传奇恩惠槽位
+    if (data.features) {
+      for (const f of data.features) {
+        if (f.name === '传奇恩惠' && level >= f.level) {
+          slots.push({
+            id: `legendary_${name}_${f.level}`,
+            level: f.level,
+            sourceClass: name,
+            category: '传奇恩惠',
+            label: `${name}${f.level}级 · 传奇恩惠`,
+          })
+        }
+      }
+    }
+  }
+  if (ENABLE_STAR_FEAT_SLOT) {
+    const starLevels = [5, 10, 15, 20]
+    for (const starLevel of starLevels) {
+      if (totalLevel >= starLevel) {
+        slots.push({
+          id: starLevel === 5 ? 'star' : `star_${starLevel}`,
+          level: starLevel,
+          sourceClass: '',
+          category: '星辰专长',
+          label: `${starLevel}级 · 星辰专长 ★`,
+        })
+      }
+    }
+  }
+  // 按等级、再按槽位 id 稳定排序
+  slots.sort((a, b) => a.level - b.level || a.id.localeCompare(b.id))
+  return slots
+}
+
+/** 将旧 selectedFeats 与自动计算的槽位同步；保留原 BUFF patch */
+function syncFeatsWithSlots(rawFeats, slots) {
+  const featById = new Map(FEATS.map((x) => [x.id, x]))
+  const normalized = (rawFeats || []).map((f) => {
+    const featId = f?.featId ?? f?.id ?? ''
+    const feat = featById.get(featId)
+    return {
+      slotId: f?.slotId || null,
+      featId,
+      level: f?.level === '' || f?.level == null ? '' : Math.max(1, Math.min(20, Number(f.level) || 1)),
+      sourceClass: f?.sourceClass ?? '',
+      category: feat?.category || '',
+      featBuffPatch: f?.featBuffPatch,
+    }
+  })
+
+  const slotIds = new Set(slots.map((s) => s.id))
+  const assigned = new Map()
+
+  // 1. 保留已分配且 slotId 仍有效的条目
+  for (const f of normalized) {
+    if (f.slotId && slotIds.has(f.slotId) && !assigned.has(f.slotId)) {
+      assigned.set(f.slotId, f)
+    }
+  }
+
+  // 2. 为未分配的槽位寻找匹配的旧条目（按 category 匹配）
+  const usedFeatIds = new Set([...assigned.values()].map((f) => f.featId))
+  for (const slot of slots) {
+    if (assigned.has(slot.id)) continue
+    const candidateIdx = normalized.findIndex(
+      (f) => !f.slotId && !usedFeatIds.has(f.featId) && f.category === slot.category && f.featId,
+    )
+    if (candidateIdx !== -1) {
+      const candidate = normalized[candidateIdx]
+      usedFeatIds.add(candidate.featId)
+      assigned.set(slot.id, candidate)
+    }
+  }
+
+  // 3. 构建新的 selectedFeats
+  const next = []
+  for (const slot of slots) {
+    const existing = assigned.get(slot.id)
+    if (existing) {
+      const row = {
+        slotId: slot.id,
+        featId: existing.featId,
+        level: slot.level,
+        sourceClass: slot.sourceClass,
+      }
+      if (existing.featBuffPatch != null && typeof existing.featBuffPatch === 'object') {
+        row.featBuffPatch = existing.featBuffPatch
+      }
+      next.push(row)
+    } else {
+      next.push({ slotId: slot.id, featId: '', level: slot.level, sourceClass: slot.sourceClass })
+    }
+  }
+
+  // 4. 保留未匹配的自由条目（主要是额外传奇专长），按 featId 去重
+  //    只保留当前 FEATS 中真实存在的 ID，过滤掉旧数据残留或无效条目
+  const freeFeatIds = new Set()
+  for (const f of normalized) {
+    if (!f.slotId || !slotIds.has(f.slotId)) {
+      if (f.featId && featById.has(f.featId) && !freeFeatIds.has(f.featId)) {
+        freeFeatIds.add(f.featId)
+        const row = { featId: f.featId, level: f.level, sourceClass: f.sourceClass }
+        if (f.featBuffPatch != null && typeof f.featBuffPatch === 'object') {
+          row.featBuffPatch = f.featBuffPatch
+        }
+        next.push(row)
+      }
+    }
+  }
+
+  return next
+}
+
 function mergeSelectedInvocations(current, nextIds) {
   const pool = (current || []).map((x) => {
     const invocationId = typeof x === 'string' ? x : (x?.invocationId ?? x?.id ?? '')
@@ -739,6 +942,31 @@ function mergeSelectedInvocations(current, nextIds) {
   })
 }
 
+function mergeSelectedFightingStyles(current, nextIds, sourceFeatureId, sourceClass) {
+  const pool = (current || []).map((x) => {
+    const styleId = typeof x === 'string' ? x : (x?.styleId ?? x?.id ?? '')
+    return {
+      styleId,
+      sourceFeatureId: typeof x === 'string' ? '' : (x?.sourceFeatureId ?? ''),
+      sourceClass: typeof x === 'string' ? '' : (x?.sourceClass ?? ''),
+      patch: typeof x === 'string' ? undefined : x?.styleBuffPatch,
+    }
+  })
+  const used = new Set()
+  return nextIds.map((id) => {
+    const idx = pool.findIndex(
+      (p, i) => p.styleId === id && p.sourceFeatureId === sourceFeatureId && !used.has(i),
+    )
+    if (idx >= 0) {
+      used.add(idx)
+      return pool[idx].patch
+        ? { styleId: id, sourceFeatureId, sourceClass, styleBuffPatch: pool[idx].patch }
+        : { styleId: id, sourceFeatureId, sourceClass }
+    }
+    return { styleId: id, sourceFeatureId, sourceClass }
+  })
+}
+
 function getMaxInvocationsByWarlockLevel(level) {
   if (level >= 18) return 7
   if (level >= 15) return 6
@@ -751,7 +979,7 @@ function getMaxInvocationsByWarlockLevel(level) {
 }
 
 /** 魔能祈唤：在「魔能祈唤」特性卡片内提供选择器与已选列表 */
-function EldritchInvocationsBlock({ char, canEdit, onSave }) {
+function EldritchInvocationsBlock({ char, canEdit, onSave, moduleId }) {
   const [modalOpen, setModalOpen] = useState(false)
   const selected = char?.selectedInvocations ?? []
   const byId = useMemo(() => new Map(ELDRITCH_INVOCATIONS.map((x) => [x.id, x])), [])
@@ -813,12 +1041,92 @@ function EldritchInvocationsBlock({ char, canEdit, onSave }) {
         warlockLevel={warlockLevel}
         maxInvocations={maxInvocations}
         selectedCount={selectedCount}
+        moduleId={moduleId}
       />
     </div>
   )
 }
 
-/** 职业特性：从职业库调出可选特性，在角色卡上勾选展示；已添加的显示在上方列表 */
+/** 判断某职业特性是否属于战斗风格选择器 */
+const FIGHTING_STYLE_FEATURE_IDS = new Set([
+  'fighting_style',
+  'fighting_style_paladin',
+  'fighting_style_ranger',
+  'additional_fighting_style',
+])
+
+function getFightingStyleFeatureLabel(featureId, sourceClass) {
+  if (featureId === 'additional_fighting_style') return `${sourceClass} · 额外战斗风格`
+  return `${sourceClass} · 战斗风格`
+}
+
+function FightingStylesBlock({ char, feature, canEdit, onSave, moduleId }) {
+  const [modalOpen, setModalOpen] = useState(false)
+  const sourceFeatureId = feature.id
+  const sourceClass = feature.sourceClass ?? ''
+  const selected = useMemo(
+    () => (char?.selectedFightingStyles ?? []).filter((x) => x?.sourceFeatureId === sourceFeatureId),
+    [char?.selectedFightingStyles, sourceFeatureId],
+  )
+  const byId = useMemo(() => new Map(FIGHTING_STYLES.map((x) => [x.id, x])), [])
+  const selectedIds = selected.map((x) => x?.styleId ?? x?.id ?? '')
+  const maxStyles = feature.id === 'additional_fighting_style' ? 1 : 1
+
+  const handleConfirm = (ids) => {
+    const currentAll = char?.selectedFightingStyles ?? []
+    const other = currentAll.filter((x) => (x?.sourceFeatureId ?? '') !== sourceFeatureId)
+    const nextForThis = mergeSelectedFightingStyles(selected, ids, sourceFeatureId, sourceClass)
+    onSave({ selectedFightingStyles: [...other, ...nextForThis] })
+  }
+
+  return (
+    <div className="mt-3 border-t border-gray-600/35 pt-3">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <span className="text-xs text-dnd-text-muted">已选战斗风格</span>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setModalOpen(true)}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium bg-dnd-red/90 text-white hover:bg-dnd-red transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            选择战斗风格
+          </button>
+        )}
+      </div>
+      {selected.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {selected.map((x, i) => {
+            const id = x?.styleId ?? x?.id ?? ''
+            const style = byId.get(id)
+            return (
+              <span
+                key={`${id}-${i}`}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-white/10 bg-[#243147]/60 text-xs text-gray-200"
+                title={style?.description ?? ''}
+              >
+                {style?.name ?? id}
+              </span>
+            )
+          })}
+        </div>
+      ) : (
+        <p className="text-gray-500 text-xs">未选择战斗风格</p>
+      )}
+      <FightingStylePicker
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onConfirm={handleConfirm}
+        selectedIds={selectedIds}
+        maxStyles={maxStyles}
+        sourceName={getFightingStyleFeatureLabel(feature.id, sourceClass)}
+        moduleId={moduleId}
+      />
+    </div>
+  )
+}
+
+/** 职业特性：根据当前职业与等级自动展示，不可手动增删 */
 function ClassFeaturesSection({ char, canEdit, onSave }) {
   const { currentModuleId } = useModule()
   const moduleId = currentModuleId || 'default'
@@ -833,85 +1141,42 @@ function ClassFeaturesSection({ char, canEdit, onSave }) {
     })
   }
 
-  const selected = resolveSelectedFeatures(char)
-  const available = getAvailableFeatures(char)
-  const selectedKeys = new Set(char?.selectedClassFeatures ?? [])
-  const toAdd = available.filter((f) => !selectedKeys.has(featureKey(f)))
-  const addFeature = (key) => {
-    const next = [...(char?.selectedClassFeatures ?? []), key]
-    onSave({ selectedClassFeatures: next })
-  }
-  const removeFeature = (key) => {
-    const next = (char?.selectedClassFeatures ?? []).filter((k) => k !== key)
-    onSave({ selectedClassFeatures: next })
-  }
-  if (available.length === 0 && selected.length === 0) return null
+  const available = useMemo(() => getAvailableFeatures(char), [char])
+  if (available.length === 0) return null
   return (
     <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-4">
       <div className="space-y-3">
-        <p className="text-gray-500 text-xs">根据当前职业与等级从职业库调出可选特性，可添加至下方以便查阅。</p>
-      {canEdit && toAdd.length > 0 && (
-        <div>
-          <p className={`${CS_LIST_SECTION_LBL} mb-1`}>从职业库添加</p>
-          <select
-            className={inputClass + ' max-w-md'}
-            value=""
-            onChange={(e) => {
-              const key = e.target.value
-              if (key) { addFeature(key); e.target.value = '' }
-            }}
-          >
-            <option value="">— 选择特性 —</option>
-            {toAdd.map((f) => {
-              const key = featureKey(f)
-              const displayName = resolveRuleText(
-                overridesMap,
-                f.sourceSubclass
-                  ? buildSubclassFeatureNameKey(f.sourceClass, f.sourceSubclass, f.id)
-                  : buildClassFeatureNameKey(f.sourceClass, f.id),
-                f.name,
-              )
-              return (
-                <option key={key} value={key}>
-                  {f.sourceClass}{f.sourceSubclass ? `（${f.sourceSubclass}）` : ''} · {displayName}（{f.level} 级）
-                </option>
-              )
-            })}
-          </select>
-        </div>
-      )}
-      {/* 已添加的特性 */}
-      <div>
-        <p className={`${CS_LIST_SECTION_LBL} mb-2`}>已添加</p>
-        {selected.length > 0 ? (
-          <ul className="space-y-2">
-            {selected.map((f) => {
-              const isExpanded = expandedFeatureIds.has(f.selectedKey)
-              const descText = resolveRuleText(
-                overridesMap,
-                f.sourceSubclass
-                  ? buildSubclassFeatureKey(f.sourceClass, f.sourceSubclass, f.id)
-                  : buildClassFeatureKey(f.sourceClass, f.id),
-                f.description,
-              )
-              return (
-              <li key={f.selectedKey} className="rounded-lg border border-gray-600 bg-gray-800/50 p-3">
+        <p className="text-gray-500 text-xs">根据当前职业与等级自动展示职业特性。</p>
+        <ul className="space-y-2">
+          {available.map((f) => {
+            const key = featureKey(f)
+            const isExpanded = expandedFeatureIds.has(key)
+            const name = resolveRuleText(
+              overridesMap,
+              f.sourceSubclass
+                ? buildSubclassFeatureNameKey(f.sourceClass, f.sourceSubclass, f.id)
+                : buildClassFeatureNameKey(f.sourceClass, f.id),
+              f.name,
+            )
+            const descText = resolveRuleText(
+              overridesMap,
+              f.sourceSubclass
+                ? buildSubclassFeatureKey(f.sourceClass, f.sourceSubclass, f.id)
+                : buildClassFeatureKey(f.sourceClass, f.id),
+              f.description,
+            )
+            return (
+              <li key={key} className="rounded-lg border border-gray-600 bg-gray-800/50 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <div
                     className="flex-1 min-w-0 cursor-pointer select-none"
-                    onClick={() => toggleFeatureExpand(f.selectedKey)}
+                    onClick={() => toggleFeatureExpand(key)}
                   >
                     <InfoTooltip
                       content={
                         <ClassFeatureTooltipContent
                           feature={{
-                            name: resolveRuleText(
-                              overridesMap,
-                              f.sourceSubclass
-                                ? buildSubclassFeatureNameKey(f.sourceClass, f.sourceSubclass, f.id)
-                                : buildClassFeatureNameKey(f.sourceClass, f.id),
-                              f.name,
-                            ),
+                            name,
                             description: descText,
                             level: f.level,
                             sourceClass: f.sourceClass,
@@ -922,28 +1187,10 @@ function ClassFeaturesSection({ char, canEdit, onSave }) {
                       }
                       triggerClassName="inline"
                     >
-                      <span className={CS_LIST_TITLE}>
-                        {resolveRuleText(
-                          overridesMap,
-                          f.sourceSubclass
-                            ? buildSubclassFeatureNameKey(f.sourceClass, f.sourceSubclass, f.id)
-                            : buildClassFeatureNameKey(f.sourceClass, f.id),
-                          f.name,
-                        )}
-                      </span>
+                      <span className={CS_LIST_TITLE}>{name}</span>
                     </InfoTooltip>
                     <span className={`${CS_LIST_META} ml-2`}>{f.sourceClass}{f.sourceSubclass ? `（${f.sourceSubclass}）` : ''} · {f.level} 级</span>
                   </div>
-                  {canEdit && (
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); removeFeature(f.selectedKey) }}
-                      className={`${CS_ICON_BTN} text-gray-500 hover:bg-red-900/30 hover:text-red-400`}
-                      title="从角色卡移除"
-                    >
-                      <Trash2 className={CS_ICON_16} />
-                    </button>
-                  )}
                 </div>
                 {isExpanded && descText && (
                   <p className={`${CS_LIST_BODY} mt-2 border-t border-gray-700/35 pt-2 whitespace-pre-line`}>
@@ -951,16 +1198,15 @@ function ClassFeaturesSection({ char, canEdit, onSave }) {
                   </p>
                 )}
                 {f.id === 'eldritch_invocations' && (
-                  <EldritchInvocationsBlock char={char} canEdit={canEdit} onSave={onSave} />
+                  <EldritchInvocationsBlock char={char} canEdit={canEdit} onSave={onSave} moduleId={moduleId} />
+                )}
+                {FIGHTING_STYLE_FEATURE_IDS.has(f.id) && (
+                  <FightingStylesBlock char={char} feature={f} canEdit={canEdit} onSave={onSave} moduleId={moduleId} />
                 )}
               </li>
-              )
-            })}
-          </ul>
-        ) : (
-          <p className="text-gray-500 text-xs py-2">暂无已添加的特性</p>
-        )}
-      </div>
+            )
+          })}
+        </ul>
       </div>
     </div>
   )
@@ -981,8 +1227,8 @@ function formatFeatAcquisitionSentence(sourceClass, level, category) {
   return `职业等级为${lv}时，从${listPart}中选取（未指定获得职业）`
 }
 
-/** 专长：从专长库调出，每项可选获得等级与获得职业；先选类型再选专长，列表标出类型（星辰用星标）；可拖动排序 */
-function FeatsSection({ char, canEdit, onSave }) {
+/** 专长：按自动计算的槽位展示，每个槽位从指定分类中选取；额外传奇专长可自由添加 */
+function FeatsSection({ char, level, canEdit, onSave }) {
   const { currentModuleId } = useModule()
   const moduleId = currentModuleId || 'default'
   const overridesMap = useRuleTextOverridesMap(moduleId)
@@ -996,75 +1242,100 @@ function FeatsSection({ char, canEdit, onSave }) {
     })
   }
 
-  const raw = char?.selectedFeats ?? []
-  const featDragFrom = useRef(null)
-  const [featDragOver, setFeatDragOver] = useState(null)
-  const [modalOpen, setModalOpen] = useState(false)
-  const feats = raw.map((f) => {
-    if (typeof f === 'string') return { featId: f, level: 1, sourceClass: '' }
-    const featId = f.featId ?? f.id ?? ''
-    const row = {
-      featId,
-      level: f.level === '' || f.level == null ? '' : Math.max(1, Math.min(20, Number(f.level) ?? 1)),
-      sourceClass: f.sourceClass ?? '',
-    }
-    // 与 Buff 栏联动的专长效果存在 featBuffPatch；规范化时不可丢弃，否则一改等级/职业就会清空
-    if (f.featBuffPatch != null && typeof f.featBuffPatch === 'object') {
-      row.featBuffPatch = f.featBuffPatch
-    }
-    return row
-  })
-  const featById = new Map(FEATS.map((x) => [x.id, x]))
-  const alreadyIds = new Set(feats.map((f) => f.featId))
+  const slots = useMemo(() => computeFeatSlots(char, level), [char, level])
+  const featById = useMemo(() => new Map(FEATS.map((x) => [x.id, x])), [])
 
-  const addFeat = ({ featId, effects = [] }) => {
+  // 自动将旧 selectedFeats 同步到槽位体系；原 featBuffPatch 会被保留
+  useEffect(() => {
+    const raw = char?.selectedFeats ?? []
+    const synced = syncFeatsWithSlots(raw, slots)
+    if (JSON.stringify(synced) !== JSON.stringify(raw)) {
+      onSave({ selectedFeats: synced })
+    }
+  }, [char?.selectedFeats, slots, onSave])
+
+  const selectedFeats = char?.selectedFeats ?? []
+
+  const slotRows = useMemo(() => {
+    return slots.map((slot) => {
+      const row = selectedFeats.find((f) => f?.slotId === slot.id) || {
+        slotId: slot.id,
+        featId: '',
+        level: slot.level,
+        sourceClass: slot.sourceClass,
+      }
+      return { slot, row }
+    })
+  }, [slots, selectedFeats])
+
+  const freeRows = useMemo(() => {
+    return selectedFeats.filter((f) => !f?.slotId && f?.featId)
+  }, [selectedFeats])
+
+  const allSelectedIds = useMemo(
+    () => new Set(selectedFeats.map((f) => f?.featId).filter(Boolean)),
+    [selectedFeats],
+  )
+
+  const [pickerState, setPickerState] = useState({ open: false, slotId: null, category: '' })
+  const openPickerForSlot = (slot) => setPickerState({ open: true, slotId: slot.id, category: slot.category })
+  const openPickerForExtraLegendary = () => setPickerState({ open: true, slotId: 'extra', category: '传奇恩惠' })
+  const closePicker = () => setPickerState({ open: false, slotId: null, category: '' })
+
+  const handlePick = ({ featId, effects = [] }) => {
     if (!featId) return
-    if (alreadyIds.has(featId)) return
-    const row = { featId, level: 1, sourceClass: char?.['class'] ?? '' }
-    if (effects.length > 0) {
-      row.featBuffPatch = { effects }
+    const raw = char?.selectedFeats ?? []
+    let next
+    if (pickerState.slotId === 'extra') {
+      const row = {
+        featId,
+        level: level || 19,
+        sourceClass: '',
+        category: '传奇恩惠',
+      }
+      if (effects.length > 0) row.featBuffPatch = { effects }
+      next = [...raw, row]
+    } else {
+      next = raw.map((f) => {
+        if (f?.slotId !== pickerState.slotId) return f
+        const slot = slots.find((s) => s.id === pickerState.slotId)
+        const updated = {
+          ...f,
+          featId,
+          level: slot?.level ?? f?.level ?? 1,
+          sourceClass: slot?.sourceClass ?? f?.sourceClass ?? '',
+        }
+        if (effects.length > 0) {
+          updated.featBuffPatch = { effects }
+        } else if (updated.featBuffPatch != null) {
+          delete updated.featBuffPatch
+        }
+        return updated
+      })
     }
-    const next = [...feats, row]
     onSave({ selectedFeats: next })
+    closePicker()
   }
-  const updateFeat = (index, field, value) => {
-    const next = feats.map((item, i) =>
-      i !== index
-        ? item
-        : {
-            ...item,
-            [field]:
-              field === 'level'
-                ? value === '' || value == null
-                  ? ''
-                  : Math.max(1, Math.min(20, Number(value) || 1))
-                : value,
-          }
-    )
-    onSave({ selectedFeats: next })
-  }
-  const removeFeat = (index) => {
-    const next = feats.filter((_, i) => i !== index)
+
+  const clearSlot = (slotId) => {
+    const raw = char?.selectedFeats ?? []
+    const next = raw.map((f) => (f?.slotId === slotId ? { ...f, featId: '' } : f))
     onSave({ selectedFeats: next })
   }
 
-  const reorderFeats = (fromIndex, toIndex) => {
-    if (fromIndex == null || fromIndex === toIndex) return
-    const next = [...feats]
-    const [row] = next.splice(fromIndex, 1)
-    next.splice(toIndex, 0, row)
+  const removeFreeFeat = (freeIndex) => {
+    const raw = char?.selectedFeats ?? []
+    const freeIndices = raw
+      .map((f, i) => (!f?.slotId && f?.featId ? i : -1))
+      .filter((i) => i !== -1)
+    const rawIndex = freeIndices[freeIndex]
+    if (rawIndex == null) return
+    const next = raw.filter((_, i) => i !== rawIndex)
     onSave({ selectedFeats: next })
   }
 
-  const selectClass = 'h-9 rounded-lg bg-gray-800 border border-gray-600 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red text-white text-xs px-2 min-w-0'
-  /** 专长行内控件：略矮以省垂直空间 */
-  const selectClassFeatRow = 'h-8 rounded-lg bg-gray-800 border border-gray-600 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red text-white text-xs px-1.5 min-w-0'
-  /** 与 CS_LIST_META 同级：获得句式内联控件 */
-  const featAcquireText = `${CS_LIST_META} leading-normal`
-  const featAcquireControl =
-    'h-8 box-border rounded-md border border-gray-500/70 bg-gray-800/90 text-white text-xs leading-none px-1.5 align-middle focus:border-dnd-red focus:ring-1 focus:ring-dnd-red focus:outline-none'
-  const featAcquireSelect = `${featAcquireControl} py-0 pr-7 max-w-[11rem] w-max min-w-[4.25rem] shrink-0`
-  const featAcquireLevelInput = `${featAcquireControl} w-9 min-w-9 shrink-0 text-center font-mono tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`
+  const filledSlots = slotRows.filter(({ row }) => row?.featId).length
+  const totalFeats = filledSlots + freeRows.length
 
   const FeatTypeTag = ({ category }) => {
     if (!category) return null
@@ -1081,116 +1352,206 @@ function FeatsSection({ char, canEdit, onSave }) {
 
   return (
     <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-4">
-      {canEdit && (
-        <div className="mb-2">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="text-xs text-dnd-text-muted">
+          已获专长 <span className="text-dnd-gold-light font-medium">{totalFeats}</span>
+        </div>
+        {canEdit && (
           <button
             type="button"
-            onClick={() => setModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-dnd-red/90 text-white hover:bg-dnd-red transition-colors"
+            onClick={openPickerForExtraLegendary}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium bg-dnd-red/90 text-white hover:bg-dnd-red transition-colors"
           >
-            <Plus className="w-4 h-4" />
-            添加专长
+            <Plus className="w-3.5 h-3.5" />
+            添加传奇专长
           </button>
-          <FeatPickerModal
-            isOpen={modalOpen}
-            onClose={() => setModalOpen(false)}
-            onConfirm={addFeat}
-            overridesMap={overridesMap}
-            selectedIds={alreadyIds}
-          />
-        </div>
-      )}
-      {feats.length > 0 ? (
+        )}
+      </div>
+
+      {slots.length === 0 && freeRows.length === 0 ? (
+        <p className="text-gray-500 text-xs py-2">当前等级暂无专长槽位。</p>
+      ) : (
         <ul className="space-y-2">
-          {feats.map((item, i) => {
-            const feat = featById.get(item.featId)
+          {slotRows.map(({ slot, row }) => {
+            const feat = featById.get(row?.featId)
+            const legacyStyle = !feat ? getFightingStyleById(row?.featId) : null
             const name = resolveRuleText(
               overridesMap,
-              buildFeatNameKey(item.featId),
-              feat?.name ?? item.featId,
+              buildFeatNameKey(row?.featId),
+              feat?.name ?? legacyStyle?.name ?? row?.featId,
             )
-            const category = feat?.category
-            const featHasDescription = Boolean(feat?.description)
+            const category = feat?.category || (legacyStyle ? '旧版战斗风格' : slot.category)
+            const isExpanded = expandedFeatIds.has(row?.featId)
+            const hasDescription = Boolean(feat?.description)
+            return (
+              <li key={slot.id} className="rounded-lg border border-gray-600 bg-gray-800/50 p-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
+                    <span className={CS_LIST_META}>{slot.label}</span>
+                    {row?.featId ? (
+                      <>
+                        <InfoTooltip
+                          content={
+                            <FeatTooltipContent
+                              feat={{
+                                id: row.featId,
+                                name,
+                                category,
+                                prerequisite: feat?.prerequisite,
+                                description: feat?.description
+                                  ? formatFeatDescriptionForDisplay(
+                                      resolveRuleText(
+                                        overridesMap,
+                                        buildFeatDescriptionKey(row.featId),
+                                        feat.description,
+                                      ),
+                                    )
+                                  : legacyStyle
+                                    ? '该条目原属于战斗风格专长，现已迁移到「战斗风格」选择器中。请点击「更换」或通过对应职业的战斗风格特性重新选择。'
+                                    : '',
+                              }}
+                            />
+                          }
+                          triggerClassName="inline"
+                          disabled={!feat && !legacyStyle}
+                        >
+                          <span
+                            className={`${CS_LIST_TITLE} cursor-pointer select-none`}
+                            onClick={() => toggleFeatExpand(row.featId)}
+                          >
+                            {name}
+                          </span>
+                        </InfoTooltip>
+                        <FeatTypeTag category={category} />
+                        {legacyStyle && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-dnd-red/15 text-dnd-red border border-dnd-red/30">
+                            请从战斗风格选择器重新选择
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-xs text-gray-500">未选择</span>
+                    )}
+                  </div>
+                  {canEdit && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      {row?.featId ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => openPickerForSlot(slot)}
+                            className="px-2 py-1 rounded-md text-xs font-medium bg-white/10 text-gray-200 hover:bg-white/15 transition-colors"
+                          >
+                            更换
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => clearSlot(slot.id)}
+                            className={`${CS_ICON_BTN} text-gray-500 hover:text-dnd-red`}
+                            title="清除"
+                          >
+                            <Trash2 className={CS_ICON_16} />
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => openPickerForSlot(slot)}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-dnd-red/90 text-white hover:bg-dnd-red transition-colors"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          选择专长
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {isExpanded && hasDescription && (
+                  <p className={`${CS_LIST_BODY} mt-2 border-t border-gray-700/35 pt-2 whitespace-pre-line`}>
+                    {formatFeatDescriptionForDisplay(
+                      resolveRuleText(
+                        overridesMap,
+                        buildFeatDescriptionKey(row.featId),
+                        feat.description,
+                      ),
+                    )}
+                  </p>
+                )}
+                {isExpanded && row?.featId && !legacyStyle && (
+                  <p className={`${CS_LIST_META} mt-2 border-t border-gray-600/35 pt-2 leading-relaxed`}>
+                    {formatFeatAcquisitionSentence(slot.sourceClass, slot.level, category)}
+                  </p>
+                )}
+                {isExpanded && legacyStyle && (
+                  <p className={`${CS_LIST_BODY} mt-2 border-t border-dnd-red/20 pt-2 text-dnd-red leading-relaxed`}>
+                    该条目原属于「战斗风格专长」，现已独立为职业特性选择器。请清除本槽位后，通过对应职业的「战斗风格」特性重新选择，以获得正确的虚拟 BUFF。
+                  </p>
+                )}
+              </li>
+            )
+          })}
+
+          {freeRows.map((row, i) => {
+            const feat = featById.get(row.featId)
+            const legacyStyle = !feat ? getFightingStyleById(row.featId) : null
+            const name = resolveRuleText(
+              overridesMap,
+              buildFeatNameKey(row.featId),
+              feat?.name ?? legacyStyle?.name ?? row.featId,
+            )
+            const isExpanded = expandedFeatIds.has(row.featId)
+            const hasDescription = Boolean(feat?.description)
             return (
               <li
-                key={item.featId}
-                className={`rounded-lg border bg-gray-800/50 p-3 transition-colors ${
-                  featDragOver === i ? 'border-dnd-gold/70 ring-1 ring-dnd-gold/30' : 'border-gray-600'
-                }`}
-                onDragOver={
-                  canEdit
-                    ? (e) => {
-                        e.preventDefault()
-                        e.dataTransfer.dropEffect = 'move'
-                        setFeatDragOver(i)
-                      }
-                    : undefined
-                }
-                onDragLeave={canEdit ? () => setFeatDragOver((v) => (v === i ? null : v)) : undefined}
-                onDrop={
-                  canEdit
-                    ? (e) => {
-                        e.preventDefault()
-                        setFeatDragOver(null)
-                        const from = featDragFrom.current
-                        featDragFrom.current = null
-                        reorderFeats(from, i)
-                      }
-                    : undefined
-                }
+                key={`free-${row.featId}-${i}`}
+                className="rounded-lg border border-dnd-gold/30 bg-dnd-gold/5 p-3"
               >
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div
-                    className="flex items-center gap-2 flex-wrap min-w-0 flex-1 cursor-pointer select-none"
-                    onClick={() => toggleFeatExpand(item.featId)}
-                  >
-                    {canEdit && (
-                      <span
-                        aria-label="拖动排序"
-                        title="拖动调整顺序"
-                        draggable
-                        className="shrink-0 inline-flex text-gray-500 hover:text-dnd-gold-light cursor-grab active:cursor-grabbing touch-none select-none"
-                        onDragStart={(e) => {
-                          featDragFrom.current = i
-                          e.dataTransfer.effectAllowed = 'move'
-                          e.dataTransfer.setData('text/plain', String(i))
-                        }}
-                        onDragEnd={() => {
-                          featDragFrom.current = null
-                          setFeatDragOver(null)
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <DragHandleIcon className={`${CS_ICON_16} text-dnd-text-muted`} aria-hidden />
-                      </span>
-                    )}
+                  <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
+                    <span className={CS_LIST_META}>额外传奇专长</span>
                     <InfoTooltip
                       content={
                         <FeatTooltipContent
                           feat={{
-                            id: item.featId,
+                            id: row.featId,
                             name,
-                            category,
+                            category: legacyStyle ? '旧版战斗风格' : '传奇恩惠',
                             prerequisite: feat?.prerequisite,
                             description: feat?.description
                               ? formatFeatDescriptionForDisplay(
-                                  resolveRuleText(overridesMap, buildFeatDescriptionKey(item.featId), feat.description),
+                                  resolveRuleText(
+                                    overridesMap,
+                                    buildFeatDescriptionKey(row.featId),
+                                    feat.description,
+                                  ),
                                 )
-                              : '',
+                              : legacyStyle
+                                ? '该条目原属于战斗风格专长，现已迁移到「战斗风格」选择器中。请移除后通过对应职业的战斗风格特性重新选择。'
+                                : '',
                           }}
                         />
                       }
                       triggerClassName="inline"
-                      disabled={!feat}
+                      disabled={!feat && !legacyStyle}
                     >
-                      <span className={CS_LIST_TITLE}>{name}</span>
+                      <span
+                        className={`${CS_LIST_TITLE} cursor-pointer select-none`}
+                        onClick={() => toggleFeatExpand(row.featId)}
+                      >
+                        {name}
+                      </span>
                     </InfoTooltip>
-                    <FeatTypeTag category={category} />
+                    <FeatTypeTag category={legacyStyle ? '旧版战斗风格' : '传奇恩惠'} />
+                    {legacyStyle && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-dnd-red/15 text-dnd-red border border-dnd-red/30">
+                        请从战斗风格选择器重新选择
+                      </span>
+                    )}
                   </div>
                   {canEdit && (
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); removeFeat(i) }}
+                      onClick={() => removeFreeFeat(i)}
                       className={`${CS_ICON_BTN} text-gray-500 hover:text-dnd-red`}
                       title="移除"
                     >
@@ -1198,68 +1559,37 @@ function FeatsSection({ char, canEdit, onSave }) {
                     </button>
                   )}
                 </div>
-                {expandedFeatIds.has(item.featId) && feat?.description && (
+                {isExpanded && hasDescription && (
                   <p className={`${CS_LIST_BODY} mt-2 border-t border-gray-700/35 pt-2 whitespace-pre-line`}>
                     {formatFeatDescriptionForDisplay(
-                      resolveRuleText(overridesMap, buildFeatDescriptionKey(item.featId), feat.description),
+                      resolveRuleText(
+                        overridesMap,
+                        buildFeatDescriptionKey(row.featId),
+                        feat.description,
+                      ),
                     )}
                   </p>
                 )}
-                {expandedFeatIds.has(item.featId) && (canEdit ? (
-                  <div className="mt-3 min-w-0 w-full border-t border-gray-600/35 pt-3">
-                    <div
-                      className={`${featAcquireText} flex flex-wrap items-center gap-x-0.5 gap-y-1.5`}
-                      role="group"
-                      aria-label="获得本专长的职业与等级"
-                    >
-                      <span className="shrink-0 select-none">在</span>
-                      <select
-                        value={item.sourceClass}
-                        onChange={(e) => updateFeat(i, 'sourceClass', e.target.value)}
-                        className={featAcquireSelect}
-                        aria-label="获得职业"
-                      >
-                        <option value="">—</option>
-                        {ALL_CLASS_NAMES.map((c) => (
-                          <option key={c} value={c}>{c}</option>
-                        ))}
-                      </select>
-                      <span className="shrink-0 select-none">职业等级为</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={20}
-                        value={item.level ?? ''}
-                        onChange={(e) => updateFeat(i, 'level', e.target.value)}
-                        onBlur={(e) => {
-                          const v = e.target.value
-                          updateFeat(i, 'level', v === '' || v == null ? 1 : v)
-                        }}
-                        className={featAcquireLevelInput}
-                        aria-label="在该职业中的等级"
-                      />
-                      <span className="shrink-0 select-none">时，从</span>
-                      <span
-                        className="inline-flex h-8 max-w-full items-center px-0.5 text-xs font-medium leading-none text-dnd-gold-light/90"
-                        title="由当前专长所属分类自动显示"
-                      >
-                        {featListLabelFromCategory(category)}
-                      </span>
-                      <span className="shrink-0 select-none">中选取</span>
-                    </div>
-                  </div>
-                ) : (
-                  <p className={`${CS_LIST_META} mt-3 border-t border-gray-600/35 pt-3 leading-relaxed`}>
-                    {formatFeatAcquisitionSentence(item.sourceClass, item.level, category)}
+                {isExpanded && legacyStyle && (
+                  <p className={`${CS_LIST_BODY} mt-2 border-t border-dnd-red/20 pt-2 text-dnd-red leading-relaxed`}>
+                    该条目原属于「战斗风格专长」，现已独立为职业特性选择器。请移除本条目后，通过对应职业的「战斗风格」特性重新选择，以获得正确的虚拟 BUFF。
                   </p>
-                ))}
+                )}
               </li>
             )
           })}
         </ul>
-      ) : (
-        <p className="text-gray-500 text-xs py-2">从上方选择专长添加后，将显示在此处。</p>
       )}
+
+      <FeatPickerModal
+        isOpen={pickerState.open}
+        onClose={closePicker}
+        onConfirm={handlePick}
+        overridesMap={overridesMap}
+        selectedIds={allSelectedIds}
+        allowedCategories={pickerState.category ? [pickerState.category] : []}
+        moduleId={moduleId}
+      />
     </div>
   )
 }
@@ -1586,6 +1916,7 @@ export default function CharacterSheet() {
       char?.buffs,
       char?.selectedFeats,
       char?.selectedInvocations,
+      char?.selectedFightingStyles,
       char?.inventory,
       char?.equippedHeld,
       char?.equippedWorn,
@@ -1685,6 +2016,17 @@ export default function CharacterSheet() {
       if (inv?.name && !seen.has(inv.name)) {
         seen.add(inv.name)
         names.push(inv.name)
+      }
+    }
+    // 战斗风格
+    for (const x of char.selectedFightingStyles ?? []) {
+      const styleId = typeof x === 'string' ? x : (x?.styleId ?? x?.id ?? '')
+      if (!styleId || seen.has(styleId)) continue
+      seen.add(styleId)
+      const style = getFightingStyleById(styleId)
+      if (style?.name && !seen.has(style.name)) {
+        seen.add(style.name)
+        names.push(style.name)
       }
     }
     return names
@@ -1979,10 +2321,13 @@ export default function CharacterSheet() {
               baseAbilities={char.abilities ?? {}}
               sourceNameOptions={sourceNameOptions}
               onSave={(buffsList) => {
-                const manual = buffsList.filter((b) => !b.fromItem && !b.fromFeat && !b.fromInvocation)
+                const manual = buffsList.filter(
+                  (b) => !b.fromItem && !b.fromFeat && !b.fromInvocation && !b.fromFightingStyle,
+                )
                 const selectedFeats = mergeFeatBuffPatchesFromMergedList(char, buffsList)
                 const selectedInvocations = mergeInvocationBuffPatchesFromMergedList(char, buffsList)
-                persist({ buffs: manual, selectedFeats, selectedInvocations })
+                const selectedFightingStyles = mergeFightingStyleBuffPatchesFromMergedList(char, buffsList)
+                persist({ buffs: manual, selectedFeats, selectedInvocations, selectedFightingStyles })
               }}
               stashBuffs={char.buffStash ?? []}
               onStashChange={canEdit ? (next) => persist({ buffStash: next }) : undefined}
@@ -2041,7 +2386,7 @@ export default function CharacterSheet() {
                 </div>
                 <div className="min-w-0">
                   <h3 className="section-title">专长</h3>
-                  <FeatsSection char={char} canEdit={canEdit} onSave={persist} />
+                  <FeatsSection char={char} level={level} canEdit={canEdit} onSave={persist} />
                 </div>
               </div>
             </section>

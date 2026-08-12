@@ -72,7 +72,7 @@ export default function BuffManager({
 
   const handleDelete = (id) => {
     const b = list.find((x) => x.id === id)
-    if (b?.fromItem || b?.fromFeat || b?.fromInvocation) return
+    if (b?.fromItem || b?.fromFeat || b?.fromInvocation || b?.fromFightingStyle) return
     const next = list.filter((x) => x.id !== id)
     onSave(next)
   }
@@ -187,7 +187,7 @@ export default function BuffManager({
       if (columnKey === 'feat' || columnKey === 'equipment') return
       const next = list.map((b) => {
         if (b.id !== buffId) return b
-        if (b.fromFeat || b.fromItem || b.fromInvocation) return b
+        if (b.fromFeat || b.fromItem || b.fromInvocation || b.fromFightingStyle) return b
         return { ...b, sourceKind: normalizeBuffSourceKindKey(columnKey) }
       })
       onSave(next)

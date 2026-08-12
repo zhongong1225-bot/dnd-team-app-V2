@@ -1,35 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Search, X, Check, Sparkles, Settings } from 'lucide-react'
-import { ELDRITCH_INVOCATIONS } from '../data/eldritchInvocations'
+import { Search, X, Check, Swords, Settings } from 'lucide-react'
+import { FIGHTING_STYLES } from '../data/fightingStyles'
 import { loadDefaultBuffPatch, saveDefaultBuffPatch } from '../lib/defaultBuffPatchStore'
 import { useAuth } from '../contexts/AuthContext'
 import { inputClass } from '../lib/inputStyles'
 import BuffForm from './BuffForm'
 
-const LEVEL_GROUPS = [
-  { label: '全部', value: 0 },
-  { label: '1级', value: 1 },
-  { label: '2级+', value: 2 },
-  { label: '5级+', value: 5 },
-  { label: '7级+', value: 7 },
-  { label: '9级+', value: 9 },
-  { label: '12级+', value: 12 },
-  { label: '15级+', value: 15 },
-]
-
-export default function EldritchInvocationPicker({
+export default function FightingStylePicker({
   isOpen,
   onClose,
   onConfirm,
   selectedIds = [],
-  warlockLevel = 0,
-  maxInvocations = 0,
-  selectedCount = 0,
+  maxStyles = 1,
+  sourceName = '',
   moduleId = 'default',
 }) {
   const { isAdmin } = useAuth()
   const [query, setQuery] = useState('')
-  const [levelFilter, setLevelFilter] = useState(0)
   const [selected, setSelected] = useState(new Set(selectedIds))
   const [previewId, setPreviewId] = useState(null)
   const [editingDefaultBuff, setEditingDefaultBuff] = useState(false)
@@ -37,7 +24,6 @@ export default function EldritchInvocationPicker({
   useEffect(() => {
     if (!isOpen) return
     setQuery('')
-    setLevelFilter(0)
     setSelected(new Set(selectedIds))
     setPreviewId(null)
     setEditingDefaultBuff(false)
@@ -45,27 +31,28 @@ export default function EldritchInvocationPicker({
 
   const preview = useMemo(() => {
     if (!previewId) return null
-    return ELDRITCH_INVOCATIONS.find((x) => x.id === previewId) ?? null
+    return FIGHTING_STYLES.find((x) => x.id === previewId) ?? null
   }, [previewId])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return ELDRITCH_INVOCATIONS.filter((inv) => {
-      if (levelFilter && inv.level < levelFilter) return false
+    return FIGHTING_STYLES.filter((style) => {
       if (!q) return true
       return (
-        inv.name.toLowerCase().includes(q) ||
-        inv.nameEn.toLowerCase().includes(q) ||
-        inv.description.toLowerCase().includes(q)
+        style.name.toLowerCase().includes(q) ||
+        style.description.toLowerCase().includes(q)
       )
     })
-  }, [query, levelFilter])
+  }, [query])
 
   const toggle = (id) => {
     setSelected((prev) => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      if (next.has(id)) {
+        next.delete(id)
+      } else if (next.size < maxStyles) {
+        next.add(id)
+      }
       return next
     })
   }
@@ -87,10 +74,13 @@ export default function EldritchInvocationPicker({
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-white/10 shrink-0">
           <div>
             <h2 className="text-base font-semibold text-dnd-gold-light/95 flex items-center gap-2">
-              <Sparkles className="w-4 h-4" />
-              选择魔能祈唤
+              <Swords className="w-4 h-4" />
+              选择战斗风格
             </h2>
-            <p className="text-[11px] text-dnd-text-muted">勾选已习得的祈唤，确认后将固定显示在 BUFF 栏。</p>
+            <p className="text-[11px] text-dnd-text-muted">
+              {sourceName ? `${sourceName}：` : ''}
+              勾选已习得的战斗风格，确认后以虚拟 BUFF 显示在 BUFF 栏。
+            </p>
           </div>
           <button
             type="button"
@@ -106,93 +96,69 @@ export default function EldritchInvocationPicker({
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* List */}
           <div className="flex-1 min-w-0 flex flex-col border-r border-white/10">
-            <div className="p-3 border-b border-white/10 space-y-2">
+            <div className="p-3 border-b border-white/10">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
                 <input
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="搜索祈唤名称或效果..."
+                  placeholder="搜索战斗风格..."
                   className={inputClass + ' w-full pl-9 pr-3 h-9 text-sm'}
                 />
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {LEVEL_GROUPS.map((g) => (
-                  <button
-                    key={g.value}
-                    type="button"
-                    onClick={() => setLevelFilter(g.value)}
-                    className={`px-2 py-1 rounded-md text-xs transition-colors ${
-                      levelFilter === g.value
-                        ? 'bg-dnd-red/20 text-dnd-red font-medium'
-                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-                    }`}
-                  >
-                    {g.label}
-                  </button>
-                ))}
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
-              {filtered.map((inv) => {
-                const active = selected.has(inv.id)
+              {filtered.map((style) => {
+                const active = selected.has(style.id)
+                const disabled = !active && selected.size >= maxStyles
                 return (
                   <div
-                    key={inv.id}
-                    onClick={() => setPreviewId(inv.id)}
+                    key={style.id}
+                    onClick={() => setPreviewId(style.id)}
                     className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
-                      previewId === inv.id
+                      previewId === style.id
                         ? 'border-dnd-gold/50 bg-dnd-gold/10'
                         : active
                           ? 'border-dnd-red/40 bg-dnd-red/5'
-                          : 'border-gray-600 bg-gray-800/40 hover:bg-gray-800/70'
+                          : disabled
+                            ? 'border-gray-700 bg-gray-800/20 opacity-60'
+                            : 'border-gray-600 bg-gray-800/40 hover:bg-gray-800/70'
                     }`}
                   >
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); toggle(inv.id) }}
+                      onClick={(e) => { e.stopPropagation(); toggle(style.id) }}
+                      disabled={disabled}
                       className={`shrink-0 w-5 h-5 rounded border flex items-center justify-center transition-colors ${
                         active
                           ? 'bg-dnd-red border-dnd-red text-white'
-                          : 'border-gray-500 bg-gray-800 text-transparent hover:border-gray-400'
+                          : disabled
+                            ? 'border-gray-600 bg-gray-800 text-transparent'
+                            : 'border-gray-500 bg-gray-800 text-transparent hover:border-gray-400'
                       }`}
                     >
                       <Check className="w-3.5 h-3.5" />
                     </button>
-                    <div className="flex-1 min-w-0 flex items-center gap-2 overflow-hidden">
-                      <span className="text-sm text-white font-medium truncate">{inv.name}</span>
-                      <span className="text-[11px] text-dnd-text-muted shrink-0">
-                        {inv.level === 1 ? '1级' : (inv.prerequisite || `魔契师等级${inv.level}+`)}
-                        {inv.repeatable && <span className="ml-1.5 text-dnd-gold-light/80">可重复</span>}
-                      </span>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm text-white font-medium truncate">{style.name}</span>
                     </div>
                   </div>
                 )
               })}
               {filtered.length === 0 && (
-                <p className="text-center text-gray-500 text-xs py-8">没有匹配的祈唤</p>
+                <p className="text-center text-gray-500 text-xs py-8">没有匹配的战斗风格</p>
               )}
             </div>
           </div>
 
           {/* Preview */}
           <div className="w-80 sm:w-96 bg-[#141f2e]/60 flex flex-col overflow-hidden">
-            <div className="px-4 py-2 border-b border-white/10 bg-[#1b2738]/80 shrink-0">
+            <div className="px-4 py-3 border-b border-white/10 bg-[#1b2738]/80 shrink-0">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-dnd-text-muted">魔契师等级</span>
-                <span className="text-white font-medium">{warlockLevel > 0 ? `${warlockLevel} 级` : '—'}</span>
-              </div>
-              <div className="flex items-center justify-between text-xs mt-1">
                 <span className="text-dnd-text-muted">已选 / 上限</span>
-                <span className="text-white font-medium">{selectedCount} / {maxInvocations}</span>
-              </div>
-              <div className="flex items-center justify-between text-xs mt-1">
-                <span className="text-dnd-text-muted">剩余可选</span>
-                <span className={`font-medium ${maxInvocations - selectedCount > 0 ? 'text-dnd-gold-light' : 'text-gray-400'}`}>
-                  {maxInvocations - selectedCount > 0 ? `${maxInvocations - selectedCount} 个` : '无'}
-                </span>
+                <span className="text-white font-medium">{selected.size} / {maxStyles}</span>
               </div>
             </div>
             <div className="flex-1 overflow-y-auto p-4">
@@ -200,12 +166,6 @@ export default function EldritchInvocationPicker({
                 <div className="space-y-3">
                   <div>
                     <h3 className="text-base font-semibold text-dnd-gold-light/95">{preview.name}</h3>
-                    <p className="text-xs text-gray-500">{preview.nameEn}</p>
-                  </div>
-                  <div className="text-xs text-dnd-text-muted space-y-1">
-                    <p>等级要求：{preview.level === 1 ? '1级' : `${preview.level}级+`}</p>
-                    {preview.prerequisite && <p>先决：{preview.prerequisite}</p>}
-                    {preview.repeatable && <p className="text-dnd-gold-light/80">本祈唤可重复选择</p>}
                   </div>
                   <p className="text-sm text-gray-300 whitespace-pre-line leading-relaxed">{preview.description}</p>
 
@@ -220,13 +180,13 @@ export default function EldritchInvocationPicker({
                         配置默认 BUFF（DM）
                       </button>
                       <p className="text-[10px] text-dnd-text-muted mt-1">
-                        配置后，其他玩家选择该祈唤时会自动获得此 BUFF。
+                        配置后，其他玩家选择该战斗风格时会自动获得此 BUFF。
                       </p>
                     </div>
                   )}
                 </div>
               ) : (
-                <p className="text-gray-500 text-xs text-center mt-20">点击左侧祈唤查看详情</p>
+                <p className="text-gray-500 text-xs text-center mt-20">点击左侧战斗风格查看详情</p>
               )}
             </div>
             <div className="p-3 border-t border-white/10 shrink-0">
@@ -260,12 +220,12 @@ export default function EldritchInvocationPicker({
             <BuffForm
               initial={{
                 source: preview.name,
-                effects: loadDefaultBuffPatch(moduleId, 'invocation', preview.id)?.effects ?? [],
-                duration: loadDefaultBuffPatch(moduleId, 'invocation', preview.id)?.duration ?? '',
-                enabled: loadDefaultBuffPatch(moduleId, 'invocation', preview.id)?.enabled !== false,
+                effects: loadDefaultBuffPatch(moduleId, 'fightingStyle', preview.id)?.effects ?? [],
+                duration: loadDefaultBuffPatch(moduleId, 'fightingStyle', preview.id)?.duration ?? '',
+                enabled: loadDefaultBuffPatch(moduleId, 'fightingStyle', preview.id)?.enabled !== false,
               }}
               onSave={(buff) => {
-                saveDefaultBuffPatch(moduleId, 'invocation', preview.id, {
+                saveDefaultBuffPatch(moduleId, 'fightingStyle', preview.id, {
                   effects: buff.effects,
                   duration: buff.duration,
                   enabled: buff.enabled,

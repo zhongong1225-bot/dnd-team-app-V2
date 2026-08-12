@@ -7,11 +7,14 @@ import { EFFECT_SOURCE_KIND } from './effectModel'
 import { normalizeEffectCategory } from '../../data/buffTypes'
 import { FEATS } from '../../data/feats'
 import { ELDRITCH_INVOCATIONS, getEldritchInvocationById } from '../../data/eldritchInvocations'
+import { FIGHTING_STYLES, getFightingStyleById } from '../../data/fightingStyles'
 import { getItemById, getItemDisplayName } from '../../data/itemDatabase'
 import { loadRuleTextOverrides, resolveRuleText, buildFeatNameKey } from '../ruleTextOverrides'
+import { loadDefaultBuffPatch, mergeWithDefaultPatch } from '../defaultBuffPatchStore'
 
 const FEAT_BY_ID = new Map(FEATS.map((x) => [x.id, x]))
 const INVOCATION_BY_ID = new Map(ELDRITCH_INVOCATIONS.map((x) => [x.id, x]))
+const FIGHTING_STYLE_BY_ID = new Map(FIGHTING_STYLES.map((x) => [x.id, x]))
 
 function normalizeSelectedFeatsForBuffs(character) {
   const raw = character?.selectedFeats ?? []
@@ -101,7 +104,8 @@ export function getBuffsFromSelectedFeats(character, moduleId) {
     const def = FEAT_BY_ID.get(item.featId)
     const baseName = def?.name ?? item.featId
     const name = resolveRuleText(map, buildFeatNameKey(item.featId), baseName)
-    const patch = item.featBuffPatch
+    const defaultPatch = moduleId ? loadDefaultBuffPatch(moduleId, 'feat', item.featId) : null
+    const patch = mergeWithDefaultPatch(item.featBuffPatch, defaultPatch)
     const effects = Array.isArray(patch?.effects) && patch.effects.length ? patch.effects : []
     const duration = patch?.duration
     const enabled = patch?.enabled !== false
@@ -185,11 +189,12 @@ export function mergeInvocationBuffPatchesFromMergedList(character, buffsList) {
  * @param {Object} character
  * @returns {Array<{ id: string, source: string, effects: Array, enabled: boolean, fromInvocation: true, invocationId: string }>}
  */
-export function getBuffsFromSelectedInvocations(character) {
+export function getBuffsFromSelectedInvocations(character, moduleId) {
   const rows = normalizeSelectedInvocationsForBuffs(character)
   return rows.map((item, index) => {
     const def = INVOCATION_BY_ID.get(item.invocationId)
-    const patch = item.invocationBuffPatch
+    const defaultPatch = moduleId ? loadDefaultBuffPatch(moduleId, 'invocation', item.invocationId) : null
+    const patch = mergeWithDefaultPatch(item.invocationBuffPatch, defaultPatch)
     const effects = Array.isArray(patch?.effects) && patch.effects.length ? patch.effects : []
     const duration = patch?.duration
     const enabled = patch?.enabled !== false
@@ -205,17 +210,106 @@ export function getBuffsFromSelectedInvocations(character) {
   })
 }
 
+function normalizeSelectedFightingStylesForBuffs(character) {
+  const raw = character?.selectedFightingStyles ?? []
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((x) => {
+      if (typeof x === 'string') return { styleId: x }
+      const patch = x?.styleBuffPatch
+      return {
+        styleId: x?.styleId ?? x?.id ?? '',
+        styleBuffPatch:
+          patch && typeof patch === 'object'
+            ? {
+                effects: Array.isArray(patch.effects) ? patch.effects : [],
+                ...(patch.duration != null && String(patch.duration).trim() !== ''
+                  ? { duration: String(patch.duration).trim() }
+                  : {}),
+                ...(patch.enabled === false ? { enabled: false } : {}),
+              }
+            : undefined,
+      }
+    })
+    .filter((x) => x.styleId && FIGHTING_STYLE_BY_ID.has(x.styleId))
+}
+
 /**
- * 与角色卡 Buff 栏一致：专长虚拟条 + 祈唤虚拟条 + 手动 buff + 装备附魔。
+ * 根据合并后的 BUFF 列表写回战斗风格行的 styleBuffPatch
+ * @param {Object} character
+ * @param {Array} buffsList - 含 fromFightingStyle 的虚拟条
+ * @returns {Array} 新的 selectedFightingStyles
+ */
+export function mergeFightingStyleBuffPatchesFromMergedList(character, buffsList) {
+  const raw = character?.selectedFightingStyles ?? []
+  if (!Array.isArray(raw)) return raw
+  const styleBuffs = buffsList.filter((b) => b.fromFightingStyle)
+  return raw.map((x, idx) => {
+    const styleId = typeof x === 'string' ? x : (x?.styleId ?? x?.id ?? '')
+    if (!styleId) return x
+    const stableId = `fightingstyle_${styleId}_${idx}`
+    const fb = styleBuffs.find((b) => b.id === stableId && b.styleId === styleId)
+    if (!fb) return x
+
+    const base = typeof x === 'string' ? { styleId } : { ...x }
+    const eff = Array.isArray(fb.effects) ? fb.effects : []
+    const durRaw = fb.duration
+    const dur = durRaw != null && String(durRaw).trim() !== '' ? String(durRaw).trim() : undefined
+    const en = fb.enabled !== false
+
+    const shouldClear = eff.length === 0 && !dur && en
+    if (shouldClear) {
+      if (typeof x === 'string') return x
+      const { styleBuffPatch: _drop, ...rest } = base
+      return rest
+    }
+
+    const patch = { effects: eff.map((e) => ({ ...e })) }
+    if (dur) patch.duration = dur
+    if (!en) patch.enabled = false
+
+    return { ...base, styleBuffPatch: patch }
+  })
+}
+
+/**
+ * 从角色已选战斗风格生成虚拟 BUFF（类似专长，数值由用户在编辑中填写，存于 styleBuffPatch）
+ * @param {Object} character
+ * @returns {Array<{ id: string, source: string, effects: Array, enabled: boolean, fromFightingStyle: true, styleId: string }>}
+ */
+export function getBuffsFromSelectedFightingStyles(character, moduleId) {
+  const rows = normalizeSelectedFightingStylesForBuffs(character)
+  return rows.map((item, index) => {
+    const def = FIGHTING_STYLE_BY_ID.get(item.styleId)
+    const defaultPatch = moduleId ? loadDefaultBuffPatch(moduleId, 'fightingStyle', item.styleId) : null
+    const patch = mergeWithDefaultPatch(item.styleBuffPatch, defaultPatch)
+    const effects = Array.isArray(patch?.effects) && patch.effects.length ? patch.effects : []
+    const duration = patch?.duration
+    const enabled = patch?.enabled !== false
+    return {
+      id: `fightingstyle_${item.styleId}_${index}`,
+      source: def?.name ?? item.styleId,
+      effects,
+      ...(duration ? { duration } : {}),
+      enabled,
+      fromFightingStyle: true,
+      styleId: item.styleId,
+    }
+  })
+}
+
+/**
+ * 与角色卡 Buff 栏一致：专长虚拟条 + 祈唤虚拟条 + 战斗风格虚拟条 + 手动 buff + 装备附魔。
  * 凡调用 useBuffCalculator 且需与栏内数值一致处，应使用此列表。
  */
 export function getMergedBuffsForCalculator(character, moduleId) {
   if (!character) return []
   const manual = character.buffs ?? []
   const fromFeats = getBuffsFromSelectedFeats(character, moduleId)
-  const fromInvocations = getBuffsFromSelectedInvocations(character)
+  const fromInvocations = getBuffsFromSelectedInvocations(character, moduleId)
+  const fromFightingStyles = getBuffsFromSelectedFightingStyles(character, moduleId)
   const fromItems = getBuffsFromEquipmentAndInventory(character)
-  return [...fromFeats, ...fromInvocations, ...manual, ...fromItems]
+  return [...fromFeats, ...fromInvocations, ...fromFightingStyles, ...manual, ...fromItems]
 }
 
 /**

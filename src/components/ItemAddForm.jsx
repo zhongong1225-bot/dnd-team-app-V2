@@ -288,6 +288,8 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
   const [explosiveDamage, setExplosiveDamage] = useState(() => ({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' }))
   const introRef = useRef(null)
   const newModuleIdRef = useRef(null)
+  const isTemplateLoadRef = useRef(false)
+  const [templateIndex, setTemplateIndex] = useState(null)
 
   const typeGroup = grouped.find((g) => g.type === type)
   const subTypeGroups = typeGroup?.subTypes ?? []
@@ -321,76 +323,94 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     el.style.height = `${el.scrollHeight}px`
   }
 
-  useEffect(() => {
-    if (!open) return
-    if (editEntry) {
-      const proto = editEntry.itemId ? getItemById(editEntry.itemId) : null
-      const typeFromProto = proto ? (grouped.find((g) => g.type === proto.类型)?.type ?? proto.类型 ?? '') : ''
-      setType(typeFromProto)
-      setItemId(editEntry.itemId ?? '')
-      setRarity(editEntry.rarity ?? '')
-      setIsAttuned(!!editEntry.isAttuned)
-      setName((editEntry.name && editEntry.name.trim()) || (proto ? getItemDisplayName(proto) : '') || '')
-      setIntro((editEntry.详细介绍 != null && editEntry.详细介绍 !== '') ? String(editEntry.详细介绍) : (proto?.详细介绍 ?? '') || '')
-      setQty(Math.max(1, Number(editEntry.qty) ?? 1))
-      setEffectModules(entryToEffectModules(editEntry, proto))
-      const note = (editEntry.附注 != null && editEntry.附注 !== '') ? String(editEntry.附注) : (proto?.附注 ?? '')
-      if (proto && proto.类型 === '盔甲') {
-        let f = parseArmorNoteToFields(note)
-        setArmorFields(f)
-      } else {
-        setArmorFields({ isShield: false, baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' })
-      }
-      if (proto && (proto.类型 === '近战武器' || proto.类型 === '远程武器' || proto.类型 === '枪械')) {
-        const { base, versa } = splitVersatileDamage(editEntry?.攻击 ?? proto?.攻击 ?? '')
-        setWeaponDamage(base)
-        setWeaponVersatileDamage(versa)
-        const { traits, range, ammoCategory } = parseWeaponNoteToTraits(editEntry?.附注 ?? proto?.附注 ?? '')
-        setWeaponTraits(traits)
-        setWeaponRange((editEntry?.攻击距离 ?? range ?? proto?.攻击距离 ?? '').trim())
-        setWeaponAmmoCategory(ammoCategory ?? '')
-        setWeaponMastery((editEntry?.精通 != null && editEntry?.精通 !== '') ? String(editEntry.精通) : (proto?.精通 ?? ''))
-      } else {
-        setWeaponDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
-        setWeaponVersatileDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
-        setWeaponTraits([])
-        setWeaponRange('')
-        setWeaponAmmoCategory('')
-        setWeaponMastery('')
-      }
-      if (proto && (proto.类型 === '爆炸物' || (proto.类型 === '消耗品' && proto.子类型 === '爆炸品'))) {
-        const rangeStr = (editEntry?.攻击距离 ?? proto?.攻击距离 ?? '').trim()
-        setExplosiveAttackDistance(rangeStr || '')
-        setExplosiveRadius(typeof editEntry?.爆炸半径 === 'number' ? editEntry.爆炸半径 : (proto?.爆炸半径 ?? 0))
-        setExplosiveDamage(parseDamageString(editEntry?.攻击 ?? proto?.攻击 ?? ''))
-      } else {
-        setExplosiveAttackDistance('')
-        setExplosiveRadius(0)
-        setExplosiveDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
-      }
+  const resetForm = () => {
+    setType('')
+    setItemId('')
+    setRarity('')
+    setIsAttuned(false)
+    setName('')
+    setIntro('')
+    setQty(1)
+    setEffectModules([])
+    setArmorFields({ isShield: false, baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' })
+    setWeaponDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
+    setWeaponVersatileDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
+    setWeaponTraits([])
+    setWeaponRange('')
+    setWeaponAmmoCategory('')
+    setWeaponMastery('')
+    setExplosiveAttackDistance('')
+    setExplosiveRadius(0)
+    setExplosiveDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
+  }
+
+  const loadEntryData = (entry) => {
+    const proto = entry?.itemId ? getItemById(entry.itemId) : null
+    const typeFromProto = proto ? (grouped.find((g) => g.type === proto.类型)?.type ?? proto.类型 ?? '') : ''
+    const nextItemId = entry?.itemId ?? ''
+    if (nextItemId && nextItemId !== itemId) {
+      isTemplateLoadRef.current = true
+    }
+    setType(typeFromProto)
+    setItemId(nextItemId)
+    setRarity(entry?.rarity ?? '')
+    setIsAttuned(!!entry?.isAttuned)
+    setName((entry?.name && entry.name.trim()) || (proto ? getItemDisplayName(proto) : '') || '')
+    setIntro((entry?.详细介绍 != null && entry.详细介绍 !== '') ? String(entry.详细介绍) : (proto?.详细介绍 ?? '') || '')
+    setQty(Math.max(1, Number(entry?.qty) ?? 1))
+    setEffectModules(entryToEffectModules(entry, proto))
+    const note = (entry?.附注 != null && entry.附注 !== '') ? String(entry.附注) : (proto?.附注 ?? '')
+    if (proto && proto.类型 === '盔甲') {
+      let f = parseArmorNoteToFields(note)
+      setArmorFields(f)
     } else {
-      setType('')
-      setItemId('')
-      setRarity('')
-      setIsAttuned(false)
-      setName('')
-      setIntro('')
-      setQty(1)
-      setEffectModules([])
       setArmorFields({ isShield: false, baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' })
+    }
+    if (proto && (proto.类型 === '近战武器' || proto.类型 === '远程武器' || proto.类型 === '枪械')) {
+      const { base, versa } = splitVersatileDamage(entry?.攻击 ?? proto?.攻击 ?? '')
+      setWeaponDamage(base)
+      setWeaponVersatileDamage(versa)
+      const { traits, range, ammoCategory } = parseWeaponNoteToTraits(entry?.附注 ?? proto?.附注 ?? '')
+      setWeaponTraits(traits)
+      setWeaponRange((entry?.攻击距离 ?? range ?? proto?.攻击距离 ?? '').trim())
+      setWeaponAmmoCategory(ammoCategory ?? '')
+      setWeaponMastery((entry?.精通 != null && entry?.精通 !== '') ? String(entry.精通) : (proto?.精通 ?? ''))
+    } else {
       setWeaponDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
+      setWeaponVersatileDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
       setWeaponTraits([])
       setWeaponRange('')
       setWeaponAmmoCategory('')
       setWeaponMastery('')
+    }
+    if (proto && (proto.类型 === '爆炸物' || (proto.类型 === '消耗品' && proto.子类型 === '爆炸品'))) {
+      const rangeStr = (entry?.攻击距离 ?? proto?.攻击距离 ?? '').trim()
+      setExplosiveAttackDistance(rangeStr || '')
+      setExplosiveRadius(typeof entry?.爆炸半径 === 'number' ? entry.爆炸半径 : (proto?.爆炸半径 ?? 0))
+      setExplosiveDamage(parseDamageString(entry?.攻击 ?? proto?.攻击 ?? ''))
+    } else {
       setExplosiveAttackDistance('')
       setExplosiveRadius(0)
       setExplosiveDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
+    }
+  }
+
+  useEffect(() => {
+    if (!open) return
+    setTemplateIndex(null)
+    if (editEntry) {
+      loadEntryData(editEntry)
+    } else {
+      resetForm()
     }
   }, [open, editEntry, grouped])
 
   useEffect(() => {
     if (!itemId || isEdit) return
+    if (isTemplateLoadRef.current) {
+      isTemplateLoadRef.current = false
+      return
+    }
     const proto = getItemById(itemId)
     setName(proto ? getItemDisplayName(proto) : '')
     setIntro(proto?.详细介绍 ?? '')
@@ -660,6 +680,32 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       <div className="fixed inset-4 sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:max-w-5xl sm:w-full z-[201] overflow-auto max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
         <form onSubmit={handleSubmit} className="space-y-2.5 p-3 bg-gray-800 rounded-xl border border-gray-600 min-w-0 w-full max-w-full">
           {isEdit && <h4 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">编辑物品</h4>}
+
+          {!isEdit && inventory.length > 0 && (
+            <div className="min-w-0 max-w-full">
+              <label className="block text-dnd-text-muted text-xs mb-0.5">复制自已有物品</label>
+              <select
+                value={templateIndex ?? ''}
+                onChange={(e) => {
+                  const idx = e.target.value === '' ? null : parseInt(e.target.value, 10)
+                  setTemplateIndex(idx)
+                  if (idx != null) {
+                    loadEntryData(inventory[idx])
+                  } else {
+                    resetForm()
+                  }
+                }}
+                className={inputClass + ' w-full h-8 text-xs'}
+              >
+                <option value="">— 新建空白物品 —</option>
+                {inventory.map((entry, idx) => (
+                  entry.walletCurrencyId ? null : (
+                    <option key={entry.id || `tpl_${idx}`} value={idx}>{entry.name || '未命名物品'}{entry.qty > 1 ? ` ×${entry.qty}` : ''}</option>
+                  )
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* 选择物品类型 → 获得基础信息（编辑时为只读） */}
           <div className="min-w-0 max-w-full">

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Search, X, Star, Check } from 'lucide-react'
+import { Search, X, Star, Check, Settings } from 'lucide-react'
 import { FEATS, FEATS_BY_CATEGORY, formatFeatDescriptionForDisplay } from '../data/feats'
 import {
   getFeatBuffSchema,
@@ -10,9 +10,23 @@ import {
 } from '../data/featBuffChoices'
 import { ABILITY_NAMES_ZH, DAMAGE_TYPES } from '../data/buffTypes'
 import { resolveRuleText, buildFeatNameKey, buildFeatDescriptionKey } from '../lib/ruleTextOverrides'
+import { loadDefaultBuffPatch, saveDefaultBuffPatch } from '../lib/defaultBuffPatchStore'
+import { useAuth } from '../contexts/AuthContext'
 import { inputClass } from '../lib/inputStyles'
+import BuffForm from './BuffForm'
 
 const CATEGORY_ORDER = Object.keys(FEATS_BY_CATEGORY)
+
+/** 通用专长槽额外开放九剑特殊专长与制作物品专长 */
+const GENERAL_FEAT_EXTRA_CATEGORIES = ['九剑特殊专长', '制作物品专长']
+
+function expandAllowedCategories(categories) {
+  if (!categories || categories.length === 0) return categories
+  if (categories.includes('通用专长')) {
+    return [...new Set([...categories, ...GENERAL_FEAT_EXTRA_CATEGORIES])]
+  }
+  return categories
+}
 
 function AbilitySelect({ value, options, onChange, placeholder }) {
   return (
@@ -159,19 +173,34 @@ function ChoicePanel({ schema, state, onChange }) {
   }
 }
 
-export default function FeatPickerModal({ isOpen, onClose, onConfirm, overridesMap, selectedIds }) {
-  const [category, setCategory] = useState(CATEGORY_ORDER[0])
+export default function FeatPickerModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  overridesMap,
+  selectedIds,
+  allowedCategories,
+  moduleId = 'default',
+}) {
+  const { isAdmin } = useAuth()
+  const expandedCategories = useMemo(() => expandAllowedCategories(allowedCategories), [allowedCategories])
+  const categoryOrder = useMemo(() => {
+    if (!expandedCategories || expandedCategories.length === 0) return CATEGORY_ORDER
+    return CATEGORY_ORDER.filter((c) => expandedCategories.includes(c))
+  }, [expandedCategories])
+  const [category, setCategory] = useState(categoryOrder[0] || '')
   const [query, setQuery] = useState('')
   const [selectedFeatId, setSelectedFeatId] = useState(null)
   const [choiceState, setChoiceState] = useState({})
+  const [editingDefaultBuff, setEditingDefaultBuff] = useState(false)
 
   useEffect(() => {
     if (!isOpen) return
-    setCategory(CATEGORY_ORDER[0])
+    setCategory(categoryOrder[0] || '')
     setQuery('')
     setSelectedFeatId(null)
     setChoiceState({})
-  }, [isOpen])
+  }, [isOpen, categoryOrder])
 
   const featById = useMemo(() => new Map(FEATS.map((x) => [x.id, x])), [])
 
@@ -182,8 +211,9 @@ export default function FeatPickerModal({ isOpen, onClose, onConfirm, overridesM
 
   const filteredFeats = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return FEATS_BY_CATEGORY[category] ?? []
-    return availableFeats.filter((f) => {
+    const base = q ? availableFeats : availableFeats.filter((f) => f.category === category)
+    if (!q) return base
+    return base.filter((f) => {
       const name = resolveRuleText(overridesMap, buildFeatNameKey(f.id), f.name).toLowerCase()
       return name.includes(q) || f.id.toLowerCase().includes(q)
     })
@@ -233,24 +263,30 @@ export default function FeatPickerModal({ isOpen, onClose, onConfirm, overridesM
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Categories */}
           <div className="w-36 sm:w-44 border-r border-white/10 bg-[#141f2e]/60 overflow-y-auto p-2 space-y-1">
-            {CATEGORY_ORDER.map((cat) => (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => {
-                  setCategory(cat)
-                  setQuery('')
-                  setSelectedFeatId(null)
-                }}
-                className={`w-full text-left px-3 py-2 rounded-lg text-xs sm:text-sm transition-colors ${
-                  category === cat && !query.trim()
-                    ? 'bg-dnd-red/20 text-dnd-red font-medium'
-                    : 'text-gray-300 hover:bg-white/5'
-                }`}
-              >
-                {cat === '星辰专长' ? '★ 星辰专长' : cat}
-              </button>
-            ))}
+            {categoryOrder.length > 1 ? (
+              categoryOrder.map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => {
+                    setCategory(cat)
+                    setQuery('')
+                    setSelectedFeatId(null)
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-xs sm:text-sm transition-colors ${
+                    category === cat && !query.trim()
+                      ? 'bg-dnd-red/20 text-dnd-red font-medium'
+                      : 'text-gray-300 hover:bg-white/5'
+                  }`}
+                >
+                  {cat === '星辰专长' ? '★ 星辰专长' : cat}
+                </button>
+              ))
+            ) : categoryOrder.length === 1 ? (
+              <div className="px-3 py-2 text-xs sm:text-sm text-dnd-gold-light font-medium">
+                {categoryOrder[0] === '星辰专长' ? '★ 星辰专长' : categoryOrder[0]}
+              </div>
+            ) : null}
           </div>
 
           {/* Feat list */}
@@ -345,6 +381,22 @@ export default function FeatPickerModal({ isOpen, onClose, onConfirm, overridesM
                     <p className="text-[11px] text-dnd-text-muted">本专长未预设自动 BUFF，确认后可在 Buff 栏手动补充。</p>
                   </div>
                 )}
+
+                {isAdmin && selectedFeat && (
+                  <div className="border-t border-white/10 pt-3">
+                    <button
+                      type="button"
+                      onClick={() => setEditingDefaultBuff(true)}
+                      className="inline-flex items-center gap-1.5 text-xs text-dnd-gold-light hover:text-dnd-gold transition-colors"
+                    >
+                      <Settings className="w-3.5 h-3.5" />
+                      配置默认 BUFF（DM）
+                    </button>
+                    <p className="text-[10px] text-dnd-text-muted mt-1">
+                      配置后，其他玩家选择该专长时会自动获得此 BUFF。
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex-1 flex items-center justify-center p-6 text-center">
@@ -374,6 +426,43 @@ export default function FeatPickerModal({ isOpen, onClose, onConfirm, overridesM
           </button>
         </div>
       </div>
+
+      {/* DM 默认 BUFF 编辑器 */}
+      {editingDefaultBuff && selectedFeat && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-3 bg-black/75">
+          <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl p-4">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <h3 className="text-sm font-semibold text-dnd-gold-light/95">
+                配置「{resolveRuleText(overridesMap, buildFeatNameKey(selectedFeat.id), selectedFeat.name)}」默认 BUFF
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingDefaultBuff(false)}
+                className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <BuffForm
+              initial={{
+                source: resolveRuleText(overridesMap, buildFeatNameKey(selectedFeat.id), selectedFeat.name),
+                effects: loadDefaultBuffPatch(moduleId, 'feat', selectedFeat.id)?.effects ?? [],
+                duration: loadDefaultBuffPatch(moduleId, 'feat', selectedFeat.id)?.duration ?? '',
+                enabled: loadDefaultBuffPatch(moduleId, 'feat', selectedFeat.id)?.enabled !== false,
+              }}
+              onSave={(buff) => {
+                saveDefaultBuffPatch(moduleId, 'feat', selectedFeat.id, {
+                  effects: buff.effects,
+                  duration: buff.duration,
+                  enabled: buff.enabled,
+                })
+                setEditingDefaultBuff(false)
+              }}
+              onCancel={() => setEditingDefaultBuff(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
