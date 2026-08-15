@@ -39,9 +39,9 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   crit_extra_dice: 'metadata',
   extra_damage_dice: 'metadata',
   infinite_ammo: 'metadata',
+  spell_ability_attack: 'metadata',
   // defense
   ac_bonus: 'calculator',
-  ac_cap_stone_layer: 'calculator',
   resist_type: 'calculator',
   immune_type: 'calculator',
   vulnerable_type: 'calculator',
@@ -60,6 +60,8 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   save_dc_bonus: 'calculator',
   spell_damage_bonus: 'calculator',
   contained_spell: 'metadata',
+  // charge
+  ac_cap_stone_layer: 'calculator',
   // container
   item_storage: 'metadata',
   // custom

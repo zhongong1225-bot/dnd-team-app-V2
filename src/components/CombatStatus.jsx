@@ -482,6 +482,53 @@ function mergeDuplicateDice(diceList) {
 }
 
 /**
+ * 规范化伤害骰表达式：合并同类骰子、统一大写 D、保留固定加值与类型/备注。
+ * 支持额外骰子带类型，如 "2d12 力场" → "2D12 力场"。
+ * 如 "2d6+2d6+2d4+2d4+2d4+5 钝击" → "4D6+6D4+5 钝击"。
+ */
+function compactDiceExpression(expr) {
+  if (!expr || typeof expr !== 'string') return expr
+  let s = expr.trim()
+  if (!s || s === '—') return expr
+  const hashIdx = s.lastIndexOf(' #')
+  const note = hashIdx >= 0 ? s.slice(hashIdx + 2).trim() : ''
+  if (hashIdx >= 0) s = s.slice(0, hashIdx).trim()
+
+  const rawMatches = s.match(WEAPON_DICE_CHUNK_RE) || []
+  if (rawMatches.length === 0) return expr
+
+  const counts = {}
+  for (const d of rawMatches) {
+    const m = String(d).toLowerCase().match(/^(\d+)d(\d+)$/)
+    if (m) counts[m[2]] = (counts[m[2]] || 0) + (parseInt(m[1], 10) || 0)
+  }
+
+  let rest = s
+  for (const raw of rawMatches) {
+    rest = rest.replace(new RegExp(String(raw).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' ')
+  }
+  rest = rest.replace(/\s+/g, ' ').trim()
+
+  let flatMod = 0
+  const modMatches = rest.match(/[+-]\d+/g) || []
+  for (const mod of modMatches) {
+    flatMod += parseInt(mod, 10)
+    rest = rest.replace(mod, '')
+  }
+  rest = rest.replace(/\s+/g, ' ').trim()
+
+  const diceParts = Object.entries(counts)
+    .sort(([a], [b]) => Number(b) - Number(a))
+    .map(([size, count]) => `${count}D${size}`)
+
+  let out = diceParts.join('+')
+  if (flatMod !== 0) out += (flatMod > 0 ? `+${flatMod}` : `${flatMod}`)
+  if (rest && rest !== '—') out += ` ${rest}`
+  if (note) out += ` #${note}`
+  return out
+}
+
+/**
  * 解析武器「攻击」字符串：支持多段伤害骰如 "2d8+1d6+5 贯通"
  * - diceList：全部骰段（统一小写 d），相同面数自动合并；dice：首段（兼容旧逻辑）
  * - type：去掉所有骰子与独立数值加值后的余下文案（多为伤害类型）
@@ -3367,9 +3414,12 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                             {(() => {
                               const explosiveDiceCount = (() => { const p = parseCombatDiceExpression((itemMeanOpt.dice || '').trim()); return p ? p.count : 0 })()
                               const explosiveDamageMod = gainDamageBonus + gainPerDieBonus * explosiveDiceCount
-                              const explosiveExtraText = gainExtraDice.length ? (' + ' + gainExtraDice.join(' + ')) : ''
+                              const compactedGainExtraDice = gainExtraDice.map(compactDiceExpression)
+                              const explosiveExtraText = compactedGainExtraDice.length ? (' + ' + compactedGainExtraDice.join(' + ')) : ''
                               const explosiveModText = (explosiveDamageMod !== 0 && itemMeanOpt.dice) ? ` ${formatSignedModifier(explosiveDamageMod)}` : ''
-                              const damageText = itemMeanOpt.dice ? `${(itemMeanOpt.dice || '').toUpperCase()} ${itemMeanOpt.damageType || ''}${explosiveExtraText}${explosiveModText}`.trim() : (gainExtraDice.length ? gainExtraDice.join(' + ') : '—')
+                              const damageText = itemMeanOpt.dice
+                                ? compactDiceExpression(`${(itemMeanOpt.dice || '').toUpperCase()} ${itemMeanOpt.damageType || ''}`.trim()) + explosiveExtraText + explosiveModText
+                                : (compactedGainExtraDice.length ? compactedGainExtraDice.join(' + ') : '—')
                               return (
                                 <div className={`${c} col-span-10 flex flex-wrap items-center gap-x-1 gap-y-1`}>
                                   <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
@@ -3460,10 +3510,13 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       const focusSpellDamageExtras = getSpellDamageBonusExtras(selectedSub?.damageType, buffStats?.spellDamageBonuses, itemFormulaContext)
                       const focusDamageMod = gainDamageBonus + gainPerDieBonus * dCount + focusSpellDamageExtras.perDieBonus * dCount + focusSpellDamageExtras.flatBonus
                       const focusAllExtraDice = [...gainExtraDice, ...focusSpellDamageExtras.extraDice]
-                      const focusExtraText = focusAllExtraDice.length ? (' + ' + focusAllExtraDice.join(' + ')) : ''
+                      const compactedFocusExtraDice = focusAllExtraDice.map(compactDiceExpression)
+                      const focusExtraText = compactedFocusExtraDice.length ? (' + ' + compactedFocusExtraDice.join(' + ')) : ''
                       const focusModText = (focusDamageMod !== 0 && damageDiceText) ? ` ${formatSignedModifier(focusDamageMod)}` : ''
                       const focusDamageFloor2 = gainDiceFloor2 || focusSpellDamageExtras.diceFloor2
-                      const damageText = damageDiceText ? (damageTypeLabel ? `${damageDiceText} ${damageTypeLabel}${focusExtraText}${focusModText}` : `${damageDiceText}${focusExtraText}${focusModText}`) : (focusAllExtraDice.length ? focusAllExtraDice.join(' + ') : '—')
+                      const damageText = damageDiceText
+                        ? compactDiceExpression((damageTypeLabel ? `${damageDiceText} ${damageTypeLabel}` : damageDiceText).trim()) + focusExtraText + focusModText
+                        : (compactedFocusExtraDice.length ? compactedFocusExtraDice.join(' + ') : '—')
                       const spellRange = (selectedSub?.range != null && String(selectedSub.range).trim() !== '') ? (String(selectedSub.range).trim() + (/^\d+$/.test(String(selectedSub.range).trim()) ? '尺' : '')) : '—'
                       const cell = 'pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden'
                       const selectedIdx = selectedSub ? cs.spells.indexOf(selectedSub) : -1
@@ -3536,11 +3589,14 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                     const spellDiceCount = (() => { const p = parseCombatDiceExpression((cm.damageDice || '').trim()); return p ? p.count : 0 })()
                     const spellDamageExtras = getSpellDamageBonusExtras(cm.damageTypeSpell, buffStats?.spellDamageBonuses, itemFormulaContext)
                     const spellDamageMod = gainDamageBonus + gainPerDieBonus * spellDiceCount + (spellConditionalBonuses?.damageBonus || 0) + spellDamageExtras.perDieBonus * spellDiceCount + spellDamageExtras.flatBonus
-                    const baseDamageText = (cm.damageDice || '').trim() ? ((cm.damageDice || '').toUpperCase() + (cm.damageTypeSpell ? ' ' + getDamageTypeLabel(cm.damageTypeSpell) : '')) : ''
                     const allSpellExtraDice = [...gainExtraDice, ...spellDamageExtras.extraDice]
-                    const extraDamageText = allSpellExtraDice.length ? (' + ' + allSpellExtraDice.join(' + ')) : ''
+                    const compactedSpellExtraDice = allSpellExtraDice.map(compactDiceExpression)
+                    const baseDamageText = (cm.damageDice || '').trim()
+                      ? compactDiceExpression((cm.damageDice || '').toUpperCase() + (cm.damageTypeSpell ? ' ' + getDamageTypeLabel(cm.damageTypeSpell) : ''))
+                      : ''
+                    const extraDamageText = compactedSpellExtraDice.length ? (' + ' + compactedSpellExtraDice.join(' + ')) : ''
                     const modDamageText = (spellDamageMod !== 0 && baseDamageText) ? ` ${formatSignedModifier(spellDamageMod)}` : ''
-                    const damageText = baseDamageText ? `${baseDamageText}${extraDamageText}${modDamageText}` : (allSpellExtraDice.length ? allSpellExtraDice.join(' + ') : '—')
+                    const damageText = baseDamageText ? `${baseDamageText}${extraDamageText}${modDamageText}` : (compactedSpellExtraDice.length ? compactedSpellExtraDice.join(' + ') : '—')
                     const spellDamageFloor2 = gainDiceFloor2 || spellDamageExtras.diceFloor2
                     const cell = 'pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden'
                     const empty = 'pl-2 border-l border-gray-600 min-w-0 overflow-hidden'

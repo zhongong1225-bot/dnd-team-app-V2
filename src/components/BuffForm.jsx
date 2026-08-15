@@ -247,6 +247,25 @@ function normalizeValueForSave(module, currentEffect) {
     if (Number.isNaN(n) || n < 2) return 2
     return Math.min(10, Math.floor(n))
   }
+  if (currentEffect.key === 'base_speed_increment') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const read = (key) => {
+        const val = value[key]
+        if (isFormulaValue(val)) return val
+        const n = Number(val)
+        return Number.isNaN(n) ? 0 : n
+      }
+      const walk = read('walk')
+      const fly = read('fly')
+      const swim = read('swim')
+      const climb = read('climb')
+      if (fly === 0 && swim === 0 && climb === 0) return walk
+      return { walk, fly, swim, climb }
+    }
+    if (isFormulaValue(value)) return value
+    const n = Number(value)
+    return Number.isNaN(n) ? 0 : n
+  }
   return value
 }
 
@@ -1211,7 +1230,7 @@ function EffectValueEditor({
     return null
   }
   if (inline) {
-    if (currentEffect?.key === 'attack_distance_range' || currentEffect?.key === 'spell_range_extension' || currentEffect?.key === 'base_speed_increment') {
+    if (currentEffect?.key === 'attack_distance_range' || currentEffect?.key === 'base_speed_increment') {
       return (
         <>
           <div className="flex items-center gap-1.5 min-w-0">
@@ -1222,6 +1241,42 @@ function EffectValueEditor({
               compact
             />
             <span className="text-xs text-gray-400 shrink-0">尺</span>
+          </div>
+          <div />
+          <div />
+        </>
+      )
+    }
+    if (currentEffect?.key === 'spell_range_extension') {
+      return (
+        <>
+          <input
+            type="text"
+            value={typeof value === 'string' ? value : ''}
+            onChange={(e) => onChange({ ...module, value: e.target.value })}
+            placeholder="x2 或 +30"
+            className={compactClass + ' w-full min-w-0'}
+          />
+          <div />
+          <div />
+        </>
+      )
+    }
+    if (needsSubSelect === 'baseSpeedIncrement') {
+      const isFormula = isFormulaValue(value)
+      const obj = (value && typeof value === 'object' && !Array.isArray(value) && !isFormula)
+        ? value
+        : { walk: isFormula ? value : (typeof value === 'number' ? value : 0), fly: 0, swim: 0, climb: 0 }
+      return (
+        <>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <NumberStepper referenceData={activeReferenceData}
+              value={obj.walk ?? 0}
+              onChange={(v) => onChange({ ...module, value: { ...obj, walk: v } })}
+              step={5}
+              compact
+            />
+            <span className="text-xs text-gray-400 shrink-0">尺（步行）</span>
           </div>
           <div />
           <div />
@@ -1744,11 +1799,16 @@ function EffectValueEditor({
           <p className="text-xs text-gray-500">写在装备上时：只影响「这一件」武器的战斗快捷投掷，其它已装备武器上的暴击×不会串到本武器。角色 Buff 栏此项不生效。法术重击始终×2。武器加值仍只加一次。</p>
         </div>
       ) : isNumber ? (
-        <NumberStepper referenceData={activeReferenceData}
-          value={value}
-          onChange={(v) => onChange({ ...module, value: v })}
-          compact={false}
-        />
+        <div className="flex items-center gap-2">
+          <NumberStepper referenceData={activeReferenceData}
+            value={value}
+            onChange={(v) => onChange({ ...module, value: v })}
+            compact={false}
+          />
+          {(currentEffect?.key === 'attack_distance_range' || currentEffect?.key === 'base_speed_increment') && (
+            <span className="text-gray-500 text-sm">尺</span>
+          )}
+        </div>
       ) : isDamageTypeArray ? (
         <div className="flex flex-wrap gap-2">
           {DAMAGE_TYPES.map((d) => {
@@ -1911,6 +1971,32 @@ function EffectValueEditor({
             <span className="text-sm text-gray-300">是否悬浮</span>
           </label>
         </div>
+      ) : needsSubSelect === 'baseSpeedIncrement' ? (
+        <div className="space-y-1.5">
+          {(() => {
+            const isFormula = isFormulaValue(value)
+            const obj = (value && typeof value === 'object' && !Array.isArray(value) && !isFormula)
+              ? value
+              : { walk: isFormula ? value : (typeof value === 'number' ? value : 0), fly: 0, swim: 0, climb: 0 }
+            const fields = [
+              { key: 'walk', label: '步行' },
+              { key: 'fly', label: '飞行' },
+              { key: 'swim', label: '游泳' },
+              { key: 'climb', label: '攀爬' },
+            ]
+            return fields.map(({ key, label }) => (
+              <div key={key} className="flex items-center gap-2">
+                <span className="text-sm text-gray-300 w-12">{label}</span>
+                <NumberStepper referenceData={activeReferenceData}
+                  value={obj[key] ?? 0}
+                  onChange={(v) => onChange({ ...module, value: { ...obj, [key]: v } })}
+                  step={5}
+                />
+                <span className="text-gray-500 text-sm">尺</span>
+              </div>
+            ))
+          })()}
+        </div>
       ) : needsSubSelect === 'initBonusAndProficiency' ? (
         <div className="flex flex-wrap items-center gap-2">
           {(() => {
@@ -1992,6 +2078,18 @@ function EffectValueEditor({
               </label>
             )
           })}
+        </div>
+      ) : needsSubSelect === 'spellAbilityForAttack' ? (
+        <div className="flex items-center gap-2">
+          <select
+            value={(value && typeof value === 'object' && !Array.isArray(value) ? value.ability : 'int') || 'int'}
+            onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), ability: e.target.value || 'int' } })}
+            className={inputClass + ' h-8 min-w-[6rem]'}
+          >
+            <option value="int">智力</option>
+            <option value="wis">感知</option>
+            <option value="cha">魅力</option>
+          </select>
         </div>
       ) : needsSubSelect === 'abilityScoresAndAdvantage' ? (
         <div className="flex items-center gap-2 flex-nowrap">
@@ -2472,6 +2570,7 @@ function EffectModuleModal({
               if (nextType === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(draft.value)
               if (nextType === 'spell_damage_bonus') patch.value = { type: '', diceFloor: 0, perDieBonus: 0, extraDice: '', flatBonus: 0 }
               if (nextType === 'spell_ability_attack') patch.value = { ability: 'int' }
+              if (nextType === 'base_speed_increment') patch.value = { walk: 0, fly: 0, swim: 0, climb: 0 }
               updateDraft(patch)
             }}
             className={inputClass + ' h-8 text-xs w-full min-w-0'}

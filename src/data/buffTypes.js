@@ -315,8 +315,8 @@ export const BUFF_TYPES = {
     color: 'purple',
     effects: [
       // 表格：速度增加。典型来源：木精灵、野蛮人快速移动、武僧无甲移动。
-      // 互动调整方式：数字输入，直接写「基础速度+X 尺」，无需再拆分多行说明。
-      { key: 'base_speed_increment', label: '速度增加', dataType: 'number' },
+      // 互动调整方式：分别输入步行/飞行/游泳/攀爬速度增量（尺）。
+      { key: 'base_speed_increment', label: '速度增加', dataType: 'object', subSelect: 'baseSpeedIncrement' },
       // 表格：地形无视。典型来源：陆地行者、飘忽步。
       // 互动调整方式：开关启用，忽略困难地形。规则逻辑：全局被动。
       { key: 'terrain_ignore', label: '地形无视', dataType: 'boolean' },

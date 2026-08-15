@@ -178,6 +178,10 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       })
       return parts.join('，')
     }
+    if (buff.effectType === 'spell_ability_attack' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const abilityLabel = ABILITY_NAMES_ZH[v.ability] ?? v.ability ?? ''
+      return abilityLabel ? `${effectLabel}（${abilityLabel}）` : effectLabel
+    }
     if (buff.effectType === 'contained_spell' && v && typeof v === 'object' && !Array.isArray(v)) {
       const spellLine = formatContainedSpellBrief(v, context)
       return spellLine || effectLabel
@@ -193,6 +197,21 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
         if (!s) return ''
         const signed = /^[+-]/.test(s) ? s : `+${s}`
         return v.onlySpellDamage ? `${signed}（仅法术伤害）` : signed
+      }
+    }
+    if (buff.effectType === 'base_speed_increment') {
+      if (typeof v === 'number') return `${effectLabel}${v >= 0 ? '+' : ''}${v} 尺`
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        const parts = []
+        const add = (key, label) => {
+          const num = Number(v[key])
+          if (num) parts.push(`${label} ${num >= 0 ? '+' : ''}${num} 尺`)
+        }
+        add('walk', '步行')
+        add('fly', '飞行')
+        add('swim', '游泳')
+        add('climb', '攀爬')
+        return parts.length ? `${effectLabel}（${parts.join('，')}）` : effectLabel
       }
     }
     return effectLabel
