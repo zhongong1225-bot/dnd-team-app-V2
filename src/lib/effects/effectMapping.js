@@ -395,13 +395,20 @@ export function getEffectsFromItem(entry) {
 /**
  * 将 BUFF 列表展平为计算器用的 { effectType, value } 列表（兼容旧格式）
  * 与 useBuffCalculator 原 getFlatEffectEntries 行为一致，统一入口
+ * 保留 scope/scopeDetail/itemInventoryId，供 CombatStatus 等处的条件范围匹配使用。
  */
 export function getFlatEffectEntries(buffs) {
   const out = []
   const list = Array.isArray(buffs) ? buffs : []
   for (const b of list) {
     const effects = getEffectsFromBuff(b)
-    effects.forEach((e) => out.push({ effectType: e.effectType, value: e.value }))
+    effects.forEach((e) => out.push({
+      effectType: e.effectType,
+      value: e.value,
+      scope: e.scope,
+      scopeDetail: e.scopeDetail,
+      itemInventoryId: e.itemInventoryId ?? b?.itemInventoryId,
+    }))
   }
   return out
 }

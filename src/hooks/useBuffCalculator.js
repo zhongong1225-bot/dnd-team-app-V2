@@ -204,6 +204,7 @@ export function computeBuffStats(character, activeBuffs) {
       if (b.effectType === 'ability_override' && b.value && typeof b.value === 'object') {
         hasAbilityOverride = true
         for (const k of ABILITY_KEYS) {
+          if (!(k in b.value)) continue
           const v = baseEvalVal(b.value[k])
           if (!Number.isNaN(v)) abilityOverride[k] = v
         }
@@ -229,7 +230,8 @@ export function computeBuffStats(character, activeBuffs) {
     const finalAbilities = {}
     for (const k of ABILITY_KEYS) {
       let score
-      if (hasAbilityOverride && abilityOverride[k] != null) {
+      // 部分 ability_override 只覆盖指定属性；未指定的属性仍使用基础值 + 累加
+      if (abilityOverride[k] != null) {
         score = abilityOverride[k]
       } else {
         score = (baseAbilities[k] ?? 10) + (abilityBonus[k] || 0)

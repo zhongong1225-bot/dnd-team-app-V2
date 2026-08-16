@@ -968,6 +968,14 @@
               "category": "offense",
               "customText": "",
               "effectType": "damage_bonus"
+            },
+            {
+              "value": {
+                "ability": "wis"
+              },
+              "category": "offense",
+              "customText": "",
+              "effectType": "spell_ability_attack"
             }
           ],
           "spellDC": 0,

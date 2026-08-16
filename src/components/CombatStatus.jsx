@@ -721,6 +721,10 @@ function getWeaponBaseDamageObjects(weaponOpt) {
     versa.plus = stripDiceFlatMod(p2.trim()) || ''
   } else {
     base.plus = stripDiceFlatMod(plus) || ''
+    // 标准 5e 数据库把「多用（XdY）」写在附注里，需解析为双手伤害
+    const note = String(weaponOpt?.entry?.附注 ?? weaponOpt?.proto?.附注 ?? '')
+    const versatileMatch = note.match(/多用[（(](\d+d\d+)[）)]/i)
+    versa.plus = versatileMatch ? (stripDiceFlatMod(versatileMatch[1].trim()) || base.plus) : base.plus
   }
   return { base, versa }
 }
@@ -732,9 +736,11 @@ function getWeaponAttackStringForParsing(weaponOpt, mode) {
   // 双持副手附赠攻击使用单手伤害骰
   const baseAttack = formatDamageForAttack(mode === 'two_hand' ? versa : base)
   let attack = baseAttack
-  const appendDiceFromText = (text) => {
-    if (!text || String(text).trim() === '' || String(text).trim() === '—') return
-    const extra = String(text).match(WEAPON_DICE_CHUNK_RE) || []
+  // 仅当「伤害」字段显式写了额外骰（如用户自定义的 1d6 火焰）时才追加；
+  // 不再从 entry/proto 的「附注」中抽取任意骰子，避免长描述里的法术/叙事骰被误当成武器伤害。
+  const damageText = String(weaponOpt.伤害 ?? '').trim()
+  if (damageText && damageText !== '—') {
+    const extra = damageText.match(WEAPON_DICE_CHUNK_RE) || []
     for (const seg of extra) {
       const segNorm = seg.replace(/\uFF44/g, 'd').replace(/D/g, 'd').toLowerCase()
       if (!attack.toLowerCase().includes(segNorm)) {
@@ -742,9 +748,6 @@ function getWeaponAttackStringForParsing(weaponOpt, mode) {
       }
     }
   }
-  appendDiceFromText(weaponOpt.伤害)
-  appendDiceFromText(weaponOpt.entry?.附注)
-  appendDiceFromText(weaponOpt.proto?.附注)
   return attack
 }
 
@@ -808,7 +811,7 @@ function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
     weaponProto: weaponOpt?.proto,
     damageType: rawDamageType,
     sourceItemInventoryId: weaponOpt?.entry?.id,
-  })
+  }) || getWeaponEntrySpellAbility(weaponOpt?.entry)
   const weaponAbilityKind = resolvePhysicalWeaponAbilityKind(cm, weaponOpt, spellAbilityOverride)
   const abilityKey = weaponAbilityKind === 'spell' ? spellAbility : weaponAbilityKind
   const abilityMod = abilityModifier(effectiveAbilities?.[abilityKey] ?? 10)
@@ -1027,6 +1030,18 @@ function GainEditor({ gains, onChange }) {
       </div>
     </div>
   )
+}
+
+/** 从武器背包条目的附魔 effects 读取：施法属性命中覆盖（int/wis/cha） */
+function getWeaponEntrySpellAbility(entry) {
+  if (!entry || !Array.isArray(entry.effects)) return null
+  for (const e of entry.effects) {
+    if (!e) continue
+    if (e.effectType === 'spell_ability_attack' && e.value && typeof e.value === 'object' && e.value.ability) {
+      return e.value.ability
+    }
+  }
+  return null
 }
 
 /**
@@ -2038,7 +2053,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       weaponProto: wForEdit?.proto,
       damageType: rawDamageType,
       sourceItemInventoryId: wForEdit?.entry?.id,
-    })
+    }) || getWeaponEntrySpellAbility(wForEdit?.entry)
     setAddAbility(resolvePhysicalWeaponAbilityKind(cm, wForEdit, spellAbilityOverride))
     setAddDamageType(cm.damageType ? String(cm.damageType) : '')
     setAddWeaponMode(cm.weaponVersatileMode || getDefaultWeaponMode(wForEdit))
