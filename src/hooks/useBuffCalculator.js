@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { abilityModifier, getAC, proficiencyBonus, evaluateBuffValue, isFormulaValue } from '../lib/formulas'
-import { getPrimarySpellcastingAbility } from '../data/classDatabase'
+import { getPrimarySpellcastingAbility, getCharacterClasses } from '../data/classDatabase'
 import { levelFromXP } from '../lib/xp5e'
 import {
   ABILITY_KEYS,
@@ -171,10 +171,13 @@ export function computeBuffStats(character, activeBuffs) {
       : Math.max(1, Math.min(20, Number(character?.level) || 1))
     const baseProf = proficiencyBonus(charLevel)
     const spellAbility = getPrimarySpellcastingAbility(character)
+    const characterClasses = getCharacterClasses(character)
+    const classLevels = {}
+    for (const c of characterClasses) classLevels[c.name] = c.level
 
     // 预先扫描 proficiency_override，供后续公式上下文使用
     let profOverride = null
-    const minimalContext = { level: charLevel, abilities: baseAbilities, prof: baseProf, spellDC: 0, spellAttack: 0 }
+    const minimalContext = { level: charLevel, abilities: baseAbilities, prof: baseProf, spellDC: 0, spellAttack: 0, classLevels }
     for (const b of entries) {
       if (b.effectType === 'proficiency_override') {
         const v = evaluateBuffValue(b.value, minimalContext)
@@ -190,6 +193,7 @@ export function computeBuffStats(character, activeBuffs) {
       prof: contextProf,
       spellDC: spellAbility ? 8 + contextProf + baseSpellMod : 0,
       spellAttack: spellAbility ? contextProf + baseSpellMod : 0,
+      classLevels,
     }
     const baseEvalVal = (raw) => evaluateBuffValue(raw, baseFormulaContext)
 
@@ -198,6 +202,7 @@ export function computeBuffStats(character, activeBuffs) {
     let hasAbilityOverride = false
     const abilityOverride = {}
     const abilityBonus = { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 }
+    const abilityBreak20 = { str: false, dex: false, con: false, int: false, wis: false, cha: false }
     const saveProficiencyGranted = { str: false, dex: false, con: false, int: false, wis: false, cha: false }
 
     for (const b of entries) {
@@ -209,11 +214,12 @@ export function computeBuffStats(character, activeBuffs) {
           if (!Number.isNaN(v)) abilityOverride[k] = v
         }
       }
-      // ability_score_uncapped：累加属性值（可突破20）
+      // ability_score_uncapped：累加属性值（默认上限 20，勾选 break20 后可到 30）
       if (b.effectType === 'ability_score_uncapped' && b.value && typeof b.value === 'object') {
         for (const k of ABILITY_KEYS) {
           const v = baseEvalVal(b.value[k])
           if (!Number.isNaN(v)) abilityBonus[k] = (abilityBonus[k] || 0) + v
+          if (b.break20 && b.break20[k]) abilityBreak20[k] = true
         }
       }
       // ability_score：授予豁免熟练（值为 true 或非零数字时生效）
@@ -236,7 +242,9 @@ export function computeBuffStats(character, activeBuffs) {
       } else {
         score = (baseAbilities[k] ?? 10) + (abilityBonus[k] || 0)
       }
-      finalAbilities[k] = Math.max(1, Math.min(30, score))
+      // 默认属性增加不能超过 20；仅勾选了「可突破20」的属性才能到达 30
+      const cap = abilityBreak20[k] ? 30 : 20
+      finalAbilities[k] = Math.max(1, Math.min(cap, score))
     }
 
     // 后续 AC 加值、豁免/技能/法术等公式统一使用 BUFF 后有效属性求值
@@ -247,6 +255,7 @@ export function computeBuffStats(character, activeBuffs) {
       prof: contextProf,
       spellDC: spellAbility ? 8 + contextProf + finalSpellMod : 0,
       spellAttack: spellAbility ? contextProf + finalSpellMod : 0,
+      classLevels,
     }
     const evalVal = (raw) => evaluateBuffValue(raw, formulaContext)
 
@@ -350,8 +359,12 @@ export function computeBuffStats(character, activeBuffs) {
         if (objAdv === 'advantage') advSave++
         else if (objAdv === 'disadvantage') disadvSave++
       } else if (b.effectType === 'skill_bonus') {
-        if (objAdv === 'advantage') advSkill++
-        else if (objAdv === 'disadvantage') disadvSkill++
+        // 仅全局范围的技能增强计入全局优势/劣势；带限定范围的（自定义/生物类型/武器类别等）仅作展示
+        const { scope: skillScope } = normalizeScope(b.scope, b.scopeDetail)
+        if (skillScope === SCOPE_KIND.global || skillScope === '') {
+          if (objAdv === 'advantage') advSkill++
+          else if (objAdv === 'disadvantage') disadvSkill++
+        }
       }
       // 命中/伤害加值上的优势/劣势：视为所有攻击的优势/劣势来源（「武器类别」限定的不计入全局，由武器行单独处理时可扩展）
       if (b.effectType === 'attack_damage_bonus' || b.effectType === 'attack_bonus' || b.effectType === 'damage_bonus') {
@@ -488,11 +501,15 @@ export function computeBuffStats(character, activeBuffs) {
           if (!Number.isNaN(n)) saveBonusPerAbility[k] = (saveBonusPerAbility[k] || 0) + n
         }
       } else if (b.effectType === 'skill_bonus' && raw && typeof raw === 'object' && !Array.isArray(raw)) {
-        for (const [k, val] of Object.entries(raw)) {
-          if (k === 'advantage' || ['ref', 'ability', 'mult', 'add'].includes(k)) continue
-          if (val == null) continue
-          const n = evalVal(val)
-          if (!Number.isNaN(n)) skillBonusPerSkill[k] = (skillBonusPerSkill[k] || 0) + n
+        // 仅全局范围的技能数值加值计入全局聚合；限定范围（自定义等）仅作展示
+        const { scope: skillScope } = normalizeScope(b.scope, b.scopeDetail)
+        if (skillScope === SCOPE_KIND.global || skillScope === '') {
+          for (const [k, val] of Object.entries(raw)) {
+            if (k === 'advantage' || ['ref', 'ability', 'mult', 'add'].includes(k)) continue
+            if (val == null) continue
+            const n = evalVal(val)
+            if (!Number.isNaN(n)) skillBonusPerSkill[k] = (skillBonusPerSkill[k] || 0) + n
+          }
         }
       }
       // 新表：无视伤害抗性（防御与生存）

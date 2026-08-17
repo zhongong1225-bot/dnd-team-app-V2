@@ -453,7 +453,7 @@ export default function Characters({ embedded = false, embeddedModuleId = null }
                 return out
               })()
 
-              const totalTemp = (hp.temp || 0) + (hp.buffTemp || 0)
+              const totalTemp = Math.max(hp.temp || 0, hp.buffTemp || 0)
               const hpLine = (
                 <p
                   className={`font-mono font-semibold shrink-0 tabular-nums ${compactSubordinate ? 'text-[10px]' : isSubordinate ? 'text-[10px]' : 'text-xs'} ${isLowHp ? 'text-dnd-red' : 'text-dnd-text-muted'}`}

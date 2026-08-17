@@ -202,31 +202,18 @@ export default function CharacterSpells({
     sheetLevel,
   )
 
-  /** 施法等级与环位数量（与 CombatStatus 一致：含 spellSlotsMaxOverride + 额外环位） */
+  /** 施法等级与环位数量（与 CombatStatus 一致：含 spellSlotsMaxOverride） */
   const maxSlotsByRing = useMemo(() => getMaxSpellSlotsByRing(char), [char])
   const spellSlotsMaxOverride = char?.spellSlotsMax && typeof char.spellSlotsMax === 'object' ? char.spellSlotsMax : {}
-  const extraSlotsList = useMemo(() => {
-    const raw = char?.extraSpellSlots
-    if (Array.isArray(raw)) return raw.map((e) => ({ id: e.id, ring: Number(e.ring) || 1, max: Math.max(0, Number(e.max) || 0) }))
-    if (raw && typeof raw === 'object') return Object.entries(raw).filter(([, n]) => (n || 0) > 0).map(([ring, max]) => ({ id: 'ex_' + ring, ring: Number(ring) || 1, max: Number(max) || 0 }))
-    return []
-  }, [char?.extraSpellSlots])
-  const extraSlotsMode = char?.extraSpellSlotsMode === 'points' ? 'points' : 'slots'
   const effectiveMaxByRing = useMemo(() => {
     const out = {}
-    const fromExtra = extraSlotsMode === 'slots' ? extraSlotsList : []
     for (let ring = 1; ring <= 9; ring++) {
-      const base = spellSlotsMaxOverride[ring] != null ? Math.max(0, Number(spellSlotsMaxOverride[ring]) || 0) : (maxSlotsByRing[ring] ?? 0)
-      out[ring] = base + fromExtra.filter((e) => e.ring === ring).reduce((s, e) => s + (e.max || 0), 0)
+      out[ring] = spellSlotsMaxOverride[ring] != null
+        ? Math.max(0, Number(spellSlotsMaxOverride[ring]) || 0)
+        : (maxSlotsByRing[ring] ?? 0)
     }
     return out
-  }, [maxSlotsByRing, spellSlotsMaxOverride, extraSlotsList, extraSlotsMode])
-  const extraPoints = useMemo(() => {
-    const p = char?.extraSpellSlotsPoints
-    const max = Math.max(0, Number(p?.max) ?? 0)
-    const current = Math.max(0, Math.min(max || 999, Number(p?.current) ?? max))
-    return { max, current }
-  }, [char?.extraSpellSlotsPoints])
+  }, [maxSlotsByRing, spellSlotsMaxOverride])
 
   const setSpellSlotCurrent = (ring, remaining) => {
     const max = effectiveMaxByRing[ring] ?? maxSlotsByRing[ring] ?? 0
@@ -250,7 +237,6 @@ export default function CharacterSpells({
   const [searchQuery, setSearchQuery] = useState('')
   const [castModal, setCastModal] = useState({ open: false, spell: null, spellId: '', spellLevel: 0 })
   const [castRing, setCastRing] = useState(1)
-  const [castSource, setCastSource] = useState('normal') // 'normal' | 'extraPoints'
   /** 灵崩：先投体质豁免再确认消耗环位 */
   const [castModalStep, setCastModalStep] = useState('form')
   const [psychicRollResult, setPsychicRollResult] = useState(null)
@@ -273,50 +259,30 @@ export default function CharacterSpells({
   const applyCastConsumption = useCallback(
     ({ psychicEchoSuccess = false } = {}) => {
       const ring = castRing
-      const src = castSource
       const spell = castModal.spell
       const spellId = castModal.spellId
-      if (src === 'normal') {
-        const maxR = effectiveMaxByRing[ring] ?? 0
-        const cur = Math.max(0, (spellSlotsCurrent[ring] ?? maxR) - 1)
-        const nextSlots = { ...spellSlotsCurrent, [ring]: cur }
-        setOptimisticSpellSlots(nextSlots)
-        const patch = { spellSlots: nextSlots }
-        if (psychicEchoSuccess && hasPsychicCollapse && spell) {
-          patch.psychicCollapseEcho = {
-            spellId,
-            spellName: spell.name ?? spellId,
-            ring,
-            source: src,
-            at: Date.now(),
-          }
+      const maxR = effectiveMaxByRing[ring] ?? 0
+      const cur = Math.max(0, (spellSlotsCurrent[ring] ?? maxR) - 1)
+      const nextSlots = { ...spellSlotsCurrent, [ring]: cur }
+      setOptimisticSpellSlots(nextSlots)
+      const patch = { spellSlots: nextSlots }
+      if (psychicEchoSuccess && hasPsychicCollapse && spell) {
+        patch.psychicCollapseEcho = {
+          spellId,
+          spellName: spell.name ?? spellId,
+          ring,
+          source: 'normal',
+          at: Date.now(),
         }
-        onSave(patch)
-      } else if (extraPoints.max > 0 && extraPoints.current >= ring) {
-        const patch = {
-          extraSpellSlotsPoints: { max: extraPoints.max, current: extraPoints.current - ring },
-        }
-        if (psychicEchoSuccess && hasPsychicCollapse && spell) {
-          patch.psychicCollapseEcho = {
-            spellId,
-            spellName: spell.name ?? spellId,
-            ring,
-            source: 'extraPoints',
-            at: Date.now(),
-          }
-        }
-        onSave(patch)
       }
+      onSave(patch)
     },
     [
       castRing,
-      castSource,
       castModal.spell,
       castModal.spellId,
       effectiveMaxByRing,
       spellSlotsCurrent,
-      extraPoints.max,
-      extraPoints.current,
       hasPsychicCollapse,
       onSave,
     ],
@@ -958,7 +924,6 @@ export default function CharacterSpells({
                             }
                             setCastModal({ open: true, spell, spellId, spellLevel: spell.level })
                             setCastRing(spell.level)
-                            setCastSource('normal')
                           }}
                           className="btn-panel-add w-full"
                         >
@@ -1048,8 +1013,7 @@ export default function CharacterSpells({
         <div className="panel-card-compact rounded-[var(--panel-radius)] border-[var(--accent)]/40 bg-[rgba(199,154,66,0.07)] px-3 py-2.5 text-sm">
           <p className="mb-1 text-xs font-bold uppercase tracking-wide text-[var(--accent)]">灵崩回响 · 下回合</p>
           <p className="leading-snug text-[var(--text-main)]">
-            请在<strong className="text-[var(--accent)]">原目标、原地点</strong>再结算一次「{char.psychicCollapseEcho.spellName}」（{char.psychicCollapseEcho.ring}环）
-            {char.psychicCollapseEcho.source === 'extraPoints' ? '（上次使用额外点数）' : ''}。不自动再扣环位，由你或 DM 手动处理效果后清除提醒。
+            请在<strong className="text-[var(--accent)]">原目标、原地点</strong>再结算一次「{char.psychicCollapseEcho.spellName}」（{char.psychicCollapseEcho.ring}环）。不自动再扣环位，由你或 DM 手动处理效果后清除提醒。
           </p>
           {canEdit && (
             <button
@@ -1140,9 +1104,8 @@ export default function CharacterSpells({
                   {Array.from({ length: 10 - castModal.spellLevel }, (_, i) => castModal.spellLevel + i).map((r) => {
                     const maxR = effectiveMaxByRing[r] ?? 0
                     const rawRem = spellSlotsCurrent[r] ?? maxR
-                    const rem = castSource === 'normal' ? Math.min(maxR, Math.max(0, rawRem)) : null
-                    const okPoints = castSource === 'extraPoints' && extraPoints.current >= r
-                    const ok = castSource === 'normal' ? rem > 0 : okPoints
+                    const rem = Math.min(maxR, Math.max(0, rawRem))
+                    const ok = rem > 0
                     return (
                       <button
                         key={r}
@@ -1156,54 +1119,15 @@ export default function CharacterSpells({
                               : 'cursor-not-allowed border-gray-600 bg-gray-800/50 text-gray-500'
                         }`}
                         disabled={!ok}
-                        title={
-                          castSource === 'normal'
-                            ? `${r}环 剩余 ${rem}/${maxR}（与法术环位条一致）`
-                            : `消耗 ${r} 点（当前 ${extraPoints.current}）`
-                        }
+                        title={`${r}环 剩余 ${rem}/${maxR}（与法术环位条一致）`}
                       >
                         <span className="text-sm font-medium">{r}环</span>
-                        {castSource === 'normal' ? (
-                          <span className={`mt-0.5 text-[10px] ${rem > 0 ? 'text-gray-300' : 'text-gray-500'}`}>
-                            剩余{rem}
-                          </span>
-                        ) : (
-                          <span className={`mt-0.5 text-[10px] ${okPoints ? 'text-gray-300' : 'text-gray-500'}`}>
-                            耗{r}点
-                          </span>
-                        )}
+                        <span className={`mt-0.5 text-[10px] ${rem > 0 ? 'text-gray-300' : 'text-gray-500'}`}>
+                          剩余{rem}
+                        </span>
                       </button>
                     )
                   })}
-                </div>
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-dnd-text-muted">扣除哪里的环位</label>
-                <div className="flex flex-wrap gap-2">
-                  <label className="flex cursor-pointer items-center gap-2">
-                    <input
-                      type="radio"
-                      name="castSource"
-                      checked={castSource === 'normal'}
-                      onChange={() => setCastSource('normal')}
-                      className="rounded border-gray-500 text-dnd-red focus:ring-dnd-red"
-                    />
-                    <span className="text-sm text-gray-300">常规环位</span>
-                  </label>
-                  {extraPoints.max > 0 && (
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="radio"
-                        name="castSource"
-                        checked={castSource === 'extraPoints'}
-                        onChange={() => setCastSource('extraPoints')}
-                        className="rounded border-gray-500 text-dnd-red focus:ring-dnd-red"
-                      />
-                      <span className="text-sm text-gray-300">
-                        额外环位（点数 {extraPoints.current}/{extraPoints.max}）
-                      </span>
-                    </label>
-                  )}
                 </div>
               </div>
               {hasPsychicCollapse && (
@@ -1232,13 +1156,11 @@ export default function CharacterSpells({
                     setCastModal((m) => ({ ...m, open: false }))
                   }}
                   disabled={
-                    castSource === 'normal'
-                      ? (() => {
-                          const maxR = effectiveMaxByRing[castRing] ?? 0
-                          const raw = spellSlotsCurrent[castRing] ?? maxR
-                          return Math.min(maxR, Math.max(0, raw)) <= 0
-                        })()
-                      : extraPoints.current < castRing
+                    (() => {
+                      const maxR = effectiveMaxByRing[castRing] ?? 0
+                      const raw = spellSlotsCurrent[castRing] ?? maxR
+                      return Math.min(maxR, Math.max(0, raw)) <= 0
+                    })()
                   }
                   className="flex-1 rounded-lg bg-dnd-red py-2 text-sm font-medium text-white hover:bg-dnd-red-hover disabled:cursor-not-allowed disabled:opacity-50"
                 >

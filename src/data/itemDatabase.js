@@ -600,7 +600,9 @@ export function getItemListGrouped() {
   })
 }
 
-/** 新增自定义物品；返回新项（含 id）。类型会规范化（首饰→饰品，奇物/液体/套组→其他）。 */
+/** 新增自定义物品；返回新项（含 id）。类型会规范化（首饰→饰品，奇物/液体/套组→其他）。
+ *  支持保存附魔/效果字段（effects、magicBonus、charge、spellDC、spellAttackBonus、攻击距离、爆炸半径）。
+ */
 export function addCustomItem(item) {
   const list = getCustomItems()
   const usedIds = new Set(list.map((x) => x?.id).filter(Boolean))
@@ -621,6 +623,13 @@ export function addCustomItem(item) {
     详细介绍: item.详细介绍?.trim() || '',
     需要同调: item.需要同调 === true || item.需要同调 === 'true',
     rarity: item.rarity ?? '',
+    effects: Array.isArray(item.effects) ? item.effects : [],
+    magicBonus: Number(item.magicBonus) || 0,
+    charge: Number(item.charge) || 0,
+    spellDC: item.spellDC ?? undefined,
+    spellAttackBonus: item.spellAttackBonus ?? undefined,
+    攻击距离: item.攻击距离?.trim() || '',
+    爆炸半径: Number(item.爆炸半径) || 0,
   }
   list.push(newItem)
   const p = persistCustomItems(list)
@@ -628,7 +637,9 @@ export function addCustomItem(item) {
   return newItem
 }
 
-/** 更新自定义物品；若 patch 含 类型，会规范化（首饰→饰品，奇物/液体/套组→其他） */
+/** 更新自定义物品；若 patch 含 类型，会规范化（首饰→饰品，奇物/液体/套组→其他）。
+ *  调用方应保证 effects 等字段格式正确；此处仅做浅合并。
+ */
 export function updateCustomItem(id, patch) {
   const list = getCustomItems()
   const idx = list.findIndex((x) => x.id === id)

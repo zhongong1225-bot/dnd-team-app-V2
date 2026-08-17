@@ -32,7 +32,7 @@ describe('computeBuffStats：代表性效果可改变输出', () => {
     expect(s.acBonus).toBe(2)
   })
 
-  it('BUFF 栏：力量 +2（可突破20属性）', () => {
+  it('BUFF 栏：力量 +2（属性增加）', () => {
     const c = baseChar()
     const buffs = [
       {
@@ -46,13 +46,27 @@ describe('computeBuffStats：代表性效果可改变输出', () => {
     expect(s.abilities.str).toBe(12)
   })
 
-  it('BUFF 栏：可突破20属性（力量 +30 → 上限30）', () => {
+  it('BUFF 栏：属性增加默认上限 20', () => {
     const c = baseChar()
     const buffs = [
       {
         id: '1',
         source: 't',
         effects: [{ effectType: 'ability_score_uncapped', value: { str: 30, dex: 0, con: 0, int: 0, wis: 0, cha: 0 } }],
+        enabled: true,
+      },
+    ]
+    const s = computeBuffStats(c, buffs)
+    expect(s.abilities.str).toBe(20)
+  })
+
+  it('BUFF 栏：属性增加勾选可突破20后上限 30', () => {
+    const c = baseChar()
+    const buffs = [
+      {
+        id: '1',
+        source: 't',
+        effects: [{ effectType: 'ability_score_uncapped', value: { str: 30, dex: 0, con: 0, int: 0, wis: 0, cha: 0 }, break20: { str: true } }],
         enabled: true,
       },
     ]

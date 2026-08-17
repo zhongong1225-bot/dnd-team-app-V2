@@ -3,6 +3,7 @@ import { getBuffSourceKindLabel, getBuffSourceKindTitle } from '../lib/buffSourc
 import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue, formatDamageForAttack, formatScopeBrief, normalizeScope, formatSpellDamageBonusValue } from '../data/buffTypes'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { formatContainedSpellBrief } from '../lib/containedSpellBrief'
+import { normalizeChargeRecoveryValue } from '../lib/chargeRecovery'
 import { isFormulaValue, formatFormulaLabel, evaluateBuffValue } from '../lib/formulas'
 
 /** 公式标签 + 求值后数字，例如「等级×2（+4）」、「感知调整值（+3）」 */
@@ -139,15 +140,36 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       return parts.join('，') + (adv ? (parts.length ? '，' : '') + adv : '')
     }
     if (info.effect.subSelect === 'skillsAndAdvantage' && isPlainAbilityObject(v)) {
-      const parts = Object.entries(v)
-        .filter(([k, val]) => k !== 'advantage' && val != null && val !== 0)
-        .map(([k, val]) => {
-          const sk = SKILLS.find((s) => s.id === k)
-          const nameZh = sk ? sk.name : k
-          return `${nameZh}${formatSignedEntryVal(val, context)}`
-        })
       const adv = v.advantage === 'advantage' ? '优势' : v.advantage === 'disadvantage' ? '劣势' : ''
-      return parts.join('，') + (adv ? (parts.length ? '，' : '') + adv : '')
+      const { scope: ns, scopeDetail: nd } = normalizeScope(buff.scope, buff.scopeDetail)
+      // 为 skill_bonus 优势构造「范围下」前缀：自定义时直接取输入文本，全局显示「全局」
+      const scopeLabel = (() => {
+        if (ns === 'global' || ns === '') return '全局'
+        if (ns === 'custom') return nd[0] || '自定义'
+        // 其他范围沿用已有括号形式，但不带括号
+        const brief = formatScopeBrief(ns, nd)
+        return brief ? brief.replace(/^（|）$/g, '') : ns
+      })()
+      // 优势时保留所有已选技能（含数值为 0），以便显示「XXX范围下XXX优势」
+      const shouldKeepZero = !!adv
+      const entries = Object.entries(v).filter(([k, val]) => {
+        if (k === 'advantage') return false
+        if (val == null) return false
+        if (isFormulaValue(val)) return true
+        if (typeof val === 'number') return shouldKeepZero ? true : val !== 0
+        return shouldKeepZero ? true : val !== 0
+      })
+      const parts = entries.map(([k, val]) => {
+        const sk = SKILLS.find((s) => s.id === k)
+        const nameZh = sk ? sk.name : k
+        if (adv) {
+          return `${scopeLabel}范围下${nameZh}${adv}`
+        }
+        return `${nameZh}${formatSignedEntryVal(val, context)}`
+      })
+      // 去重：同一技能可能因多条数据重复出现
+      const uniqueParts = Array.from(new Set(parts))
+      return uniqueParts.join('，')
     }
     if ((buff.effectType === 'ability_override' || buff.effectType === 'ability_score_uncapped') && isPlainAbilityObject(v)) {
       const entries = Object.entries(v).filter(([k, val]) => k !== 'advantage' && val != null && val !== 0)
@@ -185,6 +207,11 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
     if (buff.effectType === 'contained_spell' && v && typeof v === 'object' && !Array.isArray(v)) {
       const spellLine = formatContainedSpellBrief(v, context)
       return spellLine || effectLabel
+    }
+    if ((buff.effectType === 'recharge_long_rest' || buff.effectType === 'recharge_dawn') && v != null) {
+      const norm = normalizeChargeRecoveryValue(v)
+      const text = norm.kind === 'dice' ? `${norm.diceCount}d${norm.diceSides}` : String(norm.fixed)
+      return `${effectLabel} ${text}`
     }
     if (buff.effectType === 'spell_damage_bonus' && v && typeof v === 'object' && !Array.isArray(v)) {
       const text = formatSpellDamageBonusValue(v)

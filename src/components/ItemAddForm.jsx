@@ -8,7 +8,7 @@
  */
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { Trash2, Plus, Pencil } from 'lucide-react'
-import { getItemListGrouped, getItemById, getItemDisplayName, parseWeaponNoteToTraits, buildWeaponNoteFromTraits, WEAPON_TRAIT_OPTIONS, WEAPON_MASTERY_OPTIONS, itemRequiresAttunement } from '../data/itemDatabase'
+import { getItemListGrouped, getItemById, getItemDisplayName, parseWeaponNoteToTraits, buildWeaponNoteFromTraits, WEAPON_TRAIT_OPTIONS, WEAPON_MASTERY_OPTIONS, itemRequiresAttunement, addCustomItem } from '../data/itemDatabase'
 import { inputClass, textareaClass } from '../lib/inputStyles'
 import { useModule } from '../contexts/ModuleContext'
 import { BUFF_TYPES, getCategories, normalizeEffectCategory, parseDamageString, formatDamageForAttack, ITEM_STORAGE_DEFAULT_ITEM_IDS } from '../data/buffTypes'
@@ -120,6 +120,7 @@ function createEmptyModule() {
     category: firstCat,
     effectType: firstEffect,
     value: 0,
+    break20: {},
     customText: '',
     collapsed: false,
   }
@@ -148,15 +149,19 @@ function entryToEffectModules(entry, proto) {
   const isShield = proto?.子类型 === '盾牌'
   const shieldBaseMatch = isShield && (entry?.附注 ?? proto?.附注 ?? '').match(/AC\s*\+\s*(\d+)/i)
   const shieldBaseAC = shieldBaseMatch ? parseInt(shieldBaseMatch[1], 10) : null
-  // 若条目已有 effects（含空数组），优先从中还原；空数组表示用户已删光附魔效果，不再从其它字段推断
-  if (Array.isArray(entry?.effects)) {
-    if (entry.effects.length === 0) {
+  // 若条目已有 effects（含空数组），优先从中还原；否则尝试从基础物品原型 effects 还原。
+  // 空数组表示用户已删光附魔效果，不再从其它字段推断。
+  const entryEffects = Array.isArray(entry?.effects)
+    ? entry.effects
+    : (Array.isArray(proto?.effects) ? proto.effects : null)
+  if (entryEffects) {
+    if (entryEffects.length === 0) {
       // 次元袋/秘藏箱等默认储物物品强制保留容器效果
       return isDefaultStorageItem(entry) ? [createItemStorageModule()] : []
     }
     // 迁移：多个独立 contained_spell effect 合并为一个多法术共享总充能池
-    let effects = entry.effects
-    const mergedCS = mergeContainedSpellEffects(effects, entry.charge)
+    let effects = entryEffects
+    const mergedCS = mergeContainedSpellEffects(effects, entry?.charge)
     if (mergedCS) {
       effects = effects.filter((e) => e.effectType !== 'contained_spell')
       effects.push({
@@ -173,10 +178,12 @@ function entryToEffectModules(entry, proto) {
       let val = e.value ?? 0
       /** 内含法术统一归一化为新结构，总能量与 entry.charge 保持一致 */
       if (e.effectType === 'contained_spell' && typeof val === 'object' && val && !Array.isArray(val)) {
-        val = normalizeContainedSpellValue(val, entry.charge)
+        val = normalizeContainedSpellValue(val, entry?.charge)
       }
+      const break20 = e.break20 && typeof e.break20 === 'object' && !Array.isArray(e.break20) ? e.break20 : {}
       add(normalizeEffectCategory(e.effectType ?? '', e.category), e.effectType ?? '', {
         value: val,
+        break20,
         customText: typeof e.value === 'string' ? e.value : (e.customText ?? ''),
       })
     })
@@ -484,7 +491,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     setEditingModuleId(null)
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     if (!itemId && !editEntry) return
     const proto = itemId ? getItemById(itemId) : (editEntry?.itemId ? getItemById(editEntry.itemId) : null)
@@ -549,12 +556,16 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
         magicBonus = Number.isNaN(Number(bonus)) ? 0 : Number(bonus)
         return
       }
-      effectsForSave.push({
+      const effectEntry = {
         category: mod.category,
         effectType: currentEffect.key,
         value: saveVal,
         customText: mod.customText ?? '',
-      })
+      }
+      if (currentEffect.key === 'ability_score_uncapped' && mod.break20 && typeof mod.break20 === 'object' && Object.keys(mod.break20).length) {
+        effectEntry.break20 = mod.break20
+      }
+      effectsForSave.push(effectEntry)
       if (!isArmorOrClothing && parts.附注Part) 附注 = (附注 ? 附注 + '；' : '') + parts.附注Part
       if (parts.magicBonus != null) magicBonus = parts.magicBonus
       if (parts.charge != null) charge = parts.charge
@@ -567,10 +578,51 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     if (isDefaultStorageItem(itemId || editEntry) && !effectsForSave.some((e) => e.effectType === 'item_storage')) {
       effectsForSave.push({ category: 'container', effectType: 'item_storage', value: true, customText: '' })
     }
+
+    if (!isEdit) {
+      // 新建模式：把修改后的数据保存为新的自定义基础物品，再生成一条干净的库存引用条目
+      const baseItem = {
+        类型: proto?.类型 || '近战武器',
+        子类型: proto?.子类型 || '',
+        类别: proto?.类别 || '自定义',
+        名称: name?.trim() || '',
+        攻击: 攻击 || '',
+        附注: 附注 != null ? String(附注).trim() : '',
+        精通: isWeapon && 精通 ? 精通 : (proto?.精通 || ''),
+        伤害: 伤害 || '',
+        重量: proto?.重量 || '',
+        价格: proto?.价格 || '',
+        详细介绍: intro != null ? String(intro).trim() : '',
+        需要同调: proto?.需要同调 || itemRequiresAttunement({ magicBonus, effects: effectsForSave }),
+        rarity: rarity || '',
+        effects: effectsForSave,
+        magicBonus,
+        charge,
+        spellDC,
+        spellAttackBonus,
+        攻击距离: 攻击距离 || '',
+        爆炸半径: isExplosive ? (Number(explosiveRadius) || 0) : 0,
+      }
+      const newBaseItem = await addCustomItem(baseItem)
+      // 通知依赖自定义物品库的组件刷新（如数据维护页、物品选择器）
+      window.dispatchEvent(new CustomEvent('dnd-realtime-custom-library'))
+      const entry = {
+        id: 'inv_' + Date.now(),
+        itemId: newBaseItem.id,
+        isAttuned,
+        qty: Math.max(1, qty),
+        ...(rarity ? { rarity } : {}),
+      }
+      onSave(entry)
+      onClose()
+      return
+    }
+
+    // 编辑模式：保持原有库存条目覆盖逻辑
     const entry = {
-      id: editEntry ? editEntry.id : 'inv_' + Date.now(),
+      id: editEntry.id,
       isAttuned,
-      itemId: itemId || editEntry?.itemId || '',
+      itemId: editEntry?.itemId || '',
       ...(rarity ? { rarity } : {}),
       name: (name?.trim()) || editEntry?.name || proto?.类别 || (proto ? getItemDisplayName(proto) : '') || '—',
       攻击: 攻击 || undefined,

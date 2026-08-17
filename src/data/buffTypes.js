@@ -241,7 +241,7 @@ export const BUFF_TYPES = {
     effects: [
       { key: 'ability_score', label: '属性熟练调整', dataType: 'object', subSelect: 'abilityProficiency' },
       { key: 'ability_override', label: '属性值上限', dataType: 'object', subSelect: 'abilityScores' },
-      { key: 'ability_score_uncapped', label: '可突破20属性', dataType: 'object', subSelect: 'abilityScores' },
+      { key: 'ability_score_uncapped', label: '属性增加', dataType: 'object', subSelect: 'abilityScores' },
       { key: 'extra_attunement_slots', label: '额外同调位', dataType: 'number' },
       // 技能增强：数值加值+优势配置，这里沿用原有技能加值结构
       { key: 'skill_bonus', label: '技能增强', dataType: 'object', subSelect: 'skillsAndAdvantage' },
@@ -349,6 +349,10 @@ export const BUFF_TYPES = {
       { key: 'contained_spell', label: '内含法术', dataType: 'object', subSelect: 'containedSpell' },
       // 瓦石层：由物品主动触发的临时防护层，归类为充能效果
       { key: 'ac_cap_stone_layer', label: '瓦石层', dataType: 'number' },
+      // 长休恢复：完成长休时恢复固定值或 XdX 点充能
+      { key: 'recharge_long_rest', label: '长休恢复', dataType: 'object', subSelect: 'chargeRecovery' },
+      // 黎明恢复：每个黎明时恢复固定值或 XdX 点充能
+      { key: 'recharge_dawn', label: '黎明恢复', dataType: 'object', subSelect: 'chargeRecovery' },
       // 以下保留旧 key，供已有数据与计算器解析
       { key: 'charge', label: '充能数', dataType: 'number', hidden: true },
     ],
@@ -506,6 +510,7 @@ export const SCOPE_KIND = {
   creature_type: 'creature_type',
   damage_type: 'damage_type',
   weapon_category: 'weapon_category',
+  custom: 'custom',
 }
 
 /** 范围 kind 下拉选项（用于 BuffForm） */
@@ -515,6 +520,7 @@ export const SCOPE_KIND_OPTIONS = [
   { value: SCOPE_KIND.creature_type, label: '某类生物' },
   { value: SCOPE_KIND.damage_type, label: '某类伤害类型' },
   { value: SCOPE_KIND.weapon_category, label: '某类武器' },
+  { value: SCOPE_KIND.custom, label: '自定义' },
 ]
 
 /** 生物类型选项（D&D 5e 常见生物类型） */
@@ -646,6 +652,8 @@ export function scopeMatchesCombatMean(effect, ctx = {}) {
       return protoMatchesWeaponBuffKey(ctx.weaponProto, k)
     })
   }
+  // 自定义范围：未提供明确匹配规则，默认不匹配战斗手段上下文（仅作展示）
+  if (scope === SCOPE_KIND.custom) return false
   return false
 }
 
@@ -668,6 +676,10 @@ export function formatScopeBrief(scope, scopeDetail) {
   }
   if (s === SCOPE_KIND.weapon_category) {
     return `（${details.join('/')}）`
+  }
+  if (s === SCOPE_KIND.custom) {
+    const text = details[0] ?? ''
+    return text ? `（${text}）` : ''
   }
   return ''
 }
