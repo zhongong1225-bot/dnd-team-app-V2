@@ -52,6 +52,7 @@ import { parseArmorNote } from '../lib/formulas'
 import { abilityModifier } from '../lib/formulas'
 import { useBuffCalculator } from '../hooks/useBuffCalculator'
 import { ABILITY_NAMES_ZH, hasItemStorageEffect, ITEM_STORAGE_DEFAULT_ITEM_IDS } from '../data/buffTypes'
+import { getCharacterClasses, getClassDisplayName } from '../data/classDatabase'
 import { inputClass, inputClassInline } from '../lib/inputStyles'
 import { logTeamActivity } from '../lib/activityLog'
 import { NumberStepper } from './BuffForm'
@@ -292,6 +293,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   const level = Math.max(1, Math.min(20, parseInt(character?.level, 10) || 1))
   const abilities = buffStats?.abilities ?? character?.abilities ?? {}
   const { spellAbility, spellAttackBonus, spellDC, prof } = getSpellcastingCombatStats(character, buffStats, level)
+  const characterClasses = useMemo(() => getCharacterClasses(character), [character])
   const referenceData = useMemo(() => {
     const arr = []
     Object.entries(abilities).forEach(([k, v]) => {
@@ -303,10 +305,14 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     })
     arr.push({ label: '熟练加值', value: prof, ref: 'proficiency' })
     arr.push({ label: '等级', value: level, ref: 'level' })
+    for (const c of characterClasses) {
+      const displayName = getClassDisplayName(c.name) || c.name
+      arr.push({ label: `${displayName}等级`, value: c.level, ref: 'classLevel', className: c.name })
+    }
     if (spellDC != null) arr.push({ label: '法术DC', value: spellDC, ref: 'spellDc' })
     if (spellAttackBonus != null) arr.push({ label: '法术攻击', value: spellAttackBonus, ref: 'spellAttack' })
     return arr
-  }, [abilities, prof, level, spellDC, spellAttackBonus])
+  }, [abilities, prof, level, spellDC, spellAttackBonus, characterClasses])
   const heldSlots = character?.equippedHeld ?? migrated?.held ?? [
     { id: 'main', inventoryId: null },
     { id: 'off', inventoryId: null },

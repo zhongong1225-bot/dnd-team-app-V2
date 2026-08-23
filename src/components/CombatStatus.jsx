@@ -38,7 +38,7 @@ const DAMAGE_TYPE_SHORT = { 强酸: '酸', 钝击: '钝', 寒冷: '寒', 火焰:
 const HIT_RESOLUTION_LABELS = { dex_save: '敏捷豁免', str_save: '力量豁免', con_save: '体质豁免', wis_save: '感知豁免', int_save: '智力豁免', cha_save: '魅力豁免', spell_attack: '法术攻击' }
 import { getItemById, parseWeaponNoteToTraits } from '../data/itemDatabase'
 import { getSpellById, getWandScrollSpellPower, getMergedSpells } from '../data/spellDatabase'
-import { getSpellcastingLevel, getMaxSpellSlotsByRing, getHitDice, getPrimarySpellcastingAbility } from '../data/classDatabase'
+import { getSpellcastingLevel, getMaxSpellSlotsByRing, getHitDice, getPrimarySpellcastingAbility, getCharacterClasses } from '../data/classDatabase'
 import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
 import { rollDice, rollCombatDicePool, parseCombatDiceExpression } from '../data/weaponDatabase'
 import { buildQuickRollAnimation } from '../lib/quickRollAnimation'
@@ -721,6 +721,10 @@ function getWeaponBaseDamageObjects(weaponOpt) {
     versa.plus = stripDiceFlatMod(p2.trim()) || ''
   } else {
     base.plus = stripDiceFlatMod(plus) || ''
+    // 标准 5e 数据库把「多用（XdY）」写在附注里，需解析为双手伤害
+    const note = String(weaponOpt?.entry?.附注 ?? weaponOpt?.proto?.附注 ?? '')
+    const versatileMatch = note.match(/多用[（(](\d+d\d+)[）)]/i)
+    versa.plus = versatileMatch ? (stripDiceFlatMod(versatileMatch[1].trim()) || base.plus) : base.plus
   }
   return { base, versa }
 }
@@ -732,9 +736,11 @@ function getWeaponAttackStringForParsing(weaponOpt, mode) {
   // 双持副手附赠攻击使用单手伤害骰
   const baseAttack = formatDamageForAttack(mode === 'two_hand' ? versa : base)
   let attack = baseAttack
-  const appendDiceFromText = (text) => {
-    if (!text || String(text).trim() === '' || String(text).trim() === '—') return
-    const extra = String(text).match(WEAPON_DICE_CHUNK_RE) || []
+  // 仅当「伤害」字段显式写了额外骰（如用户自定义的 1d6 火焰）时才追加；
+  // 不再从 entry/proto 的「附注」中抽取任意骰子，避免长描述里的法术/叙事骰被误当成武器伤害。
+  const damageText = String(weaponOpt.伤害 ?? '').trim()
+  if (damageText && damageText !== '—') {
+    const extra = damageText.match(WEAPON_DICE_CHUNK_RE) || []
     for (const seg of extra) {
       const segNorm = seg.replace(/\uFF44/g, 'd').replace(/D/g, 'd').toLowerCase()
       if (!attack.toLowerCase().includes(segNorm)) {
@@ -742,9 +748,6 @@ function getWeaponAttackStringForParsing(weaponOpt, mode) {
       }
     }
   }
-  appendDiceFromText(weaponOpt.伤害)
-  appendDiceFromText(weaponOpt.entry?.附注)
-  appendDiceFromText(weaponOpt.proto?.附注)
   return attack
 }
 
@@ -808,7 +811,7 @@ function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
     weaponProto: weaponOpt?.proto,
     damageType: rawDamageType,
     sourceItemInventoryId: weaponOpt?.entry?.id,
-  })
+  }) || getWeaponEntrySpellAbility(weaponOpt?.entry)
   const weaponAbilityKind = resolvePhysicalWeaponAbilityKind(cm, weaponOpt, spellAbilityOverride)
   const abilityKey = weaponAbilityKind === 'spell' ? spellAbility : weaponAbilityKind
   const abilityMod = abilityModifier(effectiveAbilities?.[abilityKey] ?? 10)
@@ -836,7 +839,7 @@ function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
 }
 
 /** 根据战斗手段类型与 Buff 统计，自动生成一组默认增益建议（仅在用户未手动设置时填充） */
-function buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellMean = false) {
+function buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellMean = false, character = null) {
   const gains = []
   const isPhysical = cm?.type === 'physical'
   const pushOnce = (type, payload) => {
@@ -845,25 +848,14 @@ function buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellMean = fa
   }
   const relevantScope = (scope) => {
     if (!isPhysical) return scope === 'global' || scope == null || scope === ''
-    const ranged = cm?.weaponInventoryIndex != null
-      ? (() => {
-          const entry = (mergedBuffs?.__inventory || []).find((e) => e?.index === cm.weaponInventoryIndex)
-          return isRangedWeaponProto(entry?.proto)
-        })()
-      : false
+    const inv = character?.inventory || []
+    const entry = cm?.weaponInventoryIndex != null ? inv[cm.weaponInventoryIndex] : null
+    const proto = entry?.itemId ? getItemById(entry.itemId) : null
+    const ranged = isRangedWeaponProto(proto)
     if (ranged) return scope === 'ranged' || scope === 'firearm' || scope === 'global' || scope == null || scope === ''
     return scope === 'melee' || scope === 'global' || scope == null || scope === ''
   }
-  if (buffStats) {
-    const melee = Number(buffStats?.meleeAttackBonus) || 0
-    const ranged = Number(buffStats?.rangedAttackBonus) || 0
-    const meleeDmg = Number(buffStats?.meleeDamageBonus) || 0
-    const rangedDmg = Number(buffStats?.rangedDamageBonus) || 0
-    const attackVal = isPhysical ? (ranged || melee) : (melee || ranged)
-    const damageVal = isPhysical ? (rangedDmg || meleeDmg) : (meleeDmg || rangedDmg)
-    if (attackVal) pushOnce('attackBonus', { value: attackVal })
-    if (damageVal) pushOnce('damageBonus', { value: damageVal })
-  }
+  // 注意：全局命中/伤害加值已由 useBuffCalculator 统一计算，不应再保存为战斗手段默认增益，避免重复叠加。
   if (Array.isArray(mergedBuffs)) {
     for (const b of mergedBuffs) {
       if (b.enabled === false) continue
@@ -954,7 +946,7 @@ function GainEditor({ gains, onChange }) {
           ) : (
             <button
               type="button"
-              onClick={() => setAddingType('extraDice')}
+              onClick={() => setAddingType('')}
               className="flex shrink-0 items-center gap-0.5 rounded border border-dashed border-dnd-gold/50 px-2 py-0.5 text-[10px] font-medium text-dnd-gold-light hover:bg-dnd-gold/15"
             >
               <Plus className="h-3 w-3" />
@@ -1027,6 +1019,18 @@ function GainEditor({ gains, onChange }) {
       </div>
     </div>
   )
+}
+
+/** 从武器背包条目的附魔 effects 读取：施法属性命中覆盖（int/wis/cha） */
+function getWeaponEntrySpellAbility(entry) {
+  if (!entry || !Array.isArray(entry.effects)) return null
+  for (const e of entry.effects) {
+    if (!e) continue
+    if (e.effectType === 'spell_ability_attack' && e.value && typeof e.value === 'object' && e.value.ability) {
+      return e.value.ability
+    }
+  }
+  return null
 }
 
 /**
@@ -1134,6 +1138,41 @@ function spellUsesAttack(desc) {
   return desc && /(远程|近战)?法术攻击/.test(String(desc))
 }
 
+/** 根据法术描述推断豁免类型；无明确豁免时回退到法术攻击 */
+function inferSaveFromSpellDescription(desc) {
+  if (!desc || typeof desc !== 'string') return 'spell_attack'
+  const saveMap = {
+    敏捷: 'dex_save',
+    力量: 'str_save',
+    体质: 'con_save',
+    感知: 'wis_save',
+    智力: 'int_save',
+    魅力: 'cha_save',
+  }
+  for (const [name, key] of Object.entries(saveMap)) {
+    if (desc.includes(`${name}豁免`)) return key
+  }
+  return 'spell_attack'
+}
+
+/** 计算法术射程显示文本，应用 BUFF 的 spellRangeMultiplier / spellRangeBonus */
+function computeSpellRangeDisplay(rawRange, multiplier = 1, bonus = 0) {
+  if (!rawRange) return '—'
+  const text = String(rawRange).trim()
+  if (text === '自身') return '自身'
+  if (text === '触碰') {
+    if (bonus > 0) return `触碰 +${bonus} 尺`
+    return '触碰'
+  }
+  const match = text.match(/(\d+)\s*尺/)
+  if (match) {
+    const base = parseInt(match[1], 10)
+    const final = base * Math.max(1, multiplier || 1) + (bonus || 0)
+    return `${final} 尺`
+  }
+  return text
+}
+
 export default function CombatStatus({ char, hp, abilities, level, canEdit, onSave }) {
   const { openForCheck } = useRoll()
   const { currentModuleId } = useModule()
@@ -1156,12 +1195,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const prof = proficiencyBonus(level)
     const spellAbility = getPrimarySpellcastingAbility(char)
     const spellMod = spellAbility ? abilityModifier(effectiveAbilities?.[spellAbility] ?? 10) : 0
+    const classLevels = {}
+    for (const c of getCharacterClasses(char)) classLevels[c.name] = c.level
     return {
       level,
       abilities: effectiveAbilities,
       prof,
       spellDC: spellAbility ? 8 + prof + spellMod : 0,
       spellAttack: spellAbility ? prof + spellMod : 0,
+      classLevels,
     }
   }, [char, level, abilities, buffStats])
   const flatBuffEffects = useMemo(() => getFlatEffectEntries(mergedBuffs), [mergedBuffs])
@@ -1243,8 +1285,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [addGains, setAddGains] = useState([])
   const [showSpellModule, setShowSpellModule] = useState(() => char?.showSpellModule !== false)
   const [showMartialModule, setShowMartialModule] = useState(() => char?.showMartialModule !== false)
-  const [showExtraSlotsEdit, setShowExtraSlotsEdit] = useState(false)
-  const [showExtraSlotsModal, setShowExtraSlotsModal] = useState(false)
   const [explosiveUsePending, setExplosiveUsePending] = useState(null) // { inventoryIndex, name, diceExpr, damageType }
   const [focusUsePending, setFocusUsePending] = useState(null) // { inventoryIndex, name, spellSub } 法器投掷待确认
   const [focusSpellMap, setFocusSpellMap] = useState({}) // { [inventoryIndex]: spellSub } 法器当前选中的内含法术
@@ -1687,15 +1727,36 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setShowAddCombatMeanModal(false)
   }
   const confirmAddSpellAttackMean = () => {
-    const name = (addSpellAttackSpellId ? (getSpellById(addSpellAttackSpellId)?.name ?? addSpellAttackName) : addSpellAttackName).trim() || '法术攻击'
-    const lvl = Number(addSpellAttackSpellLevel)
+    const spell = addSpellAttackSpellId ? getSpellById(addSpellAttackSpellId) : null
+    const name = (spell?.name ?? (addSpellAttackSpellId ? addSpellAttackName : addSpellAttackName)).trim() || '法术攻击'
+    // 若选择了法术，自动从法术数据派生命中/伤害/环位；保留手动输入作为兜底
+    let derivedHitResolution = addSpellAttackHitResolution || 'spell_attack'
+    let derivedDamageDice = (addSpellAttackDice || '').trim()
+    let derivedDamageType = (addSpellAttackDamageType || '').trim()
+    let derivedSpellLevel = spell?.level != null ? spell.level : null
+    if (spell?.description) {
+      if (spellUsesAttack(spell.description)) {
+        derivedHitResolution = 'spell_attack'
+      } else {
+        const inferredSave = inferSaveFromSpellDescription(spell.description)
+        if (inferredSave !== 'spell_attack') derivedHitResolution = inferredSave
+      }
+      const damages = parseSpellDamageFromDescription(spell.description)
+      if (damages.length > 0) {
+        derivedDamageDice = damages[0].dice
+        // 弹窗伤害类型下拉使用中文 label，存储中文以保持选择框回显一致
+        derivedDamageType = getDamageTypeLabel(damages[0].type)
+      }
+    }
+    const lvl = derivedSpellLevel != null ? derivedSpellLevel : Number(addSpellAttackSpellLevel)
     const patch = {
       type: 'spell_attack',
+      spellId: addSpellAttackSpellId || null,
       spellName: name,
-      spellLevel: lvl >= 1 && lvl <= 9 ? lvl : null,
-      hitResolution: addSpellAttackHitResolution || 'spell_attack',
-      damageDice: (addSpellAttackDice || '').trim(),
-      damageTypeSpell: (addSpellAttackDamageType || '').trim(),
+      spellLevel: lvl >= 0 && lvl <= 9 ? lvl : null,
+      hitResolution: derivedHitResolution,
+      damageDice: derivedDamageDice,
+      damageTypeSpell: derivedDamageType,
       targetCreatureType: addTargetCreatureType || '',
       gains: addGains,
     }
@@ -1708,7 +1769,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         ...patch,
         weaponInventoryIndex: null,
         itemInventoryIndex: null,
-        spellId: null,
         extraDamageDice: [],
         abilityForAttack: null,
         damageType: null,
@@ -1730,10 +1790,10 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setAddSpellAttackSpellId(cm.spellId || '')
     setAddSpellAttackHitResolution(cm.hitResolution || 'spell_attack')
     setAddSpellAttackDice(cm.damageDice || '')
-    setAddSpellAttackDamageType(cm.damageTypeSpell || '')
+    setAddSpellAttackDamageType(getDamageTypeLabel(cm.damageTypeSpell))
     setAddSpellAttackSpellLevel(cm.spellLevel != null ? String(cm.spellLevel) : '')
     setAddTargetCreatureType(cm.targetCreatureType || '')
-    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, true))
+    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, true, char))
     setAddMeanStep('spell_attack')
     setShowAddCombatMeanModal(true)
   }
@@ -1743,7 +1803,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const itemOpt = cm.itemInventoryIndex != null ? itemMeansFromInv.find((x) => x.index === cm.itemInventoryIndex) : null
     const isSpellItem = itemOpt && (itemOpt.kind === 'focus' || itemOpt.kind === 'scroll')
     setAddTargetCreatureType(cm.targetCreatureType || '')
-    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellItem))
+    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellItem, char))
     setAddMeanStep('item')
     setShowAddCombatMeanModal(true)
   }
@@ -2038,7 +2098,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       weaponProto: wForEdit?.proto,
       damageType: rawDamageType,
       sourceItemInventoryId: wForEdit?.entry?.id,
-    })
+    }) || getWeaponEntrySpellAbility(wForEdit?.entry)
     setAddAbility(resolvePhysicalWeaponAbilityKind(cm, wForEdit, spellAbilityOverride))
     setAddDamageType(cm.damageType ? String(cm.damageType) : '')
     setAddWeaponMode(cm.weaponVersatileMode || getDefaultWeaponMode(wForEdit))
@@ -2046,7 +2106,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setAddTargetCreatureType(cm.targetCreatureType || '')
     setAddWeaponExtraDice(Array.isArray(cm.extraDamageDice) ? [...cm.extraDamageDice] : [])
     setShowWeaponExtraDiceEditor(false)
-    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs))
+    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, false, char))
     setAddMeanStep('weapon')
     setShowAddCombatMeanModal(true)
   }, [weaponsFromInv, buffStats, mergedBuffs])
@@ -2098,21 +2158,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const spellcastingLevel = getSpellcastingLevel(char)
   const maxSlotsByRing = useMemo(() => getMaxSpellSlotsByRing(char), [char])
   const spellSlotsMaxOverride = char?.spellSlotsMax && typeof char.spellSlotsMax === 'object' ? char.spellSlotsMax : {}
-  const extraSpellSlotsMode = char?.extraSpellSlotsMode === 'points' ? 'points' : 'slots'
-  const extraSpellSlotsPoints = useMemo(() => {
-    const p = char?.extraSpellSlotsPoints
-    const max = Math.max(0, Number(p?.max) ?? 0)
-    const current = Math.max(0, Math.min(max || 999, Number(p?.current) ?? max))
-    return { max, current }
-  }, [char?.extraSpellSlotsPoints])
-  const extraSpellSlotsList = useMemo(() => {
-    const raw = char?.extraSpellSlots
-    if (Array.isArray(raw)) return raw.map((e) => ({ id: e.id ?? 'ex_' + Math.random().toString(36).slice(2), ring: Math.min(9, Math.max(1, Number(e.ring) || 1)), max: Math.max(0, Number(e.max) ?? 1) }))
-    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-      return Object.entries(raw).filter(([, n]) => (n || 0) > 0).map(([ring, max]) => ({ id: 'ex_' + ring, ring: Number(ring) || 1, max: Number(max) || 0 }))
-    }
-    return []
-  }, [char?.extraSpellSlots])
   const baseMaxByRing = useMemo(() => {
     const out = {}
     for (let ring = 1; ring <= 9; ring++) {
@@ -2122,30 +2167,10 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     }
     return out
   }, [maxSlotsByRing, spellSlotsMaxOverride])
-  const extraMaxByRing = useMemo(() => {
-    const out = {}
-    for (let ring = 1; ring <= 9; ring++) out[ring] = 0
-    if (extraSpellSlotsMode !== 'slots') return out
-    for (const e of extraSpellSlotsList) {
-      const ring = Math.min(9, Math.max(1, Number(e.ring) || 1))
-      out[ring] += Math.max(0, Number(e.max) || 0)
-    }
-    return out
-  }, [extraSpellSlotsList, extraSpellSlotsMode])
-  const effectiveMaxByRing = useMemo(() => {
-    const out = {}
-    for (let ring = 1; ring <= 9; ring++) {
-      out[ring] = (baseMaxByRing[ring] ?? 0) + (extraMaxByRing[ring] ?? 0)
-    }
-    return out
-  }, [baseMaxByRing, extraMaxByRing])
+  const effectiveMaxByRing = baseMaxByRing
   const visibleBaseRings = useMemo(
     () => [1, 2, 3, 4, 5, 6, 7, 8, 9].filter((r) => (baseMaxByRing[r] ?? 0) > 0),
     [baseMaxByRing],
-  )
-  const visibleExtraRings = useMemo(
-    () => [1, 2, 3, 4, 5, 6, 7, 8, 9].filter((r) => (extraMaxByRing[r] ?? 0) > 0),
-    [extraMaxByRing],
   )
   const [spellSlotsCurrentLocal, setSpellSlotsCurrentLocal] = useState(char?.spellSlots ?? {})
   const spellSlotsSaveTimerRef = useRef(null)
@@ -2170,16 +2195,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       return next
     })
   }
-  const getSlotSplit = useCallback((ring) => {
-    const baseMax = baseMaxByRing[ring] ?? 0
-    const extraMax = extraMaxByRing[ring] ?? 0
-    const effectiveMax = Math.max(0, baseMax + extraMax)
-    const totalCur = Math.min(effectiveMax, Math.max(0, spellSlotsCurrentLocal[ring] ?? effectiveMax))
-    const baseCur = Math.min(baseMax, totalCur)
-    const extraCur = Math.max(0, totalCur - baseMax)
-    return { baseMax, extraMax, effectiveMax, baseCur, extraCur, totalCur }
-  }, [baseMaxByRing, extraMaxByRing, spellSlotsCurrentLocal])
-
   /** 同一轮施法内多次点击（法术攻击 + 伤害）避免重复扣法术位 */
   const spentSpellSlotIdsRef = useRef(new Set())
   const getSpellMeanSlotRing = useCallback((cm) => {
@@ -2201,7 +2216,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const ring = getSpellMeanSlotRing(cm)
     if (!ring) return true
     if (spentSpellSlotIdsRef.current.has(cm.id)) return true
-    const { totalCur } = getSlotSplit(ring)
+    const max = effectiveMaxByRing[ring] ?? 0
+    const totalCur = Math.min(max, Math.max(0, spellSlotsCurrentLocal[ring] ?? max))
     if (totalCur <= 0) {
       window.alert(`${label || ring + ' 环法术位'}已耗尽`)
       return false
@@ -2210,42 +2226,10 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     spentSpellSlotIdsRef.current.add(cm.id)
     setTimeout(() => spentSpellSlotIdsRef.current.delete(cm.id), 8000)
     return true
-  }, [getSpellMeanSlotRing, getSlotSplit])
+  }, [getSpellMeanSlotRing, effectiveMaxByRing, spellSlotsCurrentLocal])
 
   const setBaseSlotCurrent = (ring, remainingBase) => {
-    const { extraCur, baseMax } = getSlotSplit(ring)
-    const nextBase = Math.max(0, Math.min(baseMax, remainingBase))
-    setSpellSlotCurrentTotal(ring, nextBase + extraCur)
-  }
-  const setExtraSlotCurrent = (ring, remainingExtra) => {
-    const { baseCur, extraMax } = getSlotSplit(ring)
-    const nextExtra = Math.max(0, Math.min(extraMax, remainingExtra))
-    setSpellSlotCurrentTotal(ring, baseCur + nextExtra)
-  }
-  const saveExtraSpellSlots = (next) => {
-    onSave({ extraSpellSlots: next.map((e) => ({ id: e.id, ring: e.ring, max: e.max })) })
-  }
-  const addExtraSpellSlot = () => {
-    saveExtraSpellSlots([...extraSpellSlotsList, { id: 'ex_' + Date.now(), ring: 1, max: 1 }])
-  }
-  const removeExtraSpellSlot = (id) => {
-    saveExtraSpellSlots(extraSpellSlotsList.filter((e) => e.id !== id))
-  }
-  const updateExtraSpellSlot = (id, patch) => {
-    saveExtraSpellSlots(extraSpellSlotsList.map((e) => (e.id === id ? { ...e, ...patch } : e)))
-  }
-  const setExtraSpellSlotsMode = (mode) => {
-    onSave({ extraSpellSlotsMode: mode })
-  }
-  const saveExtraSpellSlotsPoints = (max, current) => {
-    const m = Math.max(0, Number(max) ?? 0)
-    const c = Math.max(0, Math.min(m || 999, Number(current) ?? m))
-    onSave({ extraSpellSlotsPoints: { max: m, current: c } })
-  }
-  const deductExtraSpellPoints = (ring) => {
-    const cost = Math.min(9, Math.max(1, Number(ring) || 1))
-    const next = Math.max(0, extraSpellSlotsPoints.current - cost)
-    onSave({ extraSpellSlotsPoints: { ...extraSpellSlotsPoints, current: next } })
+    setSpellSlotCurrentTotal(ring, Math.max(0, Math.min(effectiveMaxByRing[ring] ?? 0, remainingBase)))
   }
 
   const saveHp = (c, t, bt = hpBuffTemp) => {
@@ -2259,14 +2243,17 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const raw = parseInt(String(deductVal).trim(), 10)
     if (isNaN(raw) || raw <= 0) return
     const n = buffDamageReduction > 0 ? Math.max(0, raw - buffDamageReduction) : raw
-    let remaining = n
-    const fromTemp = Math.min(remaining, hpTemp)
-    remaining -= fromTemp
-    const fromBuffTemp = Math.min(remaining, hpBuffTemp)
-    remaining -= fromBuffTemp
-    const newTemp = Math.max(0, hpTemp - fromTemp)
-    const newBuffTemp = Math.max(0, hpBuffTemp - fromBuffTemp)
-    const newCur = hpCurrent - remaining
+    const effectiveBefore = Math.max(hpTemp, hpBuffTemp)
+    const newEffective = Math.max(0, effectiveBefore - n)
+    let newTemp, newBuffTemp
+    if (hpTemp >= hpBuffTemp) {
+      newTemp = Math.max(0, hpTemp - n)
+      newBuffTemp = Math.min(hpBuffTemp, newTemp)
+    } else {
+      newBuffTemp = Math.max(0, hpBuffTemp - n)
+      newTemp = Math.min(hpTemp, newBuffTemp)
+    }
+    const newCur = hpCurrent - Math.max(0, n - effectiveBefore)
     if (newCur < 1 && hasActiveDeathWard(mergedBuffs)) {
       const patch = consumeDeathWard(char, mergedBuffs)
       if (patch) {
@@ -2392,7 +2379,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const dsResults = deathSaves.results?.length === DEATH_SAVE_COUNT ? deathSaves.results : getDefaultDeathSaves().results
   const deathFailures = dsResults.filter((r) => r === 'failure').length
   const deathSuccesses = dsResults.filter((r) => r === 'success').length
-  const effectiveTemp = hpTemp + hpBuffTemp
+  const effectiveTemp = Math.max(hpTemp, hpBuffTemp)
   const displayCurrent = hpCurrent + effectiveTemp
   const hasTempHp = effectiveTemp > 0
 
@@ -2552,7 +2539,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             {displayCurrent} / {maxHp}
             {hasTempHp && (
               <span className="text-blue-400 text-sm font-normal ml-1">
-                （含 {effectiveTemp} 临时{hpBuffTemp > 0 ? `，BUFF ${hpBuffTemp}` : ''}）
+                （含 {effectiveTemp} 临时{hpBuffTemp === effectiveTemp && hpBuffTemp > 0 ? `，BUFF ${hpBuffTemp}` : ''}）
               </span>
             )}
           </span>
@@ -3032,7 +3019,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               <p className="text-dnd-gold-light font-bold uppercase tracking-wide mb-0.5">灵崩回响 · 下回合</p>
               <p className="text-gray-300 leading-snug">
                 原目标原地点再结算「{char.psychicCollapseEcho.spellName}」（{char.psychicCollapseEcho.ring}环）
-                {char.psychicCollapseEcho.source === 'extraPoints' ? ' · 上次为额外点数' : ''}
               </p>
               {canEdit && (
                 <button
@@ -3059,7 +3045,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                     aria-label="1 至 9 环法术位，圆点均分宽度"
                   >
                     {visibleBaseRings.flatMap((ring, ringIdx) => {
-                      const { baseMax: max, baseCur: cur } = getSlotSplit(ring)
+                      const max = effectiveMaxByRing[ring] ?? 0
+                      const cur = Math.min(max, Math.max(0, spellSlotsCurrentLocal[ring] ?? max))
                       const sep =
                         ringIdx > 0 ? (
                           <div
@@ -3128,177 +3115,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       return out
                     })}
                   </div>
-                </div>
-              </div>
-              <div className="flex min-w-0 w-full flex-wrap items-stretch gap-2 border-t border-white/10 pt-2 sm:gap-3">
-                <div className="flex shrink-0 flex-col justify-center border-r border-white/15 pr-2 sm:pr-3">
-                  <span className="text-dnd-text-muted text-xs font-bold uppercase tracking-wide sm:text-sm">额外环位</span>
-                </div>
-                <div className="flex min-w-0 flex-1 flex-col justify-center gap-1">
-                  {extraSpellSlotsMode === 'points' && extraSpellSlotsPoints.max > 0 && (
-                    <div className="flex min-w-0 flex-row flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="shrink-0 font-mono text-sm tabular-nums text-gray-300">
-                        {extraSpellSlotsPoints.current}/{extraSpellSlotsPoints.max}
-                      </span>
-                      <div
-                        className="flex min-h-9 min-w-0 flex-1 flex-row items-center basis-[min(100%,24rem)] sm:basis-auto"
-                        role="group"
-                        aria-label="额外环位点数：按环阶扣除"
-                      >
-                        {[1, 2, 3, 4, 5, 6, 7, 8, 9].flatMap((r, idx) => {
-                          const numeralClass = 'text-[8px] sm:text-[9px] tabular-nums'
-                          const canPay = extraSpellSlotsPoints.current >= r
-                          const sep =
-                            idx > 0 ? (
-                              <div
-                                key={`extra-sep-${r}`}
-                                className="mx-0.5 h-5 w-px shrink-0 self-center bg-white/20 sm:mx-1"
-                                aria-hidden
-                              />
-                            ) : null
-                          const btn = (
-                            <button
-                              key={r}
-                              type="button"
-                              onClick={() => deductExtraSpellPoints(r)}
-                              disabled={!canPay}
-                              className="touch-manipulation flex min-h-9 min-w-0 flex-1 basis-0 items-center justify-center px-0.5 disabled:cursor-not-allowed"
-                              title={canPay ? `施放${r}环法术，扣 ${r} 点` : `点数不足（需 ${r} 点）`}
-                              aria-label={canPay ? `扣除 ${r} 点施放${r}环` : `点数不足，无法施放${r}环`}
-                            >
-                              <span
-                                className={`flex aspect-square max-h-7 w-full max-w-full min-w-[10px] items-center justify-center rounded-full border-2 px-px font-bold leading-none tracking-tight transition-colors ${numeralClass} ${
-                                  canPay
-                                    ? 'border-dnd-gold/55 bg-dnd-gold/15 text-dnd-gold-light shadow-[0_0_4px_rgba(212,184,120,0.12)] hover:border-dnd-gold-light hover:bg-dnd-gold/25'
-                                    : 'border-gray-600 bg-transparent text-gray-600 opacity-70'
-                                }`}
-                              >
-                                {r}
-                              </span>
-                            </button>
-                          )
-                          return sep ? [sep, btn] : [btn]
-                        })}
-                      </div>
-                      {canEdit && (
-                        <button
-                          type="button"
-                          onClick={() => setShowExtraSlotsModal(true)}
-                          className="touch-manipulation shrink-0 rounded-full border border-gray-500/80 bg-gray-800/40 px-3 py-1.5 text-xs text-gray-300 hover:border-dnd-gold/40 hover:bg-gray-700/60 hover:text-dnd-gold-light"
-                        >
-                          设置
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  {extraSpellSlotsMode === 'slots' && extraSpellSlotsList.length > 0 && (
-                    <div className="flex min-w-0 flex-row flex-wrap items-center gap-x-2 gap-y-1">
-                      <div
-                        className="flex min-h-9 min-w-0 flex-1 flex-row items-center basis-[min(100%,24rem)] sm:basis-auto"
-                        role="group"
-                        aria-label="额外环位，按环位分开展示"
-                      >
-                        {visibleExtraRings.flatMap((r, idx) => {
-                          const { extraMax, extraCur } = getSlotSplit(r)
-                          const numeralClass = 'text-[8px] sm:text-[9px] tabular-nums'
-                          const sep =
-                            idx > 0 ? (
-                              <div
-                                key={`extra-slot-sep-${r}`}
-                                className="mx-0.5 h-5 w-px shrink-0 self-center bg-white/20 sm:mx-1"
-                                aria-hidden
-                              />
-                            ) : null
-                          const out = []
-                          if (sep) out.push(sep)
-                          for (let i = 0; i < extraMax; i++) {
-                            const remainingIfClick = i + 1
-                            const isFilled = i < extraCur
-                            const tip =
-                              remainingIfClick === 1 && extraCur === 1
-                                ? '点击后额外环位剩余 0'
-                                : `点击后额外环位剩余 ${remainingIfClick}/${extraMax}`
-                            out.push(
-                              canEdit ? (
-                                <button
-                                  key={`extra-slot-${r}-${i}`}
-                                  type="button"
-                                  onClick={() => {
-                                    if (remainingIfClick === 1 && extraCur === 1) setExtraSlotCurrent(r, 0)
-                                    else setExtraSlotCurrent(r, remainingIfClick)
-                                  }}
-                                  className="touch-manipulation flex min-h-9 min-w-0 flex-1 basis-0 items-center justify-center px-0.5"
-                                  title={`${r}环额外 · ${tip}`}
-                                  aria-label={`${r}环额外 · ${tip}`}
-                                >
-                                  <span
-                                    className={`flex aspect-square max-h-7 w-full max-w-full min-w-[10px] items-center justify-center rounded-full border-2 px-px font-bold leading-none tracking-tight ${numeralClass} ${
-                                      isFilled
-                                        ? 'border-sky-300 bg-sky-400/35 text-sky-100 shadow-[0_0_6px_rgba(125,211,252,0.25)]'
-                                        : 'border-sky-700/70 bg-transparent text-sky-600/90'
-                                    }`}
-                                  >
-                                    {r}
-                                  </span>
-                                </button>
-                              ) : (
-                                <div
-                                  key={`extra-slot-${r}-${i}`}
-                                  className="flex min-h-9 min-w-0 flex-1 basis-0 items-center justify-center px-0.5"
-                                  aria-hidden
-                                >
-                                  <span
-                                    className={`flex aspect-square max-h-7 w-full max-w-full min-w-[10px] items-center justify-center rounded-full border-2 px-px font-bold leading-none tracking-tight ${numeralClass} ${
-                                      isFilled
-                                        ? 'border-sky-300 bg-sky-400/35 text-sky-100'
-                                        : 'border-sky-700/70 bg-transparent text-sky-600/90'
-                                    }`}
-                                  >
-                                    {r}
-                                  </span>
-                                </div>
-                              ),
-                            )
-                          }
-                          return out
-                        })}
-                      </div>
-                      {canEdit && (
-                        <button
-                          type="button"
-                          onClick={() => setShowExtraSlotsModal(true)}
-                          className="touch-manipulation shrink-0 rounded-full border border-gray-500/80 bg-gray-800/40 px-3 py-1.5 text-xs text-gray-300 hover:border-dnd-gold/40 hover:bg-gray-700/60 hover:text-dnd-gold-light"
-                        >
-                          设置
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  {((extraSpellSlotsMode === 'slots' && extraSpellSlotsList.length === 0 && !canEdit) ||
-                    (extraSpellSlotsMode === 'points' && extraSpellSlotsPoints.max === 0 && !canEdit)) && (
-                    <span className="text-gray-500">—</span>
-                  )}
-                  {extraSpellSlotsMode === 'slots' && extraSpellSlotsList.length === 0 && canEdit && (
-                    <button
-                      type="button"
-                      onClick={() => setShowExtraSlotsModal(true)}
-                      className="touch-manipulation shrink-0 rounded-full border border-gray-500/80 bg-gray-800/40 px-3 py-1.5 text-xs text-gray-300 hover:border-dnd-gold/40 hover:bg-gray-700/60 hover:text-dnd-gold-light"
-                    >
-                      设置
-                    </button>
-                  )}
-                  {extraSpellSlotsMode === 'points' && extraSpellSlotsPoints.max === 0 && canEdit && (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-gray-500 text-sm">未启用点数额外环位</span>
-                      <button
-                        type="button"
-                        onClick={() => setShowExtraSlotsModal(true)}
-                        className="touch-manipulation shrink-0 rounded-full border border-gray-500/80 bg-gray-800/40 px-3 py-1.5 text-xs text-gray-300 hover:border-dnd-gold/40 hover:bg-gray-700/60 hover:text-dnd-gold-light"
-                      >
-                        设置
-                      </button>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -3578,6 +3394,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                     const matchedSpell = getMergedSpells().find((s) => s.id === cm.spellId || (s.name && s.name.trim() === (cm.spellName || '').trim()))
                     const hitRes = cm.hitResolution && HIT_RESOLUTION_LABELS[cm.hitResolution] ? cm.hitResolution : 'spell_attack'
                     const hitLabel = HIT_RESOLUTION_LABELS[hitRes]
+                    const rangeDisplay = computeSpellRangeDisplay(matchedSpell?.range, buffStats?.spellRangeMultiplier, buffStats?.spellRangeBonus)
                     const spellConditionalBonuses = calculateConditionalAttackDamageBonus(cm, flatBuffEffects, {
                       damageType: cm.damageTypeSpell,
                     }, itemFormulaContext)
@@ -3611,7 +3428,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                             </button>
                           )}
                         </div>
-                        <div className={`${empty} col-span-4`}><span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>距离</span><span className={`text-white ${CM_MEAN_HI} truncate`}>—</span></div>
+                        <div className={`${empty} col-span-4`}><span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>距离</span><span className={`text-white ${CM_MEAN_HI} truncate`}>{rangeDisplay}</span></div>
                         <div className={`${cell} col-span-4 flex items-center gap-x-1.5 min-w-0`}>
                           <span className={`text-white ${CM_MEAN_HI} truncate min-w-0`}>{hitText}</span>
                           {hitRes === 'spell_attack' && spellAttackForMean != null && (
@@ -3685,9 +3502,23 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         const mergedNote = (entryNote || protoNote || '').trim()
                         // 射程显示优先手动输入（装备条目）→ 词条默认（武器库）→ 近战兜底
                         const explicitRange = entryAttackDist || manualRangeFromNote || entryNoteRange || protoAttackDist || protoNoteRange
+                        const reachBonus = buffStats?.reachBonus ?? 0
+                        const addReachToRange = (rangeStr) => {
+                          if (!reachBonus || isRanged) return rangeStr
+                          if (/^\d+(\s*\/\s*\d+)?$/.test(String(rangeStr || '').trim())) {
+                            return String(rangeStr).split('/').map((p) => Number(p.trim()) + reachBonus).join('/')
+                          }
+                          const touchMatch = String(rangeStr || '').match(/触及\s*(\d*)\s*尺?/)
+                          if (touchMatch) {
+                            const base = touchMatch[1] ? Number(touchMatch[1]) : 0
+                            return `触及${base + reachBonus}尺`
+                          }
+                          return rangeStr
+                        }
+                        const rawMeleeReachLabel = /触及/.test(mergedNote) ? '触及10尺' : '触及'
                         const rangeDisplay = explicitRange
-                          ? (entryAttackDist || manualRangeFromNote || entryNoteRange || protoAttackDist || protoNoteRange || '—')
-                          : (isRanged ? '—' : (/触及/.test(mergedNote) ? '触及10尺' : '触及'))
+                          ? addReachToRange(explicitRange)
+                          : (isRanged ? '—' : addReachToRange(rawMeleeReachLabel))
                         return (
                       <>
                         <div className="col-span-4 pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden">
@@ -3858,62 +3689,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               </div>
             </div>
           )}
-          {showExtraSlotsModal && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" onClick={() => setShowExtraSlotsModal(false)}>
-              <div className="rounded-lg border border-gray-600 bg-gray-800 p-4 shadow-xl max-w-md w-full mx-2 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-                <h3 className="text-dnd-gold-light text-sm font-bold mb-3">额外环位设置</h3>
-                <div className="inline-flex rounded border border-gray-600 bg-gray-800/50 p-0.5 text-xs mb-3">
-                  <button type="button" onClick={() => setExtraSpellSlotsMode('slots')} className={`px-3 py-1.5 rounded ${extraSpellSlotsMode === 'slots' ? 'bg-gray-600 text-white' : 'text-gray-400 hover:text-gray-200'}`}>按环位</button>
-                  <button type="button" onClick={() => setExtraSpellSlotsMode('points')} className={`px-3 py-1.5 rounded ${extraSpellSlotsMode === 'points' ? 'bg-gray-600 text-white' : 'text-gray-400 hover:text-gray-200'}`}>按点数</button>
-                </div>
-                {extraSpellSlotsMode === 'points' && (
-                  <div className="space-y-2 text-sm">
-                    <p className="text-gray-500 text-xs">输入总点数，施法时 1 环扣 1 点、2 环扣 2 点，以此类推。</p>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-gray-400">上限</span>
-                      <input type="number" min={0} value={extraSpellSlotsPoints.max || ''} onChange={(ev) => saveExtraSpellSlotsPoints(ev.target.value === '' ? 0 : parseInt(ev.target.value, 10), extraSpellSlotsPoints.current)} className={inputClass + ' w-20 h-8 text-center text-sm'} placeholder="0" />
-                      <span className="text-gray-400">剩余</span>
-                      <input type="number" min={0} value={extraSpellSlotsPoints.current} onChange={(ev) => saveExtraSpellSlotsPoints(extraSpellSlotsPoints.max, ev.target.value === '' ? 0 : parseInt(ev.target.value, 10))} className={inputClass + ' w-20 h-8 text-center text-sm'} />
-                    </div>
-                    {extraSpellSlotsPoints.max > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((r) => (
-                          <button key={r} type="button" onClick={() => deductExtraSpellPoints(r)} disabled={extraSpellSlotsPoints.current < r} className="w-8 h-8 rounded border border-gray-500 bg-gray-800/50 text-gray-300 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed text-xs" title={`施放${r}环扣${r}点`}>−{r}</button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {extraSpellSlotsMode === 'slots' && (
-                  <div className="space-y-2 text-sm">
-                    <p className="text-gray-500 text-xs">为各环位分别设置额外数量，与法术环位合并显示。</p>
-                    <div className="flex flex-col gap-2">
-                      {extraSpellSlotsList.map((e) => (
-                        <div key={e.id} className="inline-flex items-center gap-2">
-                          <select value={e.ring} onChange={(ev) => updateExtraSpellSlot(e.id, { ring: Number(ev.target.value) })} className={inputClass + ' h-8 w-24 text-sm'} title={`${e.ring}环`}>
-                            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((r) => (
-                              <option key={r} value={r}>{r}环</option>
-                            ))}
-                          </select>
-                          <span className="text-gray-500">上限</span>
-                          <input type="number" min={1} value={e.max} onChange={(ev) => updateExtraSpellSlot(e.id, { max: Math.max(1, parseInt(ev.target.value, 10) || 1) })} className={inputClass + ' w-16 h-8 text-center text-sm'} />
-                          <button type="button" onClick={() => removeExtraSpellSlot(e.id)} className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red" title="移除">
-                            <Trash2 size={12} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                    <button type="button" onClick={() => addExtraSpellSlot()} className="mt-1 px-2 py-1 rounded border border-dashed border-gray-500 text-gray-400 hover:bg-gray-700 text-xs">
-                      + 添加一项
-                    </button>
-                  </div>
-                )}
-                <button type="button" onClick={() => setShowExtraSlotsModal(false)} className="mt-4 w-full py-2 rounded border border-gray-500 text-gray-400 hover:bg-gray-700 text-sm">
-                  关闭
-                </button>
-              </div>
-            </div>
-          )}
           {showAddCombatMeanModal && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" onClick={() => { setEditingCombatMeanId(null); setShowWeaponExtraDiceEditor(false); setShowAddCombatMeanModal(false); }}>
               <div className="rounded-lg border border-gray-600 bg-gray-800 p-4 shadow-xl max-w-sm w-full mx-2" onClick={(e) => e.stopPropagation()}>
@@ -3955,7 +3730,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                             if (spell) {
                               setAddSpellAttackSpellId(spell.id)
                               const lvl = Number(spell.level)
-                              setAddSpellAttackSpellLevel(lvl >= 1 && lvl <= 9 ? String(lvl) : '')
+                              setAddSpellAttackSpellLevel(lvl >= 0 && lvl <= 9 ? String(lvl) : '')
+                              if (spell.description) {
+                                if (spellUsesAttack(spell.description)) {
+                                  setAddSpellAttackHitResolution('spell_attack')
+                                } else {
+                                  const inferredSave = inferSaveFromSpellDescription(spell.description)
+                                  if (inferredSave !== 'spell_attack') setAddSpellAttackHitResolution(inferredSave)
+                                }
+                              }
                               const damages = parseSpellDamageFromDescription(spell.description ?? '')
                               const first = damages[0]
                               if (first) {

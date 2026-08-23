@@ -33,6 +33,6 @@ export function resolveCreatureHpDisplay(char) {
     }
   }
 
-  const temp = Math.max(0, Number(h.temp) || 0) + Math.max(0, Number(h.buffTemp) || 0)
+  const temp = Math.max(Math.max(0, Number(h.temp) || 0), Math.max(0, Number(h.buffTemp) || 0))
   return { cur, max, temp }
 }

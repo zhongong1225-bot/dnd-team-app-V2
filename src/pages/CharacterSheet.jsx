@@ -1943,6 +1943,13 @@ export default function CharacterSheet() {
   const canEdit = isAdmin || char?.owner === user?.name
   const isCreatureTemplate = char?.subordinateTemplate === 'creature'
 
+  const characterClasses = useMemo(() => (char ? getCharacterClasses(char) : []), [char])
+  const classLevels = useMemo(() => {
+    const map = {}
+    for (const c of characterClasses) map[c.name] = c.level
+    return map
+  }, [characterClasses])
+
   const referenceData = useMemo(() => {
     if (!char) return []
     const abilities = buffStats?.abilities ?? char?.abilities ?? {}
@@ -1958,6 +1965,10 @@ export default function CharacterSheet() {
     })
     arr.push({ label: '熟练加值', value: prof, ref: 'proficiency' })
     arr.push({ label: '等级', value: level, ref: 'level' })
+    for (const c of characterClasses) {
+      const displayName = getClassDisplayName(c.name) || c.name
+      arr.push({ label: `${displayName}等级`, value: c.level, ref: 'classLevel', className: c.name })
+    }
     if (spellAbility) {
       const mod = abilityModifier(abilities[spellAbility] ?? 10)
       const spellDC = 8 + prof + mod + (buffStats?.saveDcBonus ?? 0)
@@ -1966,7 +1977,7 @@ export default function CharacterSheet() {
       arr.push({ label: '法术攻击', value: spellAtk, ref: 'spellAttack' })
     }
     return arr
-  }, [char, level, buffStats])
+  }, [char, level, buffStats, characterClasses])
 
   const baseReferenceData = useMemo(() => {
     if (!char) return []
@@ -1983,6 +1994,10 @@ export default function CharacterSheet() {
     })
     arr.push({ label: '熟练加值', value: prof, ref: 'proficiency' })
     arr.push({ label: '等级', value: level, ref: 'level' })
+    for (const c of characterClasses) {
+      const displayName = getClassDisplayName(c.name) || c.name
+      arr.push({ label: `${displayName}等级`, value: c.level, ref: 'classLevel', className: c.name })
+    }
     if (spellAbility) {
       const mod = abilityModifier(abilities[spellAbility] ?? 10)
       const spellDC = 8 + prof + mod
@@ -1991,7 +2006,7 @@ export default function CharacterSheet() {
       arr.push({ label: '法术攻击', value: spellAtk, ref: 'spellAttack' })
     }
     return arr
-  }, [char, level])
+  }, [char, level, characterClasses])
 
   const sheetOverridesMap = useRuleTextOverridesMap(sheetModuleId)
   const sourceNameOptions = useMemo(() => {
@@ -2049,7 +2064,7 @@ export default function CharacterSheet() {
   }, [char, sheetModuleId])
 
   const buffFormulaContext = useMemo(() => {
-    if (!char) return { level: 1, abilities: {}, prof: 0, spellDC: 0, spellAttack: 0 }
+    if (!char) return { level: 1, abilities: {}, prof: 0, spellDC: 0, spellAttack: 0, classLevels: {} }
     const abilities = buffStats?.abilities ?? char?.abilities ?? {}
     const prof = buffStats?.proficiencyOverride != null ? buffStats.proficiencyOverride : proficiencyBonus(level)
     const spellAbility = getPrimarySpellcastingAbility(char)
@@ -2060,8 +2075,9 @@ export default function CharacterSheet() {
       prof,
       spellDC: spellAbility ? 8 + prof + mod : 0,
       spellAttack: spellAbility ? prof + mod : 0,
+      classLevels,
     }
-  }, [char, level, buffStats])
+  }, [char, level, buffStats, classLevels])
 
   /** 附属卡本地更新后递增，用于顶栏等重新读取 getCharactersInModule */
   const [subordinatesTick, setSubordinatesTick] = useState(0)

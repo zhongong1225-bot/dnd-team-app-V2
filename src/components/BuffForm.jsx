@@ -29,6 +29,7 @@ import {
   normalizeContainedSpellValue,
   createEmptyContainedSpellSub,
 } from '../lib/containedSpellModel'
+import { normalizeChargeRecoveryValue } from '../lib/chargeRecovery'
 import {
   BUFF_SOURCE_KIND_OPTIONS_EDITABLE,
   normalizeBuffSourceKindKey,
@@ -157,6 +158,7 @@ function normalizeInitialEffects(initial) {
     if (e.effectType === 'concentration_save_enhance') value = normalizeConcentrationSaveEnhanceValue(value)
     if (e.effectType === 'attack_damage_bonus') value = normalizeAttackDamageBonusModuleValue(value)
     const { scope, scopeDetail } = normalizeScope(e.scope, e.scopeDetail)
+    const break20 = e.break20 && typeof e.break20 === 'object' && !Array.isArray(e.break20) ? e.break20 : {}
     return {
       id: 'e_' + Math.random().toString(36).slice(2),
       category: normalizeEffectCategory(e.effectType ?? '', e.category),
@@ -164,6 +166,7 @@ function normalizeInitialEffects(initial) {
       scope,
       scopeDetail,
       value,
+      break20,
       customText: typeof e.value === 'string' && e.effectType !== 'concentration_save_enhance' ? e.value : '',
     }
   }
@@ -217,6 +220,9 @@ function normalizeValueForSave(module, currentEffect) {
   if (needsSubSelect === 'containedSpell') {
     if (value && typeof value === 'object' && !Array.isArray(value)) return value
     return { spellId: '', spellName: '', level: 0, hitResolution: 'dex_save', range: '', area: '', damageDice: '', damageDiceCount: 1, damageDiceSides: 6, damageType: '', charges: 0 }
+  }
+  if (currentEffect.key === 'recharge_long_rest' || currentEffect.key === 'recharge_dawn') {
+    return normalizeChargeRecoveryValue(value)
   }
   if (currentEffect.key === 'spell_damage_bonus') {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -698,9 +704,9 @@ function ReferenceValuePicker({ options, onSelect, compact }) {
               <div className="px-2.5 py-1 text-[10px] text-dnd-text-muted uppercase tracking-wider">引用为公式</div>
               {formulaOptions.map((opt) => (
                 <button
-                  key={`formula-${opt.ref}-${opt.ability}-${opt.mult ?? 1}`}
+                  key={`formula-${opt.ref}-${opt.ability || ''}-${opt.className || ''}-${opt.mult ?? 1}`}
                   type="button"
-                  onClick={() => { onSelect({ ref: opt.ref, ability: opt.ability, mult: opt.mult }); setOpen(false) }}
+                  onClick={() => { onSelect({ ref: opt.ref, ability: opt.ability, className: opt.className, mult: opt.mult }); setOpen(false) }}
                   className="w-full text-left px-2.5 py-1 text-xs text-gray-300 hover:bg-gray-700 hover:text-white flex items-center justify-between gap-2"
                 >
                   <span className="truncate">{opt.label}</span>
@@ -951,6 +957,53 @@ function SpellDamageBonusEditor({ value, onChange, referenceData }) {
           onChange={(n) => update({ flatBonus: n })}
           compact
         />
+      </div>
+    </div>
+  )
+}
+
+/** 充能恢复编辑器：固定值或 XdX */
+function ChargeRecoveryEditor({ value, onChange }) {
+  const v = normalizeChargeRecoveryValue(value)
+  const update = (patch) => onChange({ ...v, ...patch })
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <select
+          value={v.kind}
+          onChange={(e) => onChange({ kind: e.target.value, fixed: 1, diceCount: 1, diceSides: 6 })}
+          className={inputClass + ' h-8 text-xs w-28 min-w-0'}
+        >
+          <option value="fixed">固定值</option>
+          <option value="dice">掷骰</option>
+        </select>
+        {v.kind === 'fixed' ? (
+          <NumberStepper
+            value={v.fixed}
+            min={0}
+            max={99}
+            onChange={(n) => update({ fixed: n })}
+            compact
+          />
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <NumberStepper
+              value={v.diceCount}
+              min={1}
+              max={99}
+              onChange={(n) => update({ diceCount: n })}
+              compact
+            />
+            <span className="text-gray-400 text-xs">d</span>
+            <NumberStepper
+              value={v.diceSides}
+              min={1}
+              max={100}
+              onChange={(n) => update({ diceSides: n })}
+              compact
+            />
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1380,6 +1433,13 @@ function EffectValueEditor({
       )
     }
     if (needsSubSelect === 'abilityScores') {
+      const isUncapped = currentEffect?.key === 'ability_score_uncapped'
+      const breakObj = module.break20 && typeof module.break20 === 'object' && !Array.isArray(module.break20) ? module.break20 : {}
+      const setBreak20 = (k, checked) => {
+        const next = { ...breakObj, [k]: checked }
+        if (!checked) delete next[k]
+        onChange({ ...module, break20: next })
+      }
       return (
         <>
           <select
@@ -1417,6 +1477,23 @@ function EffectValueEditor({
               compact
             />
           </div>
+          {isUncapped && (
+            <label className="flex items-center gap-1 cursor-pointer text-[11px] text-gray-300">
+              <input
+                type="checkbox"
+                checked={selectedAbilityId === 'all' ? ABILITY_KEYS.every((k) => breakObj[k]) : !!breakObj[selectedAbilityId]}
+                onChange={(e) => {
+                  if (selectedAbilityId === 'all') {
+                    ABILITY_KEYS.forEach((k) => setBreak20(k, e.target.checked))
+                  } else {
+                    setBreak20(selectedAbilityId, e.target.checked)
+                  }
+                }}
+                className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+              />
+              {selectedAbilityId === 'all' ? '全属性可突破20' : `${ABILITY_LABELS[selectedAbilityId]}可突破20`}
+            </label>
+          )}
         </>
       )
     }
@@ -2023,39 +2100,63 @@ function EffectValueEditor({
           })()}
         </div>
       ) : needsSubSelect === 'abilityScores' ? (
-        <div className="flex items-center gap-2 flex-nowrap">
-          <select
-            value={selectedAbilityId}
-            onChange={(e) => {
-              const nextKey = e.target.value
-              const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
-              const currentVal = getAbilityFieldValue(obj, selectedAbilityId)
-              const base = {}
-              if (nextKey === 'all') ABILITY_KEYS.forEach((k) => { base[k] = currentVal })
-              else base[nextKey] = currentVal
-              setSelectedAbilityId(nextKey)
-              onChange({ ...module, value: base })
-            }}
-            className={inputClass + ' h-8 min-w-[6.5rem]'}
-          >
-            <option value="all">全属性</option>
-            {ABILITY_KEYS.map((k) => (
-              <option key={k} value={k}>{ABILITY_LABELS[k]}</option>
-            ))}
-          </select>
-          <NumberStepper referenceData={activeReferenceData}
-            value={(typeof value === 'object' && value && selectedAbilityId !== 'all' && value[selectedAbilityId] != null ? value[selectedAbilityId] : 0) ?? 0}
-            onChange={(v) => {
-              const base = typeof value === 'object' && value && !Array.isArray(value) ? { ...value } : {}
-              if (selectedAbilityId === 'all') {
-                ABILITY_KEYS.forEach((k) => { base[k] = v })
-              } else {
-                base[selectedAbilityId] = v
-              }
-              onChange({ ...module, value: base })
-            }}
-            compact
-          />
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 flex-nowrap">
+            <select
+              value={selectedAbilityId}
+              onChange={(e) => {
+                const nextKey = e.target.value
+                const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
+                const currentVal = getAbilityFieldValue(obj, selectedAbilityId)
+                const base = {}
+                if (nextKey === 'all') ABILITY_KEYS.forEach((k) => { base[k] = currentVal })
+                else base[nextKey] = currentVal
+                setSelectedAbilityId(nextKey)
+                onChange({ ...module, value: base })
+              }}
+              className={inputClass + ' h-8 min-w-[6.5rem]'}
+            >
+              <option value="all">全属性</option>
+              {ABILITY_KEYS.map((k) => (
+                <option key={k} value={k}>{ABILITY_LABELS[k]}</option>
+              ))}
+            </select>
+            <NumberStepper referenceData={activeReferenceData}
+              value={(typeof value === 'object' && value && selectedAbilityId !== 'all' && value[selectedAbilityId] != null ? value[selectedAbilityId] : 0) ?? 0}
+              onChange={(v) => {
+                const base = typeof value === 'object' && value && !Array.isArray(value) ? { ...value } : {}
+                if (selectedAbilityId === 'all') {
+                  ABILITY_KEYS.forEach((k) => { base[k] = v })
+                } else {
+                  base[selectedAbilityId] = v
+                }
+                onChange({ ...module, value: base })
+              }}
+              compact
+            />
+          </div>
+          {currentEffect?.key === 'ability_score_uncapped' && (
+            <div className="flex flex-wrap gap-2">
+              {ABILITY_KEYS.map((k) => {
+                const breakObj = module.break20 && typeof module.break20 === 'object' && !Array.isArray(module.break20) ? module.break20 : {}
+                return (
+                  <label key={k} className="flex items-center gap-1 cursor-pointer text-xs text-gray-300">
+                    <input
+                      type="checkbox"
+                      checked={!!breakObj[k]}
+                      onChange={(e) => {
+                        const next = { ...breakObj, [k]: e.target.checked }
+                        if (!e.target.checked) delete next[k]
+                        onChange({ ...module, break20: next })
+                      }}
+                      className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                    />
+                    {ABILITY_LABELS[k]}可突破20
+                  </label>
+                )
+              })}
+            </div>
+          )}
         </div>
       ) : needsSubSelect === 'abilityProficiency' ? (
         <div className="flex flex-wrap gap-2">
@@ -2185,6 +2286,11 @@ function EffectValueEditor({
           hideCharges={containedSpellHideChargesInPrimary}
           rowPrefix={containedSpellRowPrefix}
         />
+      ) : needsSubSelect === 'chargeRecovery' ? (
+        <ChargeRecoveryEditor
+          value={value}
+          onChange={(v) => onChange({ ...module, value: v })}
+        />
       ) : null}
     </div>
   )
@@ -2225,7 +2331,11 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
         val = typeof mod.customText === 'string' ? mod.customText : (typeof val === 'string' ? val : '')
       }
       const { scope, scopeDetail } = normalizeScope(mod.scope, mod.scopeDetail)
-      return { category: mod.category, effectType, scope, scopeDetail, value: val }
+      const out = { category: mod.category, effectType, scope, scopeDetail, value: val }
+      if (effectType === 'ability_score_uncapped' && mod.break20 && typeof mod.break20 === 'object' && Object.keys(mod.break20).length) {
+        out.break20 = mod.break20
+      }
+      return out
     }).filter((ef) => ef.effectType)
     if (!effects.length && !initial?.fromFeat) return
     const payload = {
@@ -2248,6 +2358,7 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
     scope: SCOPE_KIND.global,
     scopeDetail: [],
     value: 0,
+    break20: {},
     customText: '',
   })
 
@@ -2443,7 +2554,7 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
 function ScopeEditor({ scope, scopeDetail, onChange }) {
   const currentScope = scope || SCOPE_KIND.global
   const details = Array.isArray(scopeDetail) ? scopeDetail.filter(Boolean) : []
-  const showDetail = currentScope === SCOPE_KIND.creature_type || currentScope === SCOPE_KIND.damage_type || currentScope === SCOPE_KIND.weapon_category
+  const showDetail = currentScope === SCOPE_KIND.creature_type || currentScope === SCOPE_KIND.damage_type || currentScope === SCOPE_KIND.weapon_category || currentScope === SCOPE_KIND.custom
 
   const detailOptions = useMemo(() => {
     if (currentScope === SCOPE_KIND.creature_type) return CREATURE_TYPE_OPTIONS
@@ -2461,6 +2572,10 @@ function ScopeEditor({ scope, scopeDetail, onChange }) {
     onChange({ scopeDetail: next })
   }
 
+  const handleCustomTextChange = (text) => {
+    onChange({ scopeDetail: [text] })
+  }
+
   return (
     <div className="space-y-2">
       <div>
@@ -2475,7 +2590,7 @@ function ScopeEditor({ scope, scopeDetail, onChange }) {
           ))}
         </select>
       </div>
-      {showDetail && (
+      {showDetail && currentScope !== SCOPE_KIND.custom && (
         <div className="flex flex-wrap gap-2">
           {detailOptions.map((o) => {
             const checked = details.includes(o.value)
@@ -2491,6 +2606,18 @@ function ScopeEditor({ scope, scopeDetail, onChange }) {
               </label>
             )
           })}
+        </div>
+      )}
+      {currentScope === SCOPE_KIND.custom && (
+        <div>
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">自定义范围</label>
+          <input
+            type="text"
+            value={details[0] ?? ''}
+            onChange={(e) => handleCustomTextChange(e.target.value)}
+            placeholder="例如：水下、风暴天气、夜间…"
+            className={inputClass + ' h-8 text-xs w-full sm:w-64 min-w-0'}
+          />
         </div>
       )}
       {currentScope === SCOPE_KIND.self_weapon && (
@@ -2521,7 +2648,7 @@ function EffectModuleModal({
   const effectTypeValid = hasCategory && effects.some((e) => e.key === draft.effectType)
   const effectiveEffectType = hasCategory && effectTypeValid ? draft.effectType : ''
   const currentEffect = effects.find((e) => e.key === effectiveEffectType)
-  const showScope = ['attack_bonus', 'damage_bonus', 'attack_damage_bonus', 'spell_ability_attack'].includes(effectiveEffectType)
+  const showScope = ['attack_bonus', 'damage_bonus', 'attack_damage_bonus', 'spell_ability_attack', 'skill_bonus'].includes(effectiveEffectType)
 
   const updateDraft = (patch) => setDraft((prev) => ({ ...prev, ...patch }))
 
@@ -2571,6 +2698,7 @@ function EffectModuleModal({
               if (nextType === 'spell_damage_bonus') patch.value = { type: '', diceFloor: 0, perDieBonus: 0, extraDice: '', flatBonus: 0 }
               if (nextType === 'spell_ability_attack') patch.value = { ability: 'int' }
               if (nextType === 'base_speed_increment') patch.value = { walk: 0, fly: 0, swim: 0, climb: 0 }
+              if (nextType === 'ability_score_uncapped') patch.break20 = {}
               updateDraft(patch)
             }}
             className={inputClass + ' h-8 text-xs w-full min-w-0'}

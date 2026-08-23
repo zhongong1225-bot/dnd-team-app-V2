@@ -309,7 +309,8 @@ export function getMergedBuffsForCalculator(character, moduleId) {
   const fromInvocations = getBuffsFromSelectedInvocations(character, moduleId)
   const fromFightingStyles = getBuffsFromSelectedFightingStyles(character, moduleId)
   const fromItems = getBuffsFromEquipmentAndInventory(character)
-  return [...fromFeats, ...fromInvocations, ...fromFightingStyles, ...manual, ...fromItems]
+  // 计算顺序：装备附魔 → 专长/祈唤/战斗风格（职业/专长） → 手动 Buff（冒险/临时）
+  return [...fromItems, ...fromFeats, ...fromInvocations, ...fromFightingStyles, ...manual]
 }
 
 /**
@@ -351,6 +352,7 @@ export function getEffectsFromItem(entry) {
       effectType: e.effectType ?? '',
       value: e.value ?? 0,
       customText: e.customText ?? '',
+      break20: e.break20,
     }))
   }
   const out = []
@@ -395,13 +397,22 @@ export function getEffectsFromItem(entry) {
 /**
  * 将 BUFF 列表展平为计算器用的 { effectType, value } 列表（兼容旧格式）
  * 与 useBuffCalculator 原 getFlatEffectEntries 行为一致，统一入口
+ * 保留 scope/scopeDetail/itemInventoryId，供 CombatStatus 等处的条件范围匹配使用。
  */
 export function getFlatEffectEntries(buffs) {
   const out = []
   const list = Array.isArray(buffs) ? buffs : []
   for (const b of list) {
+    if (b && b.enabled === false) continue
     const effects = getEffectsFromBuff(b)
-    effects.forEach((e) => out.push({ effectType: e.effectType, value: e.value }))
+    effects.forEach((e) => out.push({
+      effectType: e.effectType,
+      value: e.value,
+      scope: e.scope,
+      scopeDetail: e.scopeDetail,
+      itemInventoryId: e.itemInventoryId ?? b?.itemInventoryId,
+      break20: e.break20,
+    }))
   }
   return out
 }

@@ -230,7 +230,7 @@ export default function CharacterSheetTopBar({
   const mMax = Math.max(0, Number(mainHp.max) || 0)
   const mTemp = Math.max(0, Number(mainHp.temp) || 0)
   const mBuffTemp = Math.max(0, Number(mainHp.buffTemp) || 0)
-  const totalTemp = mTemp + mBuffTemp
+  const totalTemp = Math.max(mTemp, mBuffTemp)
   const { curW, tempW } = hpBarWidths(mCur, mMax, totalTemp)
   const curFillClass = hpBarMainFillClass(mCur, mMax)
   const mainPct = mainHpPercent(mCur, mMax, totalTemp)

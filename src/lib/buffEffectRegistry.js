@@ -62,6 +62,8 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   contained_spell: 'metadata',
   // charge
   ac_cap_stone_layer: 'calculator',
+  recharge_long_rest: 'metadata',
+  recharge_dawn: 'metadata',
   // container
   item_storage: 'metadata',
   // custom

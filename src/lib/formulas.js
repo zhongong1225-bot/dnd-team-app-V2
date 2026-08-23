@@ -7,7 +7,7 @@
  * 技能/豁免 = d20 + 属性调整值 + 熟练加值(等级查表) + 专精加成 + Buff
  * HP 当前 = 上限 + 临时 HP + Buff - 累计伤害
  */
-import { CLASS_HIT_DICE, getHitDice } from '../data/classDatabase'
+import { CLASS_HIT_DICE, getHitDice, getClassDisplayName } from '../data/classDatabase'
 import { getLayerSlotData, useLayersForAC } from '../lib/equipmentLayers'
 
 /** 属性调整值：(属性值 - 10) / 2 向下取整 */
@@ -419,22 +419,25 @@ export function isFormulaValue(value) {
 
 /**
  * 求值 buff 效果值：支持静态数字或公式对象。
- * 公式对象：{ ref: 'level' | 'proficiency' | 'abilityScore' | 'abilityModifier' | 'spellDc' | 'spellAttack', ability?, mult?, add? }
+ * 公式对象：{ ref: 'level' | 'proficiency' | 'abilityScore' | 'abilityModifier' | 'spellDc' | 'spellAttack' | 'classLevel', ability?, className?, mult?, add? }
  *
- * context 字段：level, abilities, prof, spellDC, spellAttack
+ * context 字段：level, abilities, prof, spellDC, spellAttack, classLevels
  */
 export function evaluateBuffValue(value, context = {}) {
   if (value == null) return 0
   if (typeof value === 'number') return value
   if (!isFormulaValue(value)) return Number(value) || 0
 
-  const { level = 1, abilities = {}, prof = 0, spellDC = 0, spellAttack = 0 } = context
-  const { ref, ability, mult, add } = value
+  const { level = 1, abilities = {}, prof = 0, spellDC = 0, spellAttack = 0, classLevels = {} } = context
+  const { ref, ability, className, mult, add } = value
 
   let base = 0
   switch (ref) {
     case 'level':
       base = Math.max(1, Math.min(20, Number(level) || 1))
+      break
+    case 'classLevel':
+      base = Math.max(1, Math.min(20, Number(classLevels?.[className]) || Number(level) || 1))
       break
     case 'proficiency':
       base = Number(prof) || 0
@@ -462,6 +465,7 @@ export function evaluateBuffValue(value, context = {}) {
 
 const FORMULA_REF_LABELS = {
   level: '等级',
+  classLevel: '等级',
   proficiency: '熟练加值',
   abilityScore: '属性值',
   abilityModifier: '属性调整值',
@@ -484,14 +488,21 @@ function fmtFormulaNum(n) {
   return n.toFixed(3).replace(/\.?0+$/, '')
 }
 
-/** 把公式对象渲染为简短中文标签，例如「等级×2」「感知调整值+3」 */
+/** 把公式对象渲染为简短中文标签，例如「等级×2」「感知调整值+3」「火枪手等级」 */
 export function formatFormulaLabel(value) {
   if (!isFormulaValue(value)) return String(value ?? '')
-  const { ref, ability, mult, add } = value
+  const { ref, ability, className, mult, add } = value
   const base = FORMULA_REF_LABELS[ref] ?? ref
   const abilityLabel = ABILITY_NAMES_ZH_SHORT[ability] ?? ability
-  const suffix = ref.startsWith('ability') && abilityLabel ? abilityLabel : ''
-  const label = suffix ? `${suffix}${base.replace('属性', '')}` : base
+  let label
+  if (ref === 'classLevel') {
+    const displayName = getClassDisplayName(className) || className || '本职'
+    label = `${displayName}${base}`
+  } else if (ref.startsWith('ability') && abilityLabel) {
+    label = `${abilityLabel}${base.replace('属性', '')}`
+  } else {
+    label = base
+  }
   const multNum = Number(mult) || 1
   const addNum = Number(add) || 0
   let s = label
