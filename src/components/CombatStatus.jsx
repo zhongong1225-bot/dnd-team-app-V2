@@ -1195,16 +1195,16 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [deathSaves, setDeathSaves] = useState(() => normalizeDeathSaves(char?.deathSaves))
   const [classResources, setClassResources] = useState(() => {
     const arr = Array.isArray(char?.classResources) ? char.classResources : []
-    return arr.map((r) => ({ id: r.id ?? 'r_' + Math.random().toString(36).slice(2), name: r.name || '—', current: Math.max(0, Number(r.current) ?? 0), max: Math.max(1, Number(r.max) ?? 1) }))
+    return arr.map((r, idx) => ({ id: r.id ?? `r_${idx}_${(r.name || '—').replace(/\s+/g, '_')}`, name: r.name || '—', current: Math.max(0, Number(r.current) ?? 0), max: Math.max(1, Number(r.max) ?? 1) }))
   })
   const [addResourceName, setAddResourceName] = useState('')
   const [addResourceMax, setAddResourceMax] = useState(2)
   const [isAddingResource, setIsAddingResource] = useState(false)
   const [combatMeans, setCombatMeans] = useState(() => {
     const arr = Array.isArray(char?.combatMeans) ? char.combatMeans : []
-    return arr.map((m) => ({
-      id: m.id ?? 'cm_' + Math.random().toString(36).slice(2),
-      type: m.type === 'spell_attack' ? 'spell_attack' : m.type === 'spell' ? 'spell' : m.type === 'item' ? 'item' : 'physical',
+    return arr.map((m, idx) => ({
+      id: m.id ?? `cm_${idx}_${m.type === 'combo' ? 'combo' : m.type || 'physical'}`,
+      type: m.type === 'spell_attack' ? 'spell_attack' : m.type === 'spell' ? 'spell' : m.type === 'item' ? 'item' : m.type === 'combo' ? 'combo' : 'physical',
       weaponInventoryIndex: m.weaponInventoryIndex ?? null,
       itemInventoryIndex: m.itemInventoryIndex ?? null,
       spellId: m.spellId ?? null,
@@ -1266,13 +1266,13 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [martialSlots, setMartialSlots] = useState(() => {
     const arr = Array.isArray(char?.combatMartialTechniques) ? char.combatMartialTechniques : []
     return arr
-      .map((m) => {
+      .map((m, idx) => {
         const techniqueId = m.techniqueId || ''
         const tech = techniqueId ? getMartialTechniqueById(techniqueId) : null
         const kind =
           m.kind === 'stance' || m.kind === 'strike' || m.kind === 'other' ? m.kind : inferMartialSlotKind(tech)
         return {
-          id: m.id ?? 'mt_' + Math.random().toString(36).slice(2),
+          id: m.id ?? `mt_${idx}_${techniqueId || 'none'}`,
           techniqueId,
           prepared: m.prepared === true,
           kind,
@@ -1342,14 +1342,14 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
 
   useEffect(() => {
     const arr = Array.isArray(char?.classResources) ? char.classResources : []
-    setClassResources(arr.map((r) => ({ id: r.id ?? 'r_' + Math.random().toString(36).slice(2), name: r.name || '—', current: Math.max(0, Number(r.current) ?? 0), max: Math.max(1, Number(r.max) ?? 1) })))
+    setClassResources(arr.map((r, idx) => ({ id: r.id ?? `r_${idx}_${(r.name || '—').replace(/\s+/g, '_')}`, name: r.name || '—', current: Math.max(0, Number(r.current) ?? 0), max: Math.max(1, Number(r.max) ?? 1) })))
   }, [char?.id, char?.classResources])
 
   useEffect(() => {
     const arr = Array.isArray(char?.combatMeans) ? char.combatMeans : []
-    setCombatMeans(arr.map((m) => ({
-      id: m.id ?? 'cm_' + Math.random().toString(36).slice(2),
-      type: m.type === 'spell_attack' ? 'spell_attack' : m.type === 'spell' ? 'spell' : m.type === 'item' ? 'item' : 'physical',
+    setCombatMeans(arr.map((m, idx) => ({
+      id: m.id ?? `cm_${idx}_${m.type === 'combo' ? 'combo' : m.type || 'physical'}`,
+      type: m.type === 'spell_attack' ? 'spell_attack' : m.type === 'spell' ? 'spell' : m.type === 'item' ? 'item' : m.type === 'combo' ? 'combo' : 'physical',
       weaponInventoryIndex: m.weaponInventoryIndex ?? null,
       itemInventoryIndex: m.itemInventoryIndex ?? null,
       spellId: m.spellId ?? null,
@@ -1372,13 +1372,13 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const arr = Array.isArray(char?.combatMartialTechniques) ? char.combatMartialTechniques : []
     setMartialSlots(
       arr
-        .map((m) => {
+        .map((m, idx) => {
           const techniqueId = m.techniqueId || ''
           const tech = techniqueId ? getMartialTechniqueById(techniqueId) : null
           const kind =
             m.kind === 'stance' || m.kind === 'strike' || m.kind === 'other' ? m.kind : inferMartialSlotKind(tech)
           return {
-            id: m.id ?? 'mt_' + Math.random().toString(36).slice(2),
+            id: m.id ?? `mt_${idx}_${techniqueId || 'none'}`,
             techniqueId,
             prepared: m.prepared === true,
             kind,

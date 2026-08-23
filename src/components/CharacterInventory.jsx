@@ -185,8 +185,8 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
     if (!canEdit) return
     if (!inv.some((e) => !e?.inBagOfHolding && !e?.id)) return
     onSave({
-      inventory: inv.map((e) =>
-        !e?.inBagOfHolding && !e?.id ? { ...e, id: `inv_${crypto.randomUUID()}` } : e,
+      inventory: inv.map((e, idx) =>
+        !e?.inBagOfHolding && !e?.id ? { ...e, id: `inv_${idx}_${(e.name || 'item').replace(/\s+/g, '_')}` } : e,
       ),
     })
   }, [canEdit, inv, onSave])

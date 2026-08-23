@@ -760,7 +760,7 @@ const CLASS_PSIONIC_FEAT_LEVELS = {
 }
 
 /** 根据角色职业与总等级，计算应获得的专长槽位 */
-function computeFeatSlots(character, totalLevel) {
+export function computeFeatSlots(character, totalLevel) {
   const slots = []
   if (totalLevel >= 1) {
     slots.push({ id: 'origin', level: 1, sourceClass: '', category: '起源专长', label: '1级 · 起源专长' })
@@ -843,7 +843,7 @@ function computeFeatSlots(character, totalLevel) {
 }
 
 /** 将旧 selectedFeats 与自动计算的槽位同步；保留原 BUFF patch */
-function syncFeatsWithSlots(rawFeats, slots) {
+export function syncFeatsWithSlots(rawFeats, slots) {
   const featById = new Map(FEATS.map((x) => [x.id, x]))
   const normalized = (rawFeats || []).map((f) => {
     const featId = f?.featId ?? f?.id ?? ''
@@ -1245,11 +1245,27 @@ function FeatsSection({ char, level, canEdit, onSave }) {
   const slots = useMemo(() => computeFeatSlots(char, level), [char, level])
   const featById = useMemo(() => new Map(FEATS.map((x) => [x.id, x])), [])
 
+  // 深度比较（忽略对象键序），避免 JSON.stringify 因键序不同产生误判
+  const deepEqual = (a, b) => {
+    if (a === b) return true
+    if (a == null || b == null) return a === b
+    if (Array.isArray(a) !== Array.isArray(b)) return false
+    if (typeof a !== 'object' || typeof b !== 'object') return false
+    if (Array.isArray(a)) {
+      if (a.length !== b.length) return false
+      return a.every((v, i) => deepEqual(v, b[i]))
+    }
+    const keysA = Object.keys(a)
+    const keysB = Object.keys(b)
+    if (keysA.length !== keysB.length) return false
+    return keysA.every((k) => keysB.includes(k) && deepEqual(a[k], b[k]))
+  }
+
   // 自动将旧 selectedFeats 同步到槽位体系；原 featBuffPatch 会被保留
   useEffect(() => {
     const raw = char?.selectedFeats ?? []
     const synced = syncFeatsWithSlots(raw, slots)
-    if (JSON.stringify(synced) !== JSON.stringify(raw)) {
+    if (!deepEqual(synced, raw)) {
       onSave({ selectedFeats: synced })
     }
   }, [char?.selectedFeats, slots, onSave])
