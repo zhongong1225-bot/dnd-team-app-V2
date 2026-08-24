@@ -31,9 +31,9 @@ function isPlainAbilityObject(v) {
   return keys.every((k) => !/^\d+$/.test(k))
 }
 
-/** 命中/伤害/攻击伤害加值：若非全局，附加起效范围摘要 */
+/** 命中/伤害/攻击伤害加值/伤害骰：若非全局，附加起效范围摘要 */
 function getScopeSuffix(effectType, scope, scopeDetail) {
-  if (!['attack_bonus', 'damage_bonus', 'attack_damage_bonus'].includes(effectType)) return ''
+  if (!['attack_bonus', 'damage_bonus', 'attack_damage_bonus', 'extra_damage_dice'].includes(effectType)) return ''
   const { scope: ns, scopeDetail: nd } = normalizeScope(scope, scopeDetail)
   return formatScopeBrief(ns, nd)
 }

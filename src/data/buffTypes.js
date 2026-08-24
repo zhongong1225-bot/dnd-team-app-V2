@@ -507,6 +507,10 @@ export function normalizeEffectCategory(effectType, oldCategory) {
 export const SCOPE_KIND = {
   global: 'global',
   self_weapon: 'self_weapon',
+  physical_attack: 'physical_attack',
+  melee_attack: 'melee_attack',
+  ranged_attack: 'ranged_attack',
+  natural_weapon: 'natural_weapon',
   creature_type: 'creature_type',
   damage_type: 'damage_type',
   weapon_category: 'weapon_category',
@@ -517,6 +521,10 @@ export const SCOPE_KIND = {
 export const SCOPE_KIND_OPTIONS = [
   { value: SCOPE_KIND.global, label: '全局' },
   { value: SCOPE_KIND.self_weapon, label: '本武器' },
+  { value: SCOPE_KIND.physical_attack, label: '物理攻击' },
+  { value: SCOPE_KIND.melee_attack, label: '近战攻击' },
+  { value: SCOPE_KIND.ranged_attack, label: '远射攻击' },
+  { value: SCOPE_KIND.natural_weapon, label: '天生武器' },
   { value: SCOPE_KIND.creature_type, label: '某类生物' },
   { value: SCOPE_KIND.damage_type, label: '某类伤害类型' },
   { value: SCOPE_KIND.weapon_category, label: '某类武器' },
@@ -585,10 +593,43 @@ function isMartialWeaponProto(proto) {
   return false
 }
 
+/** 武器是否远程武器 */
+function isRangedWeaponProto(proto) {
+  if (!proto) return false
+  if (proto.isRanged === true) return true
+  if (proto.isMelee === true) return false
+  if (proto.子类型 === '远程') return true
+  if (proto.类型 === '远程武器') return true
+  if (proto.类型 === '枪械') return true
+  return false
+}
+
 /** 武器是否触及武器 */
 function isReachWeaponProto(proto) {
   if (!proto) return false
   return /触及/i.test(String(proto.附注 ?? ''))
+}
+
+/** 天生武器关键词（名称/类别/附注命中其一即视为天生武器，但需排除普通制造武器） */
+const NATURAL_WEAPON_KEYWORDS = ['爪', '啮咬', '角', '蹄', '尾', '拳', '触须', '蛰刺', '钳', '牙', '天生武器']
+
+/** 武器是否为天生武器（无明确 isNatural 标记时按名称/类别/附注启发式判断） */
+function isNaturalWeaponProto(proto) {
+  if (!proto) return false
+  if (proto.isNatural === true) return true
+  if (proto.isNatural === false) return false
+  const type = String(proto.类型 ?? '').trim()
+  const cat = String(proto.类别 ?? '').trim()
+  const name = String(proto.name ?? proto.名称 ?? '').trim()
+  const note = String(proto.附注 ?? '').trim()
+  if (type === '天生武器' || cat === '天生武器') return true
+  const text = `${name} ${cat} ${note}`
+  if (NATURAL_WEAPON_KEYWORDS.some((k) => text.includes(k))) {
+    // 命中关键词后，再排除已知的普通武器（避免「爪钩」等误伤）
+    if (SIMPLE_WEAPON_CATEGORIES.has(cat) || MARTIAL_WEAPON_CATEGORIES.has(cat)) return false
+    return true
+  }
+  return false
 }
 
 /**
@@ -628,6 +669,17 @@ export function scopeMatchesCombatMean(effect, ctx = {}) {
     if (!ctx.sourceItemInventoryId || !effect.itemInventoryId) return false
     return String(effect.itemInventoryId) === String(ctx.sourceItemInventoryId)
   }
+  // 物理攻击 / 近战攻击 / 远射攻击 / 天生武器：仅匹配物理战斗手段，不需要 scopeDetail
+  if (scope === SCOPE_KIND.physical_attack) return ctx.sourceKind === 'physical'
+  if (scope === SCOPE_KIND.melee_attack) {
+    return ctx.sourceKind === 'physical' && !!ctx.weaponProto && !isRangedWeaponProto(ctx.weaponProto)
+  }
+  if (scope === SCOPE_KIND.ranged_attack) {
+    return ctx.sourceKind === 'physical' && !!ctx.weaponProto && isRangedWeaponProto(ctx.weaponProto)
+  }
+  if (scope === SCOPE_KIND.natural_weapon) {
+    return ctx.sourceKind === 'physical' && !!ctx.weaponProto && isNaturalWeaponProto(ctx.weaponProto)
+  }
   const details = Array.isArray(effect.scopeDetail) ? effect.scopeDetail.filter(Boolean) : []
   if (details.length === 0) return false
   if (scope === SCOPE_KIND.creature_type) {
@@ -664,6 +716,10 @@ export function formatScopeBrief(scope, scopeDetail) {
   const s = String(scope ?? 'global').trim()
   if (s === SCOPE_KIND.global || s === '') return ''
   if (s === SCOPE_KIND.self_weapon) return '（本武器）'
+  if (s === SCOPE_KIND.physical_attack) return '（物理攻击）'
+  if (s === SCOPE_KIND.melee_attack) return '（近战攻击）'
+  if (s === SCOPE_KIND.ranged_attack) return '（远射攻击）'
+  if (s === SCOPE_KIND.natural_weapon) return '（天生武器）'
   const details = Array.isArray(scopeDetail) ? scopeDetail.filter(Boolean) : []
   if (details.length === 0) return ''
   if (s === SCOPE_KIND.creature_type) {

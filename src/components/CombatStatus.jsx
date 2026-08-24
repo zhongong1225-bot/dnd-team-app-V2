@@ -36,6 +36,48 @@ const DAMAGE_TYPE_OPTIONS = DAMAGE_TYPES.filter((d) => d.label !== '雷鸣').map
 const DAMAGE_TYPE_SHORT = { 强酸: '酸', 钝击: '钝', 寒冷: '寒', 火焰: '火', 力场: '力', 闪电: '电', 暗蚀: '暗', 穿刺: '穿', 毒素: '毒', 心灵: '心', 光耀: '光', 挥砍: '挥', 雷鸣: '雷', 贯通: '贯', 治疗: '疗' }
 /** 内含法术命中判断 value -> 显示文案（与 BuffForm 一致） */
 const HIT_RESOLUTION_LABELS = { dex_save: '敏捷豁免', str_save: '力量豁免', con_save: '体质豁免', wis_save: '感知豁免', int_save: '智力豁免', cha_save: '魅力豁免', spell_attack: '法术攻击' }
+/** 组合技附件来源类型 */
+const COMBO_ATTACHMENT_SOURCE_TYPES = [
+  { value: 'custom', label: '自定义' },
+  { value: 'combatMean', label: '战斗手段' },
+  { value: 'martialTechnique', label: '武技' },
+  { value: 'classFeature', label: '职业能力' },
+]
+/** 可直接作为组合技附件引用的职业能力（名称 + 默认伤害骰） */
+const COMBO_CLASS_FEATURE_OPTIONS = [
+  { id: 'divine_smite', name: '至圣斩', defaultDamageDice: '2d8' },
+  { id: 'eldritch_smite', name: '魔能斩', defaultDamageDice: '1d8' },
+  { id: 'sneak_attack', name: '偷袭', defaultDamageDice: '1d6' },
+  { id: 'brutal_strike', name: '凶蛮打击', defaultDamageDice: '1d10' },
+  { id: 'improved_brutal_strike', name: '强化凶蛮打击', defaultDamageDice: '2d10' },
+  { id: 'psychic_smite', name: '灵能重击', defaultDamageDice: '3d8' },
+]
+/** 从文本描述中尝试提取第一个 XdY 伤害骰表达式 */
+function inferDamageDiceFromText(text) {
+  if (!text) return ''
+  const match = String(text).match(/(\d+d\d+)/i)
+  return match ? match[1] : ''
+}
+/** 判断组合技附件是否包含有效伤害骰 */
+function isValidComboAttachment(a) {
+  return !!(a && a.name && /^\d+d\d+/i.test(a.damageDice || ''))
+}
+/** 获取非组合技战斗手段的显示名称（不递归，避免循环引用） */
+function getCombatMeanLabel(mean, { weaponsFromInv = [], itemMeansFromInv = [] } = {}) {
+  if (!mean) return '—'
+  if (mean.type === 'physical') {
+    const w = weaponsFromInv.find((w) => w.index === mean.weaponInventoryIndex)
+    const suffix = mean.weaponNameSuffix ? String(mean.weaponNameSuffix).trim() : ''
+    if (w) return w.name + (suffix ? ` ${suffix}` : '')
+    return '武器' + (suffix ? ` (${suffix})` : '') + (mean.weaponInventoryIndex != null ? ` #${mean.weaponInventoryIndex}` : '')
+  }
+  if (mean.type === 'spell_attack' || mean.type === 'spell') return mean.spellName || '法术'
+  if (mean.type === 'item') {
+    const it = itemMeansFromInv.find((x) => x.index === mean.itemInventoryIndex)
+    return it ? it.label : '道具'
+  }
+  return '战斗手段'
+}
 import { getItemById, parseWeaponNoteToTraits } from '../data/itemDatabase'
 import { getSpellById, getWandScrollSpellPower, getMergedSpells } from '../data/spellDatabase'
 import { getSpellcastingLevel, getMaxSpellSlotsByRing, getHitDice, getPrimarySpellcastingAbility, getCharacterClasses } from '../data/classDatabase'
@@ -43,6 +85,7 @@ import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
 import { rollDice, rollCombatDicePool, parseCombatDiceExpression } from '../data/weaponDatabase'
 import { buildQuickRollAnimation } from '../lib/quickRollAnimation'
 import {
+  MARTIAL_TECHNIQUES,
   MARTIAL_TECHNIQUE_STYLES,
   getMartialTechniqueById,
   inferMartialSlotKind,
@@ -786,6 +829,38 @@ function hasGainDiceFloor2(gains) {
   return gains.some((g) => g.type === 'diceFloor2' && g.enabled !== false)
 }
 
+/** 将 auto 增益渲染为行内小徽章（显示在战斗手段伤害格，方便玩家看到 BUFF 生效情况） */
+function renderAutoGainBadges(gains, onClick) {
+  const autoGains = (gains || []).filter((g) => g && g.auto && g.enabled !== false)
+  if (autoGains.length === 0) return null
+  const items = []
+  for (const g of autoGains) {
+    const v = Number(g.value) || 0
+    const sign = v >= 0 ? '+' : ''
+    if (g.type === 'attackBonus') items.push(`${sign}${v} 命中`)
+    else if (g.type === 'damageBonus') items.push(`${sign}${v} 伤害`)
+    else if (g.type === 'perDieBonus') items.push(`${sign}${v} 每骰`)
+    else if (g.type === 'extraDice') items.push(g.dice ? `+${g.dice}` : '+骰')
+    else if (g.type === 'advantage') items.push(g.advantage === 'disadvantage' ? '劣势' : '优势')
+    else if (g.type === 'diceFloor2') items.push('骰底2')
+  }
+  if (items.length === 0) return null
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1 ml-1">
+      {items.map((text, i) => (
+        <span
+          key={i}
+          onClick={onClick ? (e) => { e.stopPropagation(); onClick() } : undefined}
+          className={`inline-flex items-center rounded border border-dnd-gold/40 bg-dnd-gold/15 px-1 py-px text-[10px] font-medium text-dnd-gold-light ${onClick ? 'cursor-pointer hover:bg-dnd-gold/30 hover:border-dnd-gold/70' : ''}`}
+          title={onClick ? '点击编辑/开关自动增益' : '来自临时 BUFF 的自动增益'}
+        >
+          {text}
+        </span>
+      ))}
+    </span>
+  )
+}
+
 /** 统一计算物理战斗手段的命中、伤害与 Buff 分解（行展示与弹窗预览共用） */
 function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
   const { effectiveAbilities, prof, spellAbility, buffStats, flatBuffEffects, itemFormulaContext } = ctx
@@ -815,55 +890,75 @@ function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
   const weaponAbilityKind = resolvePhysicalWeaponAbilityKind(cm, weaponOpt, spellAbilityOverride)
   const abilityKey = weaponAbilityKind === 'spell' ? spellAbility : weaponAbilityKind
   const abilityMod = abilityModifier(effectiveAbilities?.[abilityKey] ?? 10)
-  const conditionalBonuses = calculateConditionalAttackDamageBonus(cm, flatBuffEffects, {
-    weaponProto: weaponOpt?.proto,
-    damageType: rawDamageType,
-    sourceItemInventoryId: weaponOpt?.entry?.id,
-  }, itemFormulaContext)
-  const physicalAttackBonus = abilityMod + (weaponProficient ? prof : 0) + buffAttackBonus + gainAttackBonus + (conditionalBonuses?.attackBonus || 0)
+  // 条件范围命中/伤害加值已统一通过 auto 增益体现，避免与 buildDefaultGainsFromBuffs 重复叠加
+  const physicalAttackBonus = abilityMod + (weaponProficient ? prof : 0) + buffAttackBonus + gainAttackBonus
   // 双持副手附赠攻击伤害不加属性调整值
   const damageMod = cm.weaponVersatileMode === 'bonus_action' ? 0 : abilityMod
   const weaponExtraDiceStrings = [...getMergedWeaponExtraDiceStrings(cm, weaponOpt), ...gainExtraDice]
   const allWeaponDiceCount = (attackParsed.diceList || []).reduce((s, d) => s + (parseCombatDiceExpression(d)?.count || 0), 0) +
     weaponExtraDiceStrings.reduce((s, d) => s + (parseCombatDiceExpression(String(d).split(' ')[0])?.count || 0), 0)
   const weaponPerDieMod = gainPerDieBonus * allWeaponDiceCount
-  const totalDamageMod = damageMod + buffDamageBonus + gainDamageBonus + weaponPerDieMod + (conditionalBonuses?.damageBonus || 0)
+  const totalDamageMod = damageMod + buffDamageBonus + gainDamageBonus + weaponPerDieMod
   const displayDamageType = rawDamageType ? getDamageTypeLabel(rawDamageType) : '—'
   return {
     weaponAbilityKind, abilityKey, abilityMod, isRangedWeapon, weaponCategoryAttackFlat,
     buffAttackBonus, buffDamageBonus, weaponProficient, gains, gainAttackBonus, gainDamageBonus,
     gainPerDieBonus, gainExtraDice, gainAdvantage, gainDiceFloor2, attackParsed, rawDamageType,
-    conditionalBonuses, physicalAttackBonus, damageMod, weaponExtraDiceStrings, allWeaponDiceCount,
+    physicalAttackBonus, damageMod, weaponExtraDiceStrings, allWeaponDiceCount,
     weaponPerDieMod, totalDamageMod, displayDamageType,
   }
 }
 
-/** 根据战斗手段类型与 Buff 统计，自动生成一组默认增益建议（仅在用户未手动设置时填充） */
-function buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellMean = false, character = null) {
+/** 根据战斗手段类型与 Buff 统计，自动生成一组默认增益建议（auto: true 表示由 BUFF 驱动，会被自动同步） */
+function buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellMean = false, character = null, formulaContext = {}) {
   const gains = []
   const isPhysical = cm?.type === 'physical'
+  const isSpellAttack = cm?.type === 'spell_attack' || cm?.type === 'spell'
   const pushOnce = (type, payload) => {
     const id = 'g_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6)
-    gains.push({ id, type, enabled: true, ...payload })
+    gains.push({ id, type, enabled: true, auto: true, ...payload })
   }
-  const relevantScope = (scope) => {
-    if (!isPhysical) return scope === 'global' || scope == null || scope === ''
-    const inv = character?.inventory || []
-    const entry = cm?.weaponInventoryIndex != null ? inv[cm.weaponInventoryIndex] : null
+  const hasAutoGain = (type) => gains.some((g) => g.type === type && g.auto)
+
+  // 构造范围匹配上下文；自定义范围默认不匹配具体战斗手段
+  let scopeCtx = { sourceKind: cm?.type === 'item' ? 'item' : isPhysical ? 'physical' : 'spell_attack' }
+  if (isPhysical && character?.inventory) {
+    const entry = cm?.weaponInventoryIndex != null ? character.inventory[cm.weaponInventoryIndex] : null
     const proto = entry?.itemId ? getItemById(entry.itemId) : null
-    const ranged = isRangedWeaponProto(proto)
-    if (ranged) return scope === 'ranged' || scope === 'firearm' || scope === 'global' || scope == null || scope === ''
-    return scope === 'melee' || scope === 'global' || scope == null || scope === ''
+    scopeCtx = {
+      ...scopeCtx,
+      weaponProto: proto,
+      damageType: cm?.damageType,
+      targetCreatureType: cm?.targetCreatureType || '',
+      sourceItemInventoryId: entry?.id,
+    }
+  } else if (isSpellAttack) {
+    scopeCtx = {
+      ...scopeCtx,
+      damageType: cm?.damageTypeSpell,
+      targetCreatureType: cm?.targetCreatureType || '',
+    }
   }
-  // 注意：全局命中/伤害加值已由 useBuffCalculator 统一计算，不应再保存为战斗手段默认增益，避免重复叠加。
+  const scopeMatches = (e) => {
+    const { scope } = normalizeScope(e.scope, e.scopeDetail)
+    if (scope === SCOPE_KIND.global || scope === '') return true
+    if (isPhysical || isSpellAttack) return scopeMatchesCombatMean(e, scopeCtx)
+    // 道具战斗手段（法器/卷轴）缺少当前选中法术上下文，非全局范围不自动生成增益
+    return false
+  }
+
+  let totalAttackBonus = 0
+  let totalDamageBonus = 0
+  let totalPerDieBonus = 0
+  let advantageValue = null
   if (Array.isArray(mergedBuffs)) {
     for (const b of mergedBuffs) {
       if (b.enabled === false) continue
       const effects = Array.isArray(b.effects) ? b.effects : [b]
       for (const e of effects) {
         if (!e) continue
-        const scopeOk = relevantScope(e.scope)
-        if (!scopeOk && isPhysical) continue
+        const { scope } = normalizeScope(e.scope, e.scopeDetail)
+        if (!scopeMatches(e)) continue
         if (e.effectType === 'extra_damage_dice') {
           const raw = e.value
           if (raw && typeof raw === 'object' && !Array.isArray(raw) && raw.onlySpellDamage && !isSpellMean) continue
@@ -878,21 +973,97 @@ function buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellMean = fa
         if (e.effectType === 'attack_bonus' || e.effectType === 'damage_bonus' || e.effectType === 'attack_damage_bonus') {
           const obj = typeof e.value === 'object' && e.value && !Array.isArray(e.value) ? e.value : null
           const adv = obj?.advantage
-          if ((adv === 'advantage' || adv === 'disadvantage') && !gains.some((g) => g.type === 'advantage')) {
-            pushOnce('advantage', { advantage: adv })
+          if ((adv === 'advantage' || adv === 'disadvantage') && advantageValue == null) {
+            advantageValue = adv
           }
+          // 全局命中/伤害加值已纳入 buffStats 自动计算，不再重复生成增益；
+          // 非全局（条件范围）加值以 auto 增益形式体现，方便玩家按实际战斗手段开关。
+          if (scope !== SCOPE_KIND.global && scope !== '') {
+            const v = evaluateBuffValue(obj?.val ?? e.value, formulaContext)
+            if (Number.isFinite(v)) {
+              if (e.effectType === 'attack_bonus' || e.effectType === 'attack_damage_bonus') totalAttackBonus += v
+              if (e.effectType === 'damage_bonus' || e.effectType === 'attack_damage_bonus') totalDamageBonus += v
+            }
+          }
+        }
+        if (e.effectType === 'spell_damage_bonus' && (isSpellMean || !isPhysical)) {
+          const raw = e.value && typeof e.value === 'object' && !Array.isArray(e.value) ? e.value : null
+          if (!raw) continue
+          // 限定伤害类型：有 type 时只匹配同类型法术，无 type 视为通用法术增益
+          if (raw.type) {
+            const meanType = cm?.damageTypeSpell
+            if (!meanType || getDamageTypeLabel(raw.type) !== getDamageTypeLabel(meanType)) continue
+          }
+          totalPerDieBonus += Number(raw.perDieBonus) || 0
+          const floor = Number(raw.diceFloor) || 0
+          if (floor > 1 && !hasAutoGain('diceFloor2')) pushOnce('diceFloor2', {})
         }
       }
     }
   }
+  if (advantageValue && !hasAutoGain('advantage')) pushOnce('advantage', { advantage: advantageValue })
+  if (totalAttackBonus !== 0 && !hasAutoGain('attackBonus')) pushOnce('attackBonus', { value: totalAttackBonus })
+  if (totalDamageBonus !== 0 && !hasAutoGain('damageBonus')) pushOnce('damageBonus', { value: totalDamageBonus })
+  if (totalPerDieBonus !== 0 && !hasAutoGain('perDieBonus')) pushOnce('perDieBonus', { value: totalPerDieBonus })
   return gains
 }
 
+/** 将手动增益与 BUFF 自动生成的增益合并；同类型手动增益优先，避免重复。
+ * 自动增益保留已有的启用/禁用状态与 id，避免 BUFF 未变化时反复重置玩家选择。 */
+function mergeAutoGains(currentGains, autoGains) {
+  const manualItems = Array.isArray(currentGains) ? currentGains.filter((g) => !g.auto) : []
+  const manualTypes = new Set(manualItems.map((g) => g.type))
+  const existingAutoByType = new Map(
+    (Array.isArray(currentGains) ? currentGains.filter((g) => g.auto) : []).map((g) => [g.type, g])
+  )
+  const filteredAuto = (Array.isArray(autoGains) ? autoGains : [])
+    .filter((g) => !manualTypes.has(g.type))
+    .map((g) => {
+      const existing = existingAutoByType.get(g.type)
+      if (existing) {
+        return { ...g, id: existing.id, enabled: existing.enabled !== false }
+      }
+      return g
+    })
+  return [...manualItems, ...filteredAuto]
+}
+
+/** 比较两组增益的内容是否相同（忽略 id，因为 auto 增益每次会生成新 id） */
+function gainsContentEqual(a, b) {
+  const normalize = (arr) =>
+    (arr || [])
+      .map((g) => ({
+        type: g.type,
+        enabled: g.enabled !== false,
+        auto: !!g.auto,
+        value: g.value,
+        dice: g.dice,
+        advantage: g.advantage,
+      }))
+      .sort((x, y) => JSON.stringify(x).localeCompare(JSON.stringify(y)))
+  return JSON.stringify(normalize(a)) === JSON.stringify(normalize(b))
+}
+
 /** 战斗手段增益编辑器 */
-function GainEditor({ gains, onChange }) {
-  const [addingType, setAddingType] = useState('')
+function GainEditor({ gains, onChange, cm, buffStats, mergedBuffs, character, formulaContext, isSpellMean = false }) {
+  const [addingType, setAddingType] = useState(null)
   const items = Array.isArray(gains) ? gains : []
   const makeId = () => 'g_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6)
+
+  // 根据当前 BUFF 自动生成应存在的 auto 增益
+  const autoGains = useMemo(
+    () => buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellMean, character, formulaContext),
+    [cm, buffStats, mergedBuffs, isSpellMean, character, formulaContext]
+  )
+
+  // 自动同步：保留手动增益，用新生成的 auto 增益替换旧的 auto 增益
+  useEffect(() => {
+    const next = mergeAutoGains(items, autoGains)
+    if (!gainsContentEqual(items, next)) {
+      onChange(next)
+    }
+  }, [autoGains])
+
   const updateItem = (id, patch) => {
     onChange(items.map((g) => (g.id === id ? { ...g, ...patch } : g)))
   }
@@ -919,14 +1090,14 @@ function GainEditor({ gains, onChange }) {
         break
     }
     onChange([...items, payload])
-    setAddingType('')
+    setAddingType(null)
   }
   return (
     <div className="w-full border-t border-gray-600/80 pt-2 space-y-2">
       <div className="mb-1 flex items-center justify-between gap-2">
         <label className="text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">增益</label>
         <div className="flex items-center gap-1.5">
-          {addingType ? (
+          {addingType !== null ? (
             <select
               value={addingType}
               onChange={(e) => {
@@ -975,44 +1146,63 @@ function GainEditor({ gains, onChange }) {
                 {typeLabel}
               </span>
               <div className="flex-1 min-w-0">
-                {g.type === 'extraDice' && (
-                  <input
-                    type="text"
-                    value={g.dice || ''}
-                    onChange={(e) => updateItem(g.id, { dice: e.target.value })}
-                    placeholder="如 1d6 火焰"
-                    className={`${inputClass} w-full h-7 text-xs font-mono`}
-                  />
-                )}
-                {(g.type === 'damageBonus' || g.type === 'attackBonus' || g.type === 'perDieBonus') && (
-                  <NumberStepper
-                    className="!w-[5.5rem] !min-w-0 !px-2"
-                    value={Number(g.value) || 0}
-                    onChange={(v) => updateItem(g.id, { value: v })}
-                    min={-99}
-                    max={99}
-                    compact
-                    narrow
-                  />
-                )}
-                {g.type === 'advantage' && (
-                  <select
-                    value={g.advantage || 'advantage'}
-                    onChange={(e) => updateItem(g.id, { advantage: e.target.value })}
-                    className={`${inputClass} h-7 text-xs py-0 px-1 w-full`}
-                  >
-                    <option value="advantage">优势</option>
-                    <option value="disadvantage">劣势</option>
-                  </select>
+                {g.auto ? (
+                  <span className="inline-flex h-7 items-center text-xs text-dnd-text-muted">
+                    {g.type === 'extraDice' && (g.dice || '—')}
+                    {(g.type === 'damageBonus' || g.type === 'attackBonus' || g.type === 'perDieBonus') && (
+                      <>{Number(g.value) > 0 ? `+${g.value}` : g.value}</>
+                    )}
+                    {g.type === 'advantage' && (g.advantage === 'disadvantage' ? '劣势' : '优势')}
+                    {g.type === 'diceFloor2' && '伤害骰不能低于 2'}
+                  </span>
+                ) : (
+                  <>
+                    {g.type === 'extraDice' && (
+                      <input
+                        type="text"
+                        value={g.dice || ''}
+                        onChange={(e) => updateItem(g.id, { dice: e.target.value })}
+                        placeholder="如 1d6 火焰"
+                        className={`${inputClass} w-full h-7 text-xs font-mono`}
+                      />
+                    )}
+                    {(g.type === 'damageBonus' || g.type === 'attackBonus' || g.type === 'perDieBonus') && (
+                      <NumberStepper
+                        className="!w-[5.5rem] !min-w-0 !px-2"
+                        value={Number(g.value) || 0}
+                        onChange={(v) => updateItem(g.id, { value: v })}
+                        min={-99}
+                        max={99}
+                        compact
+                        narrow
+                      />
+                    )}
+                    {g.type === 'advantage' && (
+                      <select
+                        value={g.advantage || 'advantage'}
+                        onChange={(e) => updateItem(g.id, { advantage: e.target.value })}
+                        className={`${inputClass} h-7 text-xs py-0 px-1 w-full`}
+                      >
+                        <option value="advantage">优势</option>
+                        <option value="disadvantage">劣势</option>
+                      </select>
+                    )}
+                  </>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={() => removeItem(g.id)}
-                className="shrink-0 rounded border border-gray-500 px-1.5 py-0.5 text-gray-400 hover:bg-gray-600"
-              >
-                移除
-              </button>
+              {g.auto ? (
+                <span className="shrink-0 rounded border border-transparent px-1.5 py-0.5 text-[10px] text-dnd-text-muted" title="由 BUFF 自动提供">
+                  自动
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => removeItem(g.id)}
+                  className="shrink-0 rounded border border-gray-500 px-1.5 py-0.5 text-gray-400 hover:bg-gray-600"
+                >
+                  移除
+                </button>
+              )}
             </div>
           )
         })}
@@ -1242,11 +1432,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [addResourceName, setAddResourceName] = useState('')
   const [addResourceMax, setAddResourceMax] = useState(2)
   const [isAddingResource, setIsAddingResource] = useState(false)
+  const normalizeCombatMeanType = (t) => {
+    if (t === 'spell_attack' || t === 'spell' || t === 'item' || t === 'combo') return t
+    return 'physical'
+  }
   const [combatMeans, setCombatMeans] = useState(() => {
     const arr = Array.isArray(char?.combatMeans) ? char.combatMeans : []
     return arr.map((m, idx) => ({
       id: m.id ?? `cm_${idx}_${m.type === 'combo' ? 'combo' : m.type || 'physical'}`,
-      type: m.type === 'spell_attack' ? 'spell_attack' : m.type === 'spell' ? 'spell' : m.type === 'item' ? 'item' : m.type === 'combo' ? 'combo' : 'physical',
+      type: normalizeCombatMeanType(m.type),
       weaponInventoryIndex: m.weaponInventoryIndex ?? null,
       itemInventoryIndex: m.itemInventoryIndex ?? null,
       spellId: m.spellId ?? null,
@@ -1262,12 +1456,14 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       weaponProficient: m.weaponProficient !== false,
       weaponNameSuffix: m.weaponNameSuffix ?? '',
       targetCreatureType: m.targetCreatureType ?? '',
+      primaryMeanId: m.primaryMeanId ?? null,
+      attachments: Array.isArray(m.attachments) ? m.attachments : [],
       gains: Array.isArray(m.gains) ? m.gains : [],
     }))
   })
   const [showAddCombatMeanModal, setShowAddCombatMeanModal] = useState(false)
   const [editingCombatMeanId, setEditingCombatMeanId] = useState(null) // 编辑法术攻击时设为该条 id
-  const [addMeanStep, setAddMeanStep] = useState('type') // 'type' | 'weapon' | 'item' | 'spell_attack'
+  const [addMeanStep, setAddMeanStep] = useState('type') // 'type' | 'weapon' | 'item' | 'spell_attack' | 'combo'
   const [addSpellAttackName, setAddSpellAttackName] = useState('')
   const [addSpellAttackSpellId, setAddSpellAttackSpellId] = useState('')
   const [addSpellAttackHitResolution, setAddSpellAttackHitResolution] = useState('spell_attack')
@@ -1283,6 +1479,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [addTargetCreatureType, setAddTargetCreatureType] = useState('')
   const [addItemIndex, setAddItemIndex] = useState(null)
   const [addGains, setAddGains] = useState([])
+  const [addComboPrimaryId, setAddComboPrimaryId] = useState(null)
+  const [addComboAttachments, setAddComboAttachments] = useState([])
   const [showSpellModule, setShowSpellModule] = useState(() => char?.showSpellModule !== false)
   const [showMartialModule, setShowMartialModule] = useState(() => char?.showMartialModule !== false)
   const [explosiveUsePending, setExplosiveUsePending] = useState(null) // { inventoryIndex, name, diceExpr, damageType }
@@ -1336,12 +1534,16 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [showAddMartialModal, setShowAddMartialModal] = useState(false)
   const martialSlotsRef = useRef(martialSlots)
   const martialActiveStanceRef = useRef(martialActiveStanceId)
+  const combatMeansRef = useRef(combatMeans)
   useEffect(() => {
     martialSlotsRef.current = martialSlots
   }, [martialSlots])
   useEffect(() => {
     martialActiveStanceRef.current = martialActiveStanceId
   }, [martialActiveStanceId])
+  useEffect(() => {
+    combatMeansRef.current = combatMeans
+  }, [combatMeans])
 
   useEffect(() => {
     setShowSpellModule(char?.showSpellModule !== false)
@@ -1389,7 +1591,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const arr = Array.isArray(char?.combatMeans) ? char.combatMeans : []
     setCombatMeans(arr.map((m, idx) => ({
       id: m.id ?? `cm_${idx}_${m.type === 'combo' ? 'combo' : m.type || 'physical'}`,
-      type: m.type === 'spell_attack' ? 'spell_attack' : m.type === 'spell' ? 'spell' : m.type === 'item' ? 'item' : m.type === 'combo' ? 'combo' : 'physical',
+      type: normalizeCombatMeanType(m.type),
       weaponInventoryIndex: m.weaponInventoryIndex ?? null,
       itemInventoryIndex: m.itemInventoryIndex ?? null,
       spellId: m.spellId ?? null,
@@ -1404,9 +1606,40 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       weaponVersatileMode: m.weaponVersatileMode || null,
       weaponProficient: m.weaponProficient !== false,
       weaponNameSuffix: m.weaponNameSuffix ?? '',
+      targetCreatureType: m.targetCreatureType ?? '',
+      primaryMeanId: m.primaryMeanId ?? null,
+      attachments: Array.isArray(m.attachments) ? m.attachments : [],
       gains: Array.isArray(m.gains) ? m.gains : [],
     })))
   }, [char?.id, char?.combatMeans])
+
+  /** 全局自动同步：当 BUFF 变化且不在编辑弹窗内时，为每个战斗手段重新生成 auto 增益 */
+  useEffect(() => {
+    if (showAddCombatMeanModal || editingCombatMeanId) return
+    const prev = combatMeansRef.current
+    let changed = false
+    const next = prev.map((cm) => {
+      let ctxCm = cm
+      let isSpellMean = cm.type === 'spell_attack' || cm.type === 'spell'
+      if (cm.type === 'combo') {
+        const primary = prev.find((m) => m.id === cm.primaryMeanId)
+        if (primary) {
+          ctxCm = primary
+          isSpellMean = primary.type === 'spell_attack' || primary.type === 'spell'
+        }
+      }
+      const autoGains = buildDefaultGainsFromBuffs(ctxCm, buffStats, mergedBuffs, isSpellMean, char, itemFormulaContext)
+      const merged = mergeAutoGains(cm.gains, autoGains)
+      if (!gainsContentEqual(cm.gains, merged)) {
+        changed = true
+        return { ...cm, gains: merged }
+      }
+      return cm
+    })
+    if (changed) {
+      saveCombatMeans(next)
+    }
+  }, [mergedBuffs, buffStats, itemFormulaContext, char, showAddCombatMeanModal, editingCombatMeanId])
 
   useEffect(() => {
     const arr = Array.isArray(char?.combatMartialTechniques) ? char.combatMartialTechniques : []
@@ -1648,13 +1881,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         damageDice: m.damageDice,
         damageTypeSpell: m.damageTypeSpell,
         extraDamageDice: m.extraDamageDice,
-      abilityForAttack: m.abilityForAttack,
-      damageType: m.damageType,
-      weaponVersatileMode: m.weaponVersatileMode || null,
-      weaponProficient: m.weaponProficient,
-      weaponNameSuffix: m.weaponNameSuffix,
-      targetCreatureType: m.targetCreatureType,
-      gains: Array.isArray(m.gains) ? m.gains : [],
+        abilityForAttack: m.abilityForAttack,
+        damageType: m.damageType,
+        weaponVersatileMode: m.weaponVersatileMode || null,
+        weaponProficient: m.weaponProficient,
+        weaponNameSuffix: m.weaponNameSuffix,
+        targetCreatureType: m.targetCreatureType,
+        primaryMeanId: m.primaryMeanId ?? null,
+        attachments: Array.isArray(m.attachments) ? m.attachments : [],
+        gains: Array.isArray(m.gains) ? m.gains : [],
       })),
     })
   }
@@ -1679,6 +1914,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setAddTargetCreatureType('')
     setAddSpellAttackSpellLevel('')
     setAddGains([])
+    setAddComboPrimaryId(null)
+    setAddComboAttachments([])
     setShowAddCombatMeanModal(true)
   }
   const confirmAddWeaponMean = () => {
@@ -1733,19 +1970,21 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     let derivedHitResolution = addSpellAttackHitResolution || 'spell_attack'
     let derivedDamageDice = (addSpellAttackDice || '').trim()
     let derivedDamageType = (addSpellAttackDamageType || '').trim()
-    let derivedSpellLevel = spell?.level != null ? spell.level : null
+    let derivedSpellLevel = addSpellAttackSpellLevel ? Number(addSpellAttackSpellLevel) : (spell?.level != null ? spell.level : null)
     if (spell?.description) {
-      if (spellUsesAttack(spell.description)) {
-        derivedHitResolution = 'spell_attack'
-      } else {
-        const inferredSave = inferSaveFromSpellDescription(spell.description)
-        if (inferredSave !== 'spell_attack') derivedHitResolution = inferredSave
+      if (!addSpellAttackHitResolution) {
+        if (spellUsesAttack(spell.description)) {
+          derivedHitResolution = 'spell_attack'
+        } else {
+          const inferredSave = inferSaveFromSpellDescription(spell.description)
+          if (inferredSave !== 'spell_attack') derivedHitResolution = inferredSave
+        }
       }
       const damages = parseSpellDamageFromDescription(spell.description)
       if (damages.length > 0) {
-        derivedDamageDice = damages[0].dice
+        if (!derivedDamageDice) derivedDamageDice = damages[0].dice
         // 弹窗伤害类型下拉使用中文 label，存储中文以保持选择框回显一致
-        derivedDamageType = getDamageTypeLabel(damages[0].type)
+        if (!derivedDamageType) derivedDamageType = getDamageTypeLabel(damages[0].type)
       }
     }
     const lvl = derivedSpellLevel != null ? derivedSpellLevel : Number(addSpellAttackSpellLevel)
@@ -1783,6 +2022,58 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setAddSpellAttackDice('')
     setAddSpellAttackDamageType('')
     setAddSpellAttackSpellLevel('')
+  }
+  const confirmAddComboMean = () => {
+    const primary = combatMeans.find((m) => m.id === addComboPrimaryId)
+    if (!primary) return
+    if (primary.type === 'combo' || primary.id === editingCombatMeanId) {
+      alert('组合技的主手段不能选择另一个组合技，也不能选择当前组合技自身。')
+      return
+    }
+    const attachments = (addComboAttachments || [])
+      .map((a) => ({
+        id: a.id ?? 'att_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        name: (a.name || '').trim(),
+        damageDice: (a.damageDice || '').trim(),
+        damageType: (a.damageType || '').trim(),
+        sourceType: (a.sourceType || 'custom'),
+        sourceId: (a.sourceId || '').trim(),
+      }))
+      .filter(isValidComboAttachment)
+    const patch = {
+      type: 'combo',
+      primaryMeanId: primary.id,
+      attachments,
+      targetCreatureType: primary.targetCreatureType || '',
+      gains: addGains,
+    }
+    if (editingCombatMeanId) {
+      updateCombatMean(editingCombatMeanId, patch)
+      setEditingCombatMeanId(null)
+    } else {
+      saveCombatMeans([...combatMeans, { id: 'cm_' + Date.now(), ...patch }])
+    }
+    setShowAddCombatMeanModal(false)
+    setAddComboPrimaryId(null)
+    setAddComboAttachments([])
+  }
+  const openEditComboMean = (cm) => {
+    setEditingCombatMeanId(cm.id)
+    setAddComboPrimaryId(cm.primaryMeanId ?? null)
+    setAddComboAttachments(
+      Array.isArray(cm.attachments)
+        ? cm.attachments.map((a) => ({
+            ...a,
+            sourceType: a.sourceType || 'custom',
+            sourceId: (a.sourceId || '').trim(),
+          }))
+        : []
+    )
+    const primary = combatMeans.find((m) => m.id === cm.primaryMeanId)
+    const isSpellPrimary = primary && primary.type === 'spell_attack'
+    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(primary || cm, buffStats, mergedBuffs, !!isSpellPrimary, char))
+    setAddMeanStep('combo')
+    setShowAddCombatMeanModal(true)
   }
   const openEditSpellAttack = (cm) => {
     setEditingCombatMeanId(cm.id)
@@ -1868,8 +2159,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       const gainDiceFloor2 = hasGainDiceFloor2(gains)
       const spellDamageExtras = focusUsePending?.spellDamageExtras || getSpellDamageBonusExtras(sub?.damageType, buffStats?.spellDamageBonuses, itemFormulaContext)
       const allExtraDice = [...gainExtraDice, ...spellDamageExtras.extraDice]
-      const modifier = gainDamageBonus + gainPerDieBonus * dCount + spellDamageExtras.perDieBonus * dCount + spellDamageExtras.flatBonus
-      const floor2 = gainDiceFloor2 || focusUsePending?.damageFloor2 || spellDamageExtras.diceFloor2
+      // spell_damage_bonus 的 perDie/diceFloor 已统一通过 auto 增益体现，flatBonus/extraDice 仍自动追加
+      const modifier = gainDamageBonus + gainPerDieBonus * dCount + spellDamageExtras.flatBonus
+      const floor2 = gainDiceFloor2 || focusUsePending?.damageFloor2
       rollDamageDice(
         diceExpr,
         label,
@@ -2084,6 +2376,45 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     })
   }
 
+  /** 组合技：把附件伤害骰合并到主手段后，复用对应投掷逻辑 */
+  const getComboAttachmentDice = (cm) => {
+    return (cm.attachments || [])
+      .filter((a) => a.name && /^\d+d\d+/i.test(a.damageDice || ''))
+      .map((a) => `${a.damageDice} ${a.damageType || ''}`.trim())
+  }
+  const buildComboEffectiveMean = (cm, primary) => {
+    if (!primary) return null
+    return {
+      ...primary,
+      id: cm.id,
+      gains: cm.gains,
+      extraDamageDice: [...(primary.extraDamageDice || []), ...getComboAttachmentDice(cm)],
+    }
+  }
+  const rollComboDamage = (cm, isCrit) => {
+    const primary = combatMeans.find((m) => m.id === cm.primaryMeanId)
+    if (!primary) return
+    if (primary.type === 'physical') {
+      const weaponOpt = primary.weaponInventoryIndex != null ? weaponsFromInv.find((w) => w.index === primary.weaponInventoryIndex) : null
+      if (!weaponOpt) return
+      const effectiveMean = buildComboEffectiveMean(cm, primary)
+      const comboPhysStats = computePhysicalWeaponStats(effectiveMean, weaponOpt, { effectiveAbilities, prof, spellAbility, buffStats, flatBuffEffects, itemFormulaContext })
+      rollAllWeaponDamage(effectiveMean, weaponOpt, comboPhysStats.attackParsed, comboPhysStats.totalDamageMod, comboPhysStats.displayDamageType, isCrit)
+    } else if (primary.type === 'spell_attack' || primary.type === 'spell') {
+      const gains = getEnabledGains(cm)
+      const gainDamageBonus = sumGainDamageBonus(gains)
+      const gainPerDieBonus = sumGainPerDieBonus(gains)
+      const gainExtraDice = getGainExtraDice(gains)
+      const spellDamageExtras = getSpellDamageBonusExtras(primary.damageTypeSpell, buffStats?.spellDamageBonuses, itemFormulaContext)
+      const spellDiceCount = (() => { const p = parseCombatDiceExpression((primary.damageDice || '').trim()); return p ? p.count : 0 })()
+      const spellDamageMod = gainDamageBonus + gainPerDieBonus * spellDiceCount + spellDamageExtras.flatBonus
+      const allSpellExtraDice = [...gainExtraDice, ...spellDamageExtras.extraDice, ...getComboAttachmentDice(cm)]
+      const attachmentNames = cm.attachments?.map((a) => a.name).filter(Boolean)
+      const labelSuffix = attachmentNames?.length ? `+${attachmentNames.join('/')}` : ''
+      rollDamageDice((primary.damageDice || '').trim(), `${primary.spellName || '法术'}${labelSuffix} ${getDamageTypeLabel(primary.damageTypeSpell) || ''}`.trim(), 'combo-' + cm.id, spellDamageMod, isCrit, getDamageTypeLabel(primary.damageTypeSpell) || '', { extraDice: allSpellExtraDice, floor2: hasGainDiceFloor2(gains) })
+    }
+  }
+
   const weaponsFromInv = useMemo(() => getWeaponsFromInventory(char?.inventory ?? []), [char?.inventory])
 
   const openEditWeaponMean = useCallback((cm) => {
@@ -2121,6 +2452,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const sc = (scrollsFromInv || []).map((s) => ({ ...s, kind: 'scroll', label: `${s.name}（卷轴）` }))
     return [...ex, ...fo, ...sc]
   }, [explosivesFromInv, focusFromInv, scrollsFromInv])
+  const nonComboCombatMeans = useMemo(() => combatMeans.filter((m) => m.type !== 'combo'), [combatMeans])
   const preparedSpellsList = useMemo(() => {
     const raw = char?.spells ?? []
     return raw
@@ -2155,6 +2487,13 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       itemFormulaContext,
     })
   }, [addMeanStep, addWeaponIndex, addAbility, addDamageType, addWeaponMode, addWeaponProficient, addTargetCreatureType, addWeaponExtraDice, addGains, weaponsFromInv, effectiveAbilities, prof, spellAbility, buffStats, flatBuffEffects, itemFormulaContext])
+  const draftSpellCm = useMemo(() => ({ type: 'spell_attack', targetCreatureType: addTargetCreatureType || '' }), [addTargetCreatureType])
+  const draftItemCm = useMemo(() => ({ type: 'item', itemInventoryIndex: addItemIndex ?? null, targetCreatureType: addTargetCreatureType || '' }), [addItemIndex, addTargetCreatureType])
+  const draftItemIsSpell = useMemo(() => {
+    const itemOpt = addItemIndex != null ? itemMeansFromInv.find((x) => x.index === addItemIndex) : null
+    return !!(itemOpt && (itemOpt.kind === 'focus' || itemOpt.kind === 'scroll'))
+  }, [addItemIndex, itemMeansFromInv])
+  const draftWeaponCm = useMemo(() => ({ type: 'physical', weaponInventoryIndex: addWeaponIndex ?? null, damageType: addDamageType || null, targetCreatureType: addTargetCreatureType || '' }), [addWeaponIndex, addDamageType, addTargetCreatureType])
   const spellcastingLevel = getSpellcastingLevel(char)
   const maxSlotsByRing = useMemo(() => getMaxSpellSlotsByRing(char), [char])
   const spellSlotsMaxOverride = char?.spellSlotsMax && typeof char.spellSlotsMax === 'object' ? char.spellSlotsMax : {}
@@ -3132,12 +3471,29 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         <h3 className={`text-dnd-gold-light ${CM_MEAN_LABEL} font-semibold uppercase tracking-wider mb-1`}>战斗手段</h3>
         <div className="space-y-2">
           {combatMeans.map((cm) => {
-            const isPhysical = cm.type === 'physical'
-            const isItem = cm.type === 'item'
-            const itemMeanOpt = isItem && cm.itemInventoryIndex != null ? itemMeansFromInv.find((x) => x.index === cm.itemInventoryIndex) : null
-            const weaponOpt = isPhysical && cm.weaponInventoryIndex != null ? weaponsFromInv.find((w) => w.index === cm.weaponInventoryIndex) : null
+            const isCombo = cm.type === 'combo'
+            const comboPrimary = isCombo ? combatMeans.find((m) => m.id === cm.primaryMeanId) : null
+            const displayMean = isCombo && comboPrimary
+              ? {
+                  ...comboPrimary,
+                  id: cm.id,
+                  gains: cm.gains,
+                  extraDamageDice: [
+                    ...(comboPrimary.extraDamageDice || []),
+                    ...(cm.attachments || [])
+                      .filter(isValidComboAttachment)
+                      .map((a) => `${a.damageDice} ${a.damageType || ''}`.trim()),
+                  ],
+                }
+              : cm
+            const comboAttachmentNames = isCombo ? (cm.attachments || []).map((a) => a.name).filter(Boolean) : []
+            const comboSuffix = comboAttachmentNames.length ? `+${comboAttachmentNames.join('/')}` : ''
+            const isPhysical = displayMean.type === 'physical'
+            const isItem = displayMean.type === 'item'
+            const itemMeanOpt = isItem && displayMean.itemInventoryIndex != null ? itemMeansFromInv.find((x) => x.index === displayMean.itemInventoryIndex) : null
+            const weaponOpt = isPhysical && displayMean.weaponInventoryIndex != null ? weaponsFromInv.find((w) => w.index === displayMean.weaponInventoryIndex) : null
             const physStats = isPhysical && weaponOpt
-              ? computePhysicalWeaponStats(cm, weaponOpt, {
+              ? computePhysicalWeaponStats(displayMean, weaponOpt, {
                   effectiveAbilities,
                   prof,
                   spellAbility,
@@ -3146,8 +3502,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   itemFormulaContext,
                 })
               : null
-            const attackParsed = physStats?.attackParsed ?? (weaponOpt ? parseWeaponAttack(getWeaponAttackStringForParsing(weaponOpt, cm.weaponVersatileMode)) : { dice: null, diceList: [], type: '—' })
-            const rawDamageType = physStats?.rawDamageType ?? (cm.damageType || attackParsed.type)
+            const attackParsed = physStats?.attackParsed ?? (weaponOpt ? parseWeaponAttack(getWeaponAttackStringForParsing(weaponOpt, displayMean.weaponVersatileMode)) : { dice: null, diceList: [], type: '—' })
+            const rawDamageType = physStats?.rawDamageType ?? (displayMean.damageType || attackParsed.type)
             const spellAbilityOverride = physStats?.weaponAbilityKind
               ? null
               : getSpellAbilityForAttackFromBuffs(flatBuffEffects, {
@@ -3155,7 +3511,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   damageType: rawDamageType,
                   sourceItemInventoryId: weaponOpt?.entry?.id,
                 })
-            const weaponAbilityKind = physStats?.weaponAbilityKind ?? resolvePhysicalWeaponAbilityKind(cm, weaponOpt, spellAbilityOverride)
+            const weaponAbilityKind = physStats?.weaponAbilityKind ?? resolvePhysicalWeaponAbilityKind(displayMean, weaponOpt, spellAbilityOverride)
             const abilityKey = physStats?.abilityKey ?? (weaponAbilityKind === 'spell' ? spellAbility : weaponAbilityKind)
             const abilityMod = physStats?.abilityMod ?? abilityModifier(effectiveAbilities?.[abilityKey] ?? 10)
             const isRangedWeapon = physStats?.isRangedWeapon ?? (weaponOpt ? isRangedWeaponProto(weaponOpt.proto) : false)
@@ -3164,31 +3520,25 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               : 0)
             const buffAttackBonus = physStats?.buffAttackBonus ?? ((isRangedWeapon ? (buffStats?.rangedAttackBonus ?? 0) : (buffStats?.meleeAttackBonus ?? 0)) + weaponCategoryAttackFlat)
             const buffDamageBonus = physStats?.buffDamageBonus ?? ((isRangedWeapon ? (buffStats?.rangedDamageBonus ?? 0) : (buffStats?.meleeDamageBonus ?? 0)) + weaponCategoryAttackFlat)
-            const weaponProficient = physStats?.weaponProficient ?? (cm.weaponProficient !== false)
-            const gains = physStats?.gains ?? getEnabledGains(cm)
+            const weaponProficient = physStats?.weaponProficient ?? (displayMean.weaponProficient !== false)
+            const gains = physStats?.gains ?? getEnabledGains(displayMean)
             const gainAttackBonus = physStats?.gainAttackBonus ?? sumGainAttackBonus(gains)
             const gainDamageBonus = physStats?.gainDamageBonus ?? sumGainDamageBonus(gains)
             const gainPerDieBonus = physStats?.gainPerDieBonus ?? sumGainPerDieBonus(gains)
             const gainExtraDice = physStats?.gainExtraDice ?? getGainExtraDice(gains)
             const gainAdvantage = physStats?.gainAdvantage ?? getGainAdvantage(gains)
             const gainDiceFloor2 = physStats?.gainDiceFloor2 ?? hasGainDiceFloor2(gains)
-            const conditionalBonuses = physStats?.conditionalBonuses ?? (isPhysical
-              ? calculateConditionalAttackDamageBonus(cm, flatBuffEffects, {
-                  weaponProto: weaponOpt?.proto,
-                  damageType: rawDamageType,
-                  sourceItemInventoryId: weaponOpt?.entry?.id,
-                }, itemFormulaContext)
-              : { attackBonus: 0, damageBonus: 0 })
-            const physicalAttackBonus = physStats?.physicalAttackBonus ?? (abilityMod + (weaponProficient ? prof : 0) + buffAttackBonus + gainAttackBonus + (conditionalBonuses?.attackBonus || 0))
+            // 条件范围加值已统一通过 auto 增益体现，此处不再重复追加
+            const physicalAttackBonus = physStats?.physicalAttackBonus ?? (abilityMod + (weaponProficient ? prof : 0) + buffAttackBonus + gainAttackBonus)
             const damageMod = physStats?.damageMod ?? abilityMod
-            const weaponExtraDiceStrings = physStats?.weaponExtraDiceStrings ?? [...getMergedWeaponExtraDiceStrings(cm, weaponOpt), ...gainExtraDice]
+            const weaponExtraDiceStrings = physStats?.weaponExtraDiceStrings ?? [...getMergedWeaponExtraDiceStrings(displayMean, weaponOpt), ...gainExtraDice]
             const allWeaponDiceCount = physStats?.allWeaponDiceCount ?? ((attackParsed.diceList || []).reduce((s, d) => s + (parseCombatDiceExpression(d)?.count || 0), 0) +
               weaponExtraDiceStrings.reduce((s, d) => s + (parseCombatDiceExpression(String(d).split(' ')[0])?.count || 0), 0))
             const weaponPerDieMod = physStats?.weaponPerDieMod ?? (gainPerDieBonus * allWeaponDiceCount)
-            const totalDamageMod = physStats?.totalDamageMod ?? (damageMod + buffDamageBonus + gainDamageBonus + weaponPerDieMod + (conditionalBonuses?.damageBonus || 0))
+            const totalDamageMod = physStats?.totalDamageMod ?? (damageMod + buffDamageBonus + gainDamageBonus + weaponPerDieMod)
             const displayDamageType = physStats?.displayDamageType ?? (rawDamageType ? getDamageTypeLabel(rawDamageType) : '—')
-            const isSpellAttack = cm.type === 'spell_attack'
-            const spellOpt = !isPhysical && !isItem && !isSpellAttack && cm.spellId ? preparedSpellsList.find((p) => p.spellId === cm.spellId) : null
+            const isSpellAttack = displayMean.type === 'spell_attack'
+            const spellOpt = !isPhysical && !isItem && !isSpellAttack && displayMean.spellId ? preparedSpellsList.find((p) => p.spellId === displayMean.spellId) : null
             const spell = spellOpt?.spell
             const spellDesc = spell?.description ?? ''
             const spellIsAttack = spellUsesAttack(spellDesc)
@@ -3197,7 +3547,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             /* 无效项（仅会显示 — 的模块）不渲染，避免出现空白卡片 */
             if (isItem && !itemMeanOpt) return null
             if (isPhysical && !weaponOpt) return null
-            if (!isPhysical && !isItem && !isSpellAttack && !spellOpt) return null
+            if (isCombo && !comboPrimary) return null
+            if (!isPhysical && !isItem && !isSpellAttack && !isCombo && !spellOpt) return null
 
             return (
               <div
@@ -3240,6 +3591,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                                 <div className={`${c} col-span-10 flex flex-wrap items-center gap-x-1 gap-y-1`}>
                                   <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
                                   <span className={`text-white font-mono ${CM_MEAN_HI} truncate whitespace-nowrap min-w-0`}>{damageText}</span>
+                                  {renderAutoGainBadges(gains, () => openEditItemMean(cm))}
                                   <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>数量</span>
                                   <span className={`text-white ${CM_MEAN_HI} tabular-nums`}>{currentQty}</span>
                                   {itemMeanOpt.dice && currentQty > 0 && (
@@ -3324,12 +3676,13 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       const damageDiceText = dCount > 0 ? `${dCount}d${dSides}` : ''
                       const damageTypeLabel = selectedSub?.damageType ? getDamageTypeLabel(selectedSub.damageType) : ''
                       const focusSpellDamageExtras = getSpellDamageBonusExtras(selectedSub?.damageType, buffStats?.spellDamageBonuses, itemFormulaContext)
-                      const focusDamageMod = gainDamageBonus + gainPerDieBonus * dCount + focusSpellDamageExtras.perDieBonus * dCount + focusSpellDamageExtras.flatBonus
+                      // spell_damage_bonus 的 perDie/diceFloor 已统一通过 auto 增益体现；flatBonus/extraDice 仍自动追加
+                      const focusDamageMod = gainDamageBonus + gainPerDieBonus * dCount + focusSpellDamageExtras.flatBonus
                       const focusAllExtraDice = [...gainExtraDice, ...focusSpellDamageExtras.extraDice]
                       const compactedFocusExtraDice = focusAllExtraDice.map(compactDiceExpression)
                       const focusExtraText = compactedFocusExtraDice.length ? (' + ' + compactedFocusExtraDice.join(' + ')) : ''
                       const focusModText = (focusDamageMod !== 0 && damageDiceText) ? ` ${formatSignedModifier(focusDamageMod)}` : ''
-                      const focusDamageFloor2 = gainDiceFloor2 || focusSpellDamageExtras.diceFloor2
+                      const focusDamageFloor2 = gainDiceFloor2
                       const damageText = damageDiceText
                         ? compactDiceExpression((damageTypeLabel ? `${damageDiceText} ${damageTypeLabel}` : damageDiceText).trim()) + focusExtraText + focusModText
                         : (compactedFocusExtraDice.length ? compactedFocusExtraDice.join(' + ') : '—')
@@ -3370,6 +3723,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                             )}
                             <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
                             <span className={`text-white font-mono ${CM_MEAN_HI} truncate whitespace-nowrap min-w-0`}>{damageText}</span>
+                            {renderAutoGainBadges(gains, () => openEditItemMean(cm))}
                             <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>充能</span>
                             <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums`}>{currentCharge}/{chargeMax}</span>
                             {canCast && (
@@ -3391,39 +3745,37 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   </div>
                 ) : isSpellAttack ? (
                   (() => {
-                    const matchedSpell = getMergedSpells().find((s) => s.id === cm.spellId || (s.name && s.name.trim() === (cm.spellName || '').trim()))
-                    const hitRes = cm.hitResolution && HIT_RESOLUTION_LABELS[cm.hitResolution] ? cm.hitResolution : 'spell_attack'
+                    const matchedSpell = getMergedSpells().find((s) => s.id === displayMean.spellId || (s.name && s.name.trim() === (displayMean.spellName || '').trim()))
+                    const hitRes = displayMean.hitResolution && HIT_RESOLUTION_LABELS[displayMean.hitResolution] ? displayMean.hitResolution : 'spell_attack'
                     const hitLabel = HIT_RESOLUTION_LABELS[hitRes]
                     const rangeDisplay = computeSpellRangeDisplay(matchedSpell?.range, buffStats?.spellRangeMultiplier, buffStats?.spellRangeBonus)
-                    const spellConditionalBonuses = calculateConditionalAttackDamageBonus(cm, flatBuffEffects, {
-                      damageType: cm.damageTypeSpell,
-                    }, itemFormulaContext)
-                    const spellAttackForMean = spellAttackBonus != null ? spellAttackBonus + gainAttackBonus + (spellConditionalBonuses?.attackBonus || 0) : null
+                    // 条件范围命中/伤害与 spell_damage_bonus 的 perDie/diceFloor 已统一通过 auto 增益体现
+                    const spellAttackForMean = spellAttackBonus != null ? spellAttackBonus + gainAttackBonus : null
                     const hitValue = hitRes === 'spell_attack' ? (spellAttackForMean != null ? (spellAttackForMean >= 0 ? '+' : '') + spellAttackForMean : null) : (spellDC != null ? spellDC : null)
                     /** 战斗手段行内空间有限，法术攻击用简称「法攻」避免截断 */
                     const hitLabelShort = hitRes === 'spell_attack' ? '法攻' : hitLabel
                     const hitText = hitRes === 'spell_attack' ? (hitValue != null ? `${hitLabelShort} ${hitValue}` : '—') : (hitValue != null ? `${hitLabel} DC ${hitValue}` : '—')
-                    const spellDiceCount = (() => { const p = parseCombatDiceExpression((cm.damageDice || '').trim()); return p ? p.count : 0 })()
-                    const spellDamageExtras = getSpellDamageBonusExtras(cm.damageTypeSpell, buffStats?.spellDamageBonuses, itemFormulaContext)
-                    const spellDamageMod = gainDamageBonus + gainPerDieBonus * spellDiceCount + (spellConditionalBonuses?.damageBonus || 0) + spellDamageExtras.perDieBonus * spellDiceCount + spellDamageExtras.flatBonus
+                    const spellDiceCount = (() => { const p = parseCombatDiceExpression((displayMean.damageDice || '').trim()); return p ? p.count : 0 })()
+                    const spellDamageExtras = getSpellDamageBonusExtras(displayMean.damageTypeSpell, buffStats?.spellDamageBonuses, itemFormulaContext)
+                    const spellDamageMod = gainDamageBonus + gainPerDieBonus * spellDiceCount + spellDamageExtras.flatBonus
                     const allSpellExtraDice = [...gainExtraDice, ...spellDamageExtras.extraDice]
                     const compactedSpellExtraDice = allSpellExtraDice.map(compactDiceExpression)
-                    const baseDamageText = (cm.damageDice || '').trim()
-                      ? compactDiceExpression((cm.damageDice || '').toUpperCase() + (cm.damageTypeSpell ? ' ' + getDamageTypeLabel(cm.damageTypeSpell) : ''))
+                    const baseDamageText = (displayMean.damageDice || '').trim()
+                      ? compactDiceExpression((displayMean.damageDice || '').toUpperCase() + (displayMean.damageTypeSpell ? ' ' + getDamageTypeLabel(displayMean.damageTypeSpell) : ''))
                       : ''
                     const extraDamageText = compactedSpellExtraDice.length ? (' + ' + compactedSpellExtraDice.join(' + ')) : ''
                     const modDamageText = (spellDamageMod !== 0 && baseDamageText) ? ` ${formatSignedModifier(spellDamageMod)}` : ''
                     const damageText = baseDamageText ? `${baseDamageText}${extraDamageText}${modDamageText}` : (compactedSpellExtraDice.length ? compactedSpellExtraDice.join(' + ') : '—')
-                    const spellDamageFloor2 = gainDiceFloor2 || spellDamageExtras.diceFloor2
+                    const spellDamageFloor2 = gainDiceFloor2
                     const cell = 'pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden'
                     const empty = 'pl-2 border-l border-gray-600 min-w-0 overflow-hidden'
                     return (
                       <div className={COMBAT_MEAN_ROW_GRID}>
                         <div className="col-span-5 flex items-center gap-1 min-w-0 pr-2">
                           <ActionLabelBadge source={matchedSpell?.castingTime || ''} />
-                          <span className={`text-white font-medium ${CM_MEAN_HI} truncate min-w-0`}>{cm.spellName || '法术攻击'}</span>
+                          <span className={`text-white font-medium ${CM_MEAN_HI} truncate min-w-0`}>{(displayMean.spellName || '法术攻击') + comboSuffix}</span>
                           {canEdit && (
-                            <button type="button" onClick={() => openEditSpellAttack(cm)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-dnd-gold-light shrink-0" title="编辑法术">
+                            <button type="button" onClick={() => isCombo ? openEditComboMean(cm) : openEditSpellAttack(displayMean)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-dnd-gold-light shrink-0" title={isCombo ? '编辑组合技' : '编辑法术'}>
                               <Pencil size={12} />
                             </button>
                           )}
@@ -3432,7 +3784,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         <div className={`${cell} col-span-4 flex items-center gap-x-1.5 min-w-0`}>
                           <span className={`text-white ${CM_MEAN_HI} truncate min-w-0`}>{hitText}</span>
                           {hitRes === 'spell_attack' && spellAttackForMean != null && (
-                            <button type="button" onClick={() => { if (!consumeSpellSlotForMean(cm, cm.spellName || '法术')) return; openForCheck((cm.spellName || '法术攻击') + ' 法术攻击', spellAttackForMean, { quickRoll: true, advantage: gainAdvantage }) }} className={CM_BTN_RED} title={quickRollTitle('法术攻击')} aria-label={quickRollTitle('法术攻击')}>
+                            <button type="button" onClick={() => { if (!consumeSpellSlotForMean(displayMean, displayMean.spellName || '法术')) return; openForCheck((displayMean.spellName || '法术攻击') + ' 法术攻击', spellAttackForMean, { quickRoll: true, advantage: gainAdvantage }) }} className={CM_BTN_RED} title={quickRollTitle('法术攻击')} aria-label={quickRollTitle('法术攻击')}>
                               <QuickRollIcon kind="d20" />
                             </button>
                           )}
@@ -3440,11 +3792,12 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         <div className="col-span-10 pl-2 border-l border-gray-600 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1">
                           <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
                           <span className={`min-w-0 flex-1 font-mono ${CM_MEAN_HI} tabular-nums text-white whitespace-nowrap sm:truncate`}>{damageText}</span>
-                          {(cm.damageDice || '').trim() && (
+                          {renderAutoGainBadges(gains, () => isCombo ? openEditComboMean(cm) : openEditSpellAttack(displayMean))}
+                          {(displayMean.damageDice || '').trim() && (
                             <>
                               <button
                                 type="button"
-                                onClick={() => { if (!consumeSpellSlotForMean(cm, cm.spellName || '法术')) return; rollDamageDice((cm.damageDice || '').trim(), (cm.spellName || '法术') + ' ' + (getDamageTypeLabel(cm.damageTypeSpell) || ''), 'spell_attack-' + cm.id, spellDamageMod, false, getDamageTypeLabel(cm.damageTypeSpell) || '', { extraDice: allSpellExtraDice, floor2: spellDamageFloor2 }) }}
+                                onClick={() => { if (!consumeSpellSlotForMean(displayMean, displayMean.spellName || '法术')) return; rollDamageDice((displayMean.damageDice || '').trim(), (displayMean.spellName || '法术') + ' ' + (getDamageTypeLabel(displayMean.damageTypeSpell) || ''), 'spell_attack-' + displayMean.id, spellDamageMod, false, getDamageTypeLabel(displayMean.damageTypeSpell) || '', { extraDice: allSpellExtraDice, floor2: spellDamageFloor2 }) }}
                                 className={CM_BTN_GOLD}
                                 title={quickRollTitle('伤害')}
                                 aria-label={quickRollTitle('伤害')}
@@ -3454,7 +3807,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                               {hitRes === 'spell_attack' && (
                                 <button
                                   type="button"
-                                  onClick={() => { if (!consumeSpellSlotForMean(cm, cm.spellName || '法术')) return; rollDamageDice((cm.damageDice || '').trim(), (cm.spellName || '法术') + ' ' + (getDamageTypeLabel(cm.damageTypeSpell) || ''), 'spell_attack-' + cm.id, spellDamageMod, true, getDamageTypeLabel(cm.damageTypeSpell) || '', { extraDice: allSpellExtraDice, floor2: spellDamageFloor2 }) }}
+                                  onClick={() => { if (!consumeSpellSlotForMean(displayMean, displayMean.spellName || '法术')) return; rollDamageDice((displayMean.damageDice || '').trim(), (displayMean.spellName || '法术') + ' ' + (getDamageTypeLabel(displayMean.damageTypeSpell) || ''), 'spell_attack-' + displayMean.id, spellDamageMod, true, getDamageTypeLabel(displayMean.damageTypeSpell) || '', { extraDice: allSpellExtraDice, floor2: spellDamageFloor2 }) }}
                                   className={CM_BTN_CRIT}
                                   title={quickRollTitle('伤害（重击×2伤害骰）')}
                                   aria-label={quickRollTitle('伤害（重击×2伤害骰）')}
@@ -3479,9 +3832,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   <div className={COMBAT_MEAN_ROW_GRID}>
                     <div className="col-span-5 flex items-center gap-1 min-w-0 pr-2">
                       <ActionLabelBadge source="1 动作" />
-                      <span className={`text-white font-medium ${CM_MEAN_HI} truncate min-w-0`}>{(weaponOpt?.name ?? '—') + (cm.weaponNameSuffix ? String(cm.weaponNameSuffix).trim() : '')}</span>
+                      <span className={`text-white font-medium ${CM_MEAN_HI} truncate min-w-0`}>{(weaponOpt?.name ?? '—') + (displayMean.weaponNameSuffix ? String(displayMean.weaponNameSuffix).trim() : '') + comboSuffix}</span>
                       {canEdit && (
-                        <button type="button" onClick={() => openEditWeaponMean(cm)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-dnd-gold-light shrink-0" title="编辑武器">
+                        <button type="button" onClick={() => isCombo ? openEditComboMean(cm) : openEditWeaponMean(displayMean)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-dnd-gold-light shrink-0" title={isCombo ? '编辑组合技' : '编辑武器'}>
                           <Pencil size={12} />
                         </button>
                       )}
@@ -3528,7 +3881,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         <div className="col-span-4 pl-2 border-l border-gray-600 flex items-center gap-x-1.5 min-w-0 overflow-hidden">
                           <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>攻击</span>
                           <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums truncate`}>{physicalAttackBonus >= 0 ? '+' : ''}{physicalAttackBonus}</span>
-                          <button type="button" onClick={() => openForCheck(weaponOpt.name + ' 攻击', physicalAttackBonus, { quickRoll: true, critThreatMinNatural: weaponCritThreatMin, advantage: gainAdvantage })} className={CM_BTN_RED} title={quickRollTitle('攻击')} aria-label={quickRollTitle('攻击')}>
+                          <button type="button" onClick={() => openForCheck(weaponOpt.name + ' 攻击' + comboSuffix, physicalAttackBonus, { quickRoll: true, critThreatMinNatural: weaponCritThreatMin, advantage: gainAdvantage })} className={CM_BTN_RED} title={quickRollTitle('攻击')} aria-label={quickRollTitle('攻击')}>
                             <QuickRollIcon kind="d20" />
                           </button>
                         </div>
@@ -3537,7 +3890,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                           <span className={`min-w-0 flex-1 font-mono ${CM_MEAN_HI} tabular-nums text-white whitespace-nowrap [overflow-wrap:anywhere] sm:truncate`}>
                             {formatWeaponAttackDiceDisplay(attackParsed)}
                             <span
-                              title={`伤害加值明细：属性调整值 ${abilityMod >= 0 ? '+' : ''}${abilityMod}，Buff 伤害加值 ${buffDamageBonus >= 0 ? '+' : ''}${buffDamageBonus}${conditionalBonuses?.damageBonus ? `，条件范围伤害加值 ${conditionalBonuses.damageBonus >= 0 ? '+' : ''}${conditionalBonuses.damageBonus}` : ''}，增益伤害加值 ${gainDamageBonus >= 0 ? '+' : ''}${gainDamageBonus}${weaponPerDieMod !== 0 ? `，每骰加成 ${weaponPerDieMod >= 0 ? '+' : ''}${weaponPerDieMod}` : ''}`}
+                              title={`伤害加值明细：属性调整值 ${abilityMod >= 0 ? '+' : ''}${abilityMod}，Buff 伤害加值 ${buffDamageBonus >= 0 ? '+' : ''}${buffDamageBonus}，增益伤害加值 ${gainDamageBonus >= 0 ? '+' : ''}${gainDamageBonus}${weaponPerDieMod !== 0 ? `，每骰加成 ${weaponPerDieMod >= 0 ? '+' : ''}${weaponPerDieMod}` : ''}`}
                               className="cursor-help"
                             >
                               {formatSignedModifier(totalDamageMod)}
@@ -3545,13 +3898,14 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                             {displayDamageType}
                             {filterExtraDiceAgainstMain(attackParsed, rawDamageType, weaponExtraDiceStrings).map((d) => ` + ${d}`).join('')}
                           </span>
+                          {renderAutoGainBadges(gains, () => isCombo ? openEditComboMean(cm) : openEditWeaponMean(displayMean))}
                           {((attackParsed.diceList?.length || attackParsed.dice)
                             || filterExtraDiceAgainstMain(attackParsed, rawDamageType, weaponExtraDiceStrings).length > 0) && (
                             <>
-                              <button type="button" onClick={() => rollAllWeaponDamage(cm, weaponOpt, attackParsed, totalDamageMod, displayDamageType, false)} className={CM_BTN_GOLD} title={quickRollTitle('伤害')} aria-label={quickRollTitle('伤害')}>
+                              <button type="button" onClick={() => rollAllWeaponDamage(displayMean, weaponOpt, attackParsed, totalDamageMod, displayDamageType, false)} className={CM_BTN_GOLD} title={quickRollTitle('伤害')} aria-label={quickRollTitle('伤害')}>
                                 <QuickRollIcon kind="damage" />
                               </button>
-                              <button type="button" onClick={() => rollAllWeaponDamage(cm, weaponOpt, attackParsed, totalDamageMod, displayDamageType, true)} className={CM_BTN_CRIT} title={quickRollTitle(`伤害（重击×${weaponCritDiceMult}伤害骰）`)} aria-label={quickRollTitle(`伤害（重击×${weaponCritDiceMult}伤害骰）`)}>
+                              <button type="button" onClick={() => rollAllWeaponDamage(displayMean, weaponOpt, attackParsed, totalDamageMod, displayDamageType, true)} className={CM_BTN_CRIT} title={quickRollTitle(`伤害（重击×${weaponCritDiceMult}伤害骰）`)} aria-label={quickRollTitle(`伤害（重击×${weaponCritDiceMult}伤害骰）`)}>
                                 <QuickRollIcon kind="crit" />
                               </button>
                             </>
@@ -3705,6 +4059,21 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       <button type="button" onClick={() => { setAddSpellAttackName(''); setAddSpellAttackSpellId(''); setAddSpellAttackHitResolution('spell_attack'); setAddSpellAttackDice(''); setAddSpellAttackDamageType(''); setAddMeanStep('spell_attack'); }} className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white font-medium text-sm">
                         法术攻击
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const primary = combatMeans[0] || null
+                          setAddComboPrimaryId(primary ? primary.id : null)
+                          setAddComboAttachments([])
+                          const isSpellPrimary = primary && (primary.type === 'spell_attack' || primary.type === 'spell')
+                          setAddGains(buildDefaultGainsFromBuffs(primary || {}, buffStats, mergedBuffs, !!isSpellPrimary, char))
+                          setAddMeanStep('combo')
+                        }}
+                        disabled={combatMeans.length === 0}
+                        className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm"
+                      >
+                        组合技
+                      </button>
                     </div>
                     {itemMeansFromInv.length === 0 && <p className="text-dnd-text-muted text-xs mt-1">背包中暂无消耗品、法器（法杖/魔杖/权杖）或卷轴时，道具攻击不可选。</p>}
                     <button type="button" onClick={() => setShowAddCombatMeanModal(false)} className="mt-3 w-full py-1.5 rounded border border-gray-500 text-gray-400 text-xs">取消</button>
@@ -3793,7 +4162,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         </select>
                       </div>
                     </div>
-                    <GainEditor gains={addGains} onChange={setAddGains} />
+                    <GainEditor gains={addGains} onChange={setAddGains} cm={draftSpellCm} buffStats={buffStats} mergedBuffs={mergedBuffs} character={char} formulaContext={itemFormulaContext} isSpellMean />
                     <div className="flex gap-2 mt-3">
                       <button type="button" onClick={() => { setEditingCombatMeanId(null); setAddMeanStep('type'); }} className="flex-1 py-1.5 rounded border border-gray-500 text-gray-400 text-xs">上一步</button>
                       <button type="button" onClick={confirmAddSpellAttackMean} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white text-xs">{editingCombatMeanId ? '保存' : '保存'}</button>
@@ -3812,10 +4181,195 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         ))}
                       </select>
                     </div>
-                    <GainEditor gains={addGains} onChange={setAddGains} />
+                    <GainEditor gains={addGains} onChange={setAddGains} cm={draftItemCm} buffStats={buffStats} mergedBuffs={mergedBuffs} character={char} formulaContext={itemFormulaContext} isSpellMean={draftItemIsSpell} />
                     <div className="flex gap-2 mt-3">
                       <button type="button" onClick={() => setAddMeanStep('type')} className="flex-1 py-1.5 rounded border border-gray-500 text-gray-400 text-xs">上一步</button>
                       <button type="button" onClick={confirmAddItemMean} disabled={addItemIndex == null} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 text-white text-xs">{editingCombatMeanId ? '保存' : '确认'}</button>
+                    </div>
+                  </>
+                ) : addMeanStep === 'combo' ? (
+                  <>
+                    <h3 className="text-dnd-gold-light text-sm font-bold mb-3">{editingCombatMeanId ? '编辑组合技' : '组合技'}</h3>
+                    <p className="text-dnd-text-muted text-xs mb-2">选择一个主战斗手段，并为其添加多个附加伤害组件。</p>
+                    <div className="space-y-2.5 text-sm">
+                      <div>
+                        <label className="block text-dnd-text-muted text-xs mb-0.5">主手段</label>
+                        <select
+                          value={addComboPrimaryId ?? ''}
+                          onChange={(e) => setAddComboPrimaryId(e.target.value === '' ? null : e.target.value)}
+                          className={inputClass + ' w-full h-8 text-xs'}
+                        >
+                          <option value="">—</option>
+                          {nonComboCombatMeans.map((m) => (
+                            <option key={m.id} value={m.id}>{getCombatMeanLabel(m, { weaponsFromInv, itemMeansFromInv })}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <div className="mb-1 flex items-center justify-between gap-2">
+                          <label className="text-dnd-text-muted text-xs">附加伤害</label>
+                          <button
+                            type="button"
+                            onClick={() => setAddComboAttachments((arr) => [...arr, { id: 'att_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), name: '', damageDice: '', damageType: '', sourceType: 'custom', sourceId: '' }])}
+                            className="flex shrink-0 items-center gap-0.5 rounded border border-dashed border-dnd-gold/50 px-2 py-0.5 text-[10px] font-medium text-dnd-gold-light hover:bg-dnd-gold/15"
+                          >
+                            <Plus className="h-3 w-3" />
+                            添加
+                          </button>
+                        </div>
+                        {addComboAttachments.length === 0 && <p className="text-dnd-text-muted text-[10px]">暂无附加伤害。</p>}
+                        <div className="space-y-1.5">
+                          {addComboAttachments.map((a, idx) => {
+                            const sourceType = a.sourceType || 'custom'
+                            const resolveSource = (nextType, nextId) => {
+                              const base = { ...a, sourceType: nextType, sourceId: nextId || '' }
+                              if (nextType === 'combatMean') {
+                                const mean = nonComboCombatMeans.find((m) => m.id === nextId)
+                                if (mean) {
+                                  if (mean.type === 'physical') {
+                                    const w = weaponsFromInv.find((x) => x.index === mean.weaponInventoryIndex)
+                                    const suffix = mean.weaponNameSuffix ? String(mean.weaponNameSuffix).trim() : ''
+                                    const parsed = w ? parseWeaponAttack(getWeaponAttackStringForParsing(w, mean.weaponVersatileMode)) : null
+                                    base.name = (w ? w.name : '武器') + (suffix ? ` ${suffix}` : '')
+                                    base.damageDice = parsed?.dice || ''
+                                    base.damageType = mean.damageType || parsed?.type || ''
+                                  } else if (mean.type === 'spell_attack') {
+                                    base.name = mean.spellName || '法术'
+                                    base.damageDice = mean.damageDice || ''
+                                    base.damageType = mean.damageTypeSpell || ''
+                                  } else if (mean.type === 'item') {
+                                    const it = itemMeansFromInv.find((x) => x.index === mean.itemInventoryIndex)
+                                    base.name = it ? it.name : '道具'
+                                    base.damageDice = it?.dice || ''
+                                    base.damageType = it?.damageType || ''
+                                  }
+                                }
+                              } else if (nextType === 'martialTechnique') {
+                                const tech = getMartialTechniqueById(nextId)
+                                if (tech) {
+                                  base.name = tech.name
+                                  base.damageDice = inferDamageDiceFromText(tech.description)
+                                  base.damageType = ''
+                                }
+                              } else if (nextType === 'classFeature') {
+                                const feat = COMBO_CLASS_FEATURE_OPTIONS.find((f) => f.id === nextId)
+                                if (feat) {
+                                  base.name = feat.name
+                                  base.damageDice = feat.defaultDamageDice
+                                  base.damageType = ''
+                                }
+                              }
+                              return base
+                            }
+                            return (
+                              <div key={a.id || idx} className="rounded border border-gray-600 bg-gray-700/30 p-1.5 text-xs space-y-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <select
+                                    value={sourceType}
+                                    onChange={(e) => setAddComboAttachments((arr) => arr.map((x, i) => i === idx ? resolveSource(e.target.value, '') : x))}
+                                    className={inputClass + ' h-7 text-xs shrink-0'}
+                                  >
+                                    {COMBO_ATTACHMENT_SOURCE_TYPES.map((t) => (
+                                      <option key={t.value} value={t.value}>{t.label}</option>
+                                    ))}
+                                  </select>
+                                  {sourceType === 'combatMean' && (
+                                    <select
+                                      value={a.sourceId || ''}
+                                      onChange={(e) => setAddComboAttachments((arr) => arr.map((x, i) => i === idx ? resolveSource('combatMean', e.target.value) : x))}
+                                      className={inputClass + ' flex-1 min-w-0 h-7 text-xs'}
+                                    >
+                                      <option value="">—</option>
+                                      {nonComboCombatMeans
+                                        .filter((m) => m.id !== editingCombatMeanId)
+                                        .map((m) => (
+                                          <option key={m.id} value={m.id}>{getCombatMeanLabel(m, { weaponsFromInv, itemMeansFromInv })}</option>
+                                        ))}
+                                    </select>
+                                  )}
+                                  {sourceType === 'martialTechnique' && (
+                                    <select
+                                      value={a.sourceId || ''}
+                                      onChange={(e) => setAddComboAttachments((arr) => arr.map((x, i) => i === idx ? resolveSource('martialTechnique', e.target.value) : x))}
+                                      className={inputClass + ' flex-1 min-w-0 h-7 text-xs'}
+                                    >
+                                      <option value="">—</option>
+                                      {MARTIAL_TECHNIQUES.map((t) => (
+                                        <option key={t.id} value={t.id}>{t.name}</option>
+                                      ))}
+                                    </select>
+                                  )}
+                                  {sourceType === 'classFeature' && (
+                                    <select
+                                      value={a.sourceId || ''}
+                                      onChange={(e) => setAddComboAttachments((arr) => arr.map((x, i) => i === idx ? resolveSource('classFeature', e.target.value) : x))}
+                                      className={inputClass + ' flex-1 min-w-0 h-7 text-xs'}
+                                    >
+                                      <option value="">—</option>
+                                      {COMBO_CLASS_FEATURE_OPTIONS.map((f) => (
+                                        <option key={f.id} value={f.id}>{f.name}</option>
+                                      ))}
+                                    </select>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => setAddComboAttachments((arr) => arr.filter((_, i) => i !== idx))}
+                                    className="shrink-0 rounded border border-gray-500 px-1.5 py-0.5 text-gray-400 hover:bg-gray-600"
+                                  >
+                                    移除
+                                  </button>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="text"
+                                    value={a.name || ''}
+                                    onChange={(e) => setAddComboAttachments((arr) => arr.map((x, i) => i === idx ? { ...x, name: e.target.value } : x))}
+                                    placeholder="名称"
+                                    className={inputClass + ' flex-1 min-w-0 h-7 text-xs'}
+                                  />
+                                  <input
+                                    type="text"
+                                    value={a.damageDice || ''}
+                                    onChange={(e) => setAddComboAttachments((arr) => arr.map((x, i) => i === idx ? { ...x, damageDice: e.target.value } : x))}
+                                    placeholder="如 1d6"
+                                    className={inputClass + ' w-16 h-7 text-xs font-mono'}
+                                  />
+                                  <select
+                                    value={a.damageType || ''}
+                                    onChange={(e) => setAddComboAttachments((arr) => arr.map((x, i) => i === idx ? { ...x, damageType: e.target.value } : x))}
+                                    className={inputClass + ' w-20 h-7 text-xs'}
+                                  >
+                                    <option value="">类型</option>
+                                    {DAMAGE_TYPE_OPTIONS.map((d) => (
+                                      <option key={d.value} value={d.value}>{d.label}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                    {(() => {
+                      const primaryMean = combatMeans.find((m) => m.id === addComboPrimaryId)
+                      const isSpellPrimary = primaryMean && primaryMean.type === 'spell_attack'
+                      return (
+                        <GainEditor
+                          gains={addGains}
+                          onChange={setAddGains}
+                          cm={primaryMean || {}}
+                          buffStats={buffStats}
+                          mergedBuffs={mergedBuffs}
+                          character={char}
+                          formulaContext={itemFormulaContext}
+                          isSpellMean={!!isSpellPrimary}
+                        />
+                      )
+                    })()}
+                    <div className="flex gap-2 mt-3">
+                      <button type="button" onClick={() => { setEditingCombatMeanId(null); setAddComboPrimaryId(null); setAddComboAttachments([]); setAddMeanStep('type'); }} className="flex-1 py-1.5 rounded border border-gray-500 text-gray-400 text-xs">上一步</button>
+                      <button type="button" onClick={confirmAddComboMean} disabled={addComboPrimaryId == null} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 text-white text-xs">{editingCombatMeanId ? '保存' : '确认'}</button>
                     </div>
                   </>
                 ) : (
@@ -3907,7 +4461,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                               {' '}· 熟练{previewWeaponStats.weaponProficient ? `+${prof}` : '+0'}
                               {previewWeaponStats.buffAttackBonus !== 0 && ` · Buff${previewWeaponStats.buffAttackBonus >= 0 ? '+' : ''}${previewWeaponStats.buffAttackBonus}`}
                               {previewWeaponStats.gainAttackBonus !== 0 && ` · 增益${previewWeaponStats.gainAttackBonus >= 0 ? '+' : ''}${previewWeaponStats.gainAttackBonus}`}
-                              {previewWeaponStats.conditionalBonuses?.attackBonus ? ` · 条件${previewWeaponStats.conditionalBonuses.attackBonus >= 0 ? '+' : ''}${previewWeaponStats.conditionalBonuses.attackBonus}` : ''}
                             </span>
                           </div>
                           <div className="text-xs">
@@ -4028,7 +4581,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         )}
                       </div>
                     </div>
-                    <GainEditor gains={addGains} onChange={setAddGains} />
+                    <GainEditor gains={addGains} onChange={setAddGains} cm={draftWeaponCm} buffStats={buffStats} mergedBuffs={mergedBuffs} character={char} formulaContext={itemFormulaContext} isSpellMean={false} />
                     <div className="flex gap-2 mt-3">
                       <button type="button" onClick={() => { setEditingCombatMeanId(null); setShowWeaponExtraDiceEditor(false); setAddMeanStep('type'); }} className="flex-1 py-1.5 rounded border border-gray-500 text-gray-400 text-xs">上一步</button>
                       <button type="button" onClick={confirmAddWeaponMean} disabled={addWeaponIndex == null} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 text-white text-xs">{editingCombatMeanId ? '保存' : '确认'}</button>

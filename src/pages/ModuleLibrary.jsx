@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from 'react'
-import { Plus, Pencil, Trash2, RefreshCw, Search } from 'lucide-react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { Plus, Pencil, Trash2, RefreshCw, Search, ChevronDown } from 'lucide-react'
 import { useModule } from '../contexts/ModuleContext'
 import {
   addBuffTemplate,
@@ -9,11 +9,13 @@ import {
   updateItemTemplate,
   removeItemTemplate,
 } from '../lib/moduleLibraryStore'
-import BuffForm from '../components/BuffForm'
+import BuffForm, { EffectModuleModal } from '../components/BuffForm'
 import ItemPicker from '../components/ItemPicker'
 import { getItemById, getItemDisplayName } from '../data/itemDatabase'
 import { inputClass, labelClass } from '../lib/inputStyles'
-import { BUFF_SOURCE_KIND_OPTIONS } from '../lib/buffSourceKind'
+import { BUFF_SOURCE_KIND_LIBRARY_OPTIONS } from '../lib/buffSourceKind'
+import { getEffectSummaryShort } from '../components/BuffListItem'
+import { BUFF_TYPES, getCategories, normalizeEffectCategory } from '../data/buffTypes'
 
 const RARITY_OPTIONS = [
   { value: '', label: '— 稀有度 —' },
@@ -27,8 +29,8 @@ const RARITY_OPTIONS = [
 
 function SectionCard({ title, children, action }) {
   return (
-    <div className="rounded-xl border border-white/[0.11] bg-gradient-to-b from-[#2c384c] via-[#242f42] to-[#1b2433] p-3 mb-4">
-      <div className="flex items-center justify-between mb-2">
+    <div className="rounded-xl border border-white/[0.11] bg-gradient-to-b from-[#2c384c] via-[#242f42] to-[#1b2433] p-2 mb-2">
+      <div className="flex items-center justify-between mb-1">
         <h2 className="text-dnd-gold-light text-sm font-bold uppercase tracking-wide">{title}</h2>
         {action}
       </div>
@@ -39,36 +41,88 @@ function SectionCard({ title, children, action }) {
 
 function BuffTemplateItem({ item, onEdit, onDelete }) {
   const effectCount = Array.isArray(item.effects) ? item.effects.length : 0
-  const kindLabel = BUFF_SOURCE_KIND_OPTIONS.find((o) => o.key === item.sourceKind)?.label ?? '冒险'
   return (
-    <div className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-[#1a2333]/60 px-2 py-1.5">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className="text-[10px] px-1 py-0 rounded bg-gray-700/60 text-gray-300 shrink-0">{kindLabel}</span>
-          <p className="text-sm text-gray-200 truncate" title={item.source}>{item.source}</p>
-        </div>
-        <p className="text-xs text-gray-500 truncate">
+    <div className="min-w-0 flex items-center justify-between gap-2 rounded-md border border-white/5 bg-[#1a2333]/40 px-2 py-1">
+      <div className="min-w-0 flex-1 flex items-center gap-1.5">
+        <p className="text-xs text-gray-200 truncate" title={item.source}>{item.source}</p>
+        <span className="text-[10px] text-gray-500 shrink-0">
           {item.duration ? `持续 ${item.duration} · ` : ''}{effectCount} 个效果
-        </p>
+        </span>
       </div>
       <div className="flex items-center gap-0.5 shrink-0">
         <button
           type="button"
           onClick={onEdit}
-          className="p-1.5 rounded-md text-gray-400 hover:bg-gray-700/80 hover:text-dnd-gold-light transition-colors"
+          className="p-1 rounded-md text-gray-400 hover:bg-gray-700/80 hover:text-dnd-gold-light transition-colors"
           title="编辑"
         >
-          <Pencil className="w-3.5 h-3.5" />
+          <Pencil className="w-3 h-3" />
         </button>
         <button
           type="button"
           onClick={onDelete}
-          className="p-1.5 rounded-md text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors"
+          className="p-1 rounded-md text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors"
           title="删除"
         >
-          <Trash2 className="w-3.5 h-3.5" />
+          <Trash2 className="w-3 h-3" />
         </button>
       </div>
+    </div>
+  )
+}
+
+/** 物品模板预览：简述 + 附魔摘要 */
+function ItemTemplateDetail({ itemId, compact = false, showEffects = true }) {
+  const proto = useMemo(() => (itemId ? getItemById(itemId) : null), [itemId])
+  const description = (proto?.详细介绍 ?? '').trim()
+  const effectSummaries = useMemo(() => {
+    if (!showEffects) return []
+    const list = Array.isArray(proto?.effects) ? proto.effects : []
+    return list
+      .map((e) =>
+        getEffectSummaryShort(
+          {
+            effectType: e.effectType,
+            value: e.value,
+            customText: e.customText,
+            scope: e.scope,
+            scopeDetail: e.scopeDetail,
+          },
+          {},
+          {},
+        ),
+      )
+      .filter(Boolean)
+  }, [proto, showEffects])
+
+  if (!description && effectSummaries.length === 0) return null
+
+  if (compact) {
+    const text = [description, ...effectSummaries].filter(Boolean).join(' · ')
+    return (
+      <p className="min-w-0 text-[10px] text-gray-400 truncate" title={text}>
+        {text}
+      </p>
+    )
+  }
+
+  return (
+    <div className="rounded-md border border-white/5 bg-[#1a2333]/40 p-2 space-y-1">
+      {description && (
+        <p className="text-[11px] text-gray-300 leading-relaxed">{description}</p>
+      )}
+      {effectSummaries.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {effectSummaries.map((s, i) => (
+            <span
+              key={i}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700/60 text-gray-300"
+            >
+              {s}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -78,37 +132,41 @@ function ItemTemplateItem({ item, onEdit, onDelete }) {
   const displayName = item.name || getItemDisplayName(proto) || item.itemId || '未选择物品'
   const isAuto = item.source === 'character'
   return (
-    <div className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-[#1a2333]/60 px-2 py-1.5">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className={`text-[10px] px-1 py-0 rounded shrink-0 ${isAuto ? 'bg-dnd-gold/20 text-dnd-gold-light' : 'bg-gray-700/60 text-gray-300'}`}>
+    <div className="min-w-0 flex flex-col gap-0.5 rounded-md border border-white/5 bg-[#1a2333]/40 px-2 py-1">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 flex-1 flex items-center gap-1.5">
+          <span
+            className={`text-[10px] px-1 py-0 rounded shrink-0 ${
+              isAuto ? 'bg-dnd-gold/20 text-dnd-gold-light' : 'bg-gray-700/60 text-gray-300'
+            }`}
+          >
             {isAuto ? '自动' : '手动'}
           </span>
-          <p className="text-sm text-gray-200 truncate" title={displayName}>{displayName}</p>
+          <p className="text-xs text-gray-200 truncate" title={displayName}>{displayName}</p>
+          <span className="text-[10px] text-gray-500 shrink-0">
+            数量 {item.qty ?? 1}{item.rarity ? ` · ${item.rarity}` : ''}{item.isAttuned ? ' · 已同调' : ''}
+          </span>
         </div>
-        <p className="text-xs text-gray-500 truncate">
-          {proto?.类型 ? `${proto.类型} · ` : ''}数量 {item.qty ?? 1}
-          {item.rarity ? ` · ${item.rarity}` : ''}{item.isAttuned ? ' · 已同调' : ''}
-        </p>
+        <div className="flex items-center gap-0.5 shrink-0">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="p-1 rounded-md text-gray-400 hover:bg-gray-700/80 hover:text-dnd-gold-light transition-colors"
+            title="编辑"
+          >
+            <Pencil className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="p-1 rounded-md text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors"
+            title="删除"
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+        </div>
       </div>
-      <div className="flex items-center gap-0.5 shrink-0">
-        <button
-          type="button"
-          onClick={onEdit}
-          className="p-1.5 rounded-md text-gray-400 hover:bg-gray-700/80 hover:text-dnd-gold-light transition-colors"
-          title="编辑"
-        >
-          <Pencil className="w-3.5 h-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          className="p-1.5 rounded-md text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors"
-          title="删除"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-      </div>
+      <ItemTemplateDetail itemId={item.itemId} compact />
     </div>
   )
 }
@@ -127,13 +185,18 @@ export default function ModuleLibrary() {
   const [itemSearch, setItemSearch] = useState('')
   const [syncing, setSyncing] = useState(false)
   const [syncingItems, setSyncingItems] = useState(false)
+  const [collapsedBuffGroups, setCollapsedBuffGroups] = useState(new Set())
+  const [collapsedItemGroups, setCollapsedItemGroups] = useState(new Set())
+  const [editingModuleId, setEditingModuleId] = useState(null)
 
   const buffTemplates = moduleLibrary?.buffTemplates ?? []
   const itemTemplates = moduleLibrary?.itemTemplates ?? []
 
   const filteredBuffTemplates = useMemo(() => {
     const q = buffSearch.trim().toLowerCase()
+    const excluded = new Set(['equipment', 'adventure'])
     return buffTemplates.filter((t) => {
+      if (excluded.has(t.sourceKind)) return false
       if (buffKindFilter && t.sourceKind !== buffKindFilter) return false
       if (!q) return true
       return String(t.source ?? '').toLowerCase().includes(q)
@@ -149,6 +212,63 @@ export default function ModuleLibrary() {
       return name.includes(q)
     })
   }, [itemTemplates, itemSearch])
+
+  const groupedBuffTemplates = useMemo(() => {
+    const map = {}
+    for (const t of filteredBuffTemplates) {
+      const k = t.sourceKind || 'temporary'
+      if (!map[k]) map[k] = []
+      map[k].push(t)
+    }
+    for (const k of Object.keys(map)) {
+      map[k].sort((a, b) =>
+        String(a.source ?? '').localeCompare(String(b.source ?? ''), 'zh-CN'),
+      )
+    }
+    return BUFF_SOURCE_KIND_LIBRARY_OPTIONS.map((o) => ({
+      key: o.key,
+      label: o.label,
+      items: map[o.key] || [],
+    })).filter((g) => g.items.length > 0)
+  }, [filteredBuffTemplates])
+
+  const groupedItemTemplates = useMemo(() => {
+    const map = {}
+    for (const t of filteredItemTemplates) {
+      const proto = t.itemId ? getItemById(t.itemId) : null
+      const type = proto?.类型 || '其他'
+      if (!map[type]) map[type] = []
+      map[type].push(t)
+    }
+    for (const k of Object.keys(map)) {
+      map[k].sort((a, b) => {
+        const nameA = (a.name || getItemDisplayName(a.itemId ? getItemById(a.itemId) : null) || a.itemId || '').toLowerCase()
+        const nameB = (b.name || getItemDisplayName(b.itemId ? getItemById(b.itemId) : null) || b.itemId || '').toLowerCase()
+        return nameA.localeCompare(nameB, 'zh-CN')
+      })
+    }
+    return Object.keys(map)
+      .sort((a, b) => a.localeCompare(b, 'zh-CN'))
+      .map((k) => ({ key: k, label: k, items: map[k] }))
+  }, [filteredItemTemplates])
+
+  const toggleBuffGroup = useCallback((key) => {
+    setCollapsedBuffGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
+  const toggleItemGroup = useCallback((key) => {
+    setCollapsedItemGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
 
   useEffect(() => {
     refreshModuleLibrary()
@@ -170,6 +290,62 @@ export default function ModuleLibrary() {
     await refreshModuleLibrary()
   }
 
+  /** 将原型物品的 effects 数组转换为可编辑模块格式 */
+  const protoEffectsToModules = (effects) => {
+    if (!Array.isArray(effects) || effects.length === 0) return []
+    return effects.map((e) => ({
+      id: 'm_' + Math.random().toString(36).slice(2),
+      category: normalizeEffectCategory(e.effectType ?? '', e.category),
+      effectType: e.effectType ?? '',
+      value: e.value ?? 0,
+      break20: (e.break20 && typeof e.break20 === 'object' && !Array.isArray(e.break20)) ? e.break20 : {},
+      customText: typeof e.value === 'string' ? e.value : (e.customText ?? ''),
+      scope: e.scope,
+      scopeDetail: e.scopeDetail,
+    }))
+  }
+
+  const handleAddEffect = () => {
+    const firstCat = getCategories()[0]?.key ?? 'ability'
+    const firstEffect = BUFF_TYPES[firstCat]?.effects?.[0]?.key ?? 'ability_score'
+    const m = {
+      id: 'm_' + Math.random().toString(36).slice(2),
+      category: firstCat,
+      effectType: firstEffect,
+      value: 0,
+      break20: {},
+      customText: '',
+    }
+    setItemForm((s) => ({ ...s, effects: [...(s.effects ?? []), m] }))
+    setEditingModuleId(m.id)
+  }
+
+  const handleEditEffect = (id) => setEditingModuleId(id)
+
+  const handleSaveEffect = (draft) => {
+    if (!editingModuleId) return
+    setItemForm((s) => ({
+      ...s,
+      effects: (s.effects ?? []).map((m) => (m.id === editingModuleId ? draft : m)),
+    }))
+    setEditingModuleId(null)
+  }
+
+  const handleCancelEffect = () => {
+    setItemForm((s) => ({
+      ...s,
+      effects: (s.effects ?? []).filter((m) => m.id !== editingModuleId),
+    }))
+    setEditingModuleId(null)
+  }
+
+  const handleRemoveEffect = (id) => {
+    setItemForm((s) => ({
+      ...s,
+      effects: (s.effects ?? []).filter((m) => m.id !== id),
+    }))
+  }
+
   const handleSaveItem = async (e) => {
     e.preventDefault()
     if (!itemForm?.itemId) return
@@ -179,6 +355,15 @@ export default function ModuleLibrary() {
       qty: Math.max(1, Number(itemForm.qty) || 1),
       isAttuned: !!itemForm.isAttuned,
       rarity: itemForm.rarity || '',
+      effects: (itemForm.effects ?? []).map((m) => ({
+        category: m.category,
+        effectType: m.effectType,
+        value: m.value,
+        break20: m.break20,
+        customText: m.customText,
+        scope: m.scope,
+        scopeDetail: m.scopeDetail,
+      })),
     }
     if (itemForm.id) {
       await updateItemTemplate(currentModuleId, itemForm.id, payload)
@@ -197,8 +382,9 @@ export default function ModuleLibrary() {
   const openNewBuff = () => setBuffForm({ id: null, initial: null })
   const openEditBuff = (item) => setBuffForm({ id: item.id, initial: item })
   const openNewItem = () =>
-    setItemForm({ id: null, itemId: '', name: '', qty: 1, isAttuned: false, rarity: '' })
-  const openEditItem = (item) =>
+    setItemForm({ id: null, itemId: '', name: '', qty: 1, isAttuned: false, rarity: '', effects: [] })
+  const openEditItem = (item) => {
+    const proto = item.itemId ? getItemById(item.itemId) : null
     setItemForm({
       id: item.id,
       itemId: item.itemId || '',
@@ -206,7 +392,11 @@ export default function ModuleLibrary() {
       qty: item.qty ?? 1,
       isAttuned: !!item.isAttuned,
       rarity: item.rarity || '',
+      effects: Array.isArray(item.effects) && item.effects.length > 0
+        ? protoEffectsToModules(item.effects)
+        : protoEffectsToModules(proto?.effects ?? []),
     })
+  }
 
   const handleSyncBuffs = async () => {
     setSyncing(true)
@@ -259,7 +449,7 @@ export default function ModuleLibrary() {
           </div>
         }
       >
-        <div className="flex flex-col sm:flex-row gap-2 mb-2">
+        <div className="flex flex-col sm:flex-row gap-2 mb-1.5">
           <div className="relative flex-1 min-w-0">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
             <input
@@ -273,10 +463,10 @@ export default function ModuleLibrary() {
           <select
             value={buffKindFilter}
             onChange={(e) => setBuffKindFilter(e.target.value)}
-            className={`${inputClass} text-xs min-w-[7rem]`}
+            className={`${inputClass} text-xs min-w-[6.5rem]`}
           >
             <option value="">全部分类</option>
-            {BUFF_SOURCE_KIND_OPTIONS.map((o) => (
+            {BUFF_SOURCE_KIND_LIBRARY_OPTIONS.map((o) => (
               <option key={o.key} value={o.key}>{o.label}</option>
             ))}
           </select>
@@ -286,15 +476,37 @@ export default function ModuleLibrary() {
             {buffTemplates.length === 0 ? '暂无 BUFF 模板' : '没有匹配的 BUFF'}
           </p>
         ) : (
-          <div className="space-y-1.5">
-            {filteredBuffTemplates.map((item) => (
-              <BuffTemplateItem
-                key={item.id}
-                item={item}
-                onEdit={() => openEditBuff(item)}
-                onDelete={() => handleDeleteBuff(item.id)}
-              />
-            ))}
+          <div className="space-y-1">
+            {groupedBuffTemplates.map((g) => {
+              const collapsed = collapsedBuffGroups.has(g.key)
+              return (
+                <div key={g.key} className="rounded-md border border-white/10 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => toggleBuffGroup(g.key)}
+                    className="w-full flex items-center justify-between gap-2 px-2 py-1 bg-[#1a2333]/80 hover:bg-[#1a2333] transition-colors"
+                  >
+                    <span className="text-xs font-bold text-dnd-gold-light">
+                      {g.label}
+                      <span className="ml-1.5 text-[10px] font-normal text-gray-500">{g.items.length}</span>
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+                  </button>
+                  {!collapsed && (
+                    <div className="p-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1 bg-[#141c28]/40">
+                      {g.items.map((item) => (
+                        <BuffTemplateItem
+                          key={item.id}
+                          item={item}
+                          onEdit={() => openEditBuff(item)}
+                          onDelete={() => handleDeleteBuff(item.id)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </SectionCard>
@@ -324,7 +536,7 @@ export default function ModuleLibrary() {
           </div>
         }
       >
-        <div className="relative mb-2">
+        <div className="relative mb-1.5">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
           <input
             type="text"
@@ -339,15 +551,37 @@ export default function ModuleLibrary() {
             {itemTemplates.length === 0 ? '暂无物品模板' : '没有匹配的物品'}
           </p>
         ) : (
-          <div className="space-y-1.5">
-            {filteredItemTemplates.map((item) => (
-              <ItemTemplateItem
-                key={item.id}
-                item={item}
-                onEdit={() => openEditItem(item)}
-                onDelete={() => handleDeleteItem(item.id)}
-              />
-            ))}
+          <div className="space-y-1">
+            {groupedItemTemplates.map((g) => {
+              const collapsed = collapsedItemGroups.has(g.key)
+              return (
+                <div key={g.key} className="rounded-md border border-white/10 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => toggleItemGroup(g.key)}
+                    className="w-full flex items-center justify-between gap-2 px-2 py-1 bg-[#1a2333]/80 hover:bg-[#1a2333] transition-colors"
+                  >
+                    <span className="text-xs font-bold text-dnd-gold-light">
+                      {g.label}
+                      <span className="ml-1.5 text-[10px] font-normal text-gray-500">{g.items.length}</span>
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+                  </button>
+                  {!collapsed && (
+                    <div className="p-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1 bg-[#141c28]/40">
+                      {g.items.map((item) => (
+                        <ItemTemplateItem
+                          key={item.id}
+                          item={item}
+                          onEdit={() => openEditItem(item)}
+                          onDelete={() => handleDeleteItem(item.id)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </SectionCard>
@@ -364,6 +598,7 @@ export default function ModuleLibrary() {
                 key={`module-buff-${buffForm.id ?? 'new'}`}
                 initial={buffForm.initial}
                 defaultSourceKind="temporary"
+                sourceKindOptions={BUFF_SOURCE_KIND_LIBRARY_OPTIONS}
                 onSave={handleSaveBuff}
                 onCancel={() => setBuffForm(null)}
               />
@@ -395,6 +630,65 @@ export default function ModuleLibrary() {
                   className="w-full"
                 />
               </div>
+              {itemForm.itemId && <ItemTemplateDetail itemId={itemForm.itemId} showEffects={false} />}
+              {itemForm.itemId && (
+                <div className="rounded-md border border-white/5 bg-[#1a2333]/40 p-2 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">附魔效果</label>
+                    <button
+                      type="button"
+                      onClick={handleAddEffect}
+                      className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-dnd-gold text-dnd-gold-light hover:bg-dnd-gold/20 text-[10px] font-medium"
+                    >
+                      <Plus className="w-3 h-3" />
+                      添加效果
+                    </button>
+                  </div>
+                  {(itemForm.effects ?? []).length === 0 ? (
+                    <p className="text-gray-500 text-xs text-center py-1">暂无附魔效果</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {(itemForm.effects ?? []).map((mod) => {
+                        const catData = BUFF_TYPES[mod.category]
+                        const currentEffect = catData?.effects?.find((e) => e.key === mod.effectType)
+                        const label = currentEffect ? (currentEffect.label ?? mod.effectType) : '—'
+                        const summary = currentEffect
+                          ? getEffectSummaryShort({ effectType: mod.effectType, value: mod.value, customText: mod.customText }, {}, {})
+                          : '未选择效果'
+                        return (
+                          <div
+                            key={mod.id}
+                            className="rounded border border-white/[0.08] bg-[#1a2333]/60 px-2 py-1.5 flex items-start justify-between gap-2"
+                          >
+                            <div className="min-w-0 flex-1 flex items-start gap-2">
+                              <span className="text-dnd-gold-light/90 text-xs font-medium shrink-0 pt-0.5">{label}</span>
+                              <span className="text-gray-200 text-xs truncate" title={summary}>{summary}</span>
+                            </div>
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleEditEffect(mod.id)}
+                                className="p-1 rounded text-gray-400 hover:bg-gray-700 hover:text-dnd-gold transition-colors"
+                                title="编辑"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveEffect(mod.id)}
+                                className="p-1 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors"
+                                title="删除"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className={labelClass}>显示名称（可选）</label>
@@ -457,6 +751,30 @@ export default function ModuleLibrary() {
                 </button>
               </div>
             </form>
+          </div>
+        </>
+      )}
+
+      {editingModuleId && itemForm && (
+        <>
+          <div className="fixed inset-0 z-[202] bg-black/50" onClick={handleCancelEffect} aria-hidden />
+          <div
+            className="fixed inset-0 z-[203] flex items-center justify-center p-4 sm:p-8 overflow-auto"
+            onClick={handleCancelEffect}
+          >
+            <div className="w-full max-w-2xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+              <EffectModuleModal
+                module={(itemForm.effects ?? []).find((m) => m.id === editingModuleId) ?? { id: editingModuleId, category: '', effectType: '', value: 0, break20: {}, customText: '' }}
+                isNew={false}
+                onSave={handleSaveEffect}
+                onCancel={handleCancelEffect}
+                referenceData={{}}
+                baseReferenceData={{}}
+                spellDC={0}
+                spellAttackBonus={0}
+                useWandScrollTable={false}
+              />
+            </div>
           </div>
         </>
       )}

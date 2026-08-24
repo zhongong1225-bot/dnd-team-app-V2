@@ -48,6 +48,7 @@ const DEFAULT_FORMULA_REFERENCE_DATA = [
   { label: '魅力调整值', value: 0, ref: 'abilityModifier', ability: 'cha' },
   { label: '熟练加值', value: 0, ref: 'proficiency' },
   { label: '等级', value: 0, ref: 'level' },
+  { label: '步行移动速度', value: 30, ref: 'speed' },
 ]
 
 /** Buff 效果「起效类型」：用于命中/伤害加值等可选择起效范围的效果 */
@@ -2296,13 +2297,15 @@ function EffectValueEditor({
   )
 }
 
-export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData, sourceNameOptions = [] }) {
+export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData, sourceNameOptions = [], sourceKindOptions = BUFF_SOURCE_KIND_OPTIONS_EDITABLE }) {
   const sourceKindLocked = !!(initial?.fromFeat || initial?.fromItem)
   const [source, setSource] = useState(initial?.source ?? '')
   const [duration, setDuration] = useState(initial?.duration ?? '')
-  const [sourceKind, setSourceKind] = useState(() =>
-    sourceKindLocked ? normalizeBuffSourceKindKey('adventure') : resolveInitialSourceKind(initial, defaultSourceKind),
-  )
+  const [sourceKind, setSourceKind] = useState(() => {
+    if (sourceKindLocked) return normalizeBuffSourceKindKey('adventure')
+    const resolved = resolveInitialSourceKind(initial, defaultSourceKind)
+    return sourceKindOptions.some((o) => o.key === resolved) ? resolved : normalizeBuffSourceKindKey(defaultSourceKind ?? 'adventure')
+  })
   const sourceListId = useMemo(() => 'buff-source-options-' + Math.random().toString(36).slice(2, 9), [])
   /** 用于效果简写求值与内含法术 DC/法攻/充能显示 */
   const effectSummaryContext = useMemo(() => ({
@@ -2442,7 +2445,7 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
             className={inputClass + ' cursor-pointer'}
             title="Buff 在列表中的小标签归类"
           >
-            {BUFF_SOURCE_KIND_OPTIONS_EDITABLE.map((o) => (
+            {sourceKindOptions.map((o) => (
               <option key={o.key} value={o.key}>
                 {o.label}
               </option>
@@ -2554,7 +2557,11 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
 function ScopeEditor({ scope, scopeDetail, onChange }) {
   const currentScope = scope || SCOPE_KIND.global
   const details = Array.isArray(scopeDetail) ? scopeDetail.filter(Boolean) : []
-  const showDetail = currentScope === SCOPE_KIND.creature_type || currentScope === SCOPE_KIND.damage_type || currentScope === SCOPE_KIND.weapon_category || currentScope === SCOPE_KIND.custom
+  const showDetail =
+    currentScope === SCOPE_KIND.creature_type ||
+    currentScope === SCOPE_KIND.damage_type ||
+    currentScope === SCOPE_KIND.weapon_category ||
+    currentScope === SCOPE_KIND.custom
 
   const detailOptions = useMemo(() => {
     if (currentScope === SCOPE_KIND.creature_type) return CREATURE_TYPE_OPTIONS
@@ -2648,7 +2655,7 @@ function EffectModuleModal({
   const effectTypeValid = hasCategory && effects.some((e) => e.key === draft.effectType)
   const effectiveEffectType = hasCategory && effectTypeValid ? draft.effectType : ''
   const currentEffect = effects.find((e) => e.key === effectiveEffectType)
-  const showScope = ['attack_bonus', 'damage_bonus', 'attack_damage_bonus', 'spell_ability_attack', 'skill_bonus'].includes(effectiveEffectType)
+  const showScope = ['attack_bonus', 'damage_bonus', 'attack_damage_bonus', 'spell_ability_attack', 'skill_bonus', 'extra_damage_dice'].includes(effectiveEffectType)
 
   const updateDraft = (patch) => setDraft((prev) => ({ ...prev, ...patch }))
 

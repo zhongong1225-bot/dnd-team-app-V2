@@ -177,7 +177,7 @@ export function computeBuffStats(character, activeBuffs) {
 
     // 预先扫描 proficiency_override，供后续公式上下文使用
     let profOverride = null
-    const minimalContext = { level: charLevel, abilities: baseAbilities, prof: baseProf, spellDC: 0, spellAttack: 0, classLevels }
+    const minimalContext = { level: charLevel, abilities: baseAbilities, prof: baseProf, spellDC: 0, spellAttack: 0, classLevels, speed: char?.speed ?? 30 }
     for (const b of entries) {
       if (b.effectType === 'proficiency_override') {
         const v = evaluateBuffValue(b.value, minimalContext)
@@ -194,6 +194,7 @@ export function computeBuffStats(character, activeBuffs) {
       spellDC: spellAbility ? 8 + contextProf + baseSpellMod : 0,
       spellAttack: spellAbility ? contextProf + baseSpellMod : 0,
       classLevels,
+      speed: char?.speed ?? 30,
     }
     const baseEvalVal = (raw) => evaluateBuffValue(raw, baseFormulaContext)
 

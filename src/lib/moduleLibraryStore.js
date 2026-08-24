@@ -138,6 +138,7 @@ export async function addItemTemplate(moduleId, template) {
     qty: Number(template?.qty) || 1,
     isAttuned: !!template?.isAttuned,
     rarity: template?.rarity ?? '',
+    effects: Array.isArray(template?.effects) ? template.effects.map((e) => ({ ...e })) : [],
   }
   library.itemTemplates.push(item)
   await persistModuleLibrary(moduleId, library)
@@ -156,6 +157,9 @@ export async function updateItemTemplate(moduleId, id, patch) {
     qty: patch?.qty !== undefined ? Number(patch.qty) || 1 : library.itemTemplates[idx].qty,
     isAttuned: patch?.isAttuned !== undefined ? !!patch.isAttuned : library.itemTemplates[idx].isAttuned,
     rarity: patch?.rarity !== undefined ? patch.rarity : library.itemTemplates[idx].rarity,
+    effects: patch?.effects !== undefined
+      ? (Array.isArray(patch.effects) ? patch.effects.map((e) => ({ ...e })) : [])
+      : library.itemTemplates[idx].effects ?? [],
   }
   await persistModuleLibrary(moduleId, library)
   return library.itemTemplates[idx]
@@ -187,19 +191,33 @@ function normalizeBuffTemplateForLibrary(buff) {
   }
 }
 
+/** 不进入 BUFF 库的来源：装备跟随物品，冒险随机性大 */
+const EXCLUDED_BUFF_LIBRARY_KINDS = new Set(['equipment', 'adventure'])
+
 /**
  * 从当前模组所有角色卡中自动汇总 BUFF 模板，按来源名称去重（已有库模板优先保留）。
+ * 装备与冒险类 BUFF 不进入库。
  * @param {string} moduleId
  */
 export async function syncBuffTemplatesFromCharacters(moduleId) {
   const mod = moduleId ?? 'default'
   const library = getModuleLibrary(mod)
   const existing = Array.isArray(library.buffTemplates) ? library.buffTemplates : []
-  const seen = new Set(existing.map((t) => String(t.source ?? '').trim()).filter(Boolean))
-  const next = existing.map((t) => ({ ...t }))
+  const seen = new Set()
+  const next = []
+
+  // 保留已有库模板，但清理掉装备/冒险类
+  for (const t of existing) {
+    if (!t || typeof t !== 'object') continue
+    if (EXCLUDED_BUFF_LIBRARY_KINDS.has(t.sourceKind)) continue
+    const key = String(t.source ?? '').trim()
+    if (!key) continue
+    seen.add(key)
+    next.push({ ...t })
+  }
 
   const chars = getAllCharacters(mod)
-  if (!Array.isArray(chars)) return existing
+  if (!Array.isArray(chars)) return next
 
   for (const char of chars) {
     if (!char || typeof char !== 'object') continue
@@ -208,6 +226,7 @@ export async function syncBuffTemplatesFromCharacters(moduleId) {
     for (const b of stash) {
       if (!b || typeof b !== 'object') continue
       const normalized = normalizeBuffTemplateForLibrary({ ...b, sourceKind: 'temporary' })
+      if (EXCLUDED_BUFF_LIBRARY_KINDS.has(normalized.sourceKind)) continue
       const key = normalized.source.trim()
       if (!key || seen.has(key)) continue
       seen.add(key)
@@ -218,6 +237,7 @@ export async function syncBuffTemplatesFromCharacters(moduleId) {
     for (const b of merged) {
       if (!b || typeof b !== 'object') continue
       const normalized = normalizeBuffTemplateForLibrary(b)
+      if (EXCLUDED_BUFF_LIBRARY_KINDS.has(normalized.sourceKind)) continue
       const key = normalized.source.trim()
       if (!key || seen.has(key)) continue
       seen.add(key)

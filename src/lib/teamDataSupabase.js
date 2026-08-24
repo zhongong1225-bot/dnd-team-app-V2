@@ -138,3 +138,13 @@ export async function saveCustomLibrary(libKey, list) {
   )
   if (error) throw error
 }
+
+export async function fetchModuleLibrary(moduleId) {
+  const mod = moduleId ?? 'default'
+  return fetchCustomLibrary(`module_library_${mod}`)
+}
+
+export async function saveModuleLibrary(moduleId, data) {
+  const mod = moduleId ?? 'default'
+  await saveCustomLibrary(`module_library_${mod}`, data)
+}

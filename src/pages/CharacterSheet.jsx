@@ -1965,6 +1965,10 @@ export default function CharacterSheet() {
     })
     arr.push({ label: '熟练加值', value: prof, ref: 'proficiency' })
     arr.push({ label: '等级', value: level, ref: 'level' })
+    const speedBase = (char?.speed ?? 30) + (buffStats?.speedBonus ?? 0)
+    const speedPenalty = buffStats?.speedExhaustionPenalty ?? 0
+    const speed = Math.max(0, Math.floor(speedBase * (buffStats?.speedMultiplier ?? 1)) - speedPenalty)
+    arr.push({ label: '步行移动速度', value: speed, ref: 'speed' })
     for (const c of characterClasses) {
       const displayName = getClassDisplayName(c.name) || c.name
       arr.push({ label: `${displayName}等级`, value: c.level, ref: 'classLevel', className: c.name })
@@ -1994,6 +1998,7 @@ export default function CharacterSheet() {
     })
     arr.push({ label: '熟练加值', value: prof, ref: 'proficiency' })
     arr.push({ label: '等级', value: level, ref: 'level' })
+    arr.push({ label: '步行移动速度', value: char?.speed ?? 30, ref: 'speed' })
     for (const c of characterClasses) {
       const displayName = getClassDisplayName(c.name) || c.name
       arr.push({ label: `${displayName}等级`, value: c.level, ref: 'classLevel', className: c.name })

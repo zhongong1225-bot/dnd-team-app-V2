@@ -428,7 +428,7 @@ export function evaluateBuffValue(value, context = {}) {
   if (typeof value === 'number') return value
   if (!isFormulaValue(value)) return Number(value) || 0
 
-  const { level = 1, abilities = {}, prof = 0, spellDC = 0, spellAttack = 0, classLevels = {} } = context
+  const { level = 1, abilities = {}, prof = 0, spellDC = 0, spellAttack = 0, classLevels = {}, speed = 30 } = context
   const { ref, ability, className, mult, add } = value
 
   let base = 0
@@ -447,6 +447,9 @@ export function evaluateBuffValue(value, context = {}) {
       break
     case 'abilityModifier':
       base = abilityModifier(Number(abilities?.[ability]) || 10)
+      break
+    case 'speed':
+      base = Number(speed) || 30
       break
     case 'spellDc':
       base = Number(spellDC) || 0

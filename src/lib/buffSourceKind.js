@@ -16,6 +16,11 @@ export const BUFF_SOURCE_KIND_OPTIONS_EDITABLE = BUFF_SOURCE_KIND_OPTIONS.filter
   (o) => o.key !== 'feat' && o.key !== 'equipment',
 )
 
+/** 模组库/导入弹窗中的分类选项：不包含装备（跟随物品）与冒险（随机性大） */
+export const BUFF_SOURCE_KIND_LIBRARY_OPTIONS = BUFF_SOURCE_KIND_OPTIONS.filter(
+  (o) => o.key !== 'equipment' && o.key !== 'adventure',
+)
+
 const LABEL_BY_KEY = Object.fromEntries(BUFF_SOURCE_KIND_OPTIONS.map((o) => [o.key, o.label]))
 
 const VALID_KEYS = new Set(BUFF_SOURCE_KIND_OPTIONS.map((o) => o.key))

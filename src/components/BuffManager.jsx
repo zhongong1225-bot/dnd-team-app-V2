@@ -1,5 +1,5 @@
-import { useState, useCallback, useMemo } from 'react'
-import { Plus, Pencil, Trash2, ArrowDownToLine } from 'lucide-react'
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
+import { Plus, Pencil, Trash2, ArrowDownToLine, Library, Search, ChevronDown } from 'lucide-react'
 import { getBuffSummaryLine } from './BuffListItem'
 import BuffForm from './BuffForm'
 import BuffColumnBoard from './BuffColumnBoard'
@@ -8,9 +8,12 @@ import {
   getColumnKeyForBuff,
   BUFF_ENTRY_DRAG_MIME,
   BUFF_COLUMN_DRAG_MIME,
+  BUFF_SOURCE_KIND_OPTIONS,
 } from '../lib/buffSourceKind'
 import { dataTransferHasType } from '../lib/dndTransferTypes'
 import { computeSuppressedEffects } from '../hooks/useBuffCalculator'
+import { useModule } from '../contexts/ModuleContext'
+import { inputClass } from '../lib/inputStyles'
 
 const STASH_DRAG_MIME = 'application/x-dnd-team-buff-stash'
 
@@ -33,9 +36,16 @@ export default function BuffManager({
   formulaContext = {},
   sourceNameOptions = [],
 }) {
+  const { moduleLibrary } = useModule()
   const [formState, setFormState] = useState(null)
+  const [showModuleLibrary, setShowModuleLibrary] = useState(false)
+  const [importSearch, setImportSearch] = useState('')
   /** null | { mode: 'active'|'stash', id: string|null } */
   const [dragOverActive, setDragOverActive] = useState(false)
+  const [showAddMenu, setShowAddMenu] = useState(false)
+  const [collapsedGroups, setCollapsedGroups] = useState(new Set())
+  const [expandedIds, setExpandedIds] = useState(new Set())
+  const addMenuRef = useRef(null)
 
   const list = Array.isArray(buffs) ? buffs : []
   const stash = Array.isArray(stashBuffs) ? stashBuffs : []
@@ -103,6 +113,17 @@ export default function BuffManager({
   const handleDeleteStash = (id) => {
     onStashChange(stash.filter((x) => x.id !== id))
   }
+
+  useEffect(() => {
+    if (!showAddMenu) return
+    const onDocClick = (e) => {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target)) {
+        setShowAddMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [showAddMenu])
 
   const onDragStartStash = useCallback(
     (e, id) => {
@@ -182,6 +203,102 @@ export default function BuffManager({
   // 计算被抑制的效果（DC和法术攻击加值取最高值，非最高标记为抑制）
   const suppressedMap = useMemo(() => computeSuppressedEffects(list, formulaContext), [list, formulaContext])
 
+  const importableBuffTemplates = useMemo(() => {
+    const q = importSearch.trim().toLowerCase()
+    const all = moduleLibrary?.buffTemplates ?? []
+    const excluded = new Set(['equipment', 'adventure'])
+    return all.filter((t) => {
+      if (excluded.has(t.sourceKind)) return false
+      if (!q) return true
+      return String(t.source ?? '').toLowerCase().includes(q)
+    })
+  }, [moduleLibrary, importSearch])
+
+  const groupedImportableBuffTemplates = useMemo(() => {
+    const persistent = []
+    const temporary = []
+    for (const t of importableBuffTemplates) {
+      if (normalizeBuffSourceKindKey(t.sourceKind ?? 'temporary') === 'temporary') {
+        temporary.push(t)
+      } else {
+        persistent.push(t)
+      }
+    }
+    const sortBySource = (a, b) =>
+      String(a.source ?? '').localeCompare(String(b.source ?? ''), 'zh-CN')
+    persistent.sort(sortBySource)
+    temporary.sort(sortBySource)
+    const groups = []
+    if (persistent.length > 0) {
+      groups.push({ key: 'persistent', label: '持续 Buff', items: persistent })
+    }
+    if (temporary.length > 0) {
+      groups.push({ key: 'temporary', label: '临时 Buff', items: temporary })
+    }
+    return groups
+  }, [importableBuffTemplates])
+
+  const toggleGroup = useCallback((key) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
+  const toggleExpand = useCallback((id) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const handleImportTemplate = useCallback(
+    (t) => {
+      const isTemporary = normalizeBuffSourceKindKey(t.sourceKind ?? 'temporary') === 'temporary'
+      const source = String(t.source ?? '').trim() || '未命名 Buff'
+      const duration =
+        t.duration != null && String(t.duration).trim() !== ''
+          ? String(t.duration).trim()
+          : undefined
+      const effects = Array.isArray(t.effects) ? t.effects.map((e) => ({ ...e })) : []
+      if (isTemporary) {
+        onStashChange([
+          ...stash,
+          {
+            id: `stash_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+            source,
+            duration,
+            effects,
+            enabled: true,
+            sourceKind: 'temporary',
+          },
+        ])
+      } else {
+        if (list.some((b) => b.source?.trim() === source)) {
+          setShowModuleLibrary(false)
+          return
+        }
+        onSave([
+          ...list,
+          {
+            id: String(Date.now()),
+            source,
+            duration,
+            effects,
+            enabled: true,
+            sourceKind: normalizeBuffSourceKindKey(t.sourceKind),
+          },
+        ])
+      }
+      setShowModuleLibrary(false)
+    },
+    [list, onSave, onStashChange, stash],
+  )
+
   const handleMoveBuffToColumn = useCallback(
     (buffId, columnKey) => {
       if (columnKey === 'feat' || columnKey === 'equipment') return
@@ -199,27 +316,74 @@ export default function BuffManager({
     <div
       className={`rounded-xl border border-white/[0.11] bg-gradient-to-b from-[#2c384c] via-[#242f42] to-[#1b2433] p-2 ${BUFF_PANEL_OUTER_SHADOW}`}
     >
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wide shrink-0">BUFF</h3>
+        {canEdit && (
+          <div className="relative shrink-0" ref={addMenuRef}>
+            <button
+              type="button"
+              onClick={() => setShowAddMenu((v) => !v)}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-dnd-gold text-dnd-gold-light hover:bg-dnd-gold/20 text-xs font-medium transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              添加
+              <ChevronDown className={`w-3 h-3 transition-transform ${showAddMenu ? 'rotate-180' : ''}`} />
+            </button>
+            {showAddMenu && (
+              <div className="absolute right-0 top-full mt-1 w-44 rounded-lg border border-gray-600 bg-gray-800 shadow-[0_6px_22px_rgba(0,0,0,0.48)] z-50 py-1">
+                {stashEditable && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAddMenu(false)
+                        setImportSearch('')
+                        setShowModuleLibrary(true)
+                      }}
+                      className="w-full text-left px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-700/60 flex items-center gap-2 transition-colors"
+                    >
+                      <Library className="w-3.5 h-3.5 text-dnd-gold-light" />
+                      从模组库导入
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAddMenu(false)
+                        handleAddStash()
+                      }}
+                      className="w-full text-left px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-700/60 flex items-center gap-2 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      添加临时BUFF
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddMenu(false)
+                    handleAddActive()
+                  }}
+                  className="w-full text-left px-3 py-1.5 text-xs text-dnd-red hover:bg-gray-700/60 flex items-center gap-2 transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  添加增益/减值
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {showStashSection && (
         <div className="mb-3 rounded-lg border border-white/10 bg-[#1a2333]/60 p-2">
-          <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0 flex-1">
-              <span className="text-dnd-gold-light text-[10px] font-bold tracking-wide shrink-0">临时 BUFF</span>
-              <span className="text-gray-500 text-[10px] min-w-0 leading-snug">
-                {stashEditable
-                  ? '制作模板放在上方；需要时拖到下方「当前 Buff」区域，或点击下方「应用到当前 Buff」图标。'
-                  : '已保存的临时 BUFF（只读）。'}
-              </span>
-            </div>
-            {stashEditable && canEdit && (
-              <button
-                type="button"
-                onClick={handleAddStash}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-gray-600/80 text-gray-200 hover:bg-gray-700/50 text-xs font-medium transition-colors shrink-0"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                添加临时BUFF
-              </button>
-            )}
+          <div className="flex items-center gap-x-2 gap-y-0.5 mb-1.5 min-w-0">
+            <span className="text-dnd-gold-light text-[10px] font-bold tracking-wide shrink-0">临时 BUFF</span>
+            <span className="text-gray-500 text-[10px] min-w-0 leading-snug">
+              {stashEditable
+                ? '模板放这里；需要时拖到下方区域，或点击「应用」图标。'
+                : '已保存的临时 BUFF（只读）。'}
+            </span>
           </div>
           {stash.length === 0 ? (
             <p className="text-gray-500 text-xs py-1 text-center">{stashEditable ? '暂无临时 BUFF' : '—'}</p>
@@ -274,22 +438,12 @@ export default function BuffManager({
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-1 gap-2">
+      <div className="flex items-center mb-1 gap-2">
         <p className="text-gray-500 text-[10px] shrink-0 min-w-0 leading-snug">
           当前 Buff
           {stashEditable ? '（可从上方拖入临时模板至任一类分区）' : ''}
           {canEdit ? ' · 左侧分类名可拖动调整上下顺序；冒险/职业&种族/临时之间可拖动词条改归类' : ''}
         </p>
-        {canEdit && (
-          <button
-            type="button"
-            onClick={handleAddActive}
-            className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-dnd-red text-dnd-red hover:bg-dnd-red hover:text-white text-xs font-medium transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            添加增益/减值
-          </button>
-        )}
       </div>
 
       <div className="rounded-lg min-w-0 min-h-[2.5rem]" onDragLeave={onDragLeaveActive}>
@@ -339,6 +493,127 @@ export default function BuffManager({
                 baseReferenceData={baseReferenceData}
                 sourceNameOptions={sourceNameOptions}
               />
+            </div>
+          </div>
+        </>
+      )}
+
+      {showModuleLibrary && (
+        <>
+          <div
+            className="fixed inset-0 z-[200] bg-black/50"
+            onClick={() => setShowModuleLibrary(false)}
+            aria-hidden
+          />
+          <div
+            className="fixed inset-0 z-[201] flex items-center justify-center p-4 sm:p-8 overflow-auto"
+            onClick={() => setShowModuleLibrary(false)}
+          >
+            <div
+              className="w-full max-w-lg max-h-[80vh] overflow-auto bg-gray-800 rounded-xl border border-gray-600 p-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="sticky top-0 z-10 bg-gray-800 pb-3">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-dnd-gold-light text-sm font-bold uppercase tracking-wide">从模组库导入 BUFF</h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowModuleLibrary(false)}
+                    className="text-gray-400 hover:text-gray-200 text-xs"
+                  >
+                    关闭
+                  </button>
+                </div>
+                <div className="relative min-w-0">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
+                  <input
+                    type="text"
+                    value={importSearch}
+                    onChange={(e) => setImportSearch(e.target.value)}
+                    placeholder="搜索 BUFF 名称"
+                    className={`${inputClass} pl-7 text-xs w-full`}
+                  />
+                </div>
+              </div>
+              {(moduleLibrary?.buffTemplates ?? []).length === 0 ? (
+                <p className="text-gray-500 text-xs text-center py-4">
+                  当前模组暂无 BUFF 模板，请先到「更多 → 模组库」添加。
+                </p>
+              ) : importableBuffTemplates.length === 0 ? (
+                <p className="text-gray-500 text-xs text-center py-4">没有匹配的 BUFF</p>
+              ) : (
+                <div className="space-y-2">
+                  {groupedImportableBuffTemplates.map((g) => {
+                    const collapsed = collapsedGroups.has(g.key)
+                    return (
+                      <div key={g.key} className="rounded-lg border border-white/10 overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => toggleGroup(g.key)}
+                          className="w-full flex items-center justify-between gap-2 px-2 py-1.5 bg-[#1a2333]/60 hover:bg-[#1a2333]/80 transition-colors"
+                        >
+                          <span className="text-xs font-bold text-dnd-gold-light">
+                            {g.label}
+                            <span className="ml-1.5 text-[10px] font-normal text-gray-500">{g.items.length}</span>
+                          </span>
+                          <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+                        </button>
+                        {!collapsed && (
+                          <div className="p-1.5 space-y-1 bg-[#141c28]/40">
+                            {g.items.map((t) => {
+                              const effectCount = Array.isArray(t.effects) ? t.effects.length : 0
+                              const expanded = expandedIds.has(t.id)
+                              const sourceKindLabel =
+                                BUFF_SOURCE_KIND_OPTIONS.find((o) => o.key === t.sourceKind)?.label ?? '其他'
+                              return (
+                                <div
+                                  key={t.id}
+                                  className="rounded-md border border-white/5 bg-[#1a2333]/40 overflow-hidden"
+                                >
+                                  <div className="flex items-center justify-between gap-2 px-2 py-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleExpand(t.id)}
+                                      className="flex items-center gap-1.5 min-w-0 flex-1 text-left"
+                                      title={expanded ? '收起详情' : '展开详情'}
+                                    >
+                                      <ChevronDown
+                                        className={`w-3 h-3 text-gray-500 transition-transform shrink-0 ${
+                                          expanded ? '' : '-rotate-90'
+                                        }`}
+                                      />
+                                      <span className="text-xs text-gray-200 truncate" title={t.source}>
+                                        {t.source}
+                                      </span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleImportTemplate(t)}
+                                      className="p-1 rounded-md border border-dnd-gold/70 text-dnd-gold-light hover:bg-dnd-gold/20 transition-colors shrink-0"
+                                      title="添加"
+                                      aria-label="添加"
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                  {expanded && (
+                                    <div className="px-2 pb-1.5 pl-7 text-[10px] text-gray-500 space-y-0.5">
+                                      {t.duration ? <div>持续 {t.duration}</div> : null}
+                                      <div>
+                                        {effectCount} 个效果 · 分类 {sourceKindLabel}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </>

@@ -223,6 +223,18 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
       cha: !!savesBase.cha || !!buffGranted.cha,
     }
   }, [savesBase.str, savesBase.dex, savesBase.con, savesBase.int, savesBase.wis, savesBase.cha, buffStats?.saveProficiencyGranted])
+  // 仅由 BUFF 授予的豁免熟练（基础不熟练时）——用于界面区分来源
+  const buffOnlySaves = useMemo(() => {
+    const buffGranted = buffStats?.saveProficiencyGranted ?? {}
+    return {
+      str: !savesBase.str && !!buffGranted.str,
+      dex: !savesBase.dex && !!buffGranted.dex,
+      con: !savesBase.con && !!buffGranted.con,
+      int: !savesBase.int && !!buffGranted.int,
+      wis: !savesBase.wis && !!buffGranted.wis,
+      cha: !savesBase.cha && !!buffGranted.cha,
+    }
+  }, [savesBase.str, savesBase.dex, savesBase.con, savesBase.int, savesBase.wis, savesBase.cha, buffStats?.saveProficiencyGranted])
   const skillsState = char?.skills ?? {}
   const proficiencies = useMemo(() => normalizeProfState(char?.proficiencies), [char?.proficiencies])
   const toolOptions = useMemo(() => {
@@ -459,12 +471,22 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
                     type="button"
                     onClick={() => setSave(key, !saves[key])}
                     className="p-0.5 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-dnd-gold-light"
-                    title={saves[key] ? '熟练（点击取消）' : '未熟练（点击设为熟练）'}
+                    title={saves[key] ? (buffOnlySaves[key] ? '熟练（由 BUFF 授予，点击取消）' : '熟练（点击取消）') : '未熟练（点击设为熟练）'}
                   >
-                    <SaveProficiencyIcon level={saveProfLevel} />
+                    <span className="relative inline-flex">
+                      <SaveProficiencyIcon level={saveProfLevel} />
+                      {buffOnlySaves[key] && (
+                        <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-dnd-red" title="由 BUFF 授予" />
+                      )}
+                    </span>
                   </button>
                 ) : (
-                  <span className="p-0.5"><SaveProficiencyIcon level={saveProfLevel} /></span>
+                  <span className="p-0.5 relative inline-flex" title={buffOnlySaves[key] ? '熟练（由 BUFF 授予）' : ''}>
+                    <SaveProficiencyIcon level={saveProfLevel} />
+                    {buffOnlySaves[key] && (
+                      <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-dnd-red" title="由 BUFF 授予" />
+                    )}
+                  </span>
                 )}
               </div>
 

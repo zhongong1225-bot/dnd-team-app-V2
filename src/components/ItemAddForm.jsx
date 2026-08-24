@@ -263,7 +263,7 @@ const RARITY_OPTIONS = [
 ]
 
 export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确认加入', editEntry = null, inventory = [], spellDC, spellAttackBonus, referenceData }) {
-  const { customLibraryEpoch, moduleLibrary } = useModule()
+  const { customLibraryEpoch, moduleLibrary, syncModuleItemTemplates } = useModule()
   const grouped = useMemo(() => getItemListGrouped(), [customLibraryEpoch])
   const ammoOptionsFromInv = useMemo(() => {
     const cats = new Set()
@@ -313,17 +313,15 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       .sort((a, b) => a.type.localeCompare(b.type, 'zh-Hans-CN'))
   }, [officialTemplates])
 
-  const typeGroup = grouped.find((g) => g.type === type)
-  const subTypeGroups = typeGroup?.subTypes ?? []
-  const items = subTypeGroups.flatMap((s) => s.items ?? [])
   const selectedPrototype = itemId ? getItemById(itemId) : null
   const weightDisplay = selectedPrototype?.重量 ?? '—'
   const isEdit = !!editEntry
-  const isArmorOrClothing = selectedPrototype && (selectedPrototype.类型 === '盔甲' || selectedPrototype.类型 === '衣服')
-  const isArmor = selectedPrototype?.类型 === '盔甲'
-  const isWeapon = selectedPrototype && (selectedPrototype.类型 === '近战武器' || selectedPrototype.类型 === '远程武器' || selectedPrototype.类型 === '枪械')
-  const isExplosive = selectedPrototype && (selectedPrototype.类型 === '爆炸物' || (selectedPrototype.类型 === '消耗品' && selectedPrototype.子类型 === '爆炸品'))
-  const isShield = isArmor && selectedPrototype?.子类型 === '盾牌'
+  const resolvedType = selectedPrototype?.类型 || type
+  const isArmorOrClothing = resolvedType === '盔甲' || resolvedType === '衣服'
+  const isArmor = resolvedType === '盔甲'
+  const isWeapon = resolvedType === '近战武器' || resolvedType === '远程武器' || resolvedType === '枪械'
+  const isExplosive = resolvedType === '爆炸物' || (resolvedType === '消耗品' && selectedPrototype?.子类型 === '爆炸品')
+  const isShield = isArmor && (selectedPrototype?.子类型 === '盾牌' || armorFields.isShield)
   /** 魔杖/卷轴使用固定法强表（按环阶），不沿用角色法术DC/攻击加值 */
   const useWandScrollTable = (() => {
     const p = isEdit ? getItemById(editEntry?.itemId) : selectedPrototype
@@ -430,6 +428,12 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     }
   }, [open, editEntry, grouped])
 
+  // 新建模式打开弹窗时，自动把当前模组所有角色卡里的物品汇总到模组库
+  useEffect(() => {
+    if (!open || isEdit) return
+    syncModuleItemTemplates()
+  }, [open, isEdit, syncModuleItemTemplates])
+
   useEffect(() => {
     if (!itemId || isEdit) return
     if (isTemplateLoadRef.current) {
@@ -511,7 +515,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!itemId && !editEntry) return
+    if (!isEdit && !itemId && !type) return
     const proto = itemId ? getItemById(itemId) : (editEntry?.itemId ? getItemById(editEntry.itemId) : null)
     // 合并多个 contained_spell 模块为一个，保证一个物品只有一条内含法术效果
     let workingModules = effectModules
@@ -600,7 +604,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     if (!isEdit) {
       // 新建模式：把修改后的数据保存为新的自定义基础物品，再生成一条干净的库存引用条目
       const baseItem = {
-        类型: proto?.类型 || '近战武器',
+        类型: proto?.类型 || type || '近战武器',
         子类型: proto?.子类型 || '',
         类别: proto?.类别 || '自定义',
         名称: name?.trim() || '',
@@ -751,7 +755,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
         <form onSubmit={handleSubmit} className="space-y-2.5 p-3 bg-gray-800 rounded-xl border border-gray-600 min-w-0 w-full max-w-full">
           {isEdit && <h4 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">编辑物品</h4>}
 
-          {!isEdit && itemTemplates.length > 0 && (
+          {!isEdit && (
             <div className="min-w-0 max-w-full">
               <label className="block text-dnd-text-muted text-xs mb-0.5">从模组库导入</label>
               <select
@@ -778,6 +782,9 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                 className={inputClass + ' w-full h-8 text-xs'}
               >
                 <option value="">— 选择模组物品模板 —</option>
+                {itemTemplates.length === 0 && (
+                  <option value="" disabled>暂无模组物品模板</option>
+                )}
                 {itemTemplates.map((tpl) => {
                   const proto = tpl.itemId ? getItemById(tpl.itemId) : null
                   const display = tpl.name || getItemDisplayName(proto) || tpl.itemId || '未命名模板'
@@ -818,11 +825,11 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
             </div>
           )}
 
-          {/* 选择物品类型 → 获得基础信息（编辑时为只读） */}
+          {/* 类型与稀有度/同调/重量（编辑或选择模板后为只读，否则提供类型下拉来自定义） */}
           <div className="min-w-0 max-w-full">
             <div className="flex flex-nowrap items-center gap-1.5 min-w-0 max-w-full overflow-hidden">
-              {isEdit && <span className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider shrink-0">类型</span>}
-              {isEdit ? (
+              {(isEdit || itemId) && <span className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider shrink-0">类型</span>}
+              {isEdit || itemId ? (
                 <span className="min-w-0 truncate text-sm text-dnd-text-body">
                   <span className="text-gray-400">{type || '—'}</span>
                   <span className="text-gray-500 mx-0.5">/</span>
@@ -830,9 +837,10 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                 </span>
               ) : (
                 <>
+                  <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider shrink-0">类型</label>
                   <select
                     value={type}
-                    onChange={(e) => { setType(e.target.value); setItemId(''); }}
+                    onChange={(e) => { setType(e.target.value) }}
                     className={inputClass + ' h-8 min-w-0 w-[7rem] text-sm shrink-0'}
                   >
                     <option value="">— 类型 —</option>
@@ -840,17 +848,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                       <option key={g.type} value={g.type}>{g.type}</option>
                     ))}
                   </select>
-                  <select
-                    value={itemId}
-                    onChange={(e) => setItemId(e.target.value)}
-                    className={inputClass + ' h-8 flex-1 min-w-0 text-sm max-w-full'}
-                    disabled={!type}
-                  >
-                    <option value="">— 选择物品 —</option>
-                    {items.map((x) => (
-                      <option key={x.id} value={x.id}>{x._display || getItemDisplayName(x) || x.类别}</option>
-                    ))}
-                  </select>
+                  <span className="text-dnd-text-muted text-xs truncate">从上方选择模板，或选择类型自定义</span>
                 </>
               )}
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -863,7 +861,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                     <option key={o.value || '_'} value={o.value}>{o.label}</option>
                   ))}
                 </select>
-                {(isEdit || (selectedPrototype && itemRequiresAttunement(selectedPrototype))) && (
+                {(isEdit || (selectedPrototype && itemRequiresAttunement(selectedPrototype)) || (!isEdit && effectModules.length > 0)) && (
                   <label className="shrink-0 inline-flex items-center gap-1.5 h-8 px-2 rounded-lg border border-gray-600 bg-gray-800 text-gray-300 text-xs cursor-pointer whitespace-nowrap">
                     <input
                       type="checkbox"
@@ -874,9 +872,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                     同调
                   </label>
                 )}
-                {selectedPrototype && (
-                  <span className="text-dnd-text-muted text-xs whitespace-nowrap shrink-0">重量：{weightDisplay}</span>
-                )}
+                <span className="text-dnd-text-muted text-xs whitespace-nowrap shrink-0">重量：{weightDisplay}</span>
               </div>
             </div>
           </div>
@@ -909,7 +905,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
           </div>
 
           {/* 爆炸物：三模块 — 左+中占 1/2 弹窗，右占 1/2；模块内内容均分平铺 */}
-          {isExplosive && selectedPrototype ? (
+          {isExplosive ? (
             <div className="w-full rounded border border-gray-600 bg-gray-700/30 px-2 py-1">
               <div className="flex flex-nowrap items-baseline gap-0 min-w-0 w-full text-gray-200 text-xs">
                 {/* 左半：抛投距离 | 分隔符 | 爆炸半径，共占 50% */}
@@ -974,15 +970,17 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
           ) : null}
 
           {/* 武器基本属性：伤害、词条、精通（选择物品时从基础数据自动填入）；下方为附魔效果 */}
-          {isWeapon && selectedPrototype ? (
+          {isWeapon ? (
             <div className="w-full rounded border border-gray-600 bg-gray-700/30 px-2 py-1.5 space-y-1.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">武器基本属性</span>
-                <button type="button" onClick={() => {
-                  const { base, versa } = splitVersatileDamage(selectedPrototype.攻击 ?? '')
-                  setWeaponDamage(base)
-                  setWeaponVersatileDamage(versa)
-                }} className="text-xs px-1.5 py-0.5 rounded border border-gray-500 text-gray-400 hover:bg-gray-600">使用模版</button>
+                {selectedPrototype && (
+                  <button type="button" onClick={() => {
+                    const { base, versa } = splitVersatileDamage(selectedPrototype.攻击 ?? '')
+                    setWeaponDamage(base)
+                    setWeaponVersatileDamage(versa)
+                  }} className="text-xs px-1.5 py-0.5 rounded border border-gray-500 text-gray-400 hover:bg-gray-600">使用模版</button>
+                )}
               </div>
               <div>
                 <DamageDiceInlineRow
@@ -1079,6 +1077,17 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
               <div className="rounded border border-gray-600 bg-gray-700/30 px-2 py-1.5 space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">{isShield ? '盾牌基本属性' : '盔甲基本属性'}</span>
+                  {!selectedPrototype && isArmor && (
+                    <label className="inline-flex items-center gap-1 text-xs text-gray-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={armorFields.isShield}
+                        onChange={(e) => setArmorFields((f) => ({ ...f, isShield: e.target.checked }))}
+                        className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                      />
+                      盾牌
+                    </label>
+                  )}
                 </div>
                 {isShield ? (
                   <div className="flex items-center gap-2">
@@ -1176,7 +1185,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
             <button type="button" onClick={onClose} className="px-3 py-1.5 rounded border border-gray-600 text-gray-300 hover:bg-gray-700 text-sm">
               取消
             </button>
-            <button type="submit" disabled={!itemId && !isEdit} className="px-3 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white font-medium text-sm disabled:opacity-50">
+            <button type="submit" disabled={!isEdit && !itemId && !type} className="px-3 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white font-medium text-sm disabled:opacity-50">
               {submitLabel}
             </button>
           </div>
