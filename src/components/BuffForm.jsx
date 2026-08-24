@@ -327,17 +327,17 @@ function ContainedSpellEditor({
   const cs = normalizeContainedSpellValue(value)
   const { totalCharges, spells } = cs
   const labelCls = 'text-[10px] text-dnd-text-muted shrink-0 leading-none'
-  const inputCls = inputClass.replace(/\bh-10\b/, 'h-6').replace(/\bpx-3\b/, 'px-1').replace(/\btext-sm\b/, 'text-xs').replace(/\bw-full\b/, 'flex-1 min-w-0')
+  const inputCls = inputClass.replace(/\bh-10\b/, 'h-5').replace(/\bpx-3\b/, 'px-1').replace(/\btext-sm\b/, 'text-[11px]').replace(/\bw-full\b/, 'flex-1 min-w-0')
   const selectCls = inputCls + ' cursor-pointer'
   const HIT_RESOLUTION_OPTIONS = [
-    { value: 'dex_save', label: '敏捷豁免' },
-    { value: 'str_save', label: '力量豁免' },
-    { value: 'con_save', label: '体质豁免' },
-    { value: 'wis_save', label: '感知豁免' },
-    { value: 'int_save', label: '智力豁免' },
-    { value: 'cha_save', label: '魅力豁免' },
-    { value: 'spell_attack', label: '法术攻击' },
-    { value: 'none', label: '效应目标' },
+    { value: 'dex_save', label: '敏捷' },
+    { value: 'str_save', label: '力量' },
+    { value: 'con_save', label: '体质' },
+    { value: 'wis_save', label: '感知' },
+    { value: 'int_save', label: '智力' },
+    { value: 'cha_save', label: '魅力' },
+    { value: 'spell_attack', label: '法攻' },
+    { value: 'none', label: '效应' },
   ]
 
   const patchValue = (next) => onChange({ ...module, value: next })
@@ -345,16 +345,6 @@ function ContainedSpellEditor({
   const updateSpell = (idx, patch) => patchSpells(spells.map((sp, i) => (i === idx ? { ...sp, ...patch } : sp)))
   const removeSpell = (idx) => patchSpells(spells.filter((_, i) => i !== idx))
   const addSpell = () => patchSpells([...spells, createEmptyContainedSpellSub()])
-
-  const resolveSpellName = (sp) => {
-    const name = (sp.spellName || '').trim()
-    if (name) return name
-    if (sp.spellId) {
-      const s = getSpellById(sp.spellId)
-      if (s) return s.name
-    }
-    return ''
-  }
 
   const spellInputValue = (sp) => {
     const name = (sp.spellName || '').trim()
@@ -367,10 +357,10 @@ function ContainedSpellEditor({
   }
 
   return (
-    <div className="rounded-md bg-[#161e2b]/50 p-1.5 flex flex-col gap-y-1 text-xs w-full">
+    <div className="flex flex-col gap-y-1 w-full">
       {!hideCharges && (
-        <div className="flex items-center gap-x-1 w-full">
-          <span className={labelCls}>总能量</span>
+        <div className="flex items-center gap-x-1.5">
+          <span className="text-[10px] text-dnd-text-muted">总能量</span>
           <NumberStepper
             value={totalCharges}
             onChange={(v) => patchValue({ ...cs, totalCharges: Math.max(0, Math.min(999, v)) })}
@@ -378,7 +368,7 @@ function ContainedSpellEditor({
             max={999}
             compact
             narrow
-            className="!h-6"
+            className="!h-5"
           />
           <span className="text-gray-500 text-[10px]">所有内含法术共用</span>
         </div>
@@ -397,8 +387,8 @@ function ContainedSpellEditor({
             : (hitResolution === 'spell_attack' && spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : (spellDC != null ? String(spellDC) : null)))
         const prefix = rowPrefix != null ? String(rowPrefix).trim() : ''
         return (
-          <div key={idx} className="flex flex-col gap-y-1 border-t border-gray-600/30 pt-1 first:border-t-0 first:pt-0">
-            <div className="flex items-center gap-x-1 w-full">
+          <div key={idx} className="rounded border border-white/[0.06] bg-[#161e2b]/60 px-1.5 py-1">
+            <div className="flex items-center gap-x-1 w-full flex-wrap">
               {prefix && <span className="text-dnd-text-muted shrink-0 tabular-nums select-none text-[10px]">{prefix.replace(/\d+$/, (n) => Number(n) + idx)}</span>}
               <span className={labelCls}>法术</span>
               <input
@@ -418,7 +408,7 @@ function ContainedSpellEditor({
                   })
                 }}
                 placeholder="名称"
-                className={inputCls}
+                className={inputCls + ' min-w-[5rem]'}
                 list={'contained-spell-datalist-' + (module.id ?? '') + '-' + idx}
                 title="法术名称"
               />
@@ -435,7 +425,7 @@ function ContainedSpellEditor({
                 max={9}
                 compact
                 narrow
-                className="!h-6"
+                className="!h-5 !w-10"
               />
               <span className={labelCls}>消耗</span>
               <NumberStepper
@@ -445,45 +435,32 @@ function ContainedSpellEditor({
                 max={99}
                 compact
                 narrow
-                className="!h-6"
+                className="!h-5 !w-10"
               />
-              <button
-                type="button"
-                onClick={() => removeSpell(idx)}
-                className="p-1 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0"
-                title="删除该法术"
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
-            </div>
-            {!primaryOnly && (
-              <div className="flex items-center gap-x-1 w-full">
-                <div className="flex-1 min-w-0 flex items-center gap-x-1">
+              {!primaryOnly && (
+                <>
+                  <span className="text-gray-600 mx-0.5">|</span>
                   <span className={labelCls}>命中</span>
                   <select
                     value={hitResolution}
                     onChange={(e) => updateSpell(idx, { hitResolution: e.target.value })}
-                    className={selectCls}
+                    className={selectCls + ' !w-[3.5rem]'}
                   >
                     {HIT_RESOLUTION_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
                   </select>
                   {hitValueDisplay != null && (
-                    <span className="text-white font-mono tabular-nums shrink-0 text-xs">{hitValueDisplay}</span>
+                    <span className="text-white font-mono tabular-nums shrink-0 text-[11px]">{hitValueDisplay}</span>
                   )}
-                </div>
-                <div className="flex-1 min-w-0 flex items-center gap-x-1">
                   <span className={labelCls}>距离</span>
                   <input
                     type="text"
                     value={sp.range ?? ''}
                     onChange={(e) => updateSpell(idx, { range: e.target.value })}
                     placeholder="自身"
-                    className={inputCls}
+                    className={inputCls + ' !w-[3rem]'}
                   />
-                </div>
-                <div className="flex-[2] min-w-0 flex items-center gap-x-1">
                   <span className={labelCls}>伤害</span>
                   <NumberStepper
                     value={sp.damageDiceCount}
@@ -492,12 +469,12 @@ function ContainedSpellEditor({
                     max={99}
                     compact
                     narrow
-                    className="!h-6 w-14 min-w-0 shrink-0"
+                    className="!h-5 !w-10 min-w-0 shrink-0"
                   />
                   <select
                     value={sp.damageDiceSides}
                     onChange={(e) => updateSpell(idx, { damageDiceSides: Number(e.target.value) })}
-                    className={selectCls + ' w-11 shrink-0'}
+                    className={selectCls + ' !w-[2.8rem] shrink-0'}
                   >
                     {DICE_SIDES_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value} className="bg-gray-800 text-white">{o.label}</option>
@@ -506,7 +483,7 @@ function ContainedSpellEditor({
                   <select
                     value={sp.damageType ?? ''}
                     onChange={(e) => updateSpell(idx, { damageType: e.target.value })}
-                    className={selectCls + ' flex-1 min-w-0'}
+                    className={selectCls + ' !w-[3rem]'}
                     title="伤害类型"
                   >
                     <option value="">类型</option>
@@ -514,9 +491,17 @@ function ContainedSpellEditor({
                       <option key={d.value} value={d.value}>{d.label}</option>
                     ))}
                   </select>
-                </div>
-              </div>
-            )}
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => removeSpell(idx)}
+                className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto"
+                title="删除该法术"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
           </div>
         )
       })}
