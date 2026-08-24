@@ -8,7 +8,7 @@
  */
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { Trash2, Plus, Pencil } from 'lucide-react'
-import { getItemListGrouped, getItemById, getItemDisplayName, parseWeaponNoteToTraits, buildWeaponNoteFromTraits, WEAPON_TRAIT_OPTIONS, WEAPON_MASTERY_OPTIONS, itemRequiresAttunement, addCustomItem } from '../data/itemDatabase'
+import { getItemListGrouped, getItemById, getItemDisplayName, parseWeaponNoteToTraits, buildWeaponNoteFromTraits, WEAPON_TRAIT_OPTIONS, WEAPON_MASTERY_OPTIONS, itemRequiresAttunement, addCustomItem, getOfficialNonMagicalItemTemplates } from '../data/itemDatabase'
 import { inputClass, textareaClass } from '../lib/inputStyles'
 import { useModule } from '../contexts/ModuleContext'
 import { BUFF_TYPES, getCategories, normalizeEffectCategory, parseDamageString, formatDamageForAttack, ITEM_STORAGE_DEFAULT_ITEM_IDS } from '../data/buffTypes'
@@ -263,7 +263,7 @@ const RARITY_OPTIONS = [
 ]
 
 export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确认加入', editEntry = null, inventory = [], spellDC, spellAttackBonus, referenceData }) {
-  const { customLibraryEpoch } = useModule()
+  const { customLibraryEpoch, moduleLibrary } = useModule()
   const grouped = useMemo(() => getItemListGrouped(), [customLibraryEpoch])
   const ammoOptionsFromInv = useMemo(() => {
     const cats = new Set()
@@ -296,7 +296,22 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
   const introRef = useRef(null)
   const newModuleIdRef = useRef(null)
   const isTemplateLoadRef = useRef(false)
-  const [templateIndex, setTemplateIndex] = useState(null)
+  const [moduleTemplateId, setModuleTemplateId] = useState('')
+  const [officialTemplateId, setOfficialTemplateId] = useState('')
+
+  const itemTemplates = moduleLibrary?.itemTemplates ?? []
+  const officialTemplates = useMemo(() => getOfficialNonMagicalItemTemplates(), [])
+  const officialTemplateGroups = useMemo(() => {
+    const byType = {}
+    for (const item of officialTemplates) {
+      const t = item.类型
+      if (!byType[t]) byType[t] = []
+      byType[t].push(item)
+    }
+    return Object.entries(byType)
+      .map(([type, items]) => ({ type, items }))
+      .sort((a, b) => a.type.localeCompare(b.type, 'zh-Hans-CN'))
+  }, [officialTemplates])
 
   const typeGroup = grouped.find((g) => g.type === type)
   const subTypeGroups = typeGroup?.subTypes ?? []
@@ -349,6 +364,8 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     setExplosiveAttackDistance('')
     setExplosiveRadius(0)
     setExplosiveDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
+    setModuleTemplateId('')
+    setOfficialTemplateId('')
   }
 
   const loadEntryData = (entry) => {
@@ -404,7 +421,8 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
 
   useEffect(() => {
     if (!open) return
-    setTemplateIndex(null)
+    setModuleTemplateId('')
+    setOfficialTemplateId('')
     if (editEntry) {
       loadEntryData(editEntry)
     } else {
@@ -733,27 +751,68 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
         <form onSubmit={handleSubmit} className="space-y-2.5 p-3 bg-gray-800 rounded-xl border border-gray-600 min-w-0 w-full max-w-full">
           {isEdit && <h4 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">编辑物品</h4>}
 
-          {!isEdit && inventory.length > 0 && (
+          {!isEdit && itemTemplates.length > 0 && (
             <div className="min-w-0 max-w-full">
-              <label className="block text-dnd-text-muted text-xs mb-0.5">复制自已有物品</label>
+              <label className="block text-dnd-text-muted text-xs mb-0.5">从模组库导入</label>
               <select
-                value={templateIndex ?? ''}
+                value={moduleTemplateId}
                 onChange={(e) => {
-                  const idx = e.target.value === '' ? null : parseInt(e.target.value, 10)
-                  setTemplateIndex(idx)
-                  if (idx != null) {
-                    loadEntryData(inventory[idx])
+                  const id = e.target.value
+                  setModuleTemplateId(id)
+                  if (id) {
+                    const tpl = itemTemplates.find((t) => t.id === id)
+                    if (tpl) {
+                      setOfficialTemplateId('')
+                      loadEntryData({
+                        itemId: tpl.itemId,
+                        name: tpl.name || '',
+                        qty: tpl.qty ?? 1,
+                        rarity: tpl.rarity ?? '',
+                        isAttuned: !!tpl.isAttuned,
+                      })
+                    }
                   } else {
                     resetForm()
                   }
                 }}
                 className={inputClass + ' w-full h-8 text-xs'}
               >
-                <option value="">— 新建空白物品 —</option>
-                {inventory.map((entry, idx) => (
-                  entry.walletCurrencyId ? null : (
-                    <option key={entry.id || `tpl_${idx}`} value={idx}>{entry.name || '未命名物品'}{entry.qty > 1 ? ` ×${entry.qty}` : ''}</option>
+                <option value="">— 选择模组物品模板 —</option>
+                {itemTemplates.map((tpl) => {
+                  const proto = tpl.itemId ? getItemById(tpl.itemId) : null
+                  const display = tpl.name || getItemDisplayName(proto) || tpl.itemId || '未命名模板'
+                  return (
+                    <option key={tpl.id} value={tpl.id}>{display}{tpl.qty > 1 ? ` ×${tpl.qty}` : ''}{tpl.rarity ? ` · ${tpl.rarity}` : ''}</option>
                   )
+                })}
+              </select>
+            </div>
+          )}
+
+          {!isEdit && officialTemplateGroups.length > 0 && (
+            <div className="min-w-0 max-w-full">
+              <label className="block text-dnd-text-muted text-xs mb-0.5">官方非魔法物品模板</label>
+              <select
+                value={officialTemplateId}
+                onChange={(e) => {
+                  const id = e.target.value
+                  setOfficialTemplateId(id)
+                  if (id) {
+                    setModuleTemplateId('')
+                    loadEntryData({ itemId: id, name: '', qty: 1, rarity: '', isAttuned: false })
+                  } else {
+                    resetForm()
+                  }
+                }}
+                className={inputClass + ' w-full h-8 text-xs'}
+              >
+                <option value="">— 选择官方物品模板 —</option>
+                {officialTemplateGroups.map((g) => (
+                  <optgroup key={g.type} label={g.type}>
+                    {g.items.map((item) => (
+                      <option key={item.id} value={item.id}>{getItemDisplayName(item)}</option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>
