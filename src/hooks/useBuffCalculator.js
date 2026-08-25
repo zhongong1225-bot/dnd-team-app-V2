@@ -164,7 +164,7 @@ export function computeBuffStats(character, activeBuffs) {
   const buffs = (activeBuffs || []).filter((b) => b.enabled !== false)
     const rawEntries = getFlatEffectEntries(buffs)
     const entries = rawEntries.filter((e) => !DISPLAY_ONLY_EFFECT_TYPES.includes(e.effectType))
-    
+
     // ── 生物变身效果：收集所有 creature_transform，只取第一个有效的（不叠加）──
     let creatureTransformData = null
     const creatureLibrary = loadCreatureLibrary()
