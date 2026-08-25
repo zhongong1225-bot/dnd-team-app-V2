@@ -13,6 +13,7 @@ import { loadRuleTextOverrides, resolveRuleText, buildFeatNameKey } from '../rul
 import { loadDefaultBuffPatch, mergeWithDefaultPatch, buildClassFeatureBuffKey } from '../defaultBuffPatchStore'
 import { getAvailableFeatures } from '../../data/classDatabase'
 import { HARDCODED_FEAT_BUFFS } from '../../data/featDefaultBuffs'
+import { findShieldSlot } from '../equipmentLayers'
 
 const FEAT_BY_ID = new Map(FEATS.map((x) => [x.id, x]))
 const INVOCATION_BY_ID = new Map(ELDRITCH_INVOCATIONS.map((x) => [x.id, x]))
@@ -165,7 +166,7 @@ export function mergeInvocationBuffPatchesFromMergedList(character, buffsList) {
   return raw.map((x, idx) => {
     const invocationId = typeof x === 'string' ? x : (x?.invocationId ?? x?.id ?? '')
     if (!invocationId) return x
-    const stableId = `invocation_${invocationId}_${idx}`
+    const stableId = `invocation_${invocationId}`
     const fb = invBuffs.find((b) => b.id === stableId && b.invocationId === invocationId)
     if (!fb) return x
 
@@ -205,7 +206,7 @@ export function getBuffsFromSelectedInvocations(character, moduleId) {
     const duration = patch?.duration
     const enabled = patch?.enabled !== false
     return {
-      id: `invocation_${item.invocationId}_${index}`,
+      id: `invocation_${item.invocationId}`,
       source: def?.name ?? item.invocationId,
       effects,
       ...(duration ? { duration } : {}),
@@ -253,7 +254,7 @@ export function mergeFightingStyleBuffPatchesFromMergedList(character, buffsList
   return raw.map((x, idx) => {
     const styleId = typeof x === 'string' ? x : (x?.styleId ?? x?.id ?? '')
     if (!styleId) return x
-    const stableId = `fightingstyle_${styleId}_${idx}`
+    const stableId = `fightingstyle_${styleId}`
     const fb = styleBuffs.find((b) => b.id === stableId && b.styleId === styleId)
     if (!fb) return x
 
@@ -293,7 +294,7 @@ export function getBuffsFromSelectedFightingStyles(character, moduleId) {
     const duration = patch?.duration
     const enabled = patch?.enabled !== false
     return {
-      id: `fightingstyle_${item.styleId}_${index}`,
+      id: `fightingstyle_${item.styleId}`,
       source: def?.name ? `战斗风格-${def.name}` : item.styleId,
       effects,
       ...(duration ? { duration } : {}),
@@ -324,7 +325,7 @@ export function getBuffsFromClassFeatures(character, moduleId) {
       const enabled = defaultPatch?.enabled !== false
       const sourceLabel = f.sourceSubclass ? `${f.sourceClass}（${f.sourceSubclass}）-${f.name}` : `${f.sourceClass}-${f.name}`
       return {
-        id: `classfeature_${f.sourceClass}_${f.sourceSubclass || ''}_${f.id}_${index}`,
+        id: `classfeature_${f.sourceClass}_${f.sourceSubclass || ''}_${f.id}`,
         source: sourceLabel,
         effects,
         ...(duration ? { duration } : {}),
@@ -506,7 +507,7 @@ export function getBuffsFromEquipmentAndInventory(character) {
   const held = character?.equippedHeld ?? []
   const worn = character?.equippedWorn ?? []
   const bodyInventoryId = (worn.find((s) => s?.id === 'body' || s?.slotId === 'body')?.inventoryId) || null
-  const shieldInventoryId = (held[1]?.inventoryId) || null
+  const shieldInventoryId = findShieldSlot(held, inv)?.inventoryId || null
   const equippedIds = new Set()
   for (const slot of held) {
     if (slot?.inventoryId) equippedIds.add(slot.inventoryId)
@@ -530,7 +531,7 @@ export function getBuffsFromEquipmentAndInventory(character) {
     const proto = entry?.itemId ? getItemById(entry.itemId) : null
     const displayName = (entry.name && String(entry.name).trim()) ? String(entry.name).trim() : (getItemDisplayName(proto) || '未命名物品')
     out.push({
-      id: 'item_' + (entry.id || 'inv_' + Math.random().toString(36).slice(2)),
+      id: 'item_' + (entry.id || 'inv_' + (entry.itemId || 'unknown')),
       source: displayName,
       effects: effects.map((e) => ({ effectType: e.effectType, value: e.value, category: e.category, itemInventoryId: entry.id })),
       enabled: true,

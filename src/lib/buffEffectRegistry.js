@@ -5,7 +5,7 @@
  */
 import { BUFF_TYPES } from '../data/buffTypes'
 
-const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'charge', 'container', 'custom']
+const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'charge', 'container', 'proficiency', 'custom']
 
 export function getAllVisibleBuffEffectKeys() {
   const keys = []
@@ -60,12 +60,22 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   save_dc_bonus: 'calculator',
   spell_damage_bonus: 'calculator',
   contained_spell: 'metadata',
+  charge_item: 'metadata',
   // charge
   ac_cap_stone_layer: 'calculator',
   recharge_long_rest: 'metadata',
   recharge_dawn: 'metadata',
   // container
   item_storage: 'metadata',
+  // proficiency
+  tool_proficiency: 'metadata',
+  specific_tool_proficiency: 'metadata',
+  instrument_proficiency: 'metadata',
+  armor_proficiency: 'metadata',
+  weapon_proficiency: 'metadata',
+  language_proficiency: 'metadata',
+  vehicle_proficiency: 'metadata',
+  weapon_mastery: 'metadata',
   // custom
   custom_condition: 'metadata',
 }

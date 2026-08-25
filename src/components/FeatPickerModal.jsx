@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Search, X, Star, Check, Settings } from 'lucide-react'
+import { Search, X, Star, Check } from 'lucide-react'
 import { FEATS, FEATS_BY_CATEGORY, formatFeatDescriptionForDisplay } from '../data/feats'
 import {
   getFeatBuffSchema,
@@ -10,7 +10,7 @@ import {
 } from '../data/featBuffChoices'
 import { ABILITY_NAMES_ZH, DAMAGE_TYPES } from '../data/buffTypes'
 import { resolveRuleText, buildFeatNameKey, buildFeatDescriptionKey } from '../lib/ruleTextOverrides'
-import { loadDefaultBuffPatch, saveDefaultBuffPatch } from '../lib/defaultBuffPatchStore'
+import { loadDefaultBuffPatch, saveDefaultBuffPatch, migrateFeatBuffsToModuleLibrary } from '../lib/defaultBuffPatchStore'
 import { useAuth } from '../contexts/AuthContext'
 import { inputClass } from '../lib/inputStyles'
 import BuffForm from './BuffForm'
@@ -181,6 +181,7 @@ export default function FeatPickerModal({
   selectedIds,
   allowedCategories,
   moduleId = 'default',
+  formulaContext,
 }) {
   const { isAdmin } = useAuth()
   const expandedCategories = useMemo(() => expandAllowedCategories(allowedCategories), [allowedCategories])
@@ -192,7 +193,6 @@ export default function FeatPickerModal({
   const [query, setQuery] = useState('')
   const [selectedFeatId, setSelectedFeatId] = useState(null)
   const [choiceState, setChoiceState] = useState({})
-  const [editingDefaultBuff, setEditingDefaultBuff] = useState(false)
 
   useEffect(() => {
     if (!isOpen) return
@@ -224,6 +224,13 @@ export default function FeatPickerModal({
     setChoiceState(buildDefaultChoiceState(schema))
   }, [selectedFeatId])
 
+  // 迁移旧版专长 BUFF 到模组库
+  useEffect(() => {
+    if (isOpen && isAdmin) {
+      migrateFeatBuffsToModuleLibrary(moduleId)
+    }
+  }, [isOpen, isAdmin, moduleId])
+
   const selectedFeat = selectedFeatId ? featById.get(selectedFeatId) : null
   const schema = selectedFeatId ? getFeatBuffSchema(selectedFeatId) : null
   const canConfirm = selectedFeatId && validateChoiceState(schema, choiceState)
@@ -240,7 +247,7 @@ export default function FeatPickerModal({
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 bg-black/65">
       <div
-        className="w-full max-w-4xl max-h-[90vh] flex flex-col rounded-xl border border-white/15 bg-[#1b2738] shadow-xl overflow-hidden"
+        className="w-full max-h-[90vh] flex flex-col rounded-xl border border-white/15 bg-[#1b2738] shadow-xl overflow-hidden max-w-5xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -336,7 +343,7 @@ export default function FeatPickerModal({
           </div>
 
           {/* Preview */}
-          <div className="w-72 sm:w-80 flex flex-col bg-[#141f2e]/40 overflow-y-auto">
+          <div className="flex flex-col bg-[#141f2e]/40 overflow-y-auto w-96 sm:w-[28rem]">
             {selectedFeat ? (
               <div className="p-4 space-y-4">
                 <div>
@@ -382,19 +389,36 @@ export default function FeatPickerModal({
                   </div>
                 )}
 
-                {isAdmin && selectedFeat && (
+                {selectedFeat && (
                   <div className="border-t border-white/10 pt-3">
-                    <button
-                      type="button"
-                      onClick={() => setEditingDefaultBuff(true)}
-                      className="inline-flex items-center gap-1.5 text-xs text-dnd-gold-light hover:text-dnd-gold transition-colors"
-                    >
-                      <Settings className="w-3.5 h-3.5" />
-                      配置默认 BUFF（DM）
-                    </button>
-                    <p className="text-[10px] text-dnd-text-muted mt-1">
-                      配置后，其他玩家选择该专长时会自动获得此 BUFF。
+                    <h4 className="text-[11px] font-bold text-dnd-gold-light/90 mb-1">
+                      {isAdmin ? '默认 BUFF' : '专长 BUFF'}
+                    </h4>
+                    <p className="text-[10px] text-dnd-text-muted mb-2">
+                      {isAdmin
+                        ? '配置后，其他玩家选择该专长时会自动获得此 BUFF。'
+                        : '选择该专长时自动获得的 BUFF。'}
                     </p>
+                    <BuffForm
+                      key={`feat-buff-${selectedFeat.id}`}
+                      compact
+                      readOnly={!isAdmin}
+                      hideDuration
+                      referenceData={formulaContext}
+                      initial={{
+                        source: resolveRuleText(overridesMap, buildFeatNameKey(selectedFeat.id), selectedFeat.name),
+                        effects: loadDefaultBuffPatch(moduleId, 'feat', selectedFeat.id)?.effects ?? [],
+                        enabled: loadDefaultBuffPatch(moduleId, 'feat', selectedFeat.id)?.enabled !== false,
+                      }}
+                      onSave={(buff) => {
+                        saveDefaultBuffPatch(moduleId, 'feat', selectedFeat.id, {
+                          effects: buff.effects,
+                          enabled: buff.enabled,
+                          sourceName: resolveRuleText(overridesMap, buildFeatNameKey(selectedFeat.id), selectedFeat.name),
+                        })
+                      }}
+                      onCancel={() => {}}
+                    />
                   </div>
                 )}
               </div>
@@ -426,43 +450,6 @@ export default function FeatPickerModal({
           </button>
         </div>
       </div>
-
-      {/* DM 默认 BUFF 编辑器 */}
-      {editingDefaultBuff && selectedFeat && (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center p-3 bg-black/75">
-          <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl p-4">
-            <div className="flex items-center justify-between gap-2 mb-3">
-              <h3 className="text-sm font-semibold text-dnd-gold-light/95">
-                配置「{resolveRuleText(overridesMap, buildFeatNameKey(selectedFeat.id), selectedFeat.name)}」默认 BUFF
-              </h3>
-              <button
-                type="button"
-                onClick={() => setEditingDefaultBuff(false)}
-                className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <BuffForm
-              initial={{
-                source: resolveRuleText(overridesMap, buildFeatNameKey(selectedFeat.id), selectedFeat.name),
-                effects: loadDefaultBuffPatch(moduleId, 'feat', selectedFeat.id)?.effects ?? [],
-                duration: loadDefaultBuffPatch(moduleId, 'feat', selectedFeat.id)?.duration ?? '',
-                enabled: loadDefaultBuffPatch(moduleId, 'feat', selectedFeat.id)?.enabled !== false,
-              }}
-              onSave={(buff) => {
-                saveDefaultBuffPatch(moduleId, 'feat', selectedFeat.id, {
-                  effects: buff.effects,
-                  duration: buff.duration,
-                  enabled: buff.enabled,
-                })
-                setEditingDefaultBuff(false)
-              }}
-              onCancel={() => setEditingDefaultBuff(false)}
-            />
-          </div>
-        </div>
-      )}
     </div>
   )
 }

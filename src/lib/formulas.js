@@ -409,7 +409,12 @@ export function calcMaxHP(character, effectiveAbilities = null) {
  * Buff 对 HP 的加成可在 buffs[].hp 中记录。
  */
 export function getHPBuffSum(character) {
-  return (character?.buffs ?? []).reduce((s, b) => s + (Number(b.hp) || 0), 0)
+  return (character?.buffs ?? []).reduce((s, b) => {
+    // 如果该 buff 已通过 effects 系统贡献了 max_hp_bonus，跳过旧 hp 字段避免双重计算
+    const hasNewFormat = Array.isArray(b.effects) && b.effects.some((e) => e.effectType === 'max_hp_bonus')
+    if (hasNewFormat) return s
+    return s + (Number(b.hp) || 0)
+  }, 0)
 }
 
 /** 判断 value 是否为 buff 公式对象（形如 { ref, ability, mult, add }） */

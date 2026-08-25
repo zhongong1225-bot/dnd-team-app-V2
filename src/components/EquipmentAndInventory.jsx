@@ -242,14 +242,17 @@ function buildEquipmentForAC(heldSlots, wornSlots, inv) {
       }
     }
   }
-  const offSlot = heldSlots[1]
-  if (offSlot?.inventoryId) {
-    const entry = inv.find((e) => e.id === offSlot.inventoryId)
+  const shieldSlot = heldSlots.find((s) => {
+    if (!s?.inventoryId) return false
+    const entry = inv.find((e) => e.id === s.inventoryId)
+    if (!entry) return false
+    const proto = entry.itemId ? getItemById(entry.itemId) : null
+    return proto?.类型 === '盔甲' && proto?.子类型 === '盾牌'
+  })
+  if (shieldSlot?.inventoryId) {
+    const entry = inv.find((e) => e.id === shieldSlot.inventoryId)
     if (entry) {
-      const proto = entry.itemId ? getItemById(entry.itemId) : null
-      if (proto?.类型 === '盔甲' && proto?.子类型 === '盾牌') {
-        eq.shield = { inventoryId: offSlot.inventoryId }
-      }
+      eq.shield = { inventoryId: shieldSlot.inventoryId }
     }
   }
   return eq

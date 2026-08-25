@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo, forwardRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ChevronUp, ChevronDown, Trash2, Star, Upload, X, Plus } from 'lucide-react'
+import { ChevronUp, ChevronDown, Trash2, Star, Upload, X, Plus, Settings, Zap } from 'lucide-react'
 
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
@@ -14,7 +14,7 @@ import { isSupabaseEnabled } from '../lib/supabase'
 import { mergeCharacterPatch, mergePatchesList } from '../lib/mergeCharacterPatch'
 import { resolveCreatureHpDisplay } from '../lib/creatureHpDisplay'
 import { levelFromXP, xpForLevel } from '../lib/xp5e'
-import { proficiencyBonus, abilityModifier } from '../lib/formulas'
+import { proficiencyBonus, abilityModifier, calcMaxHP, getHPBuffSum } from '../lib/formulas'
 import {
   getSpellcastingLevel,
   ALL_CLASS_NAMES,
@@ -59,6 +59,10 @@ import AbilityModule from '../components/AbilityModule'
 import AvatarCropModal from '../components/AvatarCropModal'
 import CharacterSheetTopBar from '../components/CharacterSheetTopBar'
 import FeatPickerModal from '../components/FeatPickerModal'
+import BuffForm from '../components/BuffForm'
+import { loadDefaultBuffPatch, saveDefaultBuffPatch, buildClassFeatureBuffKey } from '../lib/defaultBuffPatchStore'
+import { formatRecoveryBrief, buildAbilityDiceExpr } from '../lib/chargeItemModel'
+import { rollDice } from '../data/weaponDatabase'
 import InfoTooltip from '../components/InfoTooltip'
 import { ClassFeatureTooltipContent, FeatTooltipContent } from '../lib/infoTooltipContent'
 import { APP_VERSION_LABEL } from '../config/version'
@@ -1007,7 +1011,7 @@ function EldritchInvocationsBlock({ char, canEdit, onSave, moduleId }) {
           <button
             type="button"
             onClick={() => setModalOpen(true)}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium bg-dnd-red/90 text-white hover:bg-dnd-red transition-colors"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium bg-white/10 text-gray-300 hover:bg-white/15 border border-white/10 transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
             选择魔能祈唤
@@ -1080,39 +1084,36 @@ function FightingStylesBlock({ char, feature, canEdit, onSave, moduleId }) {
   }
 
   return (
-    <div className="mt-3 border-t border-gray-600/35 pt-3">
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <span className="text-xs text-dnd-text-muted">已选战斗风格</span>
-        {canEdit && (
-          <button
-            type="button"
-            onClick={() => setModalOpen(true)}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium bg-dnd-red/90 text-white hover:bg-dnd-red transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            选择战斗风格
-          </button>
-        )}
-      </div>
-      {selected.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {selected.map((x, i) => {
+    <div className="mt-2 border-t border-gray-600/35 pt-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {selected.length > 0 ? (
+          selected.map((x, i) => {
             const id = x?.styleId ?? x?.id ?? ''
             const style = byId.get(id)
             return (
               <span
                 key={`${id}-${i}`}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-white/10 bg-[#243147]/60 text-xs text-gray-200"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-white/10 bg-[#243147]/60 text-[11px] text-gray-200"
                 title={style?.description ?? ''}
               >
-                {style?.name ?? id}
+                {style ? style.name : id}
               </span>
             )
-          })}
-        </div>
-      ) : (
-        <p className="text-gray-500 text-xs">未选择战斗风格</p>
-      )}
+          })
+        ) : (
+          <span className="text-gray-500 text-[11px]">未选择</span>
+        )}
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setModalOpen(true)}
+            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] text-gray-400 hover:text-dnd-gold hover:bg-white/5 transition-colors"
+            title="选择战斗风格"
+          >
+            <Plus className="w-3 h-3" />
+          </button>
+        )}
+      </div>
       <FightingStylePicker
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -1126,12 +1127,114 @@ function FightingStylesBlock({ char, feature, canEdit, onSave, moduleId }) {
   )
 }
 
+/** 职业特性动作按钮：根据 BUFF 配置渲染充能使用等按钮 */
+function ClassFeatureActions({ feature, moduleId, char, onSave }) {
+  const [lastResult, setLastResult] = useState(null)
+  const buffKey = buildClassFeatureBuffKey(feature.sourceClass, feature.sourceSubclass, feature.id)
+  const defaultPatch = loadDefaultBuffPatch(moduleId, 'classFeature', buffKey)
+  const effects = Array.isArray(defaultPatch?.effects) ? defaultPatch.effects : []
+
+  // 查找充能效果
+  const chargeEffects = effects.filter((e) => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
+
+  // 清除上次的掷骰结果（3 秒后自动消失）
+  useEffect(() => {
+    if (!lastResult) return
+    const timer = setTimeout(() => setLastResult(null), 3000)
+    return () => clearTimeout(timer)
+  }, [lastResult])
+
+  if (chargeEffects.length === 0) return null
+
+  const handleUse = (chargeValue) => {
+    if (!char || !onSave) return
+    const abilityEffects = (chargeValue.effects || []).filter((eff) => eff.type === 'ability' && eff.value?.diceCount > 0)
+
+    if (abilityEffects.length === 0) {
+      // 无骰子效果，仅显示信息
+      const lines = (chargeValue.effects || []).map((eff) => {
+        if (eff.type === 'spell') return `法术：${eff.value?.spellName || '(未命名)'}`
+        if (eff.type === 'ability') return `能力：${eff.value?.text || '(无描述)'}`
+        if (eff.type === 'shield') return `护盾：${eff.value?.amount ?? 1}`
+        return ''
+      }).filter(Boolean)
+      setLastResult({ text: lines.join('；') || '(未配置效果)', total: 0 })
+      return
+    }
+
+    // 处理第一个有骰子的 ability 效果
+    const eff = abilityEffects[0]
+    const av = eff.value
+    const { expr, mod } = buildAbilityDiceExpr(av, char)
+    if (!expr) {
+      setLastResult({ text: '无可掷骰子', total: 0 })
+      return
+    }
+
+    const { total, rolls } = rollDice(expr)
+    const isHeal = av.resultType !== 'damage'
+    const currentHp = Number(char.hp?.current) || 0
+
+    // 计算 maxHp（简化：基础 + BUFF 加成）
+    const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
+
+    let newHp = currentHp
+    if (isHeal) {
+      newHp = Math.min(maxHp, currentHp + total)
+    } else {
+      newHp = Math.max(0, currentHp - total)
+    }
+
+    // 保存 HP
+    onSave({ hp: { ...char.hp, current: newHp } })
+
+    const modLabel = mod !== 0 ? (mod > 0 ? `+${mod}` : `${mod}`) : ''
+    const diceStr = rolls.length > 0 ? `${rolls.join('+')}` : expr
+    setLastResult({
+      text: `${isHeal ? '💚' : '⚔️'} ${feature.name}：${diceStr}${modLabel} = ${total}`,
+      total,
+      isHeal,
+    })
+  }
+
+  return (
+    <div className="mt-2 pt-2 border-t border-gray-700/35 flex flex-wrap items-center gap-1.5">
+      {chargeEffects.map((chargeEff, idx) => {
+        const chargeValue = chargeEff.value
+        const charges = chargeValue.charges ?? 0
+        const recovery = chargeValue.recovery
+        const recoveryLabel = recovery ? formatRecoveryBrief(recovery) : ''
+
+        return (
+          <button
+            key={idx}
+            type="button"
+            onClick={() => handleUse(chargeValue)}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors"
+            title={`${charges} 充能 | ${recoveryLabel}`}
+          >
+            <Zap className="w-3 h-3" />
+            使用 {feature.name}
+            {charges > 0 && <span className="text-[10px] opacity-70">({charges})</span>}
+          </button>
+        )
+      })}
+      {lastResult && (
+        <span className={`text-[11px] ${lastResult.isHeal ? 'text-green-400' : 'text-red-400'}`}>
+          {lastResult.text}
+        </span>
+      )}
+    </div>
+  )
+}
+
 /** 职业特性：根据当前职业与等级自动展示，不可手动增删 */
-function ClassFeaturesSection({ char, canEdit, onSave }) {
+function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
   const { currentModuleId } = useModule()
   const moduleId = currentModuleId || 'default'
   const overridesMap = useRuleTextOverridesMap(moduleId)
   const [expandedFeatureIds, setExpandedFeatureIds] = useState(new Set())
+  const [buffEditorFeature, setBuffEditorFeature] = useState(null)
   const toggleFeatureExpand = (key) => {
     setExpandedFeatureIds((prev) => {
       const next = new Set(prev)
@@ -1191,6 +1294,17 @@ function ClassFeaturesSection({ char, canEdit, onSave }) {
                     </InfoTooltip>
                     <span className={`${CS_LIST_META} ml-2`}>{f.sourceClass}{f.sourceSubclass ? `（${f.sourceSubclass}）` : ''} · {f.level} 级</span>
                   </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setBuffEditorFeature(f)
+                    }}
+                    className="p-1.5 rounded-lg text-gray-500 hover:bg-white/10 hover:text-dnd-gold transition-colors"
+                    title="配置 BUFF 效果"
+                  >
+                    <Settings className="w-4 h-4" />
+                  </button>
                 </div>
                 {isExpanded && descText && (
                   <p className={`${CS_LIST_BODY} mt-2 border-t border-gray-700/35 pt-2 whitespace-pre-line`}>
@@ -1203,11 +1317,98 @@ function ClassFeaturesSection({ char, canEdit, onSave }) {
                 {FIGHTING_STYLE_FEATURE_IDS.has(f.id) && (
                   <FightingStylesBlock char={char} feature={f} canEdit={canEdit} onSave={onSave} moduleId={moduleId} />
                 )}
+                <ClassFeatureActions feature={f} moduleId={moduleId} char={char} onSave={onSave} />
               </li>
             )
           })}
         </ul>
       </div>
+
+      {/* BUFF 编辑器弹窗 */}
+      {buffEditorFeature && (
+        <>
+          <div
+            className="fixed inset-0 z-[300] bg-black/60"
+            onClick={() => setBuffEditorFeature(null)}
+            aria-hidden
+          />
+          <div
+            className="fixed inset-0 z-[301] flex items-center justify-center p-4 sm:p-8 overflow-auto"
+            onClick={() => setBuffEditorFeature(null)}
+          >
+            <div
+              className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-4 border-b border-white/10">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-semibold text-dnd-gold-light/90">
+                    配置 BUFF：{buffEditorFeature.name}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setBuffEditorFeature(null)}
+                    className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <p className="text-xs text-dnd-text-muted mt-1">
+                  {isAdmin
+                    ? 'DM 配置默认 BUFF 效果，玩家选择该特性时自动获得。'
+                    : '查看该职业特性的 BUFF 效果（只读）。'}
+                </p>
+                {buffEditorFeature.description && (
+                  <div className="mt-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 leading-relaxed whitespace-pre-line">
+                    {resolveRuleText(
+                      overridesMap,
+                      buffEditorFeature.sourceSubclass
+                        ? buildSubclassFeatureKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id)
+                        : buildClassFeatureKey(buffEditorFeature.sourceClass, buffEditorFeature.id),
+                      buffEditorFeature.description,
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="p-4">
+                <BuffForm
+                  key={`cf-buff-${buffEditorFeature.sourceClass}-${buffEditorFeature.sourceSubclass || ''}-${buffEditorFeature.id}`}
+                  compact
+                  readOnly={!isAdmin}
+                  hideDuration
+                  initial={{
+                    source: `${buffEditorFeature.sourceClass}-${buffEditorFeature.name}`,
+                    effects: loadDefaultBuffPatch(
+                      moduleId,
+                      'classFeature',
+                      buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
+                    )?.effects ?? [],
+                    enabled: loadDefaultBuffPatch(
+                      moduleId,
+                      'classFeature',
+                      buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
+                    )?.enabled !== false,
+                  }}
+                  onSave={(buff) => {
+                    saveDefaultBuffPatch(
+                      moduleId,
+                      'classFeature',
+                      buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
+                      {
+                        effects: buff.effects,
+                        enabled: buff.enabled,
+                        sourceName: `${buffEditorFeature.sourceClass}-${buffEditorFeature.name}`,
+                      },
+                    )
+                    setBuffEditorFeature(null)
+                  }}
+                  onCancel={() => setBuffEditorFeature(null)}
+                />
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -1228,7 +1429,7 @@ function formatFeatAcquisitionSentence(sourceClass, level, category) {
 }
 
 /** 专长：按自动计算的槽位展示，每个槽位从指定分类中选取；额外传奇专长可自由添加 */
-function FeatsSection({ char, level, canEdit, onSave }) {
+function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
   const { currentModuleId } = useModule()
   const moduleId = currentModuleId || 'default'
   const overridesMap = useRuleTextOverridesMap(moduleId)
@@ -1376,7 +1577,7 @@ function FeatsSection({ char, level, canEdit, onSave }) {
           <button
             type="button"
             onClick={openPickerForExtraLegendary}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium bg-dnd-red/90 text-white hover:bg-dnd-red transition-colors"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium bg-white/10 text-gray-300 hover:bg-white/15 border border-white/10 transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
             添加传奇专长
@@ -1473,7 +1674,7 @@ function FeatsSection({ char, level, canEdit, onSave }) {
                         <button
                           type="button"
                           onClick={() => openPickerForSlot(slot)}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-dnd-red/90 text-white hover:bg-dnd-red transition-colors"
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-white/10 text-gray-300 hover:bg-white/15 border border-white/10 transition-colors"
                         >
                           <Plus className="w-3.5 h-3.5" />
                           选择专长
@@ -1605,6 +1806,7 @@ function FeatsSection({ char, level, canEdit, onSave }) {
         selectedIds={allSelectedIds}
         allowedCategories={pickerState.category ? [pickerState.category] : []}
         moduleId={moduleId}
+        formulaContext={formulaContext}
       />
     </div>
   )
@@ -2062,7 +2264,7 @@ export default function CharacterSheet() {
       const style = getFightingStyleById(styleId)
       if (style?.name && !seen.has(style.name)) {
         seen.add(style.name)
-        names.push(style.name)
+        names.push(`战斗风格-${style.name}`)
       }
     }
     return names
@@ -2359,7 +2561,7 @@ export default function CharacterSheet() {
               sourceNameOptions={sourceNameOptions}
               onSave={(buffsList) => {
                 const manual = buffsList.filter(
-                  (b) => !b.fromItem && !b.fromFeat && !b.fromInvocation && !b.fromFightingStyle,
+                  (b) => !b.fromItem && !b.fromFeat && !b.fromInvocation && !b.fromFightingStyle && !b.fromClassFeature,
                 )
                 const selectedFeats = mergeFeatBuffPatchesFromMergedList(char, buffsList)
                 const selectedInvocations = mergeInvocationBuffPatchesFromMergedList(char, buffsList)
@@ -2419,11 +2621,11 @@ export default function CharacterSheet() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="min-w-0">
                   <h3 className="section-title">职业特性</h3>
-                  <ClassFeaturesSection char={char} canEdit={canEdit} onSave={persist} />
+                  <ClassFeaturesSection char={char} canEdit={canEdit} onSave={persist} isAdmin={isAdmin} />
                 </div>
                 <div className="min-w-0">
                   <h3 className="section-title">专长</h3>
-                  <FeatsSection char={char} level={level} canEdit={canEdit} onSave={persist} />
+                  <FeatsSection char={char} level={level} canEdit={canEdit} onSave={persist} formulaContext={buffFormulaContext} />
                 </div>
               </div>
             </section>

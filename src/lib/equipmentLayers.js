@@ -6,6 +6,25 @@
 import { getItemById } from '../data/itemDatabase'
 
 const NOTE_KEY = '\u9644\u6CE8'  // 附注
+const TYPE_KEY = '\u7C7B\u578B'   // 类型
+const SUBTYPE_KEY = '\u5B50\u7C7B\u578B'  // 子类型
+
+/**
+ * 从 equippedHeld 中查找盾牌槽位（遍历所有手持槽位，而非硬编码 held[1]）
+ * @param {Array} held - equippedHeld 数组
+ * @param {Array} inventory - inventory 数组
+ * @returns {{ inventoryId: string } | null}
+ */
+export function findShieldSlot(held, inventory) {
+  if (!Array.isArray(held)) return null
+  for (const slot of held) {
+    if (!slot?.inventoryId) continue
+    const entry = inventory.find((e) => e.id === slot.inventoryId)
+    const proto = entry?.itemId ? getItemById(entry.itemId) : null
+    if (proto?.[TYPE_KEY] === '盔甲' && proto?.[SUBTYPE_KEY] === '盾牌') return slot
+  }
+  return null
+}
 
 export function getLayerSlotData(character, layerId) {
   const equipment = character?.equipment ?? {}
@@ -18,12 +37,8 @@ export function getLayerSlotData(character, layerId) {
   }
   if (!slot?.inventoryId && layerId === 'shield') {
     const held = character?.equippedHeld ?? []
-    const offSlot = held[1]
-    if (offSlot?.inventoryId) {
-      const entry = inventory.find((e) => e.id === offSlot.inventoryId)
-      const proto = entry?.itemId ? getItemById(entry.itemId) : null
-      if (proto?.类型 === '盔甲' && proto?.子类型 === '盾牌') slot = { inventoryId: offSlot.inventoryId }
-    }
+    const shieldSlot = findShieldSlot(held, inventory)
+    if (shieldSlot?.inventoryId) slot = { inventoryId: shieldSlot.inventoryId }
   }
   const inventoryId = slot?.inventoryId
   const entry = inventoryId ? (inventory.find((e) => e.id === inventoryId) ?? null) : null
@@ -51,8 +66,6 @@ export const DEFENSE_LAYER_LABELS = {
 /**
  * 从背包中筛选可放入指定防御槽位的物品
  */
-const TYPE_KEY = '\u7C7B\u578B'   // 类型
-const SUBTYPE_KEY = '\u5B50\u7C7B\u578B'  // 子类型
 
 export function getInventoryForLayer(inventory, layerId) {
   const inv = Array.isArray(inventory) ? inventory : []
@@ -86,12 +99,7 @@ export function useLayersForAC(equipment, character) {
   const worn = character?.equippedWorn ?? []
   if (worn.some((w) => w.id === 'body' && w.inventoryId)) return true
   const held = character?.equippedHeld ?? []
-  const off = held[1]
-  if (off?.inventoryId) {
-    const inv = character?.inventory ?? []
-    const entry = inv.find((e) => e.id === off.inventoryId)
-    const proto = entry?.itemId ? getItemById(entry.itemId) : null
-    if (proto?.类型 === '盔甲' && proto?.子类型 === '盾牌') return true
-  }
+  const shieldSlot = findShieldSlot(held, character?.inventory ?? [])
+  if (shieldSlot?.inventoryId) return true
   return false
 }

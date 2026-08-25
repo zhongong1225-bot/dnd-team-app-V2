@@ -40,12 +40,12 @@ export default function BuffManager({
   const [formState, setFormState] = useState(null)
   const [showModuleLibrary, setShowModuleLibrary] = useState(false)
   const [importSearch, setImportSearch] = useState('')
+  /** null | { template, isDuplicate } */
+  const [confirmImport, setConfirmImport] = useState(null)
   /** null | { mode: 'active'|'stash', id: string|null } */
   const [dragOverActive, setDragOverActive] = useState(false)
-  const [showAddMenu, setShowAddMenu] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
   const [expandedIds, setExpandedIds] = useState(new Set())
-  const addMenuRef = useRef(null)
 
   const list = Array.isArray(buffs) ? buffs : []
   const stash = Array.isArray(stashBuffs) ? stashBuffs : []
@@ -82,7 +82,7 @@ export default function BuffManager({
 
   const handleDelete = (id) => {
     const b = list.find((x) => x.id === id)
-    if (b?.fromItem || b?.fromFeat || b?.fromInvocation || b?.fromFightingStyle) return
+    if (b?.fromItem || b?.fromFeat || b?.fromInvocation || b?.fromFightingStyle || b?.fromClassFeature) return
     const next = list.filter((x) => x.id !== id)
     onSave(next)
   }
@@ -113,17 +113,6 @@ export default function BuffManager({
   const handleDeleteStash = (id) => {
     onStashChange(stash.filter((x) => x.id !== id))
   }
-
-  useEffect(() => {
-    if (!showAddMenu) return
-    const onDocClick = (e) => {
-      if (addMenuRef.current && !addMenuRef.current.contains(e.target)) {
-        setShowAddMenu(false)
-      }
-    }
-    document.addEventListener('mousedown', onDocClick)
-    return () => document.removeEventListener('mousedown', onDocClick)
-  }, [showAddMenu])
 
   const onDragStartStash = useCallback(
     (e, id) => {
@@ -258,6 +247,15 @@ export default function BuffManager({
 
   const handleImportTemplate = useCallback(
     (t) => {
+      const source = String(t.source ?? '').trim() || '未命名 Buff'
+      const isDuplicate = list.some((b) => b.source?.trim() === source) || stash.some((b) => b.source?.trim() === source)
+      setConfirmImport({ template: t, isDuplicate })
+    },
+    [list, stash],
+  )
+
+  const doImportTemplate = useCallback(
+    (t) => {
       const isTemporary = normalizeBuffSourceKindKey(t.sourceKind ?? 'temporary') === 'temporary'
       const source = String(t.source ?? '').trim() || '未命名 Buff'
       const duration =
@@ -278,10 +276,6 @@ export default function BuffManager({
           },
         ])
       } else {
-        if (list.some((b) => b.source?.trim() === source)) {
-          setShowModuleLibrary(false)
-          return
-        }
         onSave([
           ...list,
           {
@@ -294,7 +288,7 @@ export default function BuffManager({
           },
         ])
       }
-      setShowModuleLibrary(false)
+      setConfirmImport(null)
     },
     [list, onSave, onStashChange, stash],
   )
@@ -319,59 +313,17 @@ export default function BuffManager({
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wide shrink-0">BUFF</h3>
         {canEdit && (
-          <div className="relative shrink-0" ref={addMenuRef}>
-            <button
-              type="button"
-              onClick={() => setShowAddMenu((v) => !v)}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-dnd-gold text-dnd-gold-light hover:bg-dnd-gold/20 text-xs font-medium transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              添加
-              <ChevronDown className={`w-3 h-3 transition-transform ${showAddMenu ? 'rotate-180' : ''}`} />
-            </button>
-            {showAddMenu && (
-              <div className="absolute right-0 top-full mt-1 w-44 rounded-lg border border-gray-600 bg-gray-800 shadow-[0_6px_22px_rgba(0,0,0,0.48)] z-50 py-1">
-                {stashEditable && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowAddMenu(false)
-                        setImportSearch('')
-                        setShowModuleLibrary(true)
-                      }}
-                      className="w-full text-left px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-700/60 flex items-center gap-2 transition-colors"
-                    >
-                      <Library className="w-3.5 h-3.5 text-dnd-gold-light" />
-                      从模组库导入
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowAddMenu(false)
-                        handleAddStash()
-                      }}
-                      className="w-full text-left px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-700/60 flex items-center gap-2 transition-colors"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      添加临时BUFF
-                    </button>
-                  </>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAddMenu(false)
-                    handleAddActive()
-                  }}
-                  className="w-full text-left px-3 py-1.5 text-xs text-dnd-red hover:bg-gray-700/60 flex items-center gap-2 transition-colors"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  添加增益/减值
-                </button>
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setImportSearch('')
+              setShowModuleLibrary(true)
+            }}
+            className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-dnd-gold text-dnd-gold-light hover:bg-dnd-gold/20 text-xs font-medium transition-colors shrink-0"
+          >
+            <Library className="w-3.5 h-3.5" />
+            从库中导入
+          </button>
         )}
       </div>
 
@@ -524,15 +476,28 @@ export default function BuffManager({
                     关闭
                   </button>
                 </div>
-                <div className="relative min-w-0">
-                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
-                  <input
-                    type="text"
-                    value={importSearch}
-                    onChange={(e) => setImportSearch(e.target.value)}
-                    placeholder="搜索 BUFF 名称"
-                    className={`${inputClass} pl-7 text-xs w-full`}
-                  />
+                <div className="flex items-center gap-2">
+                  <div className="relative min-w-0 flex-1">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
+                    <input
+                      type="text"
+                      value={importSearch}
+                      onChange={(e) => setImportSearch(e.target.value)}
+                      placeholder="搜索 BUFF 名称"
+                      className={`${inputClass} pl-7 text-xs w-full`}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowModuleLibrary(false)
+                      handleAddStash()
+                    }}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg border border-dnd-gold/70 text-dnd-gold-light hover:bg-dnd-gold/20 text-xs font-medium transition-colors shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    新增 BUFF
+                  </button>
                 </div>
               </div>
               {(moduleLibrary?.buffTemplates ?? []).length === 0 ? (
@@ -614,6 +579,57 @@ export default function BuffManager({
                   })}
                 </div>
               )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {confirmImport && (
+        <>
+          <div
+            className="fixed inset-0 z-[210] bg-black/50"
+            onClick={() => setConfirmImport(null)}
+            aria-hidden
+          />
+          <div
+            className="fixed inset-0 z-[211] flex items-center justify-center p-4"
+            onClick={() => setConfirmImport(null)}
+          >
+            <div
+              className="w-full max-w-sm rounded-xl border border-gray-600 bg-gray-800 p-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h4 className="text-dnd-gold-light text-sm font-bold mb-2">
+                {confirmImport.isDuplicate ? '⚠ 同名 BUFF 已存在' : '确认添加 BUFF'}
+              </h4>
+              <p className="text-gray-300 text-xs mb-1">
+                名称：<span className="text-white font-medium">{confirmImport.template.source || '未命名 Buff'}</span>
+              </p>
+              {confirmImport.isDuplicate && (
+                <p className="text-dnd-red text-xs mb-2">
+                  当前已有同名 BUFF，添加后将产生重复条目。
+                </p>
+              )}
+              <div className="flex justify-end gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={() => setConfirmImport(null)}
+                  className="px-3 py-1 rounded-lg border border-gray-600 text-gray-400 hover:bg-gray-700 text-xs transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={() => doImportTemplate(confirmImport.template)}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                    confirmImport.isDuplicate
+                      ? 'border border-dnd-red/70 text-dnd-red hover:bg-dnd-red/20'
+                      : 'border border-dnd-gold/70 text-dnd-gold-light hover:bg-dnd-gold/20'
+                  }`}
+                >
+                  {confirmImport.isDuplicate ? '仍然添加' : '确认添加'}
+                </button>
+              </div>
             </div>
           </div>
         </>

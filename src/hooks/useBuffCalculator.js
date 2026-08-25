@@ -237,9 +237,9 @@ export function computeBuffStats(character, activeBuffs) {
     const finalAbilities = {}
     for (const k of ABILITY_KEYS) {
       let score
-      // 部分 ability_override 只覆盖指定属性；未指定的属性仍使用基础值 + 累加
+      // override 设定基础值，uncapped 增量仍然叠加
       if (abilityOverride[k] != null) {
-        score = abilityOverride[k]
+        score = abilityOverride[k] + (abilityBonus[k] || 0)
       } else {
         score = (baseAbilities[k] ?? 10) + (abilityBonus[k] || 0)
       }

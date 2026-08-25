@@ -166,6 +166,103 @@ export const DAMAGE_DICE_ARROW_OPTIONS = [
   { value: '命中时', label: '命中时' },
 ]
 
+/** 护甲熟练选项 */
+export const ARMOR_PROFICIENCY_OPTIONS = [
+  { value: 'light', label: '轻甲' },
+  { value: 'medium', label: '中甲' },
+  { value: 'heavy', label: '重甲' },
+  { value: 'shield', label: '盾牌' },
+]
+
+/** 武器熟练选项 */
+export const WEAPON_PROFICIENCY_OPTIONS = [
+  { value: 'simple', label: '简易武器' },
+  { value: 'martial', label: '军用武器' },
+]
+
+/** 载具熟练选项 */
+export const VEHICLE_PROFICIENCY_OPTIONS = [
+  { value: 'land', label: '陆上载具' },
+  { value: 'water', label: '水上载具' },
+  { value: 'air', label: '空中载具' },
+]
+
+/** 乐器熟练选项 */
+export const INSTRUMENT_PROFICIENCY_OPTIONS = [
+  { value: 'bagpipes', label: '风笛' },
+  { value: 'drum', label: '鼓' },
+  { value: 'dulcimer', label: '扬琴' },
+  { value: 'flute', label: '长笛' },
+  { value: 'horn', label: '号角' },
+  { value: 'lute', label: '鲁特琴' },
+  { value: 'lyre', label: '里拉琴' },
+  { value: 'pan_flute', label: '排箫' },
+  { value: 'shawm', label: '芦笛' },
+  { value: 'viol', label: '提琴' },
+]
+
+/** 工具熟练选项（工匠工具 + 工具包 + 赌具） */
+export const TOOL_PROFICIENCY_OPTIONS = [
+  { value: 'alchemist_supplies', label: '炼金工具' },
+  { value: 'brewer_supplies', label: '酿酒工具' },
+  { value: 'calligrapher_supplies', label: '书法工具' },
+  { value: 'carpenter_tools', label: '木匠工具' },
+  { value: 'cartographer_tools', label: '制图工具' },
+  { value: 'cobbler_tools', label: '鞋匠工具' },
+  { value: 'cook_utensils', label: '厨师工具' },
+  { value: 'glassblower_tools', label: '玻璃匠工具' },
+  { value: 'jeweler_tools', label: '珠宝匠工具' },
+  { value: 'leatherworker_tools', label: '皮匠工具' },
+  { value: 'mason_tools', label: '石匠工具' },
+  { value: 'painter_supplies', label: '画家工具' },
+  { value: 'potter_tools', label: '陶匠工具' },
+  { value: 'smith_tools', label: '铁匠工具' },
+  { value: 'tinker_tools', label: '修补工具' },
+  { value: 'weaver_tools', label: '织布工具' },
+  { value: 'woodcarver_tools', label: '木雕工具' },
+  { value: 'disguise_kit', label: '易容工具' },
+  { value: 'forgery_kit', label: '文书伪造工具' },
+  { value: 'herbalism_kit', label: '草药工具' },
+  { value: 'navigator_tools', label: '领航工具' },
+  { value: 'poisoner_kit', label: '毒药工具' },
+  { value: 'thieves_tools', label: '盗贼工具' },
+  { value: 'gaming_set_dice', label: '赌具（子）' },
+  { value: 'gaming_set_dragonchess', label: '赌具（龙棋）' },
+  { value: 'gaming_set_cards', label: '赌具（纸牌）' },
+  { value: 'gaming_set_three_dragon', label: '赌具（三龙牌）' },
+]
+
+/** 语言熟练选项 */
+export const LANGUAGE_PROFICIENCY_OPTIONS = [
+  { value: 'abyssal', label: '深渊语' },
+  { value: 'celestial', label: '天界语' },
+  { value: 'common', label: '通用语' },
+  { value: 'draconic', label: '龙语' },
+  { value: 'elvish', label: '精灵语' },
+  { value: 'giant', label: '巨人语' },
+  { value: 'goblin', label: '地精语' },
+  { value: 'kerlo', label: '刻洛语' },
+  { value: 'loxodon', label: '象族语' },
+  { value: 'merfolk', label: '人鱼语' },
+  { value: 'minotaur', label: '牛头人语' },
+  { value: 'sphinx', label: '斯芬克斯语' },
+  { value: 'sylvan', label: '木族语' },
+  { value: 'vidoken', label: '维多肯语' },
+]
+
+/** D&D 2024 武器精通词条 */
+export const WEAPON_MASTERY_OPTIONS = [
+  { value: 'sap', label: 'Sap（命中后目标对你攻击劣势）' },
+  { value: 'topple', label: 'Topple（命中后目标力量豁免失败倒地）' },
+  { value: 'push', label: 'Push（命中后推开目标 10 尺）' },
+  { value: 'slow', label: 'Slow（命中后目标速度减半）' },
+  { value: 'vex', label: 'Vex（命中后下次攻击该目标优势）' },
+  { value: 'cleave', label: 'Cleave（命中后可攻击另一生物）' },
+  { value: 'nick', label: 'Nick（轻武器额外攻击不耗附赠动作）' },
+  { value: 'graze', label: 'Graze（失手仍造成属性调整值伤害）' },
+  { value: 'dazzle', label: 'Dazzle（命中后目标攻击劣势）' },
+]
+
 /** 从「1d6 穿刺」或「攻击」字符串解析出 { minus, plus, o1, o2, type, o3 }，用于回填伤害模块；末尾「 #附注」写入 o3 */
 export function parseDamageString(str) {
   if (!str || typeof str !== 'string') return { minus: '', plus: '', o1: '', o2: '', type: '', o3: '' }
@@ -231,7 +328,7 @@ export function formatDamagePiercingTraitsValue(value) {
  * 第一级：大类 (category)
  * 第二级：具体效果 (key, label, dataType, subSelect, hidden)
  */
-const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'charge', 'container', 'custom']
+const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'charge', 'container', 'proficiency', 'custom']
 
 export const BUFF_TYPES = {
   ability: {
@@ -340,20 +437,18 @@ export const BUFF_TYPES = {
       { key: 'charge', label: '充能数', dataType: 'number', hidden: true },
     ],
   },
-  /** 充能效果：由物品主动触发的法术或状态 */
+  /** 充能效果：统一充能物品编辑器，整合充能数、回能方式、消耗效果 */
   charge: {
     label: '充能效果',
     color: 'cyan',
     effects: [
-      // 内含法术：物品/附魔内嵌法术，半输入半从法术大全识别；环位、命中判断、射程/范围自动带出
-      { key: 'contained_spell', label: '内含法术', dataType: 'object', subSelect: 'containedSpell' },
-      // 瓦石层：由物品主动触发的临时防护层，归类为充能效果
-      { key: 'ac_cap_stone_layer', label: '瓦石层', dataType: 'number' },
-      // 长休恢复：完成长休时恢复固定值或 XdX 点充能
-      { key: 'recharge_long_rest', label: '长休恢复', dataType: 'object', subSelect: 'chargeRecovery' },
-      // 黎明恢复：每个黎明时恢复固定值或 XdX 点充能
-      { key: 'recharge_dawn', label: '黎明恢复', dataType: 'object', subSelect: 'chargeRecovery' },
-      // 以下保留旧 key，供已有数据与计算器解析
+      // 统一充能物品编辑器：充能数 + 回能方式 + 消耗效果（内含法术/奇能/护盾）
+      { key: 'charge_item', label: '充能物品', dataType: 'object', subSelect: 'chargeItem' },
+      // ── 以下旧 key 保留供已有数据兼容，不在新增下拉中显示 ──
+      { key: 'contained_spell', label: '内含法术', dataType: 'object', subSelect: 'containedSpell', hidden: true },
+      { key: 'ac_cap_stone_layer', label: '瓦石层', dataType: 'number', hidden: true },
+      { key: 'recharge_long_rest', label: '长休恢复', dataType: 'object', subSelect: 'chargeRecovery', hidden: true },
+      { key: 'recharge_dawn', label: '黎明恢复', dataType: 'object', subSelect: 'chargeRecovery', hidden: true },
       { key: 'charge', label: '充能数', dataType: 'number', hidden: true },
     ],
   },
@@ -362,6 +457,20 @@ export const BUFF_TYPES = {
     label: '储物',
     color: 'emerald',
     effects: [{ key: 'item_storage', label: '容器储物', dataType: 'boolean' }],
+  },
+  /** 熟练：记录角色获得的各种熟练（不参与数值计算，仅元数据记录） */
+  proficiency: {
+    label: '熟练',
+    color: 'teal',
+    effects: [
+      { key: 'specific_tool_proficiency', label: '工具熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'tool' },
+      { key: 'instrument_proficiency', label: '乐器熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'instrument' },
+      { key: 'armor_proficiency', label: '护甲熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'armor' },
+      { key: 'weapon_proficiency', label: '武器熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'weapon' },
+      { key: 'language_proficiency', label: '语言熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'language' },
+      { key: 'vehicle_proficiency', label: '各类载具熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'vehicle' },
+      { key: 'weapon_mastery', label: '精通武器', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'weaponMastery' },
+    ],
   },
   /** 与防御/攻击等大类同级：自由描述类状态，不参与数值计算 */
   custom: {
@@ -766,4 +875,111 @@ export function formatSpellDamageBonusValue(value) {
     parts.push(`固定${value.flatBonus}`)
   }
   return parts.join('，')
+}
+
+/** ═════════════════════════════════════════════════════════════════════════════
+ * 熟练效果数据迁移：将旧版文本值转换为数组格式
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * 迁移 BUFF 效果中的熟练数据（旧版文本 → 新版数组）
+ * - tool_proficiency → specific_tool_proficiency（文本 → 数组）
+ * - instrument_proficiency（文本 → 数组）
+ * - language_proficiency（文本 → 数组）
+ * - weapon_mastery（文本 → 数组）
+ *
+ * 文本格式支持：逗号分隔、中文顿号分隔、单个值
+ * 示例："风笛，鼓" → ["bagpipes", "drum"]
+ *
+ * @param {Array} effects - BUFF 效果数组
+ * @returns {Array} 迁移后的效果数组
+ */
+export function migrateProficiencyTextToArray(effects) {
+  if (!Array.isArray(effects)) return effects
+
+  // 文本值到选项 value 的映射
+  const textToValueMap = {
+    // 乐器
+    '风笛': 'bagpipes', '鼓': 'drum', '扬琴': 'dulcimer', '长笛': 'flute',
+    '号角': 'horn', '鲁特琴': 'lute', '里拉琴': 'lyre', '排箫': 'pan_flute',
+    '芦笛': 'shawm', '提琴': 'viol',
+    // 语言
+    '深渊语': 'abyssal', '天界语': 'celestial', '通用语': 'common',
+    '龙语': 'draconic', '精灵语': 'elvish', '巨人语': 'giant',
+    '地精语': 'goblin', '刻洛语': 'kerlo', '象族语': 'loxodon',
+    '人鱼语': 'merfolk', '牛头人语': 'minotaur', '斯芬克斯语': 'sphinx',
+    '木族语': 'sylvan', '维多肯语': 'vidoken',
+  }
+
+  // 工具名称映射（部分常见工具）
+  const toolTextToValueMap = {
+    '炼金工具': 'alchemist_supplies', '酿酒工具': 'brewer_supplies',
+    '书法工具': 'calligrapher_supplies', '木匠工具': 'carpenter_tools',
+    '制图工具': 'cartographer_tools', '鞋匠工具': 'cobbler_tools',
+    '厨师工具': 'cook_utensils', '玻璃匠工具': 'glassblower_tools',
+    '珠宝匠工具': 'jeweler_tools', '皮匠工具': 'leatherworker_tools',
+    '石匠工具': 'mason_tools', '画家工具': 'painter_supplies',
+    '陶匠工具': 'potter_tools', '铁匠工具': 'smith_tools',
+    '修补工具': 'tinker_tools', '织布工具': 'weaver_tools',
+    '木雕工具': 'woodcarver_tools', '易容工具': 'disguise_kit',
+    '文书伪造工具': 'forgery_kit', '草药工具': 'herbalism_kit',
+    '领航工具': 'navigator_tools', '毒药工具': 'poisoner_kit',
+    '盗贼工具': 'thieves_tools',
+  }
+
+  // 武器精通词条映射
+  const masteryTextToValueMap = {
+    'sap': 'sap', 'topple': 'topple', 'push': 'push', 'slow': 'slow',
+    'vex': 'vex', 'cleave': 'cleave', 'nick': 'nick', 'graze': 'graze',
+    'dazzle': 'dazzle',
+  }
+
+  return effects.map((effect) => {
+    if (!effect || typeof effect !== 'object') return effect
+
+    const { effectType, value } = effect
+
+    // 合并 tool_proficiency 到 specific_tool_proficiency
+    if (effectType === 'tool_proficiency') {
+      const newValue = parseProficiencyText(value, toolTextToValueMap)
+      return { ...effect, effectType: 'specific_tool_proficiency', value: newValue }
+    }
+
+    // 迁移其他熟练效果
+    if (effectType === 'instrument_proficiency') {
+      return { ...effect, value: parseProficiencyText(value, textToValueMap) }
+    }
+    if (effectType === 'language_proficiency') {
+      return { ...effect, value: parseProficiencyText(value, textToValueMap) }
+    }
+    if (effectType === 'weapon_mastery') {
+      return { ...effect, value: parseProficiencyText(value, masteryTextToValueMap) }
+    }
+
+    return effect
+  })
+}
+
+/**
+ * 解析熟练文本值为数组
+ * 支持格式："风笛，鼓"、"风笛、鼓"、"风笛"
+ */
+function parseProficiencyText(value, textToValueMap) {
+  if (Array.isArray(value)) return value
+  if (!value || typeof value !== 'string') return []
+
+  // 按逗号或顿号分割
+  const items = String(value)
+    .split(/[,，、]/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+
+  return items
+    .map((item) => {
+      // 先尝试直接匹配 value
+      if (Object.values(textToValueMap).includes(item)) return item
+      // 再尝试文本映射
+      return textToValueMap[item] || item
+    })
+    .filter(Boolean)
 }

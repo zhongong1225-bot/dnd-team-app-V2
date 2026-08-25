@@ -262,7 +262,7 @@ const RARITY_OPTIONS = [
   { value: '神器', label: '神器' },
 ]
 
-export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确认加入', editEntry = null, inventory = [], spellDC, spellAttackBonus, referenceData }) {
+export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确认加入', editEntry = null, inventory = [], spellDC, spellAttackBonus, referenceData, templateMode = false, onItemSelect }) {
   const { customLibraryEpoch, moduleLibrary, syncModuleItemTemplates } = useModule()
   const grouped = useMemo(() => getItemListGrouped(), [customLibraryEpoch])
   const ammoOptionsFromInv = useMemo(() => {
@@ -471,6 +471,13 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       setExplosiveRadius(0)
       setExplosiveDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
     }
+    if (onItemSelect) {
+      onItemSelect({
+        itemId,
+        name: proto ? getItemDisplayName(proto) : '',
+        intro: proto?.详细介绍 ?? '',
+      })
+    }
   }, [itemId, isEdit])
 
   useEffect(() => {
@@ -515,6 +522,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (templateMode && !itemId) return
     if (!isEdit && !itemId && !type) return
     const proto = itemId ? getItemById(itemId) : (editEntry?.itemId ? getItemById(editEntry.itemId) : null)
     // 合并多个 contained_spell 模块为一个，保证一个物品只有一条内含法术效果
@@ -599,6 +607,33 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     // 默认储物物品强制写入 item_storage 效果
     if (isDefaultStorageItem(itemId || editEntry) && !effectsForSave.some((e) => e.effectType === 'item_storage')) {
       effectsForSave.push({ category: 'container', effectType: 'item_storage', value: true, customText: '' })
+    }
+
+    if (templateMode) {
+      const entry = {
+        itemId: itemId || editEntry?.itemId || '',
+        isAttuned,
+        ...(rarity ? { rarity } : {}),
+        name: (name?.trim()) || editEntry?.name || proto?.类别 || (proto ? getItemDisplayName(proto) : '') || '—',
+        攻击: 攻击 || undefined,
+        伤害: 伤害 || undefined,
+        攻击距离: 攻击距离 || undefined,
+        攻击范围: 攻击范围 || undefined,
+        详细介绍: intro != null ? String(intro).trim() : '',
+        附注: 附注 != null ? String(附注).trim() : '',
+        ...(isWeapon && 精通 ? { 精通 } : {}),
+        重量: proto?.重量,
+        qty: Math.max(1, qty),
+        magicBonus,
+        charge,
+        ...(spellDC != null ? { spellDC } : {}),
+        ...(itemSpellAttackBonus != null ? { spellAttackBonus: itemSpellAttackBonus } : {}),
+        effects: effectsForSave,
+        ...(isExplosive ? { 爆炸半径: Number(explosiveRadius) || 0 } : {}),
+      }
+      onSave(entry)
+      onClose()
+      return
     }
 
     if (!isEdit) {
@@ -753,7 +788,12 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       <div className="fixed inset-0 z-[200] bg-black/50" onClick={onClose} aria-hidden />
       <div className="fixed inset-4 sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:max-w-5xl sm:w-full z-[201] overflow-auto max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
         <form onSubmit={handleSubmit} className="space-y-2.5 p-3 bg-gray-800 rounded-xl border border-gray-600 min-w-0 w-full max-w-full">
-          {isEdit && <h4 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">编辑物品</h4>}
+          {templateMode && (
+            <h4 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">
+              {editEntry?.itemId ? '编辑物品模板' : '新建物品模板'}
+            </h4>
+          )}
+          {isEdit && !templateMode && <h4 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">编辑物品</h4>}
 
           {!isEdit && (
             <div className="min-w-0 max-w-full">
@@ -1185,7 +1225,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
             <button type="button" onClick={onClose} className="px-3 py-1.5 rounded border border-gray-600 text-gray-300 hover:bg-gray-700 text-sm">
               取消
             </button>
-            <button type="submit" disabled={!isEdit && !itemId && !type} className="px-3 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white font-medium text-sm disabled:opacity-50">
+            <button type="submit" disabled={(templateMode && !itemId) || (!isEdit && !itemId && !type)} className="px-3 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white font-medium text-sm disabled:opacity-50">
               {submitLabel}
             </button>
           </div>

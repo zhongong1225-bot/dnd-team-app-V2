@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { Sparkles } from 'lucide-react'
-import { normalizeContainedSpellValue } from '../lib/containedSpellModel'
+import { normalizeContainedSpellValue, extractContainedSpellValueFromEntry } from '../lib/containedSpellModel'
 import { inputClass } from '../lib/inputStyles'
 
 const HIT_RESOLUTION_LABELS = {
@@ -23,7 +23,7 @@ export default function ContainedSpellUseButton({ entry, onChargeChange, classNa
   const [selected, setSelected] = useState(null)
 
   const cs = useMemo(() => {
-    const raw = entry?.effects?.find((e) => e.effectType === 'contained_spell')?.value
+    const raw = extractContainedSpellValueFromEntry(entry)
     return normalizeContainedSpellValue(raw, entry?.charge)
   }, [entry])
 

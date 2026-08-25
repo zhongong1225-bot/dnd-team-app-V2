@@ -1,9 +1,10 @@
 import { Trash2, Pencil } from 'lucide-react'
 import { getBuffSourceKindLabel, getBuffSourceKindTitle } from '../lib/buffSourceKind'
-import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue, formatDamageForAttack, formatScopeBrief, normalizeScope, formatSpellDamageBonusValue } from '../data/buffTypes'
+import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue, formatDamageForAttack, formatScopeBrief, normalizeScope, formatSpellDamageBonusValue, ARMOR_PROFICIENCY_OPTIONS, WEAPON_PROFICIENCY_OPTIONS, VEHICLE_PROFICIENCY_OPTIONS, INSTRUMENT_PROFICIENCY_OPTIONS, TOOL_PROFICIENCY_OPTIONS, LANGUAGE_PROFICIENCY_OPTIONS, WEAPON_MASTERY_OPTIONS } from '../data/buffTypes'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { formatContainedSpellBrief } from '../lib/containedSpellBrief'
 import { normalizeChargeRecoveryValue } from '../lib/chargeRecovery'
+import { formatChargeItemBrief } from '../lib/chargeItemModel'
 import { isFormulaValue, formatFormulaLabel, evaluateBuffValue } from '../lib/formulas'
 
 /** 公式标签 + 求值后数字，例如「等级×2（+4）」、「感知调整值（+3）」 */
@@ -208,6 +209,10 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       const spellLine = formatContainedSpellBrief(v, context)
       return spellLine || effectLabel
     }
+    if (buff.effectType === 'charge_item' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const brief = formatChargeItemBrief(v)
+      return brief || effectLabel
+    }
     if ((buff.effectType === 'recharge_long_rest' || buff.effectType === 'recharge_dawn') && v != null) {
       const norm = normalizeChargeRecoveryValue(v)
       const text = norm.kind === 'dice' ? `${norm.diceCount}d${norm.diceSides}` : String(norm.fixed)
@@ -259,6 +264,19 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
     }
     if (buff.effectType === 'condition_immunity') {
       return v.map(getConditionLabel).join('、') + '免疫'
+    }
+    const profOptMap = {
+      armor_proficiency: ARMOR_PROFICIENCY_OPTIONS,
+      weapon_proficiency: WEAPON_PROFICIENCY_OPTIONS,
+      vehicle_proficiency: VEHICLE_PROFICIENCY_OPTIONS,
+      instrument_proficiency: INSTRUMENT_PROFICIENCY_OPTIONS,
+      specific_tool_proficiency: TOOL_PROFICIENCY_OPTIONS,
+      language_proficiency: LANGUAGE_PROFICIENCY_OPTIONS,
+      weapon_mastery: WEAPON_MASTERY_OPTIONS,
+    }
+    if (profOptMap[buff.effectType]) {
+      const labels = v.map((val) => profOptMap[buff.effectType].find((o) => o.value === val)?.label ?? val)
+      return labels.join('、')
     }
   }
   return v != null ? `${effectLabel}${String(v)}` : effectLabel
@@ -385,6 +403,10 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
     if (buff.effectType === 'contained_spell' && v && typeof v === 'object' && !Array.isArray(v)) {
       const spellLine = formatContainedSpellBrief(v, context)
       return { label: effectLabel, value: spellLine || null }
+    }
+    if (buff.effectType === 'charge_item' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const brief = formatChargeItemBrief(v)
+      return { label: effectLabel, value: brief || null }
     }
     if (buff.effectType === 'spell_damage_bonus' && v && typeof v === 'object' && !Array.isArray(v)) {
       const text = formatSpellDamageBonusValue(v)

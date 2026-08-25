@@ -9,23 +9,12 @@ import {
   updateItemTemplate,
   removeItemTemplate,
 } from '../lib/moduleLibraryStore'
-import BuffForm, { EffectModuleModal } from '../components/BuffForm'
-import ItemPicker from '../components/ItemPicker'
+import BuffForm from '../components/BuffForm'
+import ItemAddForm from '../components/ItemAddForm'
 import { getItemById, getItemDisplayName } from '../data/itemDatabase'
-import { inputClass, labelClass } from '../lib/inputStyles'
+import { inputClass } from '../lib/inputStyles'
 import { BUFF_SOURCE_KIND_LIBRARY_OPTIONS } from '../lib/buffSourceKind'
 import { getEffectSummaryShort } from '../components/BuffListItem'
-import { BUFF_TYPES, getCategories, normalizeEffectCategory } from '../data/buffTypes'
-
-const RARITY_OPTIONS = [
-  { value: '', label: '— 稀有度 —' },
-  { value: '普通', label: '普通' },
-  { value: '非普通', label: '非普通' },
-  { value: '珍稀', label: '珍稀' },
-  { value: '极珍稀', label: '极珍稀' },
-  { value: '传说', label: '传说' },
-  { value: '神器', label: '神器' },
-]
 
 function SectionCard({ title, children, action }) {
   return (
@@ -187,7 +176,6 @@ export default function ModuleLibrary() {
   const [syncingItems, setSyncingItems] = useState(false)
   const [collapsedBuffGroups, setCollapsedBuffGroups] = useState(new Set())
   const [collapsedItemGroups, setCollapsedItemGroups] = useState(new Set())
-  const [editingModuleId, setEditingModuleId] = useState(null)
 
   const buffTemplates = moduleLibrary?.buffTemplates ?? []
   const itemTemplates = moduleLibrary?.itemTemplates ?? []
@@ -290,80 +278,60 @@ export default function ModuleLibrary() {
     await refreshModuleLibrary()
   }
 
-  /** 将原型物品的 effects 数组转换为可编辑模块格式 */
-  const protoEffectsToModules = (effects) => {
-    if (!Array.isArray(effects) || effects.length === 0) return []
-    return effects.map((e) => ({
-      id: 'm_' + Math.random().toString(36).slice(2),
-      category: normalizeEffectCategory(e.effectType ?? '', e.category),
-      effectType: e.effectType ?? '',
-      value: e.value ?? 0,
-      break20: (e.break20 && typeof e.break20 === 'object' && !Array.isArray(e.break20)) ? e.break20 : {},
-      customText: typeof e.value === 'string' ? e.value : (e.customText ?? ''),
-      scope: e.scope,
-      scopeDetail: e.scopeDetail,
-    }))
+  const handleDeleteItem = async (id) => {
+    await removeItemTemplate(currentModuleId, id)
+    await refreshModuleLibrary()
   }
 
-  const handleAddEffect = () => {
-    const firstCat = getCategories()[0]?.key ?? 'ability'
-    const firstEffect = BUFF_TYPES[firstCat]?.effects?.[0]?.key ?? 'ability_score'
-    const m = {
-      id: 'm_' + Math.random().toString(36).slice(2),
-      category: firstCat,
-      effectType: firstEffect,
-      value: 0,
-      break20: {},
-      customText: '',
-    }
-    setItemForm((s) => ({ ...s, effects: [...(s.effects ?? []), m] }))
-    setEditingModuleId(m.id)
+  const openNewBuff = () => setBuffForm({ id: null, initial: null })
+  const openEditBuff = (item) => setBuffForm({ id: item.id, initial: item })
+  const openNewItem = () =>
+    setItemForm({ id: null, editEntry: { itemId: '' } })
+  const openEditItem = (tpl) => {
+    setItemForm({
+      id: tpl.id,
+      editEntry: {
+        itemId: tpl.itemId || '',
+        name: tpl.name || '',
+        qty: tpl.qty ?? 1,
+        isAttuned: !!tpl.isAttuned,
+        rarity: tpl.rarity ?? '',
+        详细介绍: tpl.intro ?? '',
+        攻击: tpl.攻击,
+        伤害: tpl.伤害,
+        攻击距离: tpl.攻击距离,
+        附注: tpl.附注,
+        精通: tpl.精通,
+        magicBonus: tpl.magicBonus,
+        charge: tpl.charge,
+        spellDC: tpl.spellDC,
+        spellAttackBonus: tpl.spellAttackBonus,
+        爆炸半径: tpl.爆炸半径,
+        effects: Array.isArray(tpl.effects) ? tpl.effects : [],
+      },
+    })
   }
 
-  const handleEditEffect = (id) => setEditingModuleId(id)
-
-  const handleSaveEffect = (draft) => {
-    if (!editingModuleId) return
-    setItemForm((s) => ({
-      ...s,
-      effects: (s.effects ?? []).map((m) => (m.id === editingModuleId ? draft : m)),
-    }))
-    setEditingModuleId(null)
-  }
-
-  const handleCancelEffect = () => {
-    setItemForm((s) => ({
-      ...s,
-      effects: (s.effects ?? []).filter((m) => m.id !== editingModuleId),
-    }))
-    setEditingModuleId(null)
-  }
-
-  const handleRemoveEffect = (id) => {
-    setItemForm((s) => ({
-      ...s,
-      effects: (s.effects ?? []).filter((m) => m.id !== id),
-    }))
-  }
-
-  const handleSaveItem = async (e) => {
-    e.preventDefault()
-    if (!itemForm?.itemId) return
+  const handleTemplateSave = async (data) => {
+    if (!data?.itemId) return
     const payload = {
-      itemId: itemForm.itemId,
-      name: itemForm.name?.trim() || undefined,
-      qty: Math.max(1, Number(itemForm.qty) || 1),
-      isAttuned: !!itemForm.isAttuned,
-      rarity: itemForm.rarity || '',
-      effects: (itemForm.effects ?? []).map((m) => ({
-        category: m.category,
-        effectType: m.effectType,
-        value: m.value,
-        break20: m.break20,
-        customText: m.customText,
-        scope: m.scope,
-        scopeDetail: m.scopeDetail,
-      })),
+      itemId: data.itemId,
+      name: data.name?.trim() || undefined,
+      qty: Math.max(1, Number(data.qty) || 1),
+      isAttuned: !!data.isAttuned,
+      rarity: data.rarity ?? '',
+      intro: data.详细介绍 != null ? String(data.详细介绍).trim() : '',
+      攻击: data.攻击,
+      伤害: data.伤害,
+      攻击距离: data.攻击距离,
+      附注: data.附注,
+      精通: data.精通,
+      magicBonus: data.magicBonus,
+      charge: data.charge,
+      spellDC: data.spellDC,
+      spellAttackBonus: data.spellAttackBonus,
+      爆炸半径: data.爆炸半径,
+      effects: Array.isArray(data.effects) ? data.effects.map((e) => ({ ...e })) : [],
     }
     if (itemForm.id) {
       await updateItemTemplate(currentModuleId, itemForm.id, payload)
@@ -374,28 +342,12 @@ export default function ModuleLibrary() {
     await refreshModuleLibrary()
   }
 
-  const handleDeleteItem = async (id) => {
-    await removeItemTemplate(currentModuleId, id)
-    await refreshModuleLibrary()
-  }
-
-  const openNewBuff = () => setBuffForm({ id: null, initial: null })
-  const openEditBuff = (item) => setBuffForm({ id: item.id, initial: item })
-  const openNewItem = () =>
-    setItemForm({ id: null, itemId: '', name: '', qty: 1, isAttuned: false, rarity: '', effects: [] })
-  const openEditItem = (item) => {
-    const proto = item.itemId ? getItemById(item.itemId) : null
-    setItemForm({
-      id: item.id,
-      itemId: item.itemId || '',
-      name: item.name || '',
-      qty: item.qty ?? 1,
-      isAttuned: !!item.isAttuned,
-      rarity: item.rarity || '',
-      effects: Array.isArray(item.effects) && item.effects.length > 0
-        ? protoEffectsToModules(item.effects)
-        : protoEffectsToModules(proto?.effects ?? []),
-    })
+  const handleTemplateItemSelect = (info) => {
+    if (!itemForm) return
+    setItemForm((s) => s ? {
+      ...s,
+      editEntry: { ...(s.editEntry || {}), itemId: info.itemId, name: info.name, 详细介绍: info.intro },
+    } : s)
   }
 
   const handleSyncBuffs = async () => {
@@ -608,175 +560,19 @@ export default function ModuleLibrary() {
       )}
 
       {itemForm && (
-        <>
-          <div className="fixed inset-0 z-[200] bg-black/50" onClick={() => setItemForm(null)} aria-hidden />
-          <div
-            className="fixed inset-0 z-[201] flex items-center justify-center p-4 sm:p-8 overflow-auto"
-            onClick={() => setItemForm(null)}
-          >
-            <form
-              onSubmit={handleSaveItem}
-              className="w-full max-w-lg bg-gray-800 rounded-xl border border-gray-600 p-4 space-y-3"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h3 className="text-dnd-gold-light text-sm font-bold uppercase tracking-wide">
-                {itemForm.id ? '编辑物品模板' : '新建物品模板'}
-              </h3>
-              <div>
-                <label className={labelClass}>选择物品</label>
-                <ItemPicker
-                  value={itemForm.itemId}
-                  onChange={(id) => setItemForm((s) => ({ ...s, itemId: id }))}
-                  className="w-full"
-                />
-              </div>
-              {itemForm.itemId && <ItemTemplateDetail itemId={itemForm.itemId} showEffects={false} />}
-              {itemForm.itemId && (
-                <div className="rounded-md border border-white/5 bg-[#1a2333]/40 p-2 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">附魔效果</label>
-                    <button
-                      type="button"
-                      onClick={handleAddEffect}
-                      className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-dnd-gold text-dnd-gold-light hover:bg-dnd-gold/20 text-[10px] font-medium"
-                    >
-                      <Plus className="w-3 h-3" />
-                      添加效果
-                    </button>
-                  </div>
-                  {(itemForm.effects ?? []).length === 0 ? (
-                    <p className="text-gray-500 text-xs text-center py-1">暂无附魔效果</p>
-                  ) : (
-                    <div className="space-y-1">
-                      {(itemForm.effects ?? []).map((mod) => {
-                        const catData = BUFF_TYPES[mod.category]
-                        const currentEffect = catData?.effects?.find((e) => e.key === mod.effectType)
-                        const label = currentEffect ? (currentEffect.label ?? mod.effectType) : '—'
-                        const summary = currentEffect
-                          ? getEffectSummaryShort({ effectType: mod.effectType, value: mod.value, customText: mod.customText }, {}, {})
-                          : '未选择效果'
-                        return (
-                          <div
-                            key={mod.id}
-                            className="rounded border border-white/[0.08] bg-[#1a2333]/60 px-2 py-1.5 flex items-start justify-between gap-2"
-                          >
-                            <div className="min-w-0 flex-1 flex items-start gap-2">
-                              <span className="text-dnd-gold-light/90 text-xs font-medium shrink-0 pt-0.5">{label}</span>
-                              <span className="text-gray-200 text-xs truncate" title={summary}>{summary}</span>
-                            </div>
-                            <div className="flex items-center gap-0.5 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => handleEditEffect(mod.id)}
-                                className="p-1 rounded text-gray-400 hover:bg-gray-700 hover:text-dnd-gold transition-colors"
-                                title="编辑"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveEffect(mod.id)}
-                                className="p-1 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors"
-                                title="删除"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={labelClass}>显示名称（可选）</label>
-                  <input
-                    type="text"
-                    value={itemForm.name}
-                    onChange={(e) => setItemForm((s) => ({ ...s, name: e.target.value }))}
-                    placeholder={itemForm.itemId ? getItemDisplayName(getItemById(itemForm.itemId)) : ''}
-                    className={inputClass}
-                  />
-                </div>
-                <div>
-                  <label className={labelClass}>数量</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={itemForm.qty}
-                    onChange={(e) => setItemForm((s) => ({ ...s, qty: e.target.value }))}
-                    className={inputClass}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 items-end">
-                <div>
-                  <label className={labelClass}>稀有度</label>
-                  <select
-                    value={itemForm.rarity}
-                    onChange={(e) => setItemForm((s) => ({ ...s, rarity: e.target.value }))}
-                    className={inputClass}
-                  >
-                    {RARITY_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <label className="flex items-center gap-2 text-sm text-gray-200 pb-2">
-                  <input
-                    type="checkbox"
-                    checked={itemForm.isAttuned}
-                    onChange={(e) => setItemForm((s) => ({ ...s, isAttuned: e.target.checked }))}
-                    className="rounded border-gray-600 bg-gray-700 text-dnd-gold focus:ring-dnd-gold"
-                  />
-                  默认同调
-                </label>
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setItemForm(null)}
-                  className="px-3 py-1.5 rounded-lg border border-gray-600 text-gray-200 hover:bg-gray-700 text-xs font-medium transition-colors"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  disabled={!itemForm.itemId}
-                  className="px-3 py-1.5 rounded-lg bg-dnd-gold text-gray-900 hover:bg-dnd-gold-light text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  保存
-                </button>
-              </div>
-            </form>
-          </div>
-        </>
-      )}
-
-      {editingModuleId && itemForm && (
-        <>
-          <div className="fixed inset-0 z-[202] bg-black/50" onClick={handleCancelEffect} aria-hidden />
-          <div
-            className="fixed inset-0 z-[203] flex items-center justify-center p-4 sm:p-8 overflow-auto"
-            onClick={handleCancelEffect}
-          >
-            <div className="w-full max-w-2xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-              <EffectModuleModal
-                module={(itemForm.effects ?? []).find((m) => m.id === editingModuleId) ?? { id: editingModuleId, category: '', effectType: '', value: 0, break20: {}, customText: '' }}
-                isNew={false}
-                onSave={handleSaveEffect}
-                onCancel={handleCancelEffect}
-                referenceData={{}}
-                baseReferenceData={{}}
-                spellDC={0}
-                spellAttackBonus={0}
-                useWandScrollTable={false}
-              />
-            </div>
-          </div>
-        </>
+        <ItemAddForm
+          open={!!itemForm}
+          onClose={() => setItemForm(null)}
+          onSave={handleTemplateSave}
+          submitLabel="保存"
+          editEntry={itemForm.editEntry}
+          inventory={[]}
+          spellDC={0}
+          spellAttackBonus={0}
+          referenceData={{}}
+          templateMode
+          onItemSelect={handleTemplateItemSelect}
+        />
       )}
     </div>
   )

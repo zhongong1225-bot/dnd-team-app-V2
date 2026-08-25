@@ -1,69 +1,90 @@
+/**
+ * 物品充能恢复规则：长休 / 黎明
+ * 由 entry.effects 中的 recharge_long_rest / recharge_dawn 驱动，
+ * 支持固定值或 XdX 随机恢复。
+ */
 import { rollDice } from '../data/weaponDatabase'
+import { getItemById, getItemDisplayName } from '../data/itemDatabase'
+
+export const RECHARGE_EFFECT_KEYS = ['recharge_long_rest', 'recharge_dawn']
+
+function getEntryDisplayName(entry) {
+  if (!entry) return '未命名物品'
+  const customName = typeof entry.name === 'string' ? entry.name.trim() : ''
+  if (customName) return customName
+  const proto = entry.itemId ? getItemById(entry.itemId) : null
+  return getItemDisplayName(proto) || '未命名物品'
+}
 
 export function normalizeChargeRecoveryValue(value) {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const kind = value.kind === 'dice' ? 'dice' : 'fixed'
-    return {
-      kind,
-      fixed: Math.max(0, Number(value.fixed) || 0),
-      diceCount: Math.max(1, Number(value.diceCount) || 1),
-      diceSides: Math.max(1, Number(value.diceSides) || 6),
+    if (kind === 'dice') {
+      return {
+        kind,
+        diceCount: Math.max(1, Number(value.diceCount) || 1),
+        diceSides: Math.max(1, Number(value.diceSides) || 6),
+      }
     }
+    return { kind, fixed: Math.max(0, Number(value.fixed) || 0) }
   }
-  const n = Number(value)
-  if (!Number.isNaN(n) && value !== '' && value != null) {
-    return { kind: 'fixed', fixed: Math.max(0, n), diceCount: 1, diceSides: 6 }
-  }
-  return { kind: 'fixed', fixed: 1, diceCount: 1, diceSides: 6 }
+  const n = Number(value) || 0
+  return { kind: 'fixed', fixed: Math.max(0, n) }
 }
 
-function getRecoveryEffectType(eventType) {
-  if (eventType === 'dawn') return 'recharge_dawn'
-  if (eventType === 'long_rest') return 'recharge_long_rest'
+export function computeRecoveryAmount(value) {
+  const norm = normalizeChargeRecoveryValue(value)
+  if (norm.kind === 'dice') {
+    const expression = `${norm.diceCount}d${norm.diceSides}`
+    const { total, rolls } = rollDice(expression)
+    return { amount: total, expression, rolls }
+  }
+  return { amount: norm.fixed, expression: String(norm.fixed), rolls: [] }
+}
+
+export function getEntryChargeMax(entry) {
+  if (entry == null) return null
+  if (entry.chargeMax != null && entry.chargeMax !== '') return Number(entry.chargeMax)
+  const proto = entry.itemId ? getItemById(entry.itemId) : null
+  if (proto?.充能上限 != null && proto.充能上限 !== '') return Number(proto.充能上限)
   return null
 }
 
-function computeRecoveryAmount(norm) {
-  if (norm.kind === 'dice') {
-    const expr = `${norm.diceCount}d${norm.diceSides}`
-    const result = rollDice(expr)
-    return { amount: result.total, expression: expr }
-  }
-  return { amount: norm.fixed, expression: '' }
-}
-
+/**
+ * 根据事件类型恢复全部物品充能
+ * @param {Array} inventory
+ * @param {'long_rest' | 'dawn'} eventType
+ * @returns {{ inventory: Array, logs: Array<{ name, from, to, restored, expression }> }}
+ */
 export function restoreChargesForEvent(inventory, eventType) {
-  const inv = Array.isArray(inventory) ? inventory : []
-  const targetType = getRecoveryEffectType(eventType)
-  if (!targetType) return { inventory: inv, logs: [] }
-
+  const targetKey = eventType === 'dawn' ? 'recharge_dawn' : 'recharge_long_rest'
+  const next = []
   const logs = []
-  const next = inv.map((entry) => {
+  for (const entry of inventory ?? []) {
     const effects = Array.isArray(entry?.effects) ? entry.effects : []
-    const recoveryEffect = effects.find((e) => e?.effectType === targetType)
-    if (!recoveryEffect) return entry
-
-    const chargeMax = Number(entry.chargeMax)
-    if (!Number.isFinite(chargeMax) || chargeMax <= 0) return entry
-
+    const recoveryEffects = effects.filter((e) => e?.effectType === targetKey)
+    if (recoveryEffects.length === 0) {
+      next.push(entry)
+      continue
+    }
+    let total = 0
+    const expressionParts = []
+    for (const e of recoveryEffects) {
+      const { amount, expression } = computeRecoveryAmount(e.value)
+      total += amount
+      expressionParts.push(expression)
+    }
+    const chargeMax = getEntryChargeMax(entry)
     const current = Number(entry.charge) || 0
-    if (current >= chargeMax) return entry
-
-    const norm = normalizeChargeRecoveryValue(recoveryEffect.value)
-    const { amount, expression } = computeRecoveryAmount(norm)
-    const nextCharge = Math.min(chargeMax, current + amount)
-    const restored = nextCharge - current
-    if (restored <= 0) return entry
-
+    const nextCharge = chargeMax != null ? Math.min(current + total, chargeMax) : current + total
+    next.push({ ...entry, charge: nextCharge })
     logs.push({
-      name: entry.name || '未命名物品',
+      name: getEntryDisplayName(entry),
       from: current,
       to: nextCharge,
-      restored,
-      expression,
+      restored: nextCharge - current,
+      expression: expressionParts.join('+'),
     })
-    return { ...entry, charge: nextCharge }
-  })
-
+  }
   return { inventory: next, logs }
 }

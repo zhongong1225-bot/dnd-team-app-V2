@@ -160,5 +160,38 @@ export function getContainedSpellTotalCharges(value) {
  * 判断物品条目是否包含内含法术效果（用于决定背包/仓库是否显示充能列与施法按钮）
  */
 export function hasContainedSpellEffect(entry) {
-  return Array.isArray(entry?.effects) && entry.effects.some((e) => e?.effectType === 'contained_spell')
+  if (!Array.isArray(entry?.effects)) return false
+  return entry.effects.some((e) => {
+    if (e?.effectType === 'contained_spell') return true
+    // charge_item 内含法术子效果也算
+    if (e?.effectType === 'charge_item' && e.value && typeof e.value === 'object') {
+      const subEffects = Array.isArray(e.value.effects) ? e.value.effects : []
+      return subEffects.some((se) => se?.type === 'spell')
+    }
+    return false
+  })
+}
+
+/**
+ * 从物品条目中提取内含法术 value 对象（兼容旧 contained_spell 和新 charge_item）。
+ * 返回可直接传给 normalizeContainedSpellValue 的对象，或 null。
+ */
+export function extractContainedSpellValueFromEntry(entry) {
+  if (!entry || !Array.isArray(entry.effects)) return null
+  // 优先旧式 contained_spell
+  const contained = entry.effects.find((e) => e?.effectType === 'contained_spell')
+  if (contained) return contained.value
+  // 新式 charge_item：提取 spell 子效果
+  const chargeItem = entry.effects.find((e) => e?.effectType === 'charge_item')
+  if (chargeItem?.value && typeof chargeItem.value === 'object') {
+    const subs = Array.isArray(chargeItem.value.effects) ? chargeItem.value.effects : []
+    const spells = subs.filter((s) => s?.type === 'spell').map((s) => s.value)
+    if (spells.length > 0) {
+      return {
+        totalCharges: typeof chargeItem.value.charges === 'number' ? chargeItem.value.charges : 0,
+        spells,
+      }
+    }
+  }
+  return null
 }
