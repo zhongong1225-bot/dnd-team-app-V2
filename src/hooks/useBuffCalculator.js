@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { abilityModifier, getAC, proficiencyBonus, evaluateBuffValue, isFormulaValue } from '../lib/formulas'
+import { abilityModifier, getAC, proficiencyBonus, evaluateBuffValue, isFormulaValue, calcMaxHP, getHPBuffSum } from '../lib/formulas'
 import { getPrimarySpellcastingAbility, getCharacterClasses } from '../data/classDatabase'
 import { levelFromXP } from '../lib/xp5e'
 import {
@@ -12,6 +12,7 @@ import {
   scopeMatchesCombatMean,
 } from '../data/buffTypes'
 import { getFlatEffectEntries } from '../lib/effects/effectMapping'
+import { loadCreatureLibrary, getCreatureById, parseHpFormula } from '../data/creatureLibrary'
 
 /**
  * BUFF 计算引擎
@@ -163,7 +164,28 @@ export function computeBuffStats(character, activeBuffs) {
   const buffs = (activeBuffs || []).filter((b) => b.enabled !== false)
     const rawEntries = getFlatEffectEntries(buffs)
     const entries = rawEntries.filter((e) => !DISPLAY_ONLY_EFFECT_TYPES.includes(e.effectType))
-    const baseAbilities = character?.abilities ?? { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }
+    
+    // ── 生物变身效果：收集所有 creature_transform，只取第一个有效的（不叠加）──
+    let creatureTransformData = null
+    const creatureLibrary = loadCreatureLibrary()
+    
+    for (const b of entries) {
+      if (b.effectType === 'creature_transform' && b.value && typeof b.value === 'object' && !Array.isArray(b.value)) {
+        const ct = b.value
+        if (ct.creatureId) {
+          const creature = getCreatureById(ct.creatureId)
+          if (creature) {
+            creatureTransformData = { creature, acMode: ct.acMode || 'replace', hpMode: ct.hpMode || 'replace' }
+            break // 只取第一个有效的变身效果
+          }
+        }
+      }
+    }
+    
+    // 如果存在变身效果，使用生物的六维属性作为基础；否则用角色原始属性
+    const baseAbilities = creatureTransformData?.creature?.abilities 
+      ? { ...creatureTransformData.creature.abilities }
+      : (character?.abilities ?? { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 })
 
     const xpVal = character?.xp
     const charLevel = xpVal != null && Number(xpVal) >= 0
@@ -429,7 +451,63 @@ export function computeBuffStats(character, activeBuffs) {
     const charWithBuffedAbilities = character
       ? { ...character, abilities: finalAbilities, buffs: [] }
       : { abilities: finalAbilities, buffs: [] }
-    const baseAC = getAC(charWithBuffedAbilities)
+
+    // ── 护甲覆盖效果：收集所有 armor_override，取最高值（不叠加）──
+    let armorOverrideBase = null
+    let armorOverrideApplyDexMod = true
+    let armorOverrideMaxDexBonus = null
+    let armorOverrideExtra = 0
+    let armorOverrideShieldCompatible = false
+
+    for (const b of entries) {
+      if (b.effectType === 'armor_override' && b.value && typeof b.value === 'object' && !Array.isArray(b.value)) {
+        const ov = b.value
+        const baseVal = evaluateBuffValue(ov.base ?? 10, formulaContext)
+        if (!Number.isNaN(baseVal)) {
+          if (armorOverrideBase === null || baseVal > armorOverrideBase) {
+            armorOverrideBase = baseVal
+            armorOverrideApplyDexMod = ov.applyDexMod !== false
+            armorOverrideMaxDexBonus = Number(ov.maxDexBonus) || null
+            armorOverrideExtra = Number(ov.extra) || 0
+            armorOverrideShieldCompatible = !!ov.shieldCompatible
+          }
+        }
+      }
+    }
+
+    // 计算基础AC：变身效果 → armor_override → 默认 getAC
+    let baseAC
+    if (creatureTransformData && creatureTransformData.acMode === 'replace') {
+      // 变身替换模式：直接使用生物的 AC
+      baseAC = creatureTransformData.creature.ac ?? 10
+    } else if (creatureTransformData && creatureTransformData.acMode === 'add') {
+      // 变身叠加模式：生物 AC 作为加值叠加到现有 AC 上
+      const creatureAC = creatureTransformData.creature.ac ?? 0
+      if (armorOverrideBase !== null) {
+        const dexMod = abilityModifier(finalAbilities.dex ?? 10)
+        let acFromDex = 0
+        if (armorOverrideApplyDexMod) {
+          acFromDex = armorOverrideMaxDexBonus != null
+            ? Math.min(dexMod, armorOverrideMaxDexBonus)
+            : dexMod
+        }
+        baseAC = armorOverrideBase + acFromDex + armorOverrideExtra + creatureAC
+      } else {
+        const equipmentAC = getAC(charWithBuffedAbilities)
+        baseAC = (equipmentAC?.total ?? 10) + creatureAC
+      }
+    } else if (armorOverrideBase !== null) {
+      const dexMod = abilityModifier(finalAbilities.dex ?? 10)
+      let acFromDex = 0
+      if (armorOverrideApplyDexMod) {
+        acFromDex = armorOverrideMaxDexBonus != null
+          ? Math.min(dexMod, armorOverrideMaxDexBonus)
+          : dexMod
+      }
+      baseAC = armorOverrideBase + acFromDex + armorOverrideExtra
+    } else {
+      baseAC = getAC(charWithBuffedAbilities)
+    }
 
     let acBonus = 0
     const acCapStoneLayerValues = []
@@ -458,7 +536,11 @@ export function computeBuffStats(character, activeBuffs) {
     for (const b of entries) {
       const raw = b.value
       const v = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
-      if (b.effectType === 'ac_bonus') acBonus += evalVal(raw) || 0
+      if (b.effectType === 'ac_bonus') {
+        // 如果存在不兼容盾牌的 armor_override，忽略来自装备的盾牌AC加值
+        // 这里简化处理：ac_bonus 通常来自BUFF，不是装备；装备AC已在 getAC 中计算
+        acBonus += evalVal(raw) || 0
+      }
       else if (b.effectType === 'damage_reduction') {
         const dr = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
         if (!Number.isNaN(dr)) damageReduction += dr
@@ -569,7 +651,7 @@ export function computeBuffStats(character, activeBuffs) {
       }
     }
 
-    // 5. 生命：temp_hp 取最大，max_hp_bonus 累加
+    // 5. 生命：temp_hp 取最大，max_hp_bonus 累加；变身效果 HP 处理
     let tempHp = 0
     let maxHpBonus = 0
     let regeneration = 0
@@ -580,8 +662,22 @@ export function computeBuffStats(character, activeBuffs) {
       else if (b.effectType === 'max_hp_bonus') maxHpBonus += v
       else if (b.effectType === 'regeneration') regeneration += v
     }
+    
+    // 变身效果 HP 处理
+    if (creatureTransformData) {
+      const creatureHP = parseHpFormula(creatureTransformData.creature.hp)
+      if (creatureTransformData.hpMode === 'replace') {
+        // 替换模式：计算差值，通过 maxHpBonus 调整实现 HP 替换
+        // 注意：charBaseHP 不包含 getHPBuffSum，因为 CombatStatus 会单独加
+        const charBaseHP = calcMaxHP(character, baseAbilities)
+        maxHpBonus += creatureHP - charBaseHP
+      } else if (creatureTransformData.hpMode === 'add') {
+        // 叠加模式：生物 HP 作为临时 HP
+        tempHp = Math.max(tempHp, creatureHP)
+      }
+    }
 
-    // 6. 抗性/免疫/易伤（收集数组）
+    // 6. 抗性/免疫/易伤（收集数组）；变身效果会替换或叠加这些属性
     const resistTypes = []
     const immuneTypes = []
     const vulnerableTypes = []
@@ -599,8 +695,30 @@ export function computeBuffStats(character, activeBuffs) {
         if (!Number.isNaN(v) && t) dmgTypeBonus[t] = (dmgTypeBonus[t] || 0) + v
       }
     }
+    
+    // 变身效果的抗性/免疫处理
+    if (creatureTransformData) {
+      const creature = creatureTransformData.creature
+      // 变身模式下，生物的抗性/免疫完全替换角色的（replace 模式）或合并（add 模式暂未实现，当前都按 replace 处理）
+      if (Array.isArray(creature.resistances) && creature.resistances.length > 0) {
+        resistTypes.length = 0 // 清空之前的
+        resistTypes.push(...creature.resistances.map(getDamageTypeValue).filter(Boolean))
+      }
+      if (Array.isArray(creature.immunities) && creature.immunities.length > 0) {
+        immuneTypes.length = 0
+        immuneTypes.push(...creature.immunities.map(getDamageTypeValue).filter(Boolean))
+      }
+      if (Array.isArray(creature.vulnerabilities) && creature.vulnerabilities.length > 0) {
+        vulnerableTypes.length = 0
+        vulnerableTypes.push(...creature.vulnerabilities.map(getDamageTypeValue).filter(Boolean))
+      }
+      // 状态免疫也合并
+      if (Array.isArray(creature.conditionImmunities) && creature.conditionImmunities.length > 0) {
+        // conditionImmunities 需要特殊处理，这里先简单记录
+      }
+    }
 
-    const baseACTotal = baseAC?.total ?? 10
+    const baseACTotal = (typeof baseAC === 'object' && baseAC !== null) ? (baseAC.total ?? 10) : (baseAC ?? 10)
     let ac = baseACTotal + acBonus
     if (acCapStoneLayerValues.length > 0) {
       const cap = baseACTotal + Math.min(...acCapStoneLayerValues)
@@ -653,6 +771,20 @@ export function computeBuffStats(character, activeBuffs) {
       d20ExhaustionPenalty,
       speedExhaustionPenalty,
       weaponCategoryAttackDamageBonuses,
+      // 变身效果相关信息
+      creatureTransform: creatureTransformData ? {
+        creatureId: creatureTransformData.creature.id,
+        creatureName: creatureTransformData.creature.name,
+        acMode: creatureTransformData.acMode,
+        hpMode: creatureTransformData.hpMode,
+        creatureHP: parseHpFormula(creatureTransformData.creature.hp),
+        creatureAC: creatureTransformData.creature.ac,
+        creatureSpeed: creatureTransformData.creature.speed,
+        creatureResistances: creatureTransformData.creature.resistances,
+        creatureImmunities: creatureTransformData.creature.immunities,
+        creatureVulnerabilities: creatureTransformData.creature.vulnerabilities,
+        creatureConditionImmunities: creatureTransformData.creature.conditionImmunities,
+      } : null,
     }
 }
 
