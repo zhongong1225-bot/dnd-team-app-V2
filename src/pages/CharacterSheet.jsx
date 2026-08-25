@@ -61,6 +61,7 @@ import CharacterSheetTopBar from '../components/CharacterSheetTopBar'
 import FeatPickerModal from '../components/FeatPickerModal'
 import BuffForm from '../components/BuffForm'
 import { loadDefaultBuffPatch, saveDefaultBuffPatch, buildClassFeatureBuffKey } from '../lib/defaultBuffPatchStore'
+import { CLASS_FEATURE_CHOICE_REGISTRY } from '../data/classFeatureChoiceRegistry'
 import { formatRecoveryBrief, buildAbilityDiceExpr } from '../lib/chargeItemModel'
 import { rollDice } from '../data/weaponDatabase'
 import InfoTooltip from '../components/InfoTooltip'
@@ -1228,6 +1229,107 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
   )
 }
 
+/** 职业特性选择块：需要玩家做互斥选择的特性（如原初职能：术师/卫士） */
+function ClassFeatureChoiceBlock({ char, feature, canEdit, onSave }) {
+  const [modalOpen, setModalOpen] = useState(false)
+  const sourceClass = feature.sourceClass ?? ''
+  const sourceSubclass = feature.sourceSubclass ?? ''
+  const featureId = feature.id
+  const buffKey = buildClassFeatureBuffKey(sourceClass, sourceSubclass, featureId)
+  const registryEntry = CLASS_FEATURE_CHOICE_REGISTRY[buffKey]
+
+  const chosenOptionId = useMemo(() => {
+    return char?.classFeatureChoices?.[featureId] || null
+  }, [char?.classFeatureChoices, featureId])
+
+  const chosenOption = useMemo(() => {
+    if (!chosenOptionId || !registryEntry) return null
+    return registryEntry.options.find((o) => o.id === chosenOptionId) || null
+  }, [chosenOptionId, registryEntry])
+
+  if (!registryEntry) return null
+
+  const handleConfirm = (optionId) => {
+    const currentChoices = { ...(char?.classFeatureChoices || {}) }
+    if (optionId) {
+      currentChoices[featureId] = optionId
+    } else {
+      delete currentChoices[featureId]
+    }
+    onSave({ classFeatureChoices: currentChoices })
+  }
+
+  return (
+    <div className="mt-2 border-t border-gray-600/35 pt-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {chosenOption ? (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-white/10 bg-[#243147]/60 text-[11px] text-gray-200" title={chosenOption.description}>
+            {chosenOption.label}
+          </span>
+        ) : (
+          <span className="text-gray-500 text-[11px]">未选择</span>
+        )}
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setModalOpen(true)}
+            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] text-gray-400 hover:text-dnd-gold hover:bg-white/5 transition-colors"
+            title={`选择${registryEntry.label}`}
+          >
+            <Plus className="w-3 h-3" />
+          </button>
+        )}
+      </div>
+
+      {modalOpen && (
+        <>
+          <div className="fixed inset-0 z-[300] bg-black/60" onClick={() => setModalOpen(false)} aria-hidden />
+          <div className="fixed inset-0 z-[301] flex items-center justify-center p-4" onClick={() => setModalOpen(false)}>
+            <div className="w-full max-w-md rounded-xl border border-white/15 bg-[#1b2738] shadow-xl" onClick={(e) => e.stopPropagation()}>
+              <div className="p-4 border-b border-white/10">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-semibold text-dnd-gold-light/90">选择{registryEntry.label}</h3>
+                  <button type="button" onClick={() => setModalOpen(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">{feature.name} — 选择一项</p>
+              </div>
+              <div className="p-4 space-y-2">
+                {registryEntry.options.map((opt) => (
+                  <label
+                    key={opt.id}
+                    className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                      chosenOptionId === opt.id ? 'border-dnd-gold/50 bg-dnd-gold/10' : 'border-white/10 hover:bg-white/5'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name={`choice-${featureId}`}
+                      checked={chosenOptionId === opt.id}
+                      onChange={() => handleConfirm(opt.id)}
+                      className="mt-0.5 accent-amber-500"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-white">{opt.label}</div>
+                      {opt.description && <p className="text-xs text-gray-400 mt-1 whitespace-pre-line">{opt.description}</p>}
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <div className="p-4 border-t border-white/10 flex justify-end">
+                <button type="button" onClick={() => setModalOpen(false)} className="px-4 py-1.5 rounded-lg bg-dnd-gold/20 text-dnd-gold-light text-sm hover:bg-dnd-gold/30 transition-colors">
+                  确定
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 /** 职业特性：根据当前职业与等级自动展示，不可手动增删 */
 function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
   const { currentModuleId } = useModule()
@@ -1316,6 +1418,9 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                 )}
                 {FIGHTING_STYLE_FEATURE_IDS.has(f.id) && (
                   <FightingStylesBlock char={char} feature={f} canEdit={canEdit} onSave={onSave} moduleId={moduleId} />
+                )}
+                {CLASS_FEATURE_CHOICE_REGISTRY[buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)] && (
+                  <ClassFeatureChoiceBlock char={char} feature={f} canEdit={canEdit} onSave={onSave} />
                 )}
                 <ClassFeatureActions feature={f} moduleId={moduleId} char={char} onSave={onSave} />
               </li>
@@ -2135,6 +2240,7 @@ export default function CharacterSheet() {
       char?.selectedFeats,
       char?.selectedInvocations,
       char?.selectedFightingStyles,
+      char?.classFeatureChoices,
       char?.inventory,
       char?.equippedHeld,
       char?.equippedWorn,

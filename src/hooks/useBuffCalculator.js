@@ -172,13 +172,10 @@ export function computeBuffStats(character, activeBuffs) {
     for (const b of entries) {
       if (b.effectType === 'creature_transform' && b.value && typeof b.value === 'object' && !Array.isArray(b.value)) {
         const ct = b.value
-        console.log('[useBuffCalculator] creature_transform entry:', ct)
         if (ct.creatureId) {
           const creature = getCreatureById(ct.creatureId)
-          console.log('[useBuffCalculator] creature found:', creature)
           if (creature) {
             creatureTransformData = { creature, acMode: ct.acMode || 'replace', hpMode: ct.hpMode || 'replace' }
-            console.log('[useBuffCalculator] creatureTransformData:', creatureTransformData)
             break // 只取第一个有效的变身效果
           }
         }
@@ -669,15 +666,14 @@ export function computeBuffStats(character, activeBuffs) {
     // 变身效果 HP 处理
     if (creatureTransformData) {
       const creatureHP = parseHpFormula(creatureTransformData.creature.hp)
-      console.log('[useBuffCalculator] creatureTransform HP:', { creatureHP, hpMode: creatureTransformData.hpMode })
       if (creatureTransformData.hpMode === 'replace') {
         // 替换模式：计算差值，通过 maxHpBonus 调整实现 HP 替换
-        // CombatStatus 公式：calcMaxHP + getHPBuffSum + maxHpBonus
-        // 需要减去 getHPBuffSum 避免重复计算
+        // CombatStatus 公式：calcMaxHP + getHPBuffSum(legacy) + maxHpBonus(effects)
+        // maxHpBonus 已在上方循环累加了 effects 系统的 max_hp_bonus（如坚韧专长 +40）
+        // 需要同时减去 legacy 和 effects 两部分的 HP 加成
         const charBaseHP = calcMaxHP(character, baseAbilities)
         const hpBuffSum = getHPBuffSum(character)
-        console.log('[useBuffCalculator] HP replace:', { creatureHP, charBaseHP, hpBuffSum, diff: creatureHP - charBaseHP - hpBuffSum })
-        maxHpBonus += creatureHP - charBaseHP - hpBuffSum
+        maxHpBonus = creatureHP - charBaseHP - hpBuffSum
       } else if (creatureTransformData.hpMode === 'add') {
         // 叠加模式：生物 HP 作为临时 HP
         tempHp = Math.max(tempHp, creatureHP)
@@ -722,6 +718,27 @@ export function computeBuffStats(character, activeBuffs) {
       // 状态免疫也合并
       if (Array.isArray(creature.conditionImmunities) && creature.conditionImmunities.length > 0) {
         // conditionImmunities 需要特殊处理，这里先简单记录
+      }
+    }
+
+    // 变身效果速度处理：用生物速度替换角色速度
+    if (creatureTransformData) {
+      const creatureSpeed = creatureTransformData.creature.speed
+      if (creatureSpeed && typeof creatureSpeed === 'object') {
+        const charSpeed = character?.speed ?? 30
+        if (creatureSpeed.walk != null) {
+          speedBonus = Number(creatureSpeed.walk) - charSpeed
+        }
+        if (creatureSpeed.swim != null) {
+          swimSpeedBonus = Number(creatureSpeed.swim)
+        }
+        if (creatureSpeed.climb != null) {
+          climbSpeedBonus = Number(creatureSpeed.climb)
+        }
+        if (creatureSpeed.fly != null) {
+          flightSpeed = Number(creatureSpeed.fly)
+          if (creatureSpeed.hover) flightHover = true
+        }
       }
     }
 

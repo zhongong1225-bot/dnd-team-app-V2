@@ -202,15 +202,30 @@ export function clearDefaultBuffPatch(moduleId, kind, id) {
   saveRaw(moduleId, map)
 }
 
-/** 把一个补丁与默认补丁合并：个人补丁优先，默认补丁补齐 */
+/** 把一个补丁与默认补丁合并：效果合并，个人 duration/enabled 优先 */
 export function mergeWithDefaultPatch(personalPatch, defaultPatch) {
   if (!defaultPatch) return personalPatch
   if (!personalPatch || typeof personalPatch !== 'object') return defaultPatch
-  const hasPersonalEffects = Array.isArray(personalPatch.effects) && personalPatch.effects.length > 0
-  const hasPersonalDuration = personalPatch.duration != null && String(personalPatch.duration).trim() !== ''
-  const hasPersonalEnabled = personalPatch.enabled === false
-  if (hasPersonalEffects || hasPersonalDuration || hasPersonalEnabled) return personalPatch
-  return defaultPatch
+
+  const personalEffects = Array.isArray(personalPatch.effects) ? personalPatch.effects : []
+  const defaultEffects = Array.isArray(defaultPatch.effects) ? defaultPatch.effects : []
+  // 个人效果优先：默认效果中 effectType 已被个人覆盖的跳过，防止重复叠加
+  const personalTypes = new Set(personalEffects.map((e) => e.effectType).filter(Boolean))
+  const mergedEffects = [
+    ...personalEffects,
+    ...defaultEffects.filter((e) => !e.effectType || !personalTypes.has(e.effectType)),
+  ]
+
+  const personalDuration = personalPatch.duration != null && String(personalPatch.duration).trim() !== ''
+    ? personalPatch.duration
+    : defaultPatch.duration
+  const personalEnabled = personalPatch.enabled !== undefined ? personalPatch.enabled : defaultPatch.enabled
+
+  return {
+    effects: mergedEffects,
+    ...(personalDuration ? { duration: personalDuration } : {}),
+    ...(personalEnabled === false ? { enabled: false } : {}),
+  }
 }
 
 /**

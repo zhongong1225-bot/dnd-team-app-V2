@@ -5,7 +5,7 @@
  */
 import { BUFF_TYPES } from '../data/buffTypes'
 
-const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'charge', 'container', 'proficiency', 'custom']
+const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'active_release', 'container', 'proficiency', 'transformation', 'custom']
 
 export function getAllVisibleBuffEffectKeys() {
   const keys = []
@@ -27,11 +27,14 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   ability_score_uncapped: 'calculator',
   extra_attunement_slots: 'metadata',
   skill_bonus: 'calculator',
+  adv_skill: 'calculator',
   save_bonus: 'calculator',
+  adv_save: 'calculator',
   initiative_buff: 'calculator',
   // offense
   attack_bonus: 'calculator',
   damage_bonus: 'calculator',
+  attack_damage_bonus: 'calculator',
   attack_distance_range: 'metadata',
   attack_area: 'metadata',
   damage_piercing_traits: 'calculator',
@@ -42,6 +45,7 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   spell_ability_attack: 'metadata',
   // defense
   ac_bonus: 'calculator',
+  armor_override: 'calculator',
   resist_type: 'calculator',
   immune_type: 'calculator',
   vulnerable_type: 'calculator',
@@ -53,7 +57,11 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   death_ward: 'metadata',
   // mobility_casting
   base_speed_increment: 'calculator',
+  speed_bonus: 'calculator',
+  flight_speed: 'calculator',
+  init_bonus: 'calculator',
   terrain_ignore: 'calculator',
+  concentration: 'calculator',
   concentration_save_enhance: 'calculator',
   spell_range_extension: 'calculator',
   spell_attack_bonus: 'calculator',
@@ -61,14 +69,14 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   spell_damage_bonus: 'calculator',
   contained_spell: 'metadata',
   charge_item: 'metadata',
-  // charge
+  // active_release
+  charge: 'metadata',
   ac_cap_stone_layer: 'calculator',
   recharge_long_rest: 'metadata',
   recharge_dawn: 'metadata',
   // container
   item_storage: 'metadata',
   // proficiency
-  tool_proficiency: 'metadata',
   specific_tool_proficiency: 'metadata',
   instrument_proficiency: 'metadata',
   armor_proficiency: 'metadata',
@@ -76,6 +84,24 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   language_proficiency: 'metadata',
   vehicle_proficiency: 'metadata',
   weapon_mastery: 'metadata',
+  // transformation
+  creature_transform: 'calculator',
   // custom
   custom_condition: 'metadata',
+  // deprecated（旧存档兼容，不再出现在 BUFF_TYPES 中）
+  attack_melee: 'calculator',
+  attack_ranged: 'calculator',
+  attack_all: 'calculator',
+  dmg_bonus_melee: 'calculator',
+  dmg_bonus_ranged: 'calculator',
+  dmg_bonus_all: 'calculator',
+  adv_melee: 'calculator',
+  adv_ranged: 'calculator',
+  adv_all_attack: 'calculator',
+  disadv_all: 'calculator',
+  dmg_type_specific: 'calculator',
+  reach_bonus: 'calculator',
+  ignore_resistance: 'calculator',
+  proficiency_override: 'calculator',
+  tool_proficiency: 'metadata',
 }

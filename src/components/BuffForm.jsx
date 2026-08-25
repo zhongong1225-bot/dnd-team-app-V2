@@ -48,6 +48,7 @@ import {
   ALL_MOD_OPTIONS,
   RESULT_TYPE_OPTIONS,
 } from '../lib/chargeItemModel'
+import { loadCreatureLibrary, getCreatureById, CREATURE_SIZES } from '../data/creatureLibrary'
 import {
   BUFF_SOURCE_KIND_OPTIONS_EDITABLE,
   normalizeBuffSourceKindKey,
@@ -242,6 +243,28 @@ function normalizeValueForSave(module, currentEffect) {
   }
   if (needsSubSelect === 'chargeItem') {
     return normalizeChargeItemValue(value)
+  }
+  if (needsSubSelect === 'armorOverride') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return {
+        base: isFormulaValue(value.base) ? value.base : (Number(value.base) || 10),
+        applyDexMod: value.applyDexMod !== false,
+        maxDexBonus: Number(value.maxDexBonus) || null,
+        extra: Number(value.extra) || 0,
+        shieldCompatible: !!value.shieldCompatible,
+      }
+    }
+    return { base: 10, applyDexMod: true, maxDexBonus: null, extra: 0, shieldCompatible: false }
+  }
+  if (needsSubSelect === 'creatureTransform') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return {
+        creatureId: String(value.creatureId || ''),
+        acMode: value.acMode === 'add' ? 'add' : 'replace',
+        hpMode: value.hpMode === 'add' ? 'add' : 'replace',
+      }
+    }
+    return { creatureId: '', acMode: 'replace', hpMode: 'replace' }
   }
   if (currentEffect.key === 'recharge_long_rest' || currentEffect.key === 'recharge_dawn') {
     return normalizeChargeRecoveryValue(value)
@@ -1307,6 +1330,182 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
   )
 }
 
+/** 护甲覆盖编辑器：用于法师护甲、武僧无甲护甲等修改基础AC的效果 */
+function ArmorOverrideEditor({ value, onChange, referenceData }) {
+  const data = normalizeArmorOverrideValue(value)
+  const patchData = (patch) => onChange({ ...data, ...patch })
+
+  const labelCls = 'text-[10px] text-dnd-text-muted shrink-0 leading-none'
+  const inputCls = inputClass.replace(/\bh-10\b/, 'h-6').replace(/\bpx-3\b/, 'px-1').replace(/\btext-sm\b/, 'text-xs')
+  const selectCls = inputCls + ' cursor-pointer'
+
+  return (
+    <div className="rounded-md bg-[#161e2b]/50 p-2 flex flex-col gap-y-1.5 w-full text-xs">
+      {/* 基础AC */}
+      <div className="flex items-center gap-x-1.5">
+        <span className={labelCls}>基础AC</span>
+        <NumberStepper
+          referenceData={referenceData}
+          value={data.base}
+          onChange={(v) => patchData({ base: Math.max(1, Math.min(99, v)) })}
+          min={1}
+          max={99}
+          compact
+          narrow
+          className="!h-6"
+        />
+      </div>
+
+      {/* 应用敏捷调整值 */}
+      <label className="flex items-center gap-x-1.5 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={!!data.applyDexMod}
+          onChange={(e) => patchData({ applyDexMod: e.target.checked })}
+          className="rounded border-gray-600 bg-gray-800 text-dnd-red h-3.5 w-3.5"
+        />
+        <span className={labelCls}>应用敏捷调整值</span>
+      </label>
+
+      {/* 最大DEX加值限制 */}
+      {data.applyDexMod && (
+        <div className="flex items-center gap-x-1.5">
+          <span className={labelCls}>最大DEX</span>
+          <select
+            value={data.maxDexBonus ?? ''}
+            onChange={(e) => patchData({ maxDexBonus: e.target.value ? Number(e.target.value) : null })}
+            className={selectCls + ' !w-[4rem] shrink-0'}
+          >
+            <option value="">无限制</option>
+            {[2, 3, 4, 5].map((n) => (
+              <option key={n} value={n}>+{n}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* 额外增加 */}
+      <div className="flex items-center gap-x-1.5">
+        <span className={labelCls}>额外增加</span>
+        <NumberStepper
+          value={data.extra}
+          onChange={(v) => patchData({ extra: v })}
+          step={1}
+          compact
+          narrow
+          className="!h-6"
+        />
+      </div>
+
+      {/* 盾牌兼容 */}
+      <label className="flex items-center gap-x-1.5 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={!!data.shieldCompatible}
+          onChange={(e) => patchData({ shieldCompatible: e.target.checked })}
+          className="rounded border-gray-600 bg-gray-800 text-dnd-red h-3.5 w-3.5"
+        />
+        <span className={labelCls}>可与盾牌叠加</span>
+      </label>
+    </div>
+  )
+}
+
+/** 生物变身编辑器：引用生物库中的生物 */
+function CreatureTransformEditor({ value, onChange }) {
+  const data = normalizeCreatureTransformValue(value)
+  const patchData = (patch) => onChange({ ...data, ...patch })
+
+  const creatures = useMemo(() => loadCreatureLibrary(), [])
+  const selectedCreature = data.creatureId ? getCreatureById(data.creatureId) : null
+
+  const labelCls = 'text-[10px] text-dnd-text-muted shrink-0 leading-none'
+  const selectCls = inputClass.replace(/\bh-10\b/, 'h-6').replace(/\bpx-3\b/, 'px-1').replace(/\btext-sm\b/, 'text-xs') + ' cursor-pointer'
+
+  return (
+    <div className="rounded-md bg-[#161e2b]/50 p-2 flex flex-col gap-y-1.5 w-full text-xs">
+      {/* 选择生物 */}
+      <div className="flex items-center gap-x-1.5">
+        <span className={labelCls}>生物</span>
+        <select
+          value={data.creatureId}
+          onChange={(e) => patchData({ creatureId: e.target.value })}
+          className={selectCls + ' flex-1 min-w-0'}
+        >
+          <option value="">-- 选择生物 --</option>
+          {creatures.map((c) => (
+            <option key={c.id} value={c.id}>{c.name} (CR {c.cr})</option>
+          ))}
+        </select>
+      </div>
+
+      {/* 生物预览 */}
+      {selectedCreature && (
+        <div className="rounded border border-gray-700 bg-[#0d1520]/50 px-1.5 py-1 space-y-0.5">
+          <div className="text-dnd-gold-light/80 text-[10px]">{selectedCreature.name} - {CREATURE_SIZES.find(s => s.value === selectedCreature.size)?.label || selectedCreature.size}</div>
+          <div className="text-gray-400 text-[10px]">HP: {selectedCreature.hp} | AC: {selectedCreature.ac}</div>
+          <div className="text-gray-400 text-[10px]">
+            STR:{selectedCreature.abilities.str} DEX:{selectedCreature.abilities.dex} CON:{selectedCreature.abilities.con}
+            INT:{selectedCreature.abilities.int} WIS:{selectedCreature.abilities.wis} CHA:{selectedCreature.abilities.cha}
+          </div>
+        </div>
+      )}
+
+      {/* AC 模式 */}
+      <div className="flex items-center gap-x-1.5">
+        <span className={labelCls}>AC处理</span>
+        <select
+          value={data.acMode}
+          onChange={(e) => patchData({ acMode: e.target.value })}
+          className={selectCls + ' !w-[5rem] shrink-0'}
+        >
+          <option value="replace">替换</option>
+          <option value="add">叠加</option>
+        </select>
+      </div>
+
+      {/* HP 模式 */}
+      <div className="flex items-center gap-x-1.5">
+        <span className={labelCls}>HP处理</span>
+        <select
+          value={data.hpMode}
+          onChange={(e) => patchData({ hpMode: e.target.value })}
+          className={selectCls + ' !w-[5rem] shrink-0'}
+        >
+          <option value="replace">替换</option>
+          <option value="add">叠加</option>
+        </select>
+      </div>
+    </div>
+  )
+}
+
+/** 规范化护甲覆盖值 */
+function normalizeArmorOverrideValue(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { base: 10, applyDexMod: true, maxDexBonus: null, extra: 0, shieldCompatible: false }
+  }
+  return {
+    base: isFormulaValue(value.base) ? value.base : (Number(value.base) || 10),
+    applyDexMod: value.applyDexMod !== false,
+    maxDexBonus: Number(value.maxDexBonus) || null,
+    extra: Number(value.extra) || 0,
+    shieldCompatible: !!value.shieldCompatible,
+  }
+}
+
+/** 规范化生物变身值 */
+function normalizeCreatureTransformValue(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { creatureId: '', acMode: 'replace', hpMode: 'replace' }
+  }
+  return {
+    creatureId: String(value.creatureId || ''),
+    acMode: value.acMode === 'add' ? 'add' : 'replace',
+    hpMode: value.hpMode === 'add' ? 'add' : 'replace',
+  }
+}
+
 /** 多选下拉：点击显示已选，展开后为复选框列表，选择感强 */
 function MultiSelectDropdown({ options, selected, onChange, placeholder, id, className }) {
   const [open, setOpen] = useState(false)
@@ -1537,8 +1736,22 @@ function EffectValueEditor({
   /** 为真时不显示顶部的「选项」等区块标题（制作工厂等场景） */
   hideSectionLabel = false,
 }) {
-  const [selectedSkillId, setSelectedSkillId] = useState(SKILLS[0]?.id ?? 'acrobatics')
-  const [selectedAbilityId, setSelectedAbilityId] = useState(ABILITY_KEYS[0] ?? 'str')
+  const [selectedSkillId, setSelectedSkillId] = useState(() => {
+    const val = module?.value
+    if (val && typeof val === 'object' && !Array.isArray(val)) {
+      const found = SKILLS.find(sk => val[sk.id] != null && val[sk.id] !== 0)
+      if (found) return found.id
+    }
+    return SKILLS[0]?.id ?? 'acrobatics'
+  })
+  const [selectedAbilityId, setSelectedAbilityId] = useState(() => {
+    const val = module?.value
+    if (val && typeof val === 'object' && !Array.isArray(val)) {
+      const found = ABILITY_KEYS.find(k => val[k] != null && val[k] !== 0)
+      if (found) return found
+    }
+    return ABILITY_KEYS[0] ?? 'str'
+  })
   const effects = catData?.effects ?? []
   const currentEffect = effects.find((e) => e.key === module.effectType)
   const isAbilityScoreEffect =
@@ -1738,61 +1951,71 @@ function EffectValueEditor({
         if (!checked) delete next[k]
         onChange({ ...module, break20: next })
       }
+      const valueObj = typeof value === 'object' && value && !Array.isArray(value) ? value : {}
+      const selectedAbilities = ABILITY_KEYS.filter(k => valueObj[k] != null)
+      const allChecked = ABILITY_KEYS.every(k => valueObj[k] != null)
       return (
-        <>
-          <select
-            value={selectedAbilityId}
-            onChange={(e) => {
-              const nextKey = e.target.value
-              const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
-              const currentVal = getAbilityFieldValue(obj, selectedAbilityId)
-              const base = {}
-              if (nextKey === 'all') ABILITY_KEYS.forEach((k) => { base[k] = currentVal })
-              else base[nextKey] = currentVal
-              setSelectedAbilityId(nextKey)
-              onChange({ ...module, value: base })
-            }}
-            className={compactClass + ' w-full min-w-0 h-7'}
-          >
-            <option value="all">全属性</option>
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap gap-x-2.5 gap-y-0.5 items-center">
             {ABILITY_KEYS.map((k) => (
-              <option key={k} value={k}>{ABILITY_LABELS[k]}</option>
+              <label key={k} className="flex items-center gap-0.5 text-[10px] text-gray-300 cursor-pointer whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={valueObj[k] != null}
+                  onChange={(e) => {
+                    const base = { ...valueObj }
+                    if (e.target.checked) base[k] = 0
+                    else delete base[k]
+                    onChange({ ...module, value: base })
+                  }}
+                  className="w-2.5 h-2.5 accent-dnd-red"
+                />
+                {ABILITY_LABELS[k]}
+              </label>
             ))}
-          </select>
-          <div className="min-w-0">
-            <NumberStepper referenceData={activeReferenceData}
-              value={(typeof value === 'object' && value && selectedAbilityId !== 'all' && value[selectedAbilityId] != null ? value[selectedAbilityId] : 0) ?? 0}
-              onChange={(v) => {
-                // 单行单属性：选中单属性时清空其它属性，避免残留导致外层摘要与表单不一致
-                const base = {}
-                if (selectedAbilityId === 'all') {
-                  ABILITY_KEYS.forEach((k) => { base[k] = v })
+            <button
+              type="button"
+              onClick={() => {
+                if (allChecked) {
+                  onChange({ ...module, value: {} })
                 } else {
-                  base[selectedAbilityId] = v
+                  const base = {}
+                  ABILITY_KEYS.forEach(k => { base[k] = valueObj[k] ?? 0 })
+                  onChange({ ...module, value: base })
                 }
-                onChange({ ...module, value: base })
               }}
-              compact
-            />
+              className="text-[10px] text-dnd-gold-light/70 hover:text-dnd-gold-light"
+            >
+              {allChecked ? '取消全选' : '全属性'}
+            </button>
           </div>
-          {isUncapped && (
-            <label className="flex items-center gap-1 cursor-pointer text-[11px] text-gray-300">
-              <input
-                type="checkbox"
-                checked={selectedAbilityId === 'all' ? ABILITY_KEYS.every((k) => breakObj[k]) : !!breakObj[selectedAbilityId]}
-                onChange={(e) => {
-                  if (selectedAbilityId === 'all') {
-                    ABILITY_KEYS.forEach((k) => setBreak20(k, e.target.checked))
-                  } else {
-                    setBreak20(selectedAbilityId, e.target.checked)
-                  }
-                }}
-                className="rounded border-gray-600 bg-gray-800 text-dnd-red"
-              />
-              {selectedAbilityId === 'all' ? '全属性可突破20' : `${ABILITY_LABELS[selectedAbilityId]}可突破20`}
-            </label>
+          {selectedAbilities.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {selectedAbilities.map((k) => (
+                <div key={k} className="flex items-center gap-0.5">
+                  <span className="text-[10px] text-dnd-gold-light/80">{ABILITY_LABELS[k]}</span>
+                  <NumberStepper referenceData={activeReferenceData}
+                    value={valueObj[k] ?? 0}
+                    onChange={(v) => onChange({ ...module, value: { ...valueObj, [k]: v } })}
+                    compact
+                    narrow
+                  />
+                  {isUncapped && (
+                    <label className="flex items-center gap-0.5 cursor-pointer text-[9px] text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={!!breakObj[k]}
+                        onChange={(e) => setBreak20(k, e.target.checked)}
+                        className="w-2.5 h-2.5 rounded border-gray-600 bg-gray-800 text-dnd-red"
+                      />
+                      破20
+                    </label>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
-        </>
+        </div>
       )
     }
     if (needsSubSelect === 'abilityProficiency') {
@@ -1823,99 +2046,125 @@ function EffectValueEditor({
       )
     }
     if (needsSubSelect === 'abilityScoresAndAdvantage') {
+      const valueObj = typeof value === 'object' && value && !Array.isArray(value) ? value : {}
+      const labels = module.effectType === 'save_bonus' ? SAVE_NAMES : ABILITY_LABELS
+      const selectedAbilities = ABILITY_KEYS.filter(k => valueObj[k] != null)
+      const allChecked = ABILITY_KEYS.every(k => valueObj[k] != null)
       return (
-        <div className="flex min-h-7 w-full min-w-0 flex-nowrap items-stretch gap-1">
-          <div className="min-w-0 basis-0 flex-[2.5]">
-            <select
-              value={selectedAbilityId}
-              onChange={(e) => {
-                const nextKey = e.target.value
-                const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
-                const currentVal = getAbilityFieldValue(obj, selectedAbilityId)
-                const base = {}
-                if (obj.advantage != null) base.advantage = obj.advantage
-                if (nextKey === 'all') ABILITY_KEYS.forEach((k) => { base[k] = currentVal })
-                else base[nextKey] = currentVal
-                setSelectedAbilityId(nextKey)
-                onChange({ ...module, value: base })
-              }}
-              className={compactClass + ' h-7 w-full min-w-0 max-w-full'}
-            >
-              <option value="all">全属性</option>
-              {ABILITY_KEYS.map((k) => (
-                <option key={k} value={k}>{(module.effectType === 'save_bonus' ? SAVE_NAMES[k] : ABILITY_LABELS[k]) ?? k}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex shrink-0 items-center">
-            <NumberStepper referenceData={activeReferenceData}
-              value={(typeof value === 'object' && value && selectedAbilityId !== 'all' && value[selectedAbilityId] != null ? value[selectedAbilityId] : 0) ?? 0}
-              onChange={(v) => {
-                // 单行单属性；保留 advantage 字段
-                const base = {}
-                if (typeof value === 'object' && value && !Array.isArray(value) && value.advantage != null) base.advantage = value.advantage
-                if (selectedAbilityId === 'all') {
-                  ABILITY_KEYS.forEach((k) => { base[k] = v })
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap gap-x-2.5 gap-y-0.5 items-center">
+            {ABILITY_KEYS.map((k) => (
+              <label key={k} className="flex items-center gap-0.5 text-[10px] text-gray-300 cursor-pointer whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={valueObj[k] != null}
+                  onChange={(e) => {
+                    const base = { ...valueObj }
+                    if (e.target.checked) base[k] = 0
+                    else delete base[k]
+                    onChange({ ...module, value: base })
+                  }}
+                  className="w-2.5 h-2.5 accent-dnd-red"
+                />
+                {labels[k]}
+              </label>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                if (allChecked) {
+                  const base = {}
+                  if (valueObj.advantage) base.advantage = valueObj.advantage
+                  onChange({ ...module, value: base })
                 } else {
-                  base[selectedAbilityId] = v
+                  const base = {}
+                  ABILITY_KEYS.forEach(k => { base[k] = valueObj[k] ?? 0 })
+                  if (valueObj.advantage) base.advantage = valueObj.advantage
+                  onChange({ ...module, value: base })
                 }
-                onChange({ ...module, value: base })
               }}
-              compact
-              narrow
-            />
-          </div>
-          <div className="min-w-0 basis-0 flex-[2]">
-            <select
-              value={(typeof value === 'object' && value && value.advantage != null ? value.advantage : '') ?? ''}
-              onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), advantage: e.target.value } })}
-              className={compactClass + ' h-7 w-full min-w-0 max-w-full'}
+              className="text-[10px] text-dnd-gold-light/70 hover:text-dnd-gold-light"
             >
-              {ADVANTAGE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+              {allChecked ? '取消全选' : '全属性'}
+            </button>
           </div>
+          {selectedAbilities.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {selectedAbilities.map((k) => (
+                <div key={k} className="flex items-center gap-0.5">
+                  <span className="text-[10px] text-dnd-gold-light/80">{labels[k]}</span>
+                  <NumberStepper referenceData={activeReferenceData}
+                    value={valueObj[k] ?? 0}
+                    onChange={(v) => onChange({ ...module, value: { ...valueObj, [k]: v } })}
+                    compact
+                    narrow
+                  />
+                </div>
+              ))}
+              <select
+                value={valueObj.advantage ?? ''}
+                onChange={(e) => onChange({ ...module, value: { ...valueObj, advantage: e.target.value } })}
+                className={compactClass + ' h-7 min-w-[4.5rem]'}
+              >
+                {ADVANTAGE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       )
     }
     if (needsSubSelect === 'skillsAndAdvantage') {
+      const valueObj = typeof value === 'object' && value && !Array.isArray(value) ? value : {}
+      const selectedSkills = SKILLS.filter(sk => valueObj[sk.id] != null)
       return (
-        <div className="flex min-h-7 w-full min-w-0 flex-nowrap items-stretch gap-1">
-          <div className="min-w-0 basis-0 flex-[2.5]">
-            <select
-              value={selectedSkillId}
-              onChange={(e) => setSelectedSkillId(e.target.value)}
-              className={compactClass + ' h-7 w-full min-w-0 max-w-full'}
-            >
-              {SKILLS.map((sk) => (
-                <option key={sk.id} value={sk.id}>{sk.name}</option>
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap gap-x-2.5 gap-y-0.5">
+            {SKILLS.map((sk) => (
+              <label key={sk.id} className="flex items-center gap-0.5 text-[10px] text-gray-300 cursor-pointer whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={valueObj[sk.id] != null}
+                  onChange={(e) => {
+                    const base = { ...valueObj }
+                    if (e.target.checked) {
+                      base[sk.id] = 0
+                    } else {
+                      delete base[sk.id]
+                    }
+                    onChange({ ...module, value: base })
+                  }}
+                  className="w-2.5 h-2.5 accent-dnd-red"
+                />
+                {sk.name}
+              </label>
+            ))}
+          </div>
+          {selectedSkills.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {selectedSkills.map((sk) => (
+                <div key={sk.id} className="flex items-center gap-0.5">
+                  <span className="text-[10px] text-dnd-gold-light/80">{sk.name}</span>
+                  <NumberStepper referenceData={activeReferenceData}
+                    value={valueObj[sk.id] ?? 0}
+                    onChange={(v) => onChange({ ...module, value: { ...valueObj, [sk.id]: v } })}
+                    compact
+                    narrow
+                  />
+                </div>
               ))}
-            </select>
-          </div>
-          <div className="flex shrink-0 items-center">
-            <NumberStepper referenceData={activeReferenceData}
-              value={(typeof value === 'object' && value && value[selectedSkillId] != null ? value[selectedSkillId] : 0) ?? 0}
-              onChange={(v) => {
-                const base = typeof value === 'object' && value && !Array.isArray(value) ? { ...value } : {}
-                base[selectedSkillId] = v
-                onChange({ ...module, value: base })
-              }}
-              compact
-              narrow
-            />
-          </div>
-          <div className="min-w-0 basis-0 flex-[2]">
-            <select
-              value={(typeof value === 'object' && value && value.advantage != null ? value.advantage : '') ?? ''}
-              onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), advantage: e.target.value } })}
-              className={compactClass + ' h-7 w-full min-w-0 max-w-full'}
-            >
-              {ADVANTAGE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
+              <select
+                value={valueObj.advantage ?? ''}
+                onChange={(e) => onChange({ ...module, value: { ...valueObj, advantage: e.target.value } })}
+                className={compactClass + ' h-7 min-w-[4.5rem]'}
+              >
+                {ADVANTAGE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       )
     }
@@ -2432,66 +2681,80 @@ function EffectValueEditor({
             )
           })()}
         </div>
-      ) : needsSubSelect === 'abilityScores' ? (
+      ) : needsSubSelect === 'abilityScores' ? (() => {
+        const isUncapped = currentEffect?.key === 'ability_score_uncapped'
+        const breakObj = module.break20 && typeof module.break20 === 'object' && !Array.isArray(module.break20) ? module.break20 : {}
+        const setBreak20 = (k, checked) => {
+          const next = { ...breakObj, [k]: checked }
+          if (!checked) delete next[k]
+          onChange({ ...module, break20: next })
+        }
+        const valueObj = typeof value === 'object' && value && !Array.isArray(value) ? value : {}
+        const selectedAbilities = ABILITY_KEYS.filter(k => valueObj[k] != null)
+        const allChecked = ABILITY_KEYS.every(k => valueObj[k] != null)
+        return (
         <div className="space-y-2">
-          <div className="flex items-center gap-2 flex-nowrap">
-            <select
-              value={selectedAbilityId}
-              onChange={(e) => {
-                const nextKey = e.target.value
-                const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
-                const currentVal = getAbilityFieldValue(obj, selectedAbilityId)
-                const base = {}
-                if (nextKey === 'all') ABILITY_KEYS.forEach((k) => { base[k] = currentVal })
-                else base[nextKey] = currentVal
-                setSelectedAbilityId(nextKey)
-                onChange({ ...module, value: base })
-              }}
-              className={inputClass + ' h-8 min-w-[6.5rem]'}
-            >
-              <option value="all">全属性</option>
-              {ABILITY_KEYS.map((k) => (
-                <option key={k} value={k}>{ABILITY_LABELS[k]}</option>
-              ))}
-            </select>
-            <NumberStepper referenceData={activeReferenceData}
-              value={(typeof value === 'object' && value && selectedAbilityId !== 'all' && value[selectedAbilityId] != null ? value[selectedAbilityId] : 0) ?? 0}
-              onChange={(v) => {
-                const base = typeof value === 'object' && value && !Array.isArray(value) ? { ...value } : {}
-                if (selectedAbilityId === 'all') {
-                  ABILITY_KEYS.forEach((k) => { base[k] = v })
+          <div className="flex flex-wrap gap-x-3 gap-y-1 items-center">
+            {ABILITY_KEYS.map((k) => (
+              <label key={k} className="flex items-center gap-1 text-xs text-gray-300 cursor-pointer whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={valueObj[k] != null}
+                  onChange={(e) => {
+                    const base = { ...valueObj }
+                    if (e.target.checked) base[k] = 0
+                    else delete base[k]
+                    onChange({ ...module, value: base })
+                  }}
+                  className="w-3 h-3 accent-dnd-red"
+                />
+                {ABILITY_LABELS[k]}
+              </label>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                if (allChecked) {
+                  onChange({ ...module, value: {} })
                 } else {
-                  base[selectedAbilityId] = v
+                  const base = {}
+                  ABILITY_KEYS.forEach(k => { base[k] = valueObj[k] ?? 0 })
+                  onChange({ ...module, value: base })
                 }
-                onChange({ ...module, value: base })
               }}
-              compact
-            />
+              className="text-xs text-dnd-gold-light/70 hover:text-dnd-gold-light"
+            >
+              {allChecked ? '取消全选' : '全属性'}
+            </button>
           </div>
-          {currentEffect?.key === 'ability_score_uncapped' && (
-            <div className="flex flex-wrap gap-2">
-              {ABILITY_KEYS.map((k) => {
-                const breakObj = module.break20 && typeof module.break20 === 'object' && !Array.isArray(module.break20) ? module.break20 : {}
-                return (
-                  <label key={k} className="flex items-center gap-1 cursor-pointer text-xs text-gray-300">
-                    <input
-                      type="checkbox"
-                      checked={!!breakObj[k]}
-                      onChange={(e) => {
-                        const next = { ...breakObj, [k]: e.target.checked }
-                        if (!e.target.checked) delete next[k]
-                        onChange({ ...module, break20: next })
-                      }}
-                      className="rounded border-gray-600 bg-gray-800 text-dnd-red"
-                    />
-                    {ABILITY_LABELS[k]}可突破20
-                  </label>
-                )
-              })}
+          {selectedAbilities.length > 0 && (
+            <div className="flex flex-wrap gap-2 items-center">
+              {selectedAbilities.map((k) => (
+                <div key={k} className="flex items-center gap-1">
+                  <span className="text-xs text-dnd-gold-light/80">{ABILITY_LABELS[k]}</span>
+                  <NumberStepper referenceData={activeReferenceData}
+                    value={valueObj[k] ?? 0}
+                    onChange={(v) => onChange({ ...module, value: { ...valueObj, [k]: v } })}
+                    compact
+                  />
+                  {isUncapped && (
+                    <label className="flex items-center gap-0.5 cursor-pointer text-[10px] text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={!!breakObj[k]}
+                        onChange={(e) => setBreak20(k, e.target.checked)}
+                        className="w-3 h-3 rounded border-gray-600 bg-gray-800 text-dnd-red"
+                      />
+                      破20
+                    </label>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </div>
-      ) : needsSubSelect === 'abilityProficiency' ? (
+        )
+      })() : needsSubSelect === 'abilityProficiency' ? (
         <div className="flex flex-wrap gap-2">
           {ABILITY_KEYS.map((k) => {
             const toBool = (v) => {
@@ -2525,84 +2788,128 @@ function EffectValueEditor({
             <option value="cha">魅力</option>
           </select>
         </div>
-      ) : needsSubSelect === 'abilityScoresAndAdvantage' ? (
-        <div className="flex items-center gap-2 flex-nowrap">
-          <select
-            value={selectedAbilityId}
-            onChange={(e) => {
-              const nextKey = e.target.value
-              const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
-              const currentVal = getAbilityFieldValue(obj, selectedAbilityId)
-              const base = {}
-              if (obj.advantage != null) base.advantage = obj.advantage
-              if (nextKey === 'all') ABILITY_KEYS.forEach((k) => { base[k] = currentVal })
-              else base[nextKey] = currentVal
-              setSelectedAbilityId(nextKey)
-              onChange({ ...module, value: base })
-            }}
-            className={inputClass + ' h-8 min-w-[6.5rem]'}
-          >
-            <option value="all">全属性</option>
+      ) : needsSubSelect === 'abilityScoresAndAdvantage' ? (() => {
+        const valueObj = typeof value === 'object' && value && !Array.isArray(value) ? value : {}
+        const labels = module.effectType === 'save_bonus' ? SAVE_NAMES : ABILITY_LABELS
+        const selectedAbilities = ABILITY_KEYS.filter(k => valueObj[k] != null)
+        const allChecked = ABILITY_KEYS.every(k => valueObj[k] != null)
+        return (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-x-3 gap-y-1 items-center">
             {ABILITY_KEYS.map((k) => (
-              <option key={k} value={k}>{(module.effectType === 'save_bonus' ? SAVE_NAMES[k] : ABILITY_LABELS[k]) ?? k}</option>
+              <label key={k} className="flex items-center gap-1 text-xs text-gray-300 cursor-pointer whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={valueObj[k] != null}
+                  onChange={(e) => {
+                    const base = { ...valueObj }
+                    if (e.target.checked) base[k] = 0
+                    else delete base[k]
+                    onChange({ ...module, value: base })
+                  }}
+                  className="w-3 h-3 accent-dnd-red"
+                />
+                {labels[k]}
+              </label>
             ))}
-          </select>
-          <NumberStepper referenceData={activeReferenceData}
-            value={(typeof value === 'object' && value && selectedAbilityId !== 'all' && value[selectedAbilityId] != null ? value[selectedAbilityId] : 0) ?? 0}
-            onChange={(v) => {
-              const base = typeof value === 'object' && value && !Array.isArray(value) ? { ...value } : {}
-              if (selectedAbilityId === 'all') {
-                ABILITY_KEYS.forEach((k) => { base[k] = v })
-              } else {
-                base[selectedAbilityId] = v
-              }
-              onChange({ ...module, value: base })
-            }}
-            compact
-          />
-          <span className="text-gray-400 text-xs shrink-0">优势/劣势</span>
-          <select
-            value={(typeof value === 'object' && value && value.advantage != null ? value.advantage : '') ?? ''}
-            onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), advantage: e.target.value } })}
-            className={inputClass + ' h-8 min-w-[6rem]'}
-          >
-            {ADVANTAGE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
+            <button
+              type="button"
+              onClick={() => {
+                if (allChecked) {
+                  const base = {}
+                  if (valueObj.advantage) base.advantage = valueObj.advantage
+                  onChange({ ...module, value: base })
+                } else {
+                  const base = {}
+                  ABILITY_KEYS.forEach(k => { base[k] = valueObj[k] ?? 0 })
+                  if (valueObj.advantage) base.advantage = valueObj.advantage
+                  onChange({ ...module, value: base })
+                }
+              }}
+              className="text-xs text-dnd-gold-light/70 hover:text-dnd-gold-light"
+            >
+              {allChecked ? '取消全选' : '全属性'}
+            </button>
+          </div>
+          {selectedAbilities.length > 0 && (
+            <div className="flex flex-wrap gap-2 items-center">
+              {selectedAbilities.map((k) => (
+                <div key={k} className="flex items-center gap-1">
+                  <span className="text-xs text-dnd-gold-light/80">{labels[k]}</span>
+                  <NumberStepper referenceData={activeReferenceData}
+                    value={valueObj[k] ?? 0}
+                    onChange={(v) => onChange({ ...module, value: { ...valueObj, [k]: v } })}
+                    compact
+                  />
+                </div>
+              ))}
+              <span className="text-gray-400 text-xs shrink-0">优势/劣势</span>
+              <select
+                value={valueObj.advantage ?? ''}
+                onChange={(e) => onChange({ ...module, value: { ...valueObj, advantage: e.target.value } })}
+                className={inputClass + ' h-8 min-w-[6rem]'}
+              >
+                {ADVANTAGE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
-      ) : needsSubSelect === 'skillsAndAdvantage' ? (
-        <div className="flex items-center gap-2 flex-nowrap">
-          <select
-            value={selectedSkillId}
-            onChange={(e) => setSelectedSkillId(e.target.value)}
-            className={inputClass + ' h-8 min-w-[7rem]'}
-          >
+        )
+      })() : needsSubSelect === 'skillsAndAdvantage' ? (() => {
+        const valueObj = typeof value === 'object' && value && !Array.isArray(value) ? value : {}
+        const selectedSkills = SKILLS.filter(sk => valueObj[sk.id] != null)
+        return (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
             {SKILLS.map((sk) => (
-              <option key={sk.id} value={sk.id}>{sk.name}</option>
+              <label key={sk.id} className="flex items-center gap-1 text-xs text-gray-300 cursor-pointer whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={valueObj[sk.id] != null}
+                  onChange={(e) => {
+                    const base = { ...valueObj }
+                    if (e.target.checked) {
+                      base[sk.id] = 0
+                    } else {
+                      delete base[sk.id]
+                    }
+                    onChange({ ...module, value: base })
+                  }}
+                  className="w-3 h-3 accent-dnd-red"
+                />
+                {sk.name}
+              </label>
             ))}
-          </select>
-          <NumberStepper referenceData={activeReferenceData}
-            value={(typeof value === 'object' && value && value[selectedSkillId] != null ? value[selectedSkillId] : 0) ?? 0}
-            onChange={(v) => {
-              const valueObj = typeof value === 'object' && value && !Array.isArray(value) ? { ...value } : {}
-              valueObj[selectedSkillId] = v
-              onChange({ ...module, value: valueObj })
-            }}
-            compact
-          />
-          <span className="text-gray-400 text-xs shrink-0">优势/劣势</span>
-          <select
-            value={(typeof value === 'object' && value && value.advantage != null ? value.advantage : '') ?? ''}
-            onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), advantage: e.target.value } })}
-            className={inputClass + ' h-8 min-w-[6rem]'}
-          >
-            {ADVANTAGE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
+          </div>
+          {selectedSkills.length > 0 && (
+            <div className="flex flex-wrap gap-2 items-center">
+              {selectedSkills.map((sk) => (
+                <div key={sk.id} className="flex items-center gap-1">
+                  <span className="text-xs text-dnd-gold-light/80">{sk.name}</span>
+                  <NumberStepper referenceData={activeReferenceData}
+                    value={valueObj[sk.id] ?? 0}
+                    onChange={(v) => onChange({ ...module, value: { ...valueObj, [sk.id]: v } })}
+                    compact
+                  />
+                </div>
+              ))}
+              <span className="text-gray-400 text-xs shrink-0">优势/劣势</span>
+              <select
+                value={valueObj.advantage ?? ''}
+                onChange={(e) => onChange({ ...module, value: { ...valueObj, advantage: e.target.value } })}
+                className={inputClass + ' h-8 min-w-[6rem]'}
+              >
+                {ADVANTAGE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
-      ) : needsSubSelect === 'spellDamageBonus' ? (
+        )
+      })() : needsSubSelect === 'spellDamageBonus' ? (
         <SpellDamageBonusEditor
           value={value}
           onChange={(v) => onChange({ ...module, value: v })}
@@ -2631,6 +2938,17 @@ function EffectValueEditor({
           spellDC={spellDC}
           spellAttackBonus={spellAttackBonus}
           useWandScrollTable={useWandScrollTable}
+        />
+      ) : needsSubSelect === 'armorOverride' ? (
+        <ArmorOverrideEditor
+          value={value}
+          onChange={(v) => onChange({ ...module, value: v })}
+          referenceData={activeReferenceData}
+        />
+      ) : needsSubSelect === 'creatureTransform' ? (
+        <CreatureTransformEditor
+          value={value}
+          onChange={(v) => onChange({ ...module, value: v })}
         />
       ) : null}
     </div>
@@ -2680,7 +2998,10 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
       }
       return out
     }).filter((ef) => ef.effectType)
-    if (!effects.length && !initial?.fromFeat) return
+    if (!effects.length && !initial?.fromFeat) {
+      alert('请至少添加一条附魔效果后再保存。')
+      return
+    }
     const payload = {
       ...initial,
       source: source.trim(),
@@ -2824,15 +3145,16 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
               const summary = currentEffect
                 ? getEffectSummaryShort({ effectType: mod.effectType, value: mod.value, customText: mod.customText, scope: mod.scope, scopeDetail: mod.scopeDetail }, effectSummaryContext)
                 : '未选择效果'
-              const label = currentEffect ? (currentEffect.label ?? mod.effectType) : '—'
+              // 标签：若 summary 比纯 label 更具体（含数值/范围），则用 summary 作为标签；否则用原始 label
+              const rawLabel = currentEffect ? (currentEffect.label ?? mod.effectType) : '—'
+              const displayLabel = summary && summary !== rawLabel && summary !== '未选择效果' ? summary : rawLabel
               return (
                 <div
                   key={mod.id}
                   className="rounded-lg border border-white/[0.08] bg-[#1a2333]/60 px-2 py-1.5 flex items-center justify-between gap-2"
                 >
-                  <div className="min-w-0 flex-1 flex items-center gap-2">
-                    <span className="text-dnd-gold-light/90 text-xs font-medium shrink-0">{label}</span>
-                    <span className="text-gray-200 text-sm truncate" title={summary}>{summary}</span>
+                  <div className="min-w-0 flex-1">
+                    <span className="text-dnd-gold-light/90 text-xs font-medium">{displayLabel}</span>
                   </div>
                   <div className="flex items-center gap-0.5 shrink-0">
                     {!readOnly && (
@@ -3009,7 +3331,7 @@ function EffectModuleModal({
   const effectTypeValid = hasCategory && effects.some((e) => e.key === draft.effectType)
   const effectiveEffectType = hasCategory && effectTypeValid ? draft.effectType : ''
   const currentEffect = effects.find((e) => e.key === effectiveEffectType)
-  const showScope = ['attack_bonus', 'damage_bonus', 'attack_damage_bonus', 'spell_ability_attack', 'skill_bonus', 'extra_damage_dice'].includes(effectiveEffectType)
+  const showScope = !!effectiveEffectType
 
   const updateDraft = (patch) => setDraft((prev) => ({ ...prev, ...patch }))
 
@@ -3117,4 +3439,4 @@ function EffectModuleModal({
   )
 }
 
-export { EffectValueEditor, isComplexValueType, DamageDiceInlineRow, NumberStepper, AttackDamageBonusFields, newWeaponBonusRow, EffectModuleModal }
+export { EffectValueEditor, isComplexValueType, DamageDiceInlineRow, NumberStepper, AttackDamageBonusFields, newWeaponBonusRow, EffectModuleModal, ArmorOverrideEditor, CreatureTransformEditor }

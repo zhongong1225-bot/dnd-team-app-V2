@@ -163,7 +163,7 @@ function buildCraftedInventoryEntry(p) {
       ...base,
       charge: topCharges,
       effects: [{
-        category: 'charge',
+        category: 'active_release',
         effectType: 'contained_spell',
         value,
         customText: '',
@@ -180,7 +180,7 @@ function buildCraftedInventoryEntry(p) {
       ...base,
       charge: topCharges,
       effects: [{
-        category: 'charge',
+        category: 'active_release',
         effectType: 'contained_spell',
         value,
         customText: '',

@@ -32,11 +32,13 @@ function isPlainAbilityObject(v) {
   return keys.every((k) => !/^\d+$/.test(k))
 }
 
-/** 命中/伤害/攻击伤害加值/伤害骰：若非全局，附加起效范围摘要 */
-function getScopeSuffix(effectType, scope, scopeDetail) {
-  if (!['attack_bonus', 'damage_bonus', 'attack_damage_bonus', 'extra_damage_dice'].includes(effectType)) return ''
+/** 起效范围前缀：若非全局，返回 "近战攻击 " 格式，否则返回空字符串 */
+function getScopePrefix(scope, scopeDetail) {
   const { scope: ns, scopeDetail: nd } = normalizeScope(scope, scopeDetail)
-  return formatScopeBrief(ns, nd)
+  const brief = formatScopeBrief(ns, nd)
+  // formatScopeBrief 返回 "（近战攻击）" 格式，去掉括号改为前缀
+  if (brief) return brief.replace(/^（|）$/g, '') + ' '
+  return ''
 }
 
 /** 命中/伤害加值摘要：全局 + 分武器行 / 旧版 weaponScope + weaponCategories */
@@ -72,15 +74,18 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
   if (!info) return buff.value != null ? String(buff.value) : ''
   // 自由填写：优先 value（与保存一致），兼容 customText；空时显示占位便于记录“仅描述”类效果
   if (buff.effectType.startsWith('custom_')) {
-    const text = (buff.value != null && buff.value !== '' ? String(buff.value) : '') || (buff.customText != null && buff.customText !== '' ? String(buff.customText) : '')
+    const text = (typeof buff.value === 'string' && buff.value !== '' ? buff.value : '') || (typeof buff.customText === 'string' && buff.customText !== '' ? buff.customText : '')
     return text || '（自由填写）'
   }
   const rawLabel = info.effect.label ?? buff.effectType
-  const scopeSuffix = getScopeSuffix(buff.effectType, buff.scope, buff.scopeDetail)
-  const effectLabel = scopeSuffix ? `${rawLabel}${scopeSuffix}` : rawLabel
+  const scopePrefix = getScopePrefix(buff.scope, buff.scopeDetail)
+  const effectLabel = `${scopePrefix}${rawLabel}`
   const v = buff.value
 
   if (info.effect.dataType === 'boolean') return buff.value ? effectLabel : ''
+  if (buff.effectType === 'item_storage' && typeof v === 'number') {
+    return `容量（${v}磅）`
+  }
   if (buff.effectType === 'crit_extra_dice' && typeof v === 'number' && !Number.isNaN(v)) {
     return `${effectLabel}${v}`
   }
@@ -141,16 +146,17 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       return parts.join('，') + (adv ? (parts.length ? '，' : '') + adv : '')
     }
     if (info.effect.subSelect === 'skillsAndAdvantage' && isPlainAbilityObject(v)) {
+      // 兼容旧格式：{proficiency: true, skills: ["arcana", "nature"]}
+      if (Array.isArray(v.skills) || (v.proficiency === true && !SKILLS.some(s => s.id in v && s.id !== 'advantage'))) {
+        const skillNames = Array.isArray(v.skills)
+          ? v.skills.map(id => SKILLS.find(s => s.id === id)?.name || id)
+          : []
+        const parts = []
+        if (v.proficiency) parts.push('熟练')
+        if (skillNames.length) parts.push(skillNames.join('、'))
+        return parts.join('：') || effectLabel
+      }
       const adv = v.advantage === 'advantage' ? '优势' : v.advantage === 'disadvantage' ? '劣势' : ''
-      const { scope: ns, scopeDetail: nd } = normalizeScope(buff.scope, buff.scopeDetail)
-      // 为 skill_bonus 优势构造「范围下」前缀：自定义时直接取输入文本，全局显示「全局」
-      const scopeLabel = (() => {
-        if (ns === 'global' || ns === '') return '全局'
-        if (ns === 'custom') return nd[0] || '自定义'
-        // 其他范围沿用已有括号形式，但不带括号
-        const brief = formatScopeBrief(ns, nd)
-        return brief ? brief.replace(/^（|）$/g, '') : ns
-      })()
       // 优势时保留所有已选技能（含数值为 0），以便显示「XXX范围下XXX优势」
       const shouldKeepZero = !!adv
       const entries = Object.entries(v).filter(([k, val]) => {
@@ -164,13 +170,35 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
         const sk = SKILLS.find((s) => s.id === k)
         const nameZh = sk ? sk.name : k
         if (adv) {
-          return `${scopeLabel}范围下${nameZh}${adv}`
+          return `${nameZh}${adv}`
         }
         return `${nameZh}${formatSignedEntryVal(val, context)}`
       })
-      // 去重：同一技能可能因多条数据重复出现
       const uniqueParts = Array.from(new Set(parts))
       return uniqueParts.join('，')
+    }
+    if (info.effect.subSelect === 'armorOverride' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const baseLabel = isFormulaValue(v.base) ? formatFormulaLabelWithEval(v.base, context) : String(v.base)
+      let label = `AC=${baseLabel}`
+      if (v.applyDexMod !== false) {
+        if (v.maxDexBonus != null) label += `（含DEX，最大+${v.maxDexBonus}）`
+        else label += '（含DEX）'
+      }
+      if (v.extra) label += `+${v.extra}`
+      if (v.shieldCompatible) label += '，可叠盾'
+      return label
+    }
+    if (info.effect.subSelect === 'creatureTransform' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const creatureId = v.creatureId
+      if (!creatureId) return ''
+      // 从生物库获取生物名称
+      let creatureName = creatureId
+      try {
+        const lib = JSON.parse(localStorage.getItem('dnd_creature_library') || '[]')
+        const found = lib.find((c) => c.id === creatureId)
+        if (found) creatureName = found.name || creatureId
+      } catch {}
+      return `变身（${creatureName}）`
     }
     if ((buff.effectType === 'ability_override' || buff.effectType === 'ability_score_uncapped') && isPlainAbilityObject(v)) {
       const entries = Object.entries(v).filter(([k, val]) => k !== 'advantage' && val != null && val !== 0)
@@ -223,27 +251,28 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       return text ? effectLabel + text : effectLabel
     }
     if (buff.effectType === 'extra_damage_dice') {
-      if (typeof v === 'string' && v.trim()) return v.trim()
+      if (typeof v === 'string' && v.trim()) return `${effectLabel} ${v.trim()}`.trim()
       if (v && typeof v === 'object' && !Array.isArray(v)) {
         const s = formatDamageForAttack(v)
-        if (!s) return ''
+        if (!s) return effectLabel
         const signed = /^[+-]/.test(s) ? s : `+${s}`
-        return v.onlySpellDamage ? `${signed}（仅法术伤害）` : signed
+        const valueText = v.onlySpellDamage ? `${signed}（仅法术伤害）` : signed
+        return `${effectLabel} ${valueText}`.trim()
       }
     }
     if (buff.effectType === 'base_speed_increment') {
-      if (typeof v === 'number') return `${effectLabel}${v >= 0 ? '+' : ''}${v} 尺`
+      if (typeof v === 'number') return `${v >= 0 ? '+' : ''}${v}尺`
       if (v && typeof v === 'object' && !Array.isArray(v)) {
         const parts = []
         const add = (key, label) => {
           const num = Number(v[key])
-          if (num) parts.push(`${label} ${num >= 0 ? '+' : ''}${num} 尺`)
+          if (num) parts.push(`${label}速度${num >= 0 ? '+' : ''}${num}尺`)
         }
         add('walk', '步行')
         add('fly', '飞行')
         add('swim', '游泳')
         add('climb', '攀爬')
-        return parts.length ? `${effectLabel}（${parts.join('，')}）` : effectLabel
+        return parts.length ? parts.join('，') : effectLabel
       }
     }
     return effectLabel
@@ -322,7 +351,7 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
   const info = getEffectInfo(buff.effectType)
   if (!info) return { label: '—', value: buff.value != null ? String(buff.value) : null }
   if (buff.effectType.startsWith('custom_')) {
-    const text = (buff.value != null && buff.value !== '' ? String(buff.value) : '') || (buff.customText != null && buff.customText !== '' ? String(buff.customText) : '')
+    const text = (typeof buff.value === 'string' && buff.value !== '' ? buff.value : '') || (typeof buff.customText === 'string' && buff.customText !== '' ? buff.customText : '')
     return { label: text || '（自由填写）', value: null }
   }
   const effectLabel = info.effect.label ?? buff.effectType
@@ -563,7 +592,7 @@ export default function BuffListItem({
       {/* 效果：垂直对齐；负值红色；被抑制的DC/法术攻击加值灰色；略左移约 3 字宽贴近名称列 */}
       <div className="min-w-0 -ml-[3ch]">
         {effectsList.length > 0 ? (
-          <span className="text-gray-200 text-sm truncate block" title={effectsList.map(e => e.text).join('，')}>
+          <span className="text-gray-200 text-sm" title={effectsList.map(e => e.text).join('，')}>
             {effectsList.map((eff, i) => {
               const sep = i > 0 ? '，' : ''
               // 被抑制的效果：灰色 + 删除线

@@ -111,6 +111,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
   const mergedBuffs = useMemo(() => getMergedBuffsForCalculator(character, moduleId), [
     character?.buffs,
     character?.selectedFeats,
+    character?.classFeatureChoices,
     character?.inventory,
     character?.equippedHeld,
     character?.equippedWorn,

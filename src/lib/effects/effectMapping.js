@@ -13,6 +13,8 @@ import { loadRuleTextOverrides, resolveRuleText, buildFeatNameKey } from '../rul
 import { loadDefaultBuffPatch, mergeWithDefaultPatch, buildClassFeatureBuffKey } from '../defaultBuffPatchStore'
 import { getAvailableFeatures } from '../../data/classDatabase'
 import { HARDCODED_FEAT_BUFFS } from '../../data/featDefaultBuffs'
+import { HARDCODED_CLASS_FEATURE_BUFFS } from '../../data/classFeatureDefaultBuffs'
+import { getChoiceEffects } from '../../data/classFeatureChoiceRegistry'
 import { findShieldSlot } from '../equipmentLayers'
 
 const FEAT_BY_ID = new Map(FEATS.map((x) => [x.id, x]))
@@ -314,12 +316,20 @@ export function getBuffsFromSelectedFightingStyles(character, moduleId) {
 export function getBuffsFromClassFeatures(character, moduleId) {
   if (!character) return []
   const features = getAvailableFeatures(character)
+  const classFeatureChoices = character.classFeatureChoices || null
   return features
     .map((f, index) => {
       const buffKey = buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)
       const defaultPatch = moduleId ? loadDefaultBuffPatch(moduleId, 'classFeature', buffKey) : null
-      const effects = Array.isArray(defaultPatch?.effects) && defaultPatch.effects.length ? defaultPatch.effects : []
-      // 只返回有实际 BUFF 效果配置的特性，纯描述或无配置的不生成虚拟 BUFF
+      let effects = Array.isArray(defaultPatch?.effects) && defaultPatch.effects.length ? defaultPatch.effects : []
+      // DM 未配置时：先检查玩家选择，再回退到硬编码默认
+      if (effects.length === 0) {
+        const choiceResult = getChoiceEffects(buffKey, classFeatureChoices)
+        if (choiceResult) effects = choiceResult.effects
+      }
+      if (effects.length === 0 && HARDCODED_CLASS_FEATURE_BUFFS[buffKey]) {
+        effects = HARDCODED_CLASS_FEATURE_BUFFS[buffKey]
+      }
       if (effects.length === 0) return null
       const duration = defaultPatch?.duration
       const enabled = defaultPatch?.enabled !== false

@@ -13,6 +13,7 @@ import More from './pages/More'
 import HouseRules from './pages/HouseRules'
 import DataMaintain from './pages/DataMaintain'
 import ModuleLibrary from './pages/ModuleLibrary'
+import CreatureLibraryManager from './pages/CreatureLibraryManager'
 
 const CharacterSheet = lazy(() => import('./pages/CharacterSheet'))
 
@@ -63,6 +64,7 @@ function AppRoutes() {
         <Route path="/more/house-rules" element={<HouseRules />} />
         <Route path="/more/data" element={<DataMaintain />} />
         <Route path="/more/module-library" element={<ModuleLibrary />} />
+        <Route path="/more/creature-library" element={<CreatureLibraryManager />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -185,6 +185,7 @@ export default function CharacterSpells({
     [
       char?.buffs,
       char?.selectedFeats,
+      char?.classFeatureChoices,
       char?.inventory,
       char?.equippedHeld,
       char?.equippedWorn,

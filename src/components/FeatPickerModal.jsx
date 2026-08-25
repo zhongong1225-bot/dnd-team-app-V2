@@ -11,6 +11,7 @@ import {
 import { ABILITY_NAMES_ZH, DAMAGE_TYPES } from '../data/buffTypes'
 import { resolveRuleText, buildFeatNameKey, buildFeatDescriptionKey } from '../lib/ruleTextOverrides'
 import { loadDefaultBuffPatch, saveDefaultBuffPatch, migrateFeatBuffsToModuleLibrary } from '../lib/defaultBuffPatchStore'
+import { HARDCODED_FEAT_BUFFS } from '../data/featDefaultBuffs'
 import { useAuth } from '../contexts/AuthContext'
 import { inputClass } from '../lib/inputStyles'
 import BuffForm from './BuffForm'
@@ -206,7 +207,7 @@ export default function FeatPickerModal({
 
   const availableFeats = useMemo(() => {
     const set = selectedIds instanceof Set ? selectedIds : new Set(selectedIds || [])
-    return FEATS.filter((f) => !set.has(f.id))
+    return FEATS.map((f) => ({ ...f, alreadySelected: set.has(f.id) }))
   }, [selectedIds])
 
   const filteredFeats = useMemo(() => {
@@ -317,24 +318,36 @@ export default function FeatPickerModal({
                 filteredFeats.map((feat) => {
                   const name = resolveRuleText(overridesMap, buildFeatNameKey(feat.id), feat.name)
                   const active = selectedFeatId === feat.id
+                  const isAlreadySelected = feat.alreadySelected
                   return (
                     <button
                       key={feat.id}
                       type="button"
-                      onClick={() => setSelectedFeatId(feat.id)}
+                      onClick={() => !isAlreadySelected && setSelectedFeatId(feat.id)}
+                      disabled={isAlreadySelected}
                       className={`w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center justify-between gap-2 ${
                         active
                           ? 'bg-dnd-gold/15 border border-dnd-gold/40'
-                          : 'bg-gray-800/30 border border-transparent hover:bg-gray-800/60'
+                          : isAlreadySelected
+                            ? 'bg-gray-800/20 border border-transparent opacity-60 cursor-not-allowed'
+                            : 'bg-gray-800/30 border border-transparent hover:bg-gray-800/60'
                       }`}
                     >
-                      <span className="text-sm text-white truncate">{name}</span>
-                      {feat.category === '星辰专长' && (
-                        <Star className="w-3.5 h-3.5 text-dnd-gold-light shrink-0 fill-current" />
-                      )}
-                      {query.trim() && feat.category && (
-                        <span className="text-[10px] text-gray-500 shrink-0">{feat.category}</span>
-                      )}
+                      <span className={`text-sm truncate ${isAlreadySelected ? 'text-gray-400' : 'text-white'}`}>{name}</span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {isAlreadySelected && (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                            <span className="text-[10px] text-green-500/80">已选择</span>
+                          </>
+                        )}
+                        {feat.category === '星辰专长' && (
+                          <Star className="w-3.5 h-3.5 text-dnd-gold-light shrink-0 fill-current" />
+                        )}
+                        {query.trim() && feat.category && (
+                          <span className="text-[10px] text-gray-500 shrink-0">{feat.category}</span>
+                        )}
+                      </div>
                     </button>
                   )
                 })
@@ -407,7 +420,11 @@ export default function FeatPickerModal({
                       referenceData={formulaContext}
                       initial={{
                         source: resolveRuleText(overridesMap, buildFeatNameKey(selectedFeat.id), selectedFeat.name),
-                        effects: loadDefaultBuffPatch(moduleId, 'feat', selectedFeat.id)?.effects ?? [],
+                        effects: (() => {
+                          const userPatch = loadDefaultBuffPatch(moduleId, 'feat', selectedFeat.id)
+                          if (userPatch?.effects?.length) return userPatch.effects
+                          return HARDCODED_FEAT_BUFFS[selectedFeat.id] ?? []
+                        })(),
                         enabled: loadDefaultBuffPatch(moduleId, 'feat', selectedFeat.id)?.enabled !== false,
                       }}
                       onSave={(buff) => {

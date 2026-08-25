@@ -434,7 +434,7 @@ export function evaluateBuffValue(value, context = {}) {
   if (!isFormulaValue(value)) return Number(value) || 0
 
   const { level = 1, abilities = {}, prof = 0, spellDC = 0, spellAttack = 0, classLevels = {}, speed = 30 } = context
-  const { ref, ability, className, mult, add } = value
+  const { ref, ability, className, mult, add, min } = value
 
   let base = 0
   switch (ref) {
@@ -468,7 +468,9 @@ export function evaluateBuffValue(value, context = {}) {
 
   const multiplier = Number(mult) || 1
   const additive = Number(add) || 0
-  return Math.floor(base * multiplier) + additive
+  const result = Math.floor(base * multiplier) + additive
+  const minVal = Number(min)
+  return Number.isFinite(minVal) ? Math.max(minVal, result) : result
 }
 
 const FORMULA_REF_LABELS = {

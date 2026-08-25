@@ -1377,6 +1377,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       char?.selectedInvocations,
       char?.selectedFightingStyles,
       char?.selectedClassFeatures,
+      char?.classFeatureChoices,
       char?.inventory,
       char?.equippedHeld,
       char?.equippedWorn,

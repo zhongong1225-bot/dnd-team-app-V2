@@ -328,7 +328,7 @@ export function formatDamagePiercingTraitsValue(value) {
  * 第一级：大类 (category)
  * 第二级：具体效果 (key, label, dataType, subSelect, hidden)
  */
-const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'charge', 'container', 'proficiency', 'custom']
+const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'active_release', 'container', 'proficiency', 'transformation', 'custom']
 
 export const BUFF_TYPES = {
   ability: {
@@ -392,7 +392,9 @@ export const BUFF_TYPES = {
     label: '防御/生存',
     color: 'orange',
     effects: [
-      { key: 'ac_bonus', label: 'AC', dataType: 'number' },
+      { key: 'ac_bonus', label: '额外AC', dataType: 'number' },
+      /** AC覆盖：用于法师护甲、武僧无甲护甲等修改基础AC的效果。value: { base, applyDexMod, maxDexBonus?, extra, shieldCompatible? } */
+      { key: 'armor_override', label: 'AC覆盖', dataType: 'object', subSelect: 'armorOverride' },
       { key: 'resist_type', label: '伤害抗性', dataType: 'array', subSelect: 'damageType' },
       { key: 'immune_type', label: '伤害免疫', dataType: 'array', subSelect: 'damageType' },
       { key: 'vulnerable_type', label: '伤害易伤', dataType: 'array', subSelect: 'damageType' },
@@ -437,13 +439,13 @@ export const BUFF_TYPES = {
       { key: 'charge', label: '充能数', dataType: 'number', hidden: true },
     ],
   },
-  /** 充能效果：统一充能物品编辑器，整合充能数、回能方式、消耗效果 */
-  charge: {
-    label: '充能效果',
+  /** 主动释放：具有主动使用/释放能力的效果，需要配套释放按钮 UI */
+  active_release: {
+    label: '主动释放',
     color: 'cyan',
     effects: [
       // 统一充能物品编辑器：充能数 + 回能方式 + 消耗效果（内含法术/奇能/护盾）
-      { key: 'charge_item', label: '充能物品', dataType: 'object', subSelect: 'chargeItem' },
+      { key: 'charge_item', label: '释放效果', dataType: 'object', subSelect: 'chargeItem' },
       // ── 以下旧 key 保留供已有数据兼容，不在新增下拉中显示 ──
       { key: 'contained_spell', label: '内含法术', dataType: 'object', subSelect: 'containedSpell', hidden: true },
       { key: 'ac_cap_stone_layer', label: '瓦石层', dataType: 'number', hidden: true },
@@ -456,7 +458,7 @@ export const BUFF_TYPES = {
   container: {
     label: '储物',
     color: 'emerald',
-    effects: [{ key: 'item_storage', label: '容器储物', dataType: 'boolean' }],
+    effects: [{ key: 'item_storage', label: '容量', dataType: 'number' }],
   },
   /** 熟练：记录角色获得的各种熟练（不参与数值计算，仅元数据记录） */
   proficiency: {
@@ -470,6 +472,15 @@ export const BUFF_TYPES = {
       { key: 'language_proficiency', label: '语言熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'language' },
       { key: 'vehicle_proficiency', label: '各类载具熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'vehicle' },
       { key: 'weapon_mastery', label: '精通武器', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'weaponMastery' },
+    ],
+  },
+  /** 变身效果：将角色大部分数据替换为生物库中的生物（临时BUFF） */
+  transformation: {
+    label: '变身',
+    color: 'pink',
+    effects: [
+      /** 变身：引用生物库中的生物ID。value: { creatureId, restoreOriginalOnEnd?, acMode: 'replace' | 'add', hpMode: 'replace' | 'add' } */
+      { key: 'creature_transform', label: '变身', dataType: 'object', subSelect: 'creatureTransform' },
     ],
   },
   /** 与防御/攻击等大类同级：自由描述类状态，不参与数值计算 */
