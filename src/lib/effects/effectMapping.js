@@ -4,13 +4,15 @@
  */
 
 import { EFFECT_SOURCE_KIND } from './effectModel'
-import { normalizeEffectCategory } from '../../data/buffTypes'
+import { normalizeEffectCategory, migrateProficiencyTextToArray } from '../../data/buffTypes'
 import { FEATS } from '../../data/feats'
 import { ELDRITCH_INVOCATIONS, getEldritchInvocationById } from '../../data/eldritchInvocations'
 import { FIGHTING_STYLES, getFightingStyleById } from '../../data/fightingStyles'
 import { getItemById, getItemDisplayName } from '../../data/itemDatabase'
 import { loadRuleTextOverrides, resolveRuleText, buildFeatNameKey } from '../ruleTextOverrides'
-import { loadDefaultBuffPatch, mergeWithDefaultPatch } from '../defaultBuffPatchStore'
+import { loadDefaultBuffPatch, mergeWithDefaultPatch, buildClassFeatureBuffKey } from '../defaultBuffPatchStore'
+import { getAvailableFeatures } from '../../data/classDatabase'
+import { HARDCODED_FEAT_BUFFS } from '../../data/featDefaultBuffs'
 
 const FEAT_BY_ID = new Map(FEATS.map((x) => [x.id, x]))
 const INVOCATION_BY_ID = new Map(ELDRITCH_INVOCATIONS.map((x) => [x.id, x]))
@@ -106,7 +108,11 @@ export function getBuffsFromSelectedFeats(character, moduleId) {
     const name = resolveRuleText(map, buildFeatNameKey(item.featId), baseName)
     const defaultPatch = moduleId ? loadDefaultBuffPatch(moduleId, 'feat', item.featId) : null
     const patch = mergeWithDefaultPatch(item.featBuffPatch, defaultPatch)
-    const effects = Array.isArray(patch?.effects) && patch.effects.length ? patch.effects : []
+    let effects = Array.isArray(patch?.effects) && patch.effects.length ? patch.effects : []
+    // 无自定义且无模组库默认时，回退到硬编码专长效果
+    if (effects.length === 0 && !patch && HARDCODED_FEAT_BUFFS[item.featId]) {
+      effects = HARDCODED_FEAT_BUFFS[item.featId]
+    }
     const duration = patch?.duration
     const enabled = patch?.enabled !== false
     out.push({
@@ -288,7 +294,7 @@ export function getBuffsFromSelectedFightingStyles(character, moduleId) {
     const enabled = patch?.enabled !== false
     return {
       id: `fightingstyle_${item.styleId}_${index}`,
-      source: def?.name ?? item.styleId,
+      source: def?.name ? `战斗风格-${def.name}` : item.styleId,
       effects,
       ...(duration ? { duration } : {}),
       enabled,
@@ -299,18 +305,53 @@ export function getBuffsFromSelectedFightingStyles(character, moduleId) {
 }
 
 /**
- * 与角色卡 Buff 栏一致：专长虚拟条 + 祈唤虚拟条 + 战斗风格虚拟条 + 手动 buff + 装备附魔。
+ * 从角色职业特性生成虚拟 BUFF（类似战斗风格，数值由 DM 配置默认效果）
+ * @param {Object} character
+ * @param {string} moduleId
+ * @returns {Array<{ id: string, source: string, effects: Array, enabled: boolean, fromClassFeature: true, featureId: string, sourceClass: string, sourceSubclass: string }>}
+ */
+export function getBuffsFromClassFeatures(character, moduleId) {
+  if (!character) return []
+  const features = getAvailableFeatures(character)
+  return features
+    .map((f, index) => {
+      const buffKey = buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)
+      const defaultPatch = moduleId ? loadDefaultBuffPatch(moduleId, 'classFeature', buffKey) : null
+      const effects = Array.isArray(defaultPatch?.effects) && defaultPatch.effects.length ? defaultPatch.effects : []
+      // 只返回有实际 BUFF 效果配置的特性，纯描述或无配置的不生成虚拟 BUFF
+      if (effects.length === 0) return null
+      const duration = defaultPatch?.duration
+      const enabled = defaultPatch?.enabled !== false
+      const sourceLabel = f.sourceSubclass ? `${f.sourceClass}（${f.sourceSubclass}）-${f.name}` : `${f.sourceClass}-${f.name}`
+      return {
+        id: `classfeature_${f.sourceClass}_${f.sourceSubclass || ''}_${f.id}_${index}`,
+        source: sourceLabel,
+        effects,
+        ...(duration ? { duration } : {}),
+        enabled,
+        fromClassFeature: true,
+        featureId: f.id,
+        sourceClass: f.sourceClass,
+        sourceSubclass: f.sourceSubclass || '',
+      }
+    })
+    .filter(Boolean)
+}
+
+/**
+ * 与角色卡 Buff 栏一致：专长虚拟条 + 祈唤虚拟条 + 战斗风格虚拟条 + 职业特性虚拟条 + 手动 buff + 装备附魔。
  * 凡调用 useBuffCalculator 且需与栏内数值一致处，应使用此列表。
  */
 export function getMergedBuffsForCalculator(character, moduleId) {
   if (!character) return []
-  const manual = character.buffs ?? []
+  const manual = (character.buffs ?? []).filter((b) => !b.fromClassFeature)
   const fromFeats = getBuffsFromSelectedFeats(character, moduleId)
   const fromInvocations = getBuffsFromSelectedInvocations(character, moduleId)
   const fromFightingStyles = getBuffsFromSelectedFightingStyles(character, moduleId)
   const fromItems = getBuffsFromEquipmentAndInventory(character)
-  // 计算顺序：装备附魔 → 专长/祈唤/战斗风格（职业/专长） → 手动 Buff（冒险/临时）
-  return [...fromItems, ...fromFeats, ...fromInvocations, ...fromFightingStyles, ...manual]
+  const fromClassFeatures = getBuffsFromClassFeatures(character, moduleId)
+  // 计算顺序：装备附魔 → 专长/祈唤/战斗风格/职业特性（职业/专长） → 手动 Buff（冒险/临时）
+  return [...fromItems, ...fromFeats, ...fromInvocations, ...fromFightingStyles, ...fromClassFeatures, ...manual]
 }
 
 /**
@@ -321,7 +362,8 @@ export function getMergedBuffsForCalculator(character, moduleId) {
 export function getEffectsFromBuff(buff) {
   if (!buff) return []
   if (Array.isArray(buff.effects) && buff.effects.length) {
-    return buff.effects.map((e) => ({
+    const migrated = migrateProficiencyTextToArray(buff.effects)
+    return migrated.map((e) => ({
       ...e,
       effectType: e.effectType ?? '',
       value: e.value,
@@ -329,11 +371,12 @@ export function getEffectsFromBuff(buff) {
     }))
   }
   if (buff.effectType != null || buff.category != null) {
+    const migrated = migrateProficiencyTextToArray([buff])[0]
     return [{
-      ...buff,
-      effectType: buff.effectType ?? '',
-      value: buff.value,
-      category: normalizeEffectCategory(buff.effectType ?? '', buff.category),
+      ...migrated,
+      effectType: migrated.effectType ?? '',
+      value: migrated.value,
+      category: normalizeEffectCategory(migrated.effectType ?? '', migrated.category),
     }]
   }
   return []
@@ -347,7 +390,8 @@ export function getEffectsFromBuff(buff) {
 export function getEffectsFromItem(entry) {
   if (!entry) return []
   if (Array.isArray(entry.effects) && entry.effects.length) {
-    return entry.effects.map((e) => ({
+    const migrated = migrateProficiencyTextToArray(entry.effects)
+    return migrated.map((e) => ({
       category: normalizeEffectCategory(e.effectType ?? '', e.category),
       effectType: e.effectType ?? '',
       value: e.value ?? 0,
@@ -358,7 +402,7 @@ export function getEffectsFromItem(entry) {
   const out = []
   const magicVal = entry.magicBonus != null && entry.magicBonus !== '' ? Number(entry.magicBonus) : 0
   if (magicVal !== 0) {
-    out.push({ category: 'offense', effectType: 'attack_melee', value: magicVal })
+    out.push({ category: 'offense', effectType: 'attack_all', value: magicVal })
     out.push({ category: 'offense', effectType: 'dmg_bonus_all', value: magicVal })
   }
   if (entry.charge != null && entry.charge !== '') {

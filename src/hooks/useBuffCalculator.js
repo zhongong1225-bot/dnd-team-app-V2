@@ -177,7 +177,7 @@ export function computeBuffStats(character, activeBuffs) {
 
     // 预先扫描 proficiency_override，供后续公式上下文使用
     let profOverride = null
-    const minimalContext = { level: charLevel, abilities: baseAbilities, prof: baseProf, spellDC: 0, spellAttack: 0, classLevels, speed: char?.speed ?? 30 }
+    const minimalContext = { level: charLevel, abilities: baseAbilities, prof: baseProf, spellDC: 0, spellAttack: 0, classLevels, speed: character?.speed ?? 30 }
     for (const b of entries) {
       if (b.effectType === 'proficiency_override') {
         const v = evaluateBuffValue(b.value, minimalContext)
@@ -194,7 +194,7 @@ export function computeBuffStats(character, activeBuffs) {
       spellDC: spellAbility ? 8 + contextProf + baseSpellMod : 0,
       spellAttack: spellAbility ? contextProf + baseSpellMod : 0,
       classLevels,
-      speed: char?.speed ?? 30,
+      speed: character?.speed ?? 30,
     }
     const baseEvalVal = (raw) => evaluateBuffValue(raw, baseFormulaContext)
 
@@ -434,6 +434,8 @@ export function computeBuffStats(character, activeBuffs) {
     let acBonus = 0
     const acCapStoneLayerValues = []
     let speedBonus = 0
+    let swimSpeedBonus = 0
+    let climbSpeedBonus = 0
     let reachBonus = 0
     let initBonus = 0
     const saveDcValues = []
@@ -560,7 +562,9 @@ export function computeBuffStats(character, activeBuffs) {
       // 新表：速度增加（统一数值，默认为地面速度 +X；兼容旧文本/对象/公式）
       else if (b.effectType === 'base_speed_increment') {
         const spd = parseBaseSpeedIncrement(raw, evalVal)
-        speedBonus += spd.walk + spd.swim + spd.climb
+        speedBonus += spd.walk
+        swimSpeedBonus += spd.swim
+        climbSpeedBonus += spd.climb
         if (spd.fly > flightSpeed) flightSpeed = spd.fly
       }
     }
@@ -618,6 +622,8 @@ export function computeBuffStats(character, activeBuffs) {
       ac,
       acBonus,
       speedBonus,
+      swimSpeedBonus,
+      climbSpeedBonus,
       reachBonus,
       initBonus,
       saveDcBonus,

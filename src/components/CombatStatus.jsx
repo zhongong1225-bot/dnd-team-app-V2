@@ -29,6 +29,7 @@ import { skillProfFactor } from '../data/dndSkills'
 import { CONDITION_OPTIONS, CONDITION_DESCRIPTIONS, EXHAUSTION_DESCRIPTIONS, DAMAGE_TYPES, ABILITY_NAMES_ZH, getDamageTypeLabel, getDamageTypeValue, formatDamageForAttack, parseDamageString, scopeMatchesCombatMean, SCOPE_KIND, normalizeScope, CREATURE_TYPE_OPTIONS } from '../data/buffTypes'
 import { inputClass, inputClassInline } from '../lib/inputStyles'
 import { hpBarMainFillClass, HP_BAR_TEMP_FILL_CLASS } from '../lib/hpBarShared'
+import { getAutoResources, computeResourceMax, createResourceEntry } from '../data/classResourceRules'
 
 /** 战斗手段弹窗用：伤害类型选项（与 buffTypes 统一简称）；排除 雷鸣 */
 const DAMAGE_TYPE_OPTIONS = DAMAGE_TYPES.filter((d) => d.label !== '雷鸣').map((d) => ({ value: d.label, label: d.label }))
@@ -95,7 +96,7 @@ import MartialStyleIntroBlock from './MartialStyleIntroBlock'
 import { NumberStepper } from './BuffForm'
 import InfoTooltip from './InfoTooltip'
 import { MartialTechTooltipContent } from '../lib/infoTooltipContent'
-import { isNewContainedSpellValue, normalizeContainedSpellValue } from '../lib/containedSpellModel'
+import { isNewContainedSpellValue, normalizeContainedSpellValue, extractContainedSpellValueFromEntry } from '../lib/containedSpellModel'
 import { getFlatEffectEntries } from '../lib/effects/effectMapping'
 
 /**
@@ -1373,6 +1374,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     [
       char?.buffs,
       char?.selectedFeats,
+      char?.selectedInvocations,
+      char?.selectedFightingStyles,
+      char?.selectedClassFeatures,
       char?.inventory,
       char?.equippedHeld,
       char?.equippedWorn,
@@ -1380,6 +1384,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     ],
   )
   const buffStats = useBuffCalculator(char, mergedBuffs)
+
   const itemFormulaContext = useMemo(() => {
     const effectiveAbilities = buffStats?.abilities ?? abilities ?? {}
     const prof = proficiencyBonus(level)
@@ -1427,7 +1432,16 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [deathSaves, setDeathSaves] = useState(() => normalizeDeathSaves(char?.deathSaves))
   const [classResources, setClassResources] = useState(() => {
     const arr = Array.isArray(char?.classResources) ? char.classResources : []
-    return arr.map((r, idx) => ({ id: r.id ?? `r_${idx}_${(r.name || '—').replace(/\s+/g, '_')}`, name: r.name || '—', current: Math.max(0, Number(r.current) ?? 0), max: Math.max(1, Number(r.max) ?? 1) }))
+    return arr.map((r, idx) => ({
+      id: r.id ?? `r_${idx}_${(r.name || '—').replace(/\s+/g, '_')}`,
+      name: r.name || '—',
+      current: Math.max(0, Number(r.current) ?? 0),
+      max: Math.max(1, Number(r.max) ?? 1),
+      resourceKey: r.resourceKey || null,
+      recovery: r.recovery || 'long',
+      ...(r.diceType ? { diceType: r.diceType } : {}),
+      ...(r.note ? { note: r.note } : {}),
+    }))
   })
   const [addResourceName, setAddResourceName] = useState('')
   const [addResourceMax, setAddResourceMax] = useState(2)
@@ -1560,7 +1574,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   }, [hp?.current, hp?.temp, hp?.buffTemp])
 
   /** BUFF 临时生命：BUFF 变化时同步到当前值；已扣减时不自动回涨 */
-  const prevBuffTempHpRef = useRef(0)
+  const prevBuffTempHpRef = useRef(hp?.buffTemp ?? 0)
   useEffect(() => {
     const max = Math.max(0, Number(buffStats?.tempHp) || 0)
     if (max !== prevBuffTempHpRef.current) {
@@ -1584,8 +1598,61 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
 
   useEffect(() => {
     const arr = Array.isArray(char?.classResources) ? char.classResources : []
-    setClassResources(arr.map((r, idx) => ({ id: r.id ?? `r_${idx}_${(r.name || '—').replace(/\s+/g, '_')}`, name: r.name || '—', current: Math.max(0, Number(r.current) ?? 0), max: Math.max(1, Number(r.max) ?? 1) })))
+    setClassResources(arr.map((r, idx) => ({
+      id: r.id ?? `r_${idx}_${(r.name || '—').replace(/\s+/g, '_')}`,
+      name: r.name || '—',
+      current: Math.max(0, Number(r.current) ?? 0),
+      max: Math.max(1, Number(r.max) ?? 1),
+      resourceKey: r.resourceKey || null,
+      recovery: r.recovery || 'long',
+      ...(r.diceType ? { diceType: r.diceType } : {}),
+      ...(r.note ? { note: r.note } : {}),
+    })))
   }, [char?.id, char?.classResources])
+
+  /* ── 自动填充/更新职业资源（基于 classResourceRules） ── */
+  const classResourcesRef = useRef(classResources)
+  useEffect(() => { classResourcesRef.current = classResources }, [classResources])
+
+  useEffect(() => {
+    const classes = getCharacterClasses(char)
+    if (!classes.length) return
+    const totalLevel = classes.reduce((s, c) => s + (c.level || 0), 0)
+    const ab = buffStats?.abilities ?? {}
+    const prev = classResourcesRef.current
+
+    let next = prev.map((r) => ({ ...r }))
+    let changed = false
+
+    for (const cls of classes) {
+      const rules = getAutoResources([cls])
+      for (const rule of rules) {
+        const ctx = { classLevel: cls.level, totalLevel, abilities: ab }
+        const newMax = computeResourceMax(rule, ctx)
+        const existing = next.find((r) => r.resourceKey === rule.resourceKey)
+        if (existing) {
+          if (existing.max !== newMax && newMax > 0) {
+            existing.max = newMax
+            if (existing.current > newMax) existing.current = newMax
+            changed = true
+          }
+        } else if (newMax > 0) {
+          next.push(createResourceEntry(rule, ctx))
+          changed = true
+        }
+      }
+    }
+
+    if (changed) {
+      setClassResources(next)
+      onSave({ classResources: next.map((r) => ({
+        id: r.id, name: r.name, current: r.current, max: r.max,
+        ...(r.resourceKey ? { resourceKey: r.resourceKey } : {}),
+        ...(r.recovery ? { recovery: r.recovery } : {}),
+        ...(r.diceType ? { diceType: r.diceType } : {}),
+      })) })
+    }
+  }, [char?.id, char?.['class'], char?.classLevel, char?.multiclass, char?.prestige, buffStats?.abilities])
 
   useEffect(() => {
     const arr = Array.isArray(char?.combatMeans) ? char.combatMeans : []
@@ -2137,8 +2204,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       setFocusUsePending(null)
       return
     }
-    const containedSpell = entry?.effects?.find((e) => e.effectType === 'contained_spell')?.value
-    const cs = normalizeContainedSpellValue(containedSpell, entry.charge)
+    const containedSpellRaw = extractContainedSpellValueFromEntry(entry)
+    const cs = normalizeContainedSpellValue(containedSpellRaw, entry.charge)
     const sub = spellSub && typeof spellSub === 'object' ? spellSub : (cs.spells[0] ?? null)
     const cost = Math.max(0, Number(sub?.cost) || 1)
     const nextCharge = Math.max(0, (Number(entry.charge) || 0) - cost)
@@ -2682,7 +2749,16 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
 
   const saveClassResources = (next) => {
     setClassResources(next)
-    onSave({ classResources: next.map((r) => ({ id: r.id, name: r.name, current: r.current, max: r.max })) })
+    onSave({ classResources: next.map((r) => ({
+      id: r.id,
+      name: r.name,
+      current: r.current,
+      max: r.max,
+      ...(r.resourceKey ? { resourceKey: r.resourceKey } : {}),
+      ...(r.recovery ? { recovery: r.recovery } : {}),
+      ...(r.diceType ? { diceType: r.diceType } : {}),
+      ...(r.note ? { note: r.note } : {}),
+    })) })
   }
 
   const addClassResource = () => {
@@ -2708,12 +2784,33 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     saveClassResources(next)
   }
 
+  /* ── 短休：恢复 recovery='short' 的资源 ── */
+  const handleShortRest = () => {
+    const next = classResources.map((r) => {
+      if (r.recovery === 'short') return { ...r, current: r.max }
+      return r
+    })
+    saveClassResources(next)
+  }
+
+  /* ── 长休：恢复所有资源 + 重置死亡豁免 ── */
+  const handleLongRest = () => {
+    const next = classResources.map((r) => ({ ...r, current: r.max }))
+    saveClassResources(next)
+    const ds = getDefaultDeathSaves()
+    setDeathSaves(ds)
+    onSave({ deathSaves: ds })
+  }
+
   const dexMod = abilityModifier(effectiveAbilities?.dex ?? 10)
   const init = dexMod + (buffStats?.initBonus ?? 0)
   const perception = 10 + abilityModifier(effectiveAbilities?.wis ?? 10) + Math.floor(prof * skillProfFactor(char?.skills?.perception || 'none'))
   const speedBase = (char?.speed ?? 30) + (buffStats?.speedBonus ?? 0)
   const speedPenalty = buffStats?.speedExhaustionPenalty ?? 0
   const speed = Math.max(0, Math.floor(speedBase * (buffStats?.speedMultiplier ?? 1)) - speedPenalty)
+  const swimSpeed = Math.max(0, Math.floor((buffStats?.swimSpeedBonus ?? 0) * (buffStats?.speedMultiplier ?? 1)))
+  const climbSpeed = Math.max(0, Math.floor((buffStats?.climbSpeedBonus ?? 0) * (buffStats?.speedMultiplier ?? 1)))
+  const flySpeed = Math.max(0, Math.floor((buffStats?.flightSpeed ?? 0) * (buffStats?.speedMultiplier ?? 1)))
 
   const dsResults = deathSaves.results?.length === DEATH_SAVE_COUNT ? deathSaves.results : getDefaultDeathSaves().results
   const deathFailures = dsResults.filter((r) => r === 'failure').length
@@ -3081,11 +3178,20 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           <span className="text-white font-bold text-4xl font-mono">{perception}</span>
         </div>
         <div
-          className={`rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-3 min-h-[4rem] flex items-center justify-center gap-2 ${COMBAT_INNER_RIM_ONLY}`}
+          className={`rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-3 min-h-[4rem] flex flex-col items-center justify-center gap-1 ${COMBAT_INNER_RIM_ONLY}`}
         >
-          <span className="text-gray-400 text-2xl font-medium">速度</span>
-          <span className="text-gray-600 text-2xl">|</span>
-          <span className="text-white font-bold text-4xl font-mono">{speed} 尺</span>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-400 text-2xl font-medium">速度</span>
+            <span className="text-gray-600 text-2xl">|</span>
+            <span className="text-white font-bold text-4xl font-mono">{speed} 尺</span>
+          </div>
+          {(swimSpeed > 0 || climbSpeed > 0 || flySpeed > 0) && (
+            <div className="flex gap-2 flex-wrap justify-center">
+              {flySpeed > 0 && <span className="text-xs text-sky-400 bg-sky-400/10 px-1.5 py-0.5 rounded">飞行 {flySpeed}</span>}
+              {swimSpeed > 0 && <span className="text-xs text-cyan-400 bg-cyan-400/10 px-1.5 py-0.5 rounded">游泳 {swimSpeed}</span>}
+              {climbSpeed > 0 && <span className="text-xs text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded">攀爬 {climbSpeed}</span>}
+            </div>
+          )}
         </div>
         <div className="col-span-2 sm:col-span-4 flex flex-col sm:flex-row gap-2 min-w-0">
           <div
@@ -3212,11 +3318,23 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           >
             <div className="flex items-center justify-between gap-1 mb-1 shrink-0">
               <h3 className={`text-dnd-gold-light ${CM_MEAN_LABEL} font-semibold uppercase tracking-wider leading-tight`}>其它职业资源</h3>
+              <div className="flex items-center gap-1 shrink-0">
+                {canEdit && classResources.some((r) => r.recovery === 'short') && (
+                  <button type="button" onClick={handleShortRest} className="px-1.5 py-0.5 rounded bg-amber-700/60 text-amber-200 text-[10px] font-medium hover:bg-amber-700/80" title="短休：恢复所有短休资源">
+                    短休
+                  </button>
+                )}
+                {canEdit && classResources.length > 0 && (
+                  <button type="button" onClick={handleLongRest} className="px-1.5 py-0.5 rounded bg-indigo-700/60 text-indigo-200 text-[10px] font-medium hover:bg-indigo-700/80" title="长休：恢复所有资源 + 重置死亡豁免">
+                    长休
+                  </button>
+                )}
                 {canEdit && (
-                  <button type="button" onClick={() => setIsAddingResource(true)} className="text-white text-xs font-bold uppercase tracking-wider hover:underline shrink-0">
+                  <button type="button" onClick={() => setIsAddingResource(true)} className="text-white text-xs font-bold uppercase tracking-wider hover:underline">
                     + 添加
                   </button>
                 )}
+              </div>
               </div>
               {canEdit ? (
                 <div className="flex flex-col min-h-0 overflow-hidden gap-0.5">
@@ -3249,8 +3367,11 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       <div className="grid grid-cols-[1fr_auto_2.5rem_2.5rem_2.5rem] gap-x-0 gap-y-0.5 min-w-0">
                         {classResources.map((r) => (
                           <React.Fragment key={r.id}>
-                            <div className="min-w-0 flex items-center px-0.5 py-0.5 rounded-l border border-gray-600 border-r-0 bg-gray-800/80">
+                            <div className="min-w-0 flex items-center gap-0.5 px-0.5 py-0.5 rounded-l border border-gray-600 border-r-0 bg-gray-800/80">
   <span className="text-dnd-text-body text-sm font-medium truncate">{r.name}</span>
+                              {r.recovery === 'short' && <span className="text-[9px] text-amber-300 bg-amber-800/40 px-0.5 rounded leading-tight shrink-0">短</span>}
+                              {r.recovery === 'long' && <span className="text-[9px] text-indigo-300 bg-indigo-800/40 px-0.5 rounded leading-tight shrink-0">长</span>}
+                              {r.recovery === 'special' && <span className="text-[9px] text-purple-300 bg-purple-800/40 px-0.5 rounded leading-tight shrink-0">特</span>}
                           </div>
                           <div className="flex items-center justify-end px-0.5 py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
                             <span className="text-white font-mono text-sm tabular-nums whitespace-nowrap">{r.current}/{r.max}</span>
@@ -3278,8 +3399,11 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                     <div className="grid grid-cols-[1fr_auto_2.5rem_2.5rem_2.5rem] gap-x-0 gap-y-0.5 min-w-0 w-full">
                       {classResources.map((r) => (
                         <React.Fragment key={r.id}>
-                          <div className="min-w-0 flex items-center px-0.5 py-0.5 rounded-l border border-gray-600 border-r-0 bg-gray-800/80">
-                            <span className="text-dnd-text-body text-sm font-medium truncate">{r.name}</span>
+                          <div className="min-w-0 flex items-center gap-0.5 px-0.5 py-0.5 rounded-l border border-gray-600 border-r-0 bg-gray-800/80">
+                            <span className="text-dnd-text-body text-sm font-medium truncate" title={r.note || ''}>{r.name}</span>
+                            {r.recovery === 'short' && <span className="text-[9px] text-amber-300 bg-amber-800/40 px-0.5 rounded leading-tight shrink-0">短</span>}
+                            {r.recovery === 'long' && <span className="text-[9px] text-indigo-300 bg-indigo-800/40 px-0.5 rounded leading-tight shrink-0">长</span>}
+                            {r.recovery === 'special' && <span className="text-[9px] text-purple-300 bg-purple-800/40 px-0.5 rounded leading-tight shrink-0">特</span>}
                           </div>
                           <div className="flex items-center justify-end px-0.5 py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
                             <span className="text-white font-mono text-sm tabular-nums whitespace-nowrap">{r.current}/{r.max}</span>
@@ -3639,8 +3763,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                     ) : (() => {
                       const currentEntry = char?.inventory?.[cm.itemInventoryIndex]
                       const currentCharge = currentEntry != null ? Math.max(0, Number(currentEntry.charge) ?? 0) : 0
-                      const containedSpell = currentEntry?.effects?.find((e) => e.effectType === 'contained_spell')?.value
-                      const cs = normalizeContainedSpellValue(containedSpell, currentEntry?.charge)
+                      const containedSpellRaw = extractContainedSpellValueFromEntry(currentEntry)
+                      const cs = normalizeContainedSpellValue(containedSpellRaw, currentEntry?.charge)
                       const chargeMaxRaw = itemMeanOpt.chargeMax || currentEntry?.chargeMax || cs?.totalCharges || 0
                       const chargeMax = chargeMaxRaw > 0 ? chargeMaxRaw : (currentCharge > 0 ? currentCharge : 0)
                       const hasSpells = cs.spells.length > 0
