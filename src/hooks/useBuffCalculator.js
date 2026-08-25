@@ -668,9 +668,11 @@ export function computeBuffStats(character, activeBuffs) {
       const creatureHP = parseHpFormula(creatureTransformData.creature.hp)
       if (creatureTransformData.hpMode === 'replace') {
         // 替换模式：计算差值，通过 maxHpBonus 调整实现 HP 替换
-        // 注意：charBaseHP 不包含 getHPBuffSum，因为 CombatStatus 会单独加
+        // CombatStatus 公式：calcMaxHP + getHPBuffSum + maxHpBonus
+        // 需要减去 getHPBuffSum 避免重复计算
         const charBaseHP = calcMaxHP(character, baseAbilities)
-        maxHpBonus += creatureHP - charBaseHP
+        const hpBuffSum = getHPBuffSum(character)
+        maxHpBonus += creatureHP - charBaseHP - hpBuffSum
       } else if (creatureTransformData.hpMode === 'add') {
         // 叠加模式：生物 HP 作为临时 HP
         tempHp = Math.max(tempHp, creatureHP)
