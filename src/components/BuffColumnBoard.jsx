@@ -219,7 +219,7 @@ export default function BuffColumnBoard({
                       draggable={movable}
                       onDragStart={movable ? (e) => setBuffEntryDragData(e, buff.id) : undefined}
                       className={
-                        'buff-dnd-draggable-source min-w-0 rounded-md overflow-hidden border border-gray-600/50 bg-[#1a2430]/50 ' +
+                        'anim-fade-slide-up buff-dnd-draggable-source min-w-0 rounded-md overflow-hidden border border-gray-600/50 bg-[#1a2430]/50 ' +
                         (movable ? 'cursor-grab active:cursor-grabbing' : '')
                       }
                     >

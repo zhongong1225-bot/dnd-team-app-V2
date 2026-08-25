@@ -560,7 +560,7 @@ export default function CharacterSpells({
   const addSpellsInCard = <div className="px-3 py-1.5">{addSpellsToolbarInner}</div>
 
   const spellcastingPanel = characterPicker ? (
-    <div id="character-spellcasting-data" className="module-panel overflow-hidden p-0">
+    <div id="character-spellcasting-data" className="module-panel panel-highlight-top overflow-hidden p-0">
       <div className="flex flex-nowrap items-center gap-2 border-b border-[var(--card-border)] px-3 py-1.5">
         <label className="shrink-0 whitespace-nowrap text-xs font-bold uppercase tracking-wider text-[var(--accent)]">
           选择角色
@@ -582,12 +582,12 @@ export default function CharacterSpells({
       {canEdit && addSpellsInCard}
     </div>
   ) : spellAbility != null ? (
-    <div id="character-spellcasting-data" className="module-panel overflow-hidden p-0">
+    <div id="character-spellcasting-data" className="module-panel panel-highlight-top overflow-hidden p-0">
       <div className="border-b border-[var(--card-border)]">{statsGrid}</div>
       {canEdit && addSpellsInCard}
     </div>
   ) : canEdit ? (
-    <div id="character-spellcasting-data" className="module-panel overflow-hidden p-0">
+    <div id="character-spellcasting-data" className="module-panel panel-highlight-top overflow-hidden p-0">
       <div className="px-3 py-1.5">{addSpellsToolbarInner}</div>
     </div>
   ) : null

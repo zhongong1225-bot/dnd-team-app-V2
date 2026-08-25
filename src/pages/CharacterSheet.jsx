@@ -206,7 +206,7 @@ function AvatarFrame({ char, canEdit, onSave, large }) {
         closeCrop()
       }}
     />
-    <div className="flex flex-col items-center gap-1.5 flex-shrink-0 w-full">
+    <div className="avatar-upload-zone flex flex-col items-center gap-1.5 flex-shrink-0 w-full p-2 rounded-lg">
       {avatar ? (
         <div className="w-36 h-36 md:w-40 md:h-40 rounded-lg overflow-hidden flex items-center justify-center shrink-0 border border-[var(--border-color)] aspect-square">
           <img src={avatar} alt="头像" className="min-w-full min-h-full w-full h-full object-cover object-center" />
