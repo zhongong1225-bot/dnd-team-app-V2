@@ -39,13 +39,22 @@ export const HARDCODED_CLASS_FEATURE_BUFFS = {
   ),
 
   // 2级 荒野变形：附赠动作变身，临时生命 = 德鲁伊等级（随等级变化，无法用固定数值）
-  '德鲁伊||wild_shape': cond(
-    '荒野变形：附赠动作变形为已知野兽形态\n' +
-    '· 持续德鲁伊等级 half 小时\n' +
-    '· 获得德鲁伊等级临时生命值\n' +
-    '· 保留人格、记忆与语言；无法施法但专注不打断\n' +
-    '· 使用次数见特性表；短休恢复 1 次、长休全恢复'
-  ),
+  '德鲁伊||wild_shape': [
+    cond(
+      '荒野变形：附赠动作变形为已知野兽形态\n' +
+      '· 持续德鲁伊等级 half 小时\n' +
+      '· 获得德鲁伊等级临时生命值\n' +
+      '· 保留人格、记忆与语言；无法施法但专注不打断\n' +
+      '· 使用次数见特性表；短休恢复 1 次、长休全恢复'
+    ),
+    {
+      effectType: 'temp_hp',
+      category: 'defense',
+      scope: 'global',
+      scopeDetail: [],
+      value: { ref: 'classLevel', className: '德鲁伊', mult: 1, add: 0 },
+    },
+  ],
 
   // 2级 荒野伙伴：主动消耗资源，无被动数值
   '德鲁伊||wild_companion': cond(
@@ -95,12 +104,21 @@ export const HARDCODED_CLASS_FEATURE_BUFFS = {
   /* ── 月亮结社子职 ────────────────────────────────────────────────── */
 
   // 3级 结社形态：AC 替换为公式（13+感知调整值），临时生命 = 3×德鲁伊等级
-  '德鲁伊|月亮结社|circle_forms': cond(
-    '结社形态（荒野变形期间）：\n' +
-    '· AC = max(野兽 AC, 13 + 感知调整值)\n' +
-    '· 化为野兽形态时获得 3 × 德鲁伊等级临时生命值\n' +
-    '· 最大 CR = 德鲁伊等级 ÷ 3（向下取整）'
-  ),
+  '德鲁伊|月亮结社|circle_forms': [
+    cond(
+      '结社形态（荒野变形期间）：\n' +
+      '· AC = max(野兽 AC, 13 + 感知调整值)\n' +
+      '· 化为野兽形态时获得 3 × 德鲁伊等级临时生命值\n' +
+      '· 最大 CR = 德鲁伊等级 ÷ 3（向下取整）'
+    ),
+    {
+      effectType: 'temp_hp',
+      category: 'defense',
+      scope: 'global',
+      scopeDetail: [],
+      value: { ref: 'classLevel', className: '德鲁伊', mult: 3, add: 0 },
+    },
+  ],
 
   // 3级 月亮结社法术：始终准备列表
   '德鲁伊|月亮结社|circle_of_moon_spells': cond(
@@ -133,9 +151,18 @@ export const HARDCODED_CLASS_FEATURE_BUFFS = {
   ),
 
   // 14级 月辉形态：额外 2d10 光耀伤害 + 传送同伴
-  '德鲁伊|月亮结社|lunar_form': cond(
-    '月辉形态：\n' +
-    '· 月耀炽光——每回合一次，荒野变形下攻击命中额外 2d10 光耀伤害\n' +
-    '· 月辉同行——使用月光飞步时可传送 10 尺内另一自愿生物至你出现点 10 尺内未占据空间'
-  ),
+  '德鲁伊|月亮结社|lunar_form': [
+    cond(
+      '月辉形态：\n' +
+      '· 月耀炽光——每回合一次，荒野变形下攻击命中额外 2d10 光耀伤害\n' +
+      '· 月辉同行——使用月光飞步时可传送 10 尺内另一自愿生物至你出现点 10 尺内未占据空间'
+    ),
+    {
+      effectType: 'damage_bonus',
+      category: 'offense',
+      scope: 'global',
+      scopeDetail: [],
+      value: 11,
+    },
+  ],
 }
