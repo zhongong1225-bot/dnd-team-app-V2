@@ -72,6 +72,55 @@ export const CLASS_FEATURE_CHOICE_REGISTRY = {
       }
     },
   },
+
+  /* ─ 德鲁伊 7 级 元素之怒 ───────────────────────────────────────── */
+  '德鲁伊||elemental_fury': {
+    label: '元素之怒',
+    options: [
+      {
+        id: 'forceful',
+        label: '强力施法',
+        description: '德鲁伊戏法造成的伤害可加上感知调整值',
+      },
+      {
+        id: 'primal_strike',
+        label: '原力蛮击',
+        description: '每回合一次，武器攻击或荒野变形中的野兽攻击命中时，额外 1d8 寒冷/火焰/闪电/雷鸣伤害',
+      },
+    ],
+    getEffects(optionId) {
+      switch (optionId) {
+        case 'forceful':
+          return [
+            {
+              effectType: 'spell_damage_bonus',
+              category: 'offense',
+              scope: 'druid_cantrip',
+              scopeDetail: [],
+              value: {
+                type: '',
+                diceFloor: null,
+                perDieBonus: 0,
+                extraDice: '',
+                flatBonus: { ref: 'abilityModifier', ability: 'wis', min: 0 },
+              },
+            },
+          ]
+        case 'primal_strike':
+          return [
+            {
+              effectType: 'damage_bonus',
+              category: 'offense',
+              scope: 'weapon_or_beast',
+              scopeDetail: [],
+              value: 4.5,
+            },
+          ]
+        default:
+          return []
+      }
+    },
+  },
 }
 
 /**

@@ -938,6 +938,8 @@ function buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellMean = fa
       ...scopeCtx,
       damageType: cm?.damageTypeSpell,
       targetCreatureType: cm?.targetCreatureType || '',
+      spellName: cm?.spellName || '',
+      spellLevel: cm?.spellLevel != null ? Number(cm.spellLevel) : null,
     }
   }
   const scopeMatches = (e) => {

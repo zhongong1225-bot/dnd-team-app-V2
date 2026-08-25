@@ -634,6 +634,8 @@ export const SCOPE_KIND = {
   creature_type: 'creature_type',
   damage_type: 'damage_type',
   weapon_category: 'weapon_category',
+  druid_cantrip: 'druid_cantrip',
+  weapon_or_beast: 'weapon_or_beast',
   custom: 'custom',
 }
 
@@ -648,6 +650,8 @@ export const SCOPE_KIND_OPTIONS = [
   { value: SCOPE_KIND.creature_type, label: '某类生物' },
   { value: SCOPE_KIND.damage_type, label: '某类伤害类型' },
   { value: SCOPE_KIND.weapon_category, label: '某类武器' },
+  { value: SCOPE_KIND.druid_cantrip, label: '德鲁伊戏法' },
+  { value: SCOPE_KIND.weapon_or_beast, label: '武器/野兽攻击' },
   { value: SCOPE_KIND.custom, label: '自定义' },
 ]
 
@@ -800,6 +804,17 @@ export function scopeMatchesCombatMean(effect, ctx = {}) {
   if (scope === SCOPE_KIND.natural_weapon) {
     return ctx.sourceKind === 'physical' && !!ctx.weaponProto && isNaturalWeaponProto(ctx.weaponProto)
   }
+  // 德鲁伊戏法：仅匹配法术攻击且为戏法（level === 0）
+  if (scope === SCOPE_KIND.druid_cantrip) {
+    if (ctx.sourceKind !== 'spell_attack') return false
+    // spellLevel === 0 表示戏法；null/undefined 也视为戏法（未指定环阶的法术攻击）
+    const lvl = ctx.spellLevel != null ? Number(ctx.spellLevel) : 0
+    return lvl === 0
+  }
+  // 武器/野兽攻击：匹配物理攻击（武器或荒野变形野兽攻击）
+  if (scope === SCOPE_KIND.weapon_or_beast) {
+    return ctx.sourceKind === 'physical'
+  }
   const details = Array.isArray(effect.scopeDetail) ? effect.scopeDetail.filter(Boolean) : []
   if (details.length === 0) return false
   if (scope === SCOPE_KIND.creature_type) {
@@ -840,6 +855,8 @@ export function formatScopeBrief(scope, scopeDetail) {
   if (s === SCOPE_KIND.melee_attack) return '（近战攻击）'
   if (s === SCOPE_KIND.ranged_attack) return '（远射攻击）'
   if (s === SCOPE_KIND.natural_weapon) return '（天生武器）'
+  if (s === SCOPE_KIND.druid_cantrip) return '（德鲁伊戏法）'
+  if (s === SCOPE_KIND.weapon_or_beast) return '（武器/野兽攻击）'
   const details = Array.isArray(scopeDetail) ? scopeDetail.filter(Boolean) : []
   if (details.length === 0) return ''
   if (s === SCOPE_KIND.creature_type) {
