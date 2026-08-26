@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo, forwardRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ChevronUp, ChevronDown, Trash2, Star, Upload, X, Plus, Settings, Zap } from 'lucide-react'
+import { ChevronUp, ChevronDown, Trash2, Star, Upload, X, Plus, Settings, Zap, RefreshCw, Pin } from 'lucide-react'
 
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
@@ -1868,7 +1868,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
   }
 
   return (
-    <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-4">
+    <div className="module-panel panel-highlight-top">
       <div className="flex items-center justify-between gap-2 mb-3">
         <div className="text-xs text-dnd-text-muted">
           已获专长 <span className="text-dnd-gold-light font-medium">{totalFeats}</span>
@@ -1877,7 +1877,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
           <button
             type="button"
             onClick={openPickerForExtraLegendary}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium bg-white/10 text-gray-300 hover:bg-white/15 border border-white/10 transition-colors"
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-gray-700/50 text-gray-300 hover:bg-gray-600/60 hover:text-white border border-gray-600/50 transition-all active:scale-95"
           >
             <Plus className="w-3.5 h-3.5" />
             添加传奇专长
@@ -1888,7 +1888,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
       {slots.length === 0 && freeRows.length === 0 ? (
         <p className="text-gray-500 text-xs py-2">当前等级暂无专长槽位。</p>
       ) : (
-        <ul className="space-y-2.5">
+        <ul className="space-y-2">
           {slotRows.map(({ slot, row }) => {
             const feat = featById.get(row?.featId)
             const legacyStyle = !feat ? getFightingStyleById(row.featId) : null
@@ -1903,123 +1903,135 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
             const hasActiveAbility = row?.featId ? !!findActiveAbilityForFeat(row.featId) : false
 
             return (
-              <li key={slot.id} className="group rounded-xl border border-gray-700/50 bg-gradient-to-br from-gray-800/80 to-gray-900/80 p-4 hover:border-gray-600/50 transition-all">
-                <div className="flex items-start gap-3">
-                  {/* 左侧等级徽章 */}
-                  <div className={`
-                    flex-shrink-0 w-12 h-12 rounded-lg flex flex-col items-center justify-center
-                    ${category === '星辰专长'
-                      ? 'bg-gradient-to-br from-dnd-gold/30 to-dnd-gold/10 border border-dnd-gold/40'
-                      : 'bg-gray-700/50 border border-gray-600/50'
-                    }
-                  `}>
-                    <span className={`text-xs font-bold ${category === '星辰专长' ? 'text-dnd-gold-light' : 'text-gray-300'}`}>
-                      {slot.level}级
-                    </span>
-                    {category === '星辰专长' && <Star className="w-3 h-3 fill-dnd-gold-light text-dnd-gold-light mt-0.5" />}
-                  </div>
-
-                  {/* 中间内容 */}
-                  <div className="flex-1 min-w-0 pt-0.5">
+              <li key={slot.id} className="panel-card-compact">
+                {/* 名字 + 操作图标行 */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     {row?.featId ? (
-                      <>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <InfoTooltip
-                            content={
-                              <FeatTooltipContent
-                                feat={{
-                                  id: row.featId,
-                                  name,
-                                  category,
-                                  prerequisite: feat?.prerequisite,
-                                  description: feat?.description
-                                    ? formatFeatDescriptionForDisplay(
-                                        resolveRuleText(
-                                          overridesMap,
-                                          buildFeatDescriptionKey(row.featId),
-                                          feat.description,
-                                        ),
-                                      )
-                                    : legacyStyle
-                                      ? '该条目原属于战斗风格专长，现已迁移到「战斗风格」选择器中。请点击「更换」或通过对应职业的战斗风格特性重新选择。'
-                                      : '',
-                                }}
-                              />
-                            }
-                            triggerClassName="inline"
-                            disabled={!feat && !legacyStyle}
-                          >
-                            <span
-                              className="text-base font-semibold text-white cursor-pointer select-none hover:text-dnd-gold-light transition-colors"
-                              onClick={() => toggleFeatExpand(row.featId)}
-                            >
-                              {name}
-                            </span>
-                          </InfoTooltip>
-                          {category === '星辰专长' && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-gradient-to-r from-dnd-gold/30 to-dnd-gold/10 text-dnd-gold-light border border-dnd-gold/50">
-                              <Star className="w-2.5 h-2.5 fill-current" />
-                              星辰
-                            </span>
-                          )}
-                          {legacyStyle && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-dnd-red/15 text-dnd-red border border-dnd-red/30">
-                              请从战斗风格选择器重新选择
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-gray-500 mt-1">{slot.sourceClass || '通用'}</p>
-                      </>
+                      <InfoTooltip
+                        content={
+                          <FeatTooltipContent
+                            feat={{
+                              id: row.featId,
+                              name,
+                              category,
+                              prerequisite: feat?.prerequisite,
+                              description: feat?.description
+                                ? formatFeatDescriptionForDisplay(
+                                    resolveRuleText(
+                                      overridesMap,
+                                      buildFeatDescriptionKey(row.featId),
+                                      feat.description,
+                                    ),
+                                  )
+                                : legacyStyle
+                                  ? '该条目原属于战斗风格专长，现已迁移到「战斗风格」选择器中。请点击「更换」或通过对应职业的战斗风格特性重新选择。'
+                                  : '',
+                            }}
+                          />
+                        }
+                        triggerClassName="inline"
+                        disabled={!feat && !legacyStyle}
+                      >
+                        <span
+                          className="text-base font-bold text-white cursor-pointer select-none hover:text-gray-100 transition-colors truncate block"
+                          onClick={() => toggleFeatExpand(row.featId)}
+                        >
+                          {name}
+                        </span>
+                      </InfoTooltip>
                     ) : (
-                      <p className="text-sm text-gray-500">未选择专长</p>
+                      <span className="text-sm text-gray-500">未选择专长</span>
                     )}
                   </div>
 
-                  {/* 右侧操作按钮 */}
-                  {canEdit && (
+                  {canEdit && row?.featId && (
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {row?.featId ? (
-                        <>
-                          {hasActiveAbility && (
-                            <QuickBarPinButton
-                              abilityId={findActiveAbilityForFeat(row.featId)}
-                              quickBar={char?.activeAbilityQuickBar}
-                              onUpdateQuickBar={(next) => onSave({ activeAbilityQuickBar: next })}
-                            />
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => openPickerForSlot(slot)}
-                            className="px-3 py-2 rounded-lg text-sm font-medium bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white transition-all border border-white/10"
-                          >
-                            更换
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => clearSlot(slot.id)}
-                            className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-500 hover:text-dnd-red hover:bg-dnd-red/10 transition-all border border-transparent hover:border-dnd-red/30"
-                            title="清除"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => openPickerForSlot(slot)}
-                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-dnd-gold/10 text-dnd-gold-light hover:bg-dnd-gold/20 border border-dnd-gold/30 transition-all"
-                        >
-                          <Plus className="w-4 h-4" />
-                          选择专长
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => openPickerForSlot(slot)}
+                        className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
+                        title="更换专长"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => clearSlot(slot.id)}
+                        className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-red-400 hover:bg-red-900/20 transition-all active:scale-95"
+                        title="清除"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
+                  )}
+                  {canEdit && !row?.featId && (
+                    <button
+                      type="button"
+                      onClick={() => openPickerForSlot(slot)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-dnd-gold/15 text-dnd-gold-light hover:bg-dnd-gold/25 border border-dnd-gold/40 transition-all active:scale-95 shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      选择专长
+                    </button>
                   )}
                 </div>
 
+                {/* 简介行 */}
+                {row?.featId && (
+                  <div
+                    className="mt-1 flex items-center gap-1.5 cursor-pointer group"
+                    onClick={() => toggleFeatExpand(row.featId)}
+                  >
+                    <span className="text-xs text-gray-500 group-hover:text-gray-400 transition-colors truncate flex-1">
+                      {feat?.description
+                        ? (() => {
+                            const levelPrefix = (typeof slot !== 'undefined' && slot?.level) ? `${slot.level}级 · ` : ''
+                            const full = formatFeatDescriptionForDisplay(
+                              resolveRuleText(overridesMap, buildFeatDescriptionKey(row.featId), feat.description),
+                            )
+                            const firstLine = full.split('\n')[0]
+                            const snippet = firstLine.length > 40 ? firstLine.slice(0, 40) + '…' : firstLine
+                            return levelPrefix + snippet
+                          })()
+                        : ''}
+                    </span>
+                    {hasDescription && (
+                      <span className="text-gray-600 group-hover:text-gray-400 transition-colors shrink-0">
+                        {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* 主动技能按钮 */}
+                {row?.featId && hasActiveAbility && (
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const ability = findActiveAbilityForFeat(row.featId)
+                        if (ability) {
+                          const isPinned = char?.activeAbilityQuickBar?.includes(ability)
+                          const next = isPinned
+                            ? (char?.activeAbilityQuickBar || []).filter((id) => id !== ability)
+                            : [...(char?.activeAbilityQuickBar || []), ability]
+                          onSave({ activeAbilityQuickBar: next })
+                        }
+                      }}
+                      className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-dnd-gold/10 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/20 hover:border-dnd-gold/50 transition-all active:scale-[0.98]"
+                      title={char?.activeAbilityQuickBar?.includes(findActiveAbilityForFeat(row.featId)) ? '从快捷栏移除' : '添加到快捷栏'}
+                    >
+                      <Pin className={`w-3.5 h-3.5 ${char?.activeAbilityQuickBar?.includes(findActiveAbilityForFeat(row.featId)) ? 'text-dnd-gold' : ''}`} />
+                      {char?.activeAbilityQuickBar?.includes(findActiveAbilityForFeat(row.featId)) ? '已安装到快捷栏' : '安装到快捷栏'}
+                    </button>
+                  </div>
+                )}
+
                 {/* 展开内容 */}
                 {isExpanded && hasDescription && (
-                  <div className="mt-3 pt-3 border-t border-gray-700/50">
+                  <div className="mt-2 pt-2 border-t border-gray-700/40">
                     <p className="text-sm text-gray-400 leading-relaxed whitespace-pre-line">
                       {formatFeatDescriptionForDisplay(
                         resolveRuleText(
@@ -2032,12 +2044,12 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
                   </div>
                 )}
                 {isExpanded && row?.featId && !legacyStyle && (
-                  <p className="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-700/30">
+                  <p className="text-xs text-gray-500 mt-1.5 pt-1.5 border-t border-gray-700/30">
                     {formatFeatAcquisitionSentence(slot.sourceClass, slot.level, category)}
                   </p>
                 )}
                 {isExpanded && legacyStyle && (
-                  <p className="text-sm text-dnd-red mt-3 pt-3 border-t border-dnd-red/20 leading-relaxed">
+                  <p className="text-sm text-dnd-red mt-2 pt-2 border-t border-dnd-red/20 leading-relaxed">
                     该条目原属于「战斗风格专长」，现已独立为职业特性选择器。请清除本槽位后，通过对应职业的「战斗风格」特性重新选择，以获得正确的虚拟 BUFF。
                   </p>
                 )}
@@ -2059,83 +2071,114 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
             return (
               <li
                 key={`free-${row.featId}-${i}`}
-                className="group rounded-xl border border-dnd-gold/20 bg-gradient-to-br from-gray-800/80 to-gray-900/80 p-4 hover:border-dnd-gold/40 transition-all"
+                className="panel-card-compact"
               >
-                <div className="flex items-start gap-3">
-                  {/* 左侧传奇徽章 */}
-                  <div className="flex-shrink-0 w-12 h-12 rounded-lg flex flex-col items-center justify-center bg-gradient-to-br from-dnd-gold/25 to-amber-900/20 border border-dnd-gold/40">
-                    <Star className="w-5 h-5 fill-dnd-gold-light text-dnd-gold-light" />
-                  </div>
-
-                  {/* 中间内容 */}
-                  <div className="flex-1 min-w-0 pt-0.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <InfoTooltip
-                        content={
-                          <FeatTooltipContent
-                            feat={{
-                              id: row.featId,
-                              name,
-                              category: legacyStyle ? '旧版战斗风格' : '传奇恩惠',
-                              prerequisite: feat?.prerequisite,
-                              description: feat?.description
-                                ? formatFeatDescriptionForDisplay(
-                                    resolveRuleText(
-                                      overridesMap,
-                                      buildFeatDescriptionKey(row.featId),
-                                      feat.description,
-                                    ),
-                                  )
-                                : legacyStyle
-                                  ? '该条目原属于战斗风格专长，现已迁移到「战斗风格」选择器中。请移除后通过对应职业的战斗风格特性重新选择。'
-                                  : '',
-                            }}
-                          />
-                        }
-                        triggerClassName="inline"
-                        disabled={!feat && !legacyStyle}
+                {/* 名字 + 操作图标行 */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <InfoTooltip
+                      content={
+                        <FeatTooltipContent
+                          feat={{
+                            id: row.featId,
+                            name,
+                            category: legacyStyle ? '旧版战斗风格' : '传奇恩惠',
+                            prerequisite: feat?.prerequisite,
+                            description: feat?.description
+                              ? formatFeatDescriptionForDisplay(
+                                  resolveRuleText(
+                                    overridesMap,
+                                    buildFeatDescriptionKey(row.featId),
+                                    feat.description,
+                                  ),
+                                )
+                              : legacyStyle
+                                ? '该条目原属于战斗风格专长，现已迁移到「战斗风格」选择器中。请移除后通过对应职业的战斗风格特性重新选择。'
+                                : '',
+                          }}
+                        />
+                      }
+                      triggerClassName="inline"
+                      disabled={!feat && !legacyStyle}
+                    >
+                      <span
+                        className="text-base font-bold text-white cursor-pointer select-none hover:text-gray-100 transition-colors truncate block"
+                        onClick={() => toggleFeatExpand(row.featId)}
                       >
-                        <span
-                          className="text-base font-semibold text-white cursor-pointer select-none hover:text-dnd-gold-light transition-colors"
-                          onClick={() => toggleFeatExpand(row.featId)}
-                        >
-                          {name}
-                        </span>
-                      </InfoTooltip>
-                      {legacyStyle && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-dnd-red/15 text-dnd-red border border-dnd-red/30">
-                          请从战斗风格选择器重新选择
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">额外传奇专长</p>
+                        {name}
+                      </span>
+                    </InfoTooltip>
                   </div>
 
-                  {/* 右侧操作按钮 */}
                   {canEdit && (
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {hasActiveAbility && (
-                        <QuickBarPinButton
-                          abilityId={findActiveAbilityForFeat(row.featId)}
-                          quickBar={char?.activeAbilityQuickBar}
-                          onUpdateQuickBar={(next) => onSave({ activeAbilityQuickBar: next })}
-                        />
-                      )}
                       <button
                         type="button"
                         onClick={() => removeFreeFeat(i)}
-                        className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-500 hover:text-dnd-red hover:bg-dnd-red/10 transition-all border border-transparent hover:border-dnd-red/30"
+                        className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-red-400 hover:bg-red-900/20 transition-all active:scale-95"
                         title="移除"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   )}
                 </div>
 
+                {/* 简介行 */}
+                {row?.featId && (
+                  <div
+                    className="mt-1 flex items-center gap-1.5 cursor-pointer group"
+                    onClick={() => toggleFeatExpand(row.featId)}
+                  >
+                    <span className="text-xs text-gray-500 group-hover:text-gray-400 transition-colors truncate flex-1">
+                      {feat?.description
+                        ? (() => {
+                            const levelPrefix = (typeof slot !== 'undefined' && slot?.level) ? `${slot.level}级 · ` : ''
+                            const full = formatFeatDescriptionForDisplay(
+                              resolveRuleText(overridesMap, buildFeatDescriptionKey(row.featId), feat.description),
+                            )
+                            const firstLine = full.split('\n')[0]
+                            const snippet = firstLine.length > 40 ? firstLine.slice(0, 40) + '…' : firstLine
+                            return levelPrefix + snippet
+                          })()
+                        : ''}
+                    </span>
+                    {hasDescription && (
+                      <span className="text-gray-600 group-hover:text-gray-400 transition-colors shrink-0">
+                        {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* 主动技能按钮 */}
+                {hasActiveAbility && (
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const ability = findActiveAbilityForFeat(row.featId)
+                        if (ability) {
+                          const isPinned = char?.activeAbilityQuickBar?.includes(ability)
+                          const next = isPinned
+                            ? (char?.activeAbilityQuickBar || []).filter((id) => id !== ability)
+                            : [...(char?.activeAbilityQuickBar || []), ability]
+                          onSave({ activeAbilityQuickBar: next })
+                        }
+                      }}
+                      className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-dnd-gold/10 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/20 hover:border-dnd-gold/50 transition-all active:scale-[0.98]"
+                      title={char?.activeAbilityQuickBar?.includes(findActiveAbilityForFeat(row.featId)) ? '从快捷栏移除' : '添加到快捷栏'}
+                    >
+                      <Pin className={`w-3.5 h-3.5 ${char?.activeAbilityQuickBar?.includes(findActiveAbilityForFeat(row.featId)) ? 'text-dnd-gold' : ''}`} />
+                      {char?.activeAbilityQuickBar?.includes(findActiveAbilityForFeat(row.featId)) ? '已安装到快捷栏' : '安装到快捷栏'}
+                    </button>
+                  </div>
+                )}
+
                 {/* 展开内容 */}
                 {isExpanded && hasDescription && (
-                  <div className="mt-3 pt-3 border-t border-gray-700/50">
+                  <div className="mt-2 pt-2 border-t border-gray-700/40">
                     <p className="text-sm text-gray-400 leading-relaxed whitespace-pre-line">
                       {formatFeatDescriptionForDisplay(
                         resolveRuleText(
@@ -2148,7 +2191,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
                   </div>
                 )}
                 {isExpanded && legacyStyle && (
-                  <p className="text-sm text-dnd-red mt-3 pt-3 border-t border-dnd-red/20 leading-relaxed">
+                  <p className="text-sm text-dnd-red mt-2 pt-2 border-t border-dnd-red/20 leading-relaxed">
                     该条目原属于「战斗风格专长」，现已独立为职业特性选择器。请移除本条目后，通过对应职业的「战斗风格」特性重新选择，以获得正确的虚拟 BUFF。
                   </p>
                 )}

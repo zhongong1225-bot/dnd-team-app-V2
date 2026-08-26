@@ -131,16 +131,16 @@ export function QuickBarPinButton({ abilityId, quickBar, onUpdateQuickBar }) {
       type="button"
       onClick={(e) => { e.stopPropagation(); toggle() }}
       className={`
-        w-8 h-8 flex items-center justify-center rounded-lg
-        transition-all
+        w-7 h-7 flex items-center justify-center rounded-md
+        transition-all active:scale-95
         ${isPinned
-          ? 'text-dnd-gold-light bg-dnd-gold/20 hover:bg-dnd-gold/30 border border-dnd-gold/50'
-          : 'text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/40 border border-transparent'
+          ? 'text-dnd-gold-light bg-dnd-gold/15 hover:bg-dnd-gold/25'
+          : 'text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50'
         }
       `}
       title={isPinned ? '从快捷栏移除' : '添加到快捷栏'}
     >
-      <Pin className="w-4 h-4" />
+      <Pin className="w-3.5 h-3.5" />
     </button>
   )
 }
