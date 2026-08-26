@@ -49,6 +49,7 @@ import {
   mergeInvocationBuffPatchesFromMergedList,
   mergeFightingStyleBuffPatchesFromMergedList,
 } from '../lib/effects/effectMapping'
+import { HARDCODED_CLASS_FEATURE_BUFFS } from '../data/classFeatureDefaultBuffs'
 import { cloneBuffTemplateToManual } from '../lib/buffStash'
 import BuffManager from '../components/BuffManager'
 import EldritchInvocationPicker from '../components/EldritchInvocationPicker'
@@ -62,9 +63,11 @@ import FeatPickerModal from '../components/FeatPickerModal'
 import BuffForm from '../components/BuffForm'
 import { loadDefaultBuffPatch, saveDefaultBuffPatch, buildClassFeatureBuffKey } from '../lib/defaultBuffPatchStore'
 import { CLASS_FEATURE_CHOICE_REGISTRY } from '../data/classFeatureChoiceRegistry'
+import { ACTIVE_ABILITY_REGISTRY, getAbilityById } from '../data/activeAbilityRegistry'
 import { formatRecoveryBrief, buildAbilityDiceExpr } from '../lib/chargeItemModel'
 import { rollDice } from '../data/weaponDatabase'
 import InfoTooltip from '../components/InfoTooltip'
+import { QuickBarPinButton } from '../components/combat/ActiveAbilityQuickBar'
 import { ClassFeatureTooltipContent, FeatTooltipContent } from '../lib/infoTooltipContent'
 import { APP_VERSION_LABEL } from '../config/version'
 
@@ -72,6 +75,19 @@ import { APP_VERSION_LABEL } from '../config/version'
 function buildClassFeatureOptionBuffKey(sourceClass, sourceSubclass, featureId, optionId) {
   return `${sourceClass}|${sourceSubclass || ''}|${featureId}:${optionId}`
 }
+
+/** 查找职业特性对应的主动技能 ID（按 feature.id 匹配 ability.id） */
+function findActiveAbilityForFeature(featureId) {
+  const ability = ACTIVE_ABILITY_REGISTRY.find((a) => a.id === featureId && a.source === 'class')
+  return ability?.id || null
+}
+
+/** 查找专长对应的主动技能 ID（按 feat.id 匹配 ability.sourceKey） */
+function findActiveAbilityForFeat(featId) {
+  const ability = ACTIVE_ABILITY_REGISTRY.find((a) => a.source === 'feat' && a.sourceKey === featId)
+  return ability?.id || null
+}
+
 import { inputClass } from '../lib/inputStyles'
 
 const RAW_AVATAR_FILE_MAX = 12 * 1024 * 1024 // 裁剪前原图上限，裁剪后会压到约 800KB 内
@@ -773,7 +789,7 @@ const CLASS_PSIONIC_FEAT_LEVELS = {
 export function computeFeatSlots(character, totalLevel) {
   const slots = []
   if (totalLevel >= 1) {
-    slots.push({ id: 'origin', level: 1, sourceClass: '', category: '起源专长', label: '1级 · 起源专长' })
+    slots.push({ id: 'origin', level: 1, sourceClass: '', category: '起源专长', label: '1级' })
   }
   const classes = getCharacterClasses(character)
   for (const { name, level } of classes) {
@@ -799,7 +815,7 @@ export function computeFeatSlots(character, totalLevel) {
           level: asiLevel,
           sourceClass: name,
           category: '通用专长',
-          label: `${name}${asiLevel}级 · 通用专长`,
+          label: `${name}${asiLevel}级`,
         })
       }
     }
@@ -813,7 +829,7 @@ export function computeFeatSlots(character, totalLevel) {
           level: psionicLevel,
           sourceClass: name,
           category: '灵能专长',
-          label: `${name}${psionicLevel}级 · 灵能专长`,
+          label: `${name}${psionicLevel}级`,
         })
       }
     }
@@ -827,7 +843,7 @@ export function computeFeatSlots(character, totalLevel) {
             level: f.level,
             sourceClass: name,
             category: '传奇恩惠',
-            label: `${name}${f.level}级 · 传奇恩惠`,
+            label: `${name}${f.level}级`,
           })
         }
       }
@@ -842,7 +858,7 @@ export function computeFeatSlots(character, totalLevel) {
           level: starLevel,
           sourceClass: '',
           category: '星辰专长',
-          label: `${starLevel}级 · 星辰专长 ★`,
+          label: `${starLevel}级 ★`,
         })
       }
     }
@@ -1424,6 +1440,17 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                     </InfoTooltip>
                     <span className={`${CS_LIST_META} ml-2`}>{f.sourceClass}{f.sourceSubclass ? `（${f.sourceSubclass}）` : ''} · {f.level} 级</span>
                   </div>
+                  {(() => {
+                    const abilityId = findActiveAbilityForFeature(f.id)
+                    if (!abilityId) return null
+                    return (
+                      <QuickBarPinButton
+                        abilityId={abilityId}
+                        quickBar={char?.activeAbilityQuickBar}
+                        onUpdateQuickBar={(next) => onSave({ activeAbilityQuickBar: next })}
+                      />
+                    )
+                  })()}
                   <button
                     type="button"
                     onClick={(e) => {
@@ -1522,16 +1549,24 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                   hideDuration
                   initial={{
                     source: `${buffEditorFeature.sourceClass}-${buffEditorFeature.name}`,
-                    effects: loadDefaultBuffPatch(
-                      moduleId,
-                      'classFeature',
-                      buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
-                    )?.effects ?? [],
-                    enabled: loadDefaultBuffPatch(
-                      moduleId,
-                      'classFeature',
-                      buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
-                    )?.enabled !== false,
+                    effects: (() => {
+                      const patch = loadDefaultBuffPatch(
+                        moduleId,
+                        'classFeature',
+                        buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
+                      )
+                      if (patch && Array.isArray(patch.effects) && patch.effects.length) return patch.effects
+                      const bk = buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id)
+                      return HARDCODED_CLASS_FEATURE_BUFFS[bk] || []
+                    })(),
+                    enabled: (() => {
+                      const patch = loadDefaultBuffPatch(
+                        moduleId,
+                        'classFeature',
+                        buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
+                      )
+                      return patch?.enabled !== false
+                    })(),
                   }}
                   onSave={(buff) => {
                     saveDefaultBuffPatch(
@@ -1611,16 +1646,32 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                   hideDuration
                   initial={{
                     source: `${buffEditorOption.feature.sourceClass}-${buffEditorOption.feature.name}（${buffEditorOption.optionLabel}）`,
-                    effects: loadDefaultBuffPatch(
-                      moduleId,
-                      'classFeature',
-                      buildClassFeatureOptionBuffKey(
+                    effects: (() => {
+                      const optBuffKey = buildClassFeatureOptionBuffKey(
                         buffEditorOption.feature.sourceClass,
                         buffEditorOption.feature.sourceSubclass,
                         buffEditorOption.feature.id,
                         buffEditorOption.optionId,
-                      ),
-                    )?.effects ?? [],
+                      )
+                      const dmPatch = loadDefaultBuffPatch(moduleId, 'classFeature', optBuffKey)
+                      if (dmPatch && Array.isArray(dmPatch.effects) && dmPatch.effects.length) {
+                        return dmPatch.effects
+                      }
+                      // 回退到硬编码默认效果
+                      const buffKey = buildClassFeatureBuffKey(
+                        buffEditorOption.feature.sourceClass,
+                        buffEditorOption.feature.sourceSubclass,
+                        buffEditorOption.feature.id,
+                      )
+                      const registryEntry = CLASS_FEATURE_CHOICE_REGISTRY[buffKey]
+                      if (registryEntry) {
+                        const opt = registryEntry.options.find((o) => o.id === buffEditorOption.optionId)
+                        if (opt && typeof registryEntry.getEffects === 'function') {
+                          return registryEntry.getEffects(opt.id) || []
+                        }
+                      }
+                      return []
+                    })(),
                     enabled: loadDefaultBuffPatch(
                       moduleId,
                       'classFeature',
@@ -1804,15 +1855,16 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
 
   const FeatTypeTag = ({ category }) => {
     if (!category) return null
+    // 星辰专长用金色星标，其他不显示（slot.label 已包含分类信息）
     if (category === '星辰专长') {
       return (
-        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-bold bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/40">
-          <Star className={`${CS_ICON_16} fill-current`} />
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-gradient-to-r from-dnd-gold/30 to-dnd-gold/10 text-dnd-gold-light border border-dnd-gold/50">
+          <Star className="w-3 h-3 fill-current mr-0.5" />
           星辰
         </span>
       )
     }
-    return <span className={CS_LIST_META}>{category}</span>
+    return null
   }
 
   return (
@@ -1836,10 +1888,10 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
       {slots.length === 0 && freeRows.length === 0 ? (
         <p className="text-gray-500 text-xs py-2">当前等级暂无专长槽位。</p>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-2.5">
           {slotRows.map(({ slot, row }) => {
             const feat = featById.get(row?.featId)
-            const legacyStyle = !feat ? getFightingStyleById(row?.featId) : null
+            const legacyStyle = !feat ? getFightingStyleById(row.featId) : null
             const name = resolveRuleText(
               overridesMap,
               buildFeatNameKey(row?.featId),
@@ -1848,107 +1900,144 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
             const category = feat?.category || (legacyStyle ? '旧版战斗风格' : slot.category)
             const isExpanded = expandedFeatIds.has(row?.featId)
             const hasDescription = Boolean(feat?.description)
+            const hasActiveAbility = row?.featId ? !!findActiveAbilityForFeat(row.featId) : false
+
             return (
-              <li key={slot.id} className="rounded-lg border border-gray-600 bg-gray-800/50 p-3">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
-                    <span className={CS_LIST_META}>{slot.label}</span>
+              <li key={slot.id} className="group rounded-xl border border-gray-700/50 bg-gradient-to-br from-gray-800/80 to-gray-900/80 p-4 hover:border-gray-600/50 transition-all">
+                <div className="flex items-start gap-3">
+                  {/* 左侧等级徽章 */}
+                  <div className={`
+                    flex-shrink-0 w-12 h-12 rounded-lg flex flex-col items-center justify-center
+                    ${category === '星辰专长'
+                      ? 'bg-gradient-to-br from-dnd-gold/30 to-dnd-gold/10 border border-dnd-gold/40'
+                      : 'bg-gray-700/50 border border-gray-600/50'
+                    }
+                  `}>
+                    <span className={`text-xs font-bold ${category === '星辰专长' ? 'text-dnd-gold-light' : 'text-gray-300'}`}>
+                      {slot.level}级
+                    </span>
+                    {category === '星辰专长' && <Star className="w-3 h-3 fill-dnd-gold-light text-dnd-gold-light mt-0.5" />}
+                  </div>
+
+                  {/* 中间内容 */}
+                  <div className="flex-1 min-w-0 pt-0.5">
                     {row?.featId ? (
                       <>
-                        <InfoTooltip
-                          content={
-                            <FeatTooltipContent
-                              feat={{
-                                id: row.featId,
-                                name,
-                                category,
-                                prerequisite: feat?.prerequisite,
-                                description: feat?.description
-                                  ? formatFeatDescriptionForDisplay(
-                                      resolveRuleText(
-                                        overridesMap,
-                                        buildFeatDescriptionKey(row.featId),
-                                        feat.description,
-                                      ),
-                                    )
-                                  : legacyStyle
-                                    ? '该条目原属于战斗风格专长，现已迁移到「战斗风格」选择器中。请点击「更换」或通过对应职业的战斗风格特性重新选择。'
-                                    : '',
-                              }}
-                            />
-                          }
-                          triggerClassName="inline"
-                          disabled={!feat && !legacyStyle}
-                        >
-                          <span
-                            className={`${CS_LIST_TITLE} cursor-pointer select-none`}
-                            onClick={() => toggleFeatExpand(row.featId)}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <InfoTooltip
+                            content={
+                              <FeatTooltipContent
+                                feat={{
+                                  id: row.featId,
+                                  name,
+                                  category,
+                                  prerequisite: feat?.prerequisite,
+                                  description: feat?.description
+                                    ? formatFeatDescriptionForDisplay(
+                                        resolveRuleText(
+                                          overridesMap,
+                                          buildFeatDescriptionKey(row.featId),
+                                          feat.description,
+                                        ),
+                                      )
+                                    : legacyStyle
+                                      ? '该条目原属于战斗风格专长，现已迁移到「战斗风格」选择器中。请点击「更换」或通过对应职业的战斗风格特性重新选择。'
+                                      : '',
+                                }}
+                              />
+                            }
+                            triggerClassName="inline"
+                            disabled={!feat && !legacyStyle}
                           >
-                            {name}
-                          </span>
-                        </InfoTooltip>
-                        <FeatTypeTag category={category} />
-                        {legacyStyle && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-dnd-red/15 text-dnd-red border border-dnd-red/30">
-                            请从战斗风格选择器重新选择
-                          </span>
-                        )}
+                            <span
+                              className="text-base font-semibold text-white cursor-pointer select-none hover:text-dnd-gold-light transition-colors"
+                              onClick={() => toggleFeatExpand(row.featId)}
+                            >
+                              {name}
+                            </span>
+                          </InfoTooltip>
+                          {category === '星辰专长' && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-gradient-to-r from-dnd-gold/30 to-dnd-gold/10 text-dnd-gold-light border border-dnd-gold/50">
+                              <Star className="w-2.5 h-2.5 fill-current" />
+                              星辰
+                            </span>
+                          )}
+                          {legacyStyle && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-dnd-red/15 text-dnd-red border border-dnd-red/30">
+                              请从战斗风格选择器重新选择
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">{slot.sourceClass || '通用'}</p>
                       </>
                     ) : (
-                      <span className="text-xs text-gray-500">未选择</span>
+                      <p className="text-sm text-gray-500">未选择专长</p>
                     )}
                   </div>
+
+                  {/* 右侧操作按钮 */}
                   {canEdit && (
-                    <div className="flex items-center gap-1 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       {row?.featId ? (
                         <>
+                          {hasActiveAbility && (
+                            <QuickBarPinButton
+                              abilityId={findActiveAbilityForFeat(row.featId)}
+                              quickBar={char?.activeAbilityQuickBar}
+                              onUpdateQuickBar={(next) => onSave({ activeAbilityQuickBar: next })}
+                            />
+                          )}
                           <button
                             type="button"
                             onClick={() => openPickerForSlot(slot)}
-                            className="px-2 py-1 rounded-md text-xs font-medium bg-white/10 text-gray-200 hover:bg-white/15 transition-colors"
+                            className="px-3 py-2 rounded-lg text-sm font-medium bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white transition-all border border-white/10"
                           >
                             更换
                           </button>
                           <button
                             type="button"
                             onClick={() => clearSlot(slot.id)}
-                            className={`${CS_ICON_BTN} text-gray-500 hover:text-dnd-red`}
+                            className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-500 hover:text-dnd-red hover:bg-dnd-red/10 transition-all border border-transparent hover:border-dnd-red/30"
                             title="清除"
                           >
-                            <Trash2 className={CS_ICON_16} />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </>
                       ) : (
                         <button
                           type="button"
                           onClick={() => openPickerForSlot(slot)}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-white/10 text-gray-300 hover:bg-white/15 border border-white/10 transition-colors"
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-dnd-gold/10 text-dnd-gold-light hover:bg-dnd-gold/20 border border-dnd-gold/30 transition-all"
                         >
-                          <Plus className="w-3.5 h-3.5" />
+                          <Plus className="w-4 h-4" />
                           选择专长
                         </button>
                       )}
                     </div>
                   )}
                 </div>
+
+                {/* 展开内容 */}
                 {isExpanded && hasDescription && (
-                  <p className={`${CS_LIST_BODY} mt-2 border-t border-gray-700/35 pt-2 whitespace-pre-line`}>
-                    {formatFeatDescriptionForDisplay(
-                      resolveRuleText(
-                        overridesMap,
-                        buildFeatDescriptionKey(row.featId),
-                        feat.description,
-                      ),
-                    )}
-                  </p>
+                  <div className="mt-3 pt-3 border-t border-gray-700/50">
+                    <p className="text-sm text-gray-400 leading-relaxed whitespace-pre-line">
+                      {formatFeatDescriptionForDisplay(
+                        resolveRuleText(
+                          overridesMap,
+                          buildFeatDescriptionKey(row.featId),
+                          feat.description,
+                        ),
+                      )}
+                    </p>
+                  </div>
                 )}
                 {isExpanded && row?.featId && !legacyStyle && (
-                  <p className={`${CS_LIST_META} mt-2 border-t border-gray-600/35 pt-2 leading-relaxed`}>
+                  <p className="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-700/30">
                     {formatFeatAcquisitionSentence(slot.sourceClass, slot.level, category)}
                   </p>
                 )}
                 {isExpanded && legacyStyle && (
-                  <p className={`${CS_LIST_BODY} mt-2 border-t border-dnd-red/20 pt-2 text-dnd-red leading-relaxed`}>
+                  <p className="text-sm text-dnd-red mt-3 pt-3 border-t border-dnd-red/20 leading-relaxed">
                     该条目原属于「战斗风格专长」，现已独立为职业特性选择器。请清除本槽位后，通过对应职业的「战斗风格」特性重新选择，以获得正确的虚拟 BUFF。
                   </p>
                 )}
@@ -1966,77 +2055,100 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
             )
             const isExpanded = expandedFeatIds.has(row.featId)
             const hasDescription = Boolean(feat?.description)
+            const hasActiveAbility = !!findActiveAbilityForFeat(row.featId)
             return (
               <li
                 key={`free-${row.featId}-${i}`}
-                className="rounded-lg border border-dnd-gold/30 bg-dnd-gold/5 p-3"
+                className="group rounded-xl border border-dnd-gold/20 bg-gradient-to-br from-gray-800/80 to-gray-900/80 p-4 hover:border-dnd-gold/40 transition-all"
               >
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
-                    <span className={CS_LIST_META}>额外传奇专长</span>
-                    <InfoTooltip
-                      content={
-                        <FeatTooltipContent
-                          feat={{
-                            id: row.featId,
-                            name,
-                            category: legacyStyle ? '旧版战斗风格' : '传奇恩惠',
-                            prerequisite: feat?.prerequisite,
-                            description: feat?.description
-                              ? formatFeatDescriptionForDisplay(
-                                  resolveRuleText(
-                                    overridesMap,
-                                    buildFeatDescriptionKey(row.featId),
-                                    feat.description,
-                                  ),
-                                )
-                              : legacyStyle
-                                ? '该条目原属于战斗风格专长，现已迁移到「战斗风格」选择器中。请移除后通过对应职业的战斗风格特性重新选择。'
-                                : '',
-                          }}
-                        />
-                      }
-                      triggerClassName="inline"
-                      disabled={!feat && !legacyStyle}
-                    >
-                      <span
-                        className={`${CS_LIST_TITLE} cursor-pointer select-none`}
-                        onClick={() => toggleFeatExpand(row.featId)}
-                      >
-                        {name}
-                      </span>
-                    </InfoTooltip>
-                    <FeatTypeTag category={legacyStyle ? '旧版战斗风格' : '传奇恩惠'} />
-                    {legacyStyle && (
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-dnd-red/15 text-dnd-red border border-dnd-red/30">
-                        请从战斗风格选择器重新选择
-                      </span>
-                    )}
+                <div className="flex items-start gap-3">
+                  {/* 左侧传奇徽章 */}
+                  <div className="flex-shrink-0 w-12 h-12 rounded-lg flex flex-col items-center justify-center bg-gradient-to-br from-dnd-gold/25 to-amber-900/20 border border-dnd-gold/40">
+                    <Star className="w-5 h-5 fill-dnd-gold-light text-dnd-gold-light" />
                   </div>
+
+                  {/* 中间内容 */}
+                  <div className="flex-1 min-w-0 pt-0.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <InfoTooltip
+                        content={
+                          <FeatTooltipContent
+                            feat={{
+                              id: row.featId,
+                              name,
+                              category: legacyStyle ? '旧版战斗风格' : '传奇恩惠',
+                              prerequisite: feat?.prerequisite,
+                              description: feat?.description
+                                ? formatFeatDescriptionForDisplay(
+                                    resolveRuleText(
+                                      overridesMap,
+                                      buildFeatDescriptionKey(row.featId),
+                                      feat.description,
+                                    ),
+                                  )
+                                : legacyStyle
+                                  ? '该条目原属于战斗风格专长，现已迁移到「战斗风格」选择器中。请移除后通过对应职业的战斗风格特性重新选择。'
+                                  : '',
+                            }}
+                          />
+                        }
+                        triggerClassName="inline"
+                        disabled={!feat && !legacyStyle}
+                      >
+                        <span
+                          className="text-base font-semibold text-white cursor-pointer select-none hover:text-dnd-gold-light transition-colors"
+                          onClick={() => toggleFeatExpand(row.featId)}
+                        >
+                          {name}
+                        </span>
+                      </InfoTooltip>
+                      {legacyStyle && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-dnd-red/15 text-dnd-red border border-dnd-red/30">
+                          请从战斗风格选择器重新选择
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">额外传奇专长</p>
+                  </div>
+
+                  {/* 右侧操作按钮 */}
                   {canEdit && (
-                    <button
-                      type="button"
-                      onClick={() => removeFreeFeat(i)}
-                      className={`${CS_ICON_BTN} text-gray-500 hover:text-dnd-red`}
-                      title="移除"
-                    >
-                      <Trash2 className={CS_ICON_16} />
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {hasActiveAbility && (
+                        <QuickBarPinButton
+                          abilityId={findActiveAbilityForFeat(row.featId)}
+                          quickBar={char?.activeAbilityQuickBar}
+                          onUpdateQuickBar={(next) => onSave({ activeAbilityQuickBar: next })}
+                        />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeFreeFeat(i)}
+                        className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-500 hover:text-dnd-red hover:bg-dnd-red/10 transition-all border border-transparent hover:border-dnd-red/30"
+                        title="移除"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   )}
                 </div>
+
+                {/* 展开内容 */}
                 {isExpanded && hasDescription && (
-                  <p className={`${CS_LIST_BODY} mt-2 border-t border-gray-700/35 pt-2 whitespace-pre-line`}>
-                    {formatFeatDescriptionForDisplay(
-                      resolveRuleText(
-                        overridesMap,
-                        buildFeatDescriptionKey(row.featId),
-                        feat.description,
-                      ),
-                    )}
-                  </p>
+                  <div className="mt-3 pt-3 border-t border-gray-700/50">
+                    <p className="text-sm text-gray-400 leading-relaxed whitespace-pre-line">
+                      {formatFeatDescriptionForDisplay(
+                        resolveRuleText(
+                          overridesMap,
+                          buildFeatDescriptionKey(row.featId),
+                          feat.description,
+                        ),
+                      )}
+                    </p>
+                  </div>
                 )}
                 {isExpanded && legacyStyle && (
-                  <p className={`${CS_LIST_BODY} mt-2 border-t border-dnd-red/20 pt-2 text-dnd-red leading-relaxed`}>
+                  <p className="text-sm text-dnd-red mt-3 pt-3 border-t border-dnd-red/20 leading-relaxed">
                     该条目原属于「战斗风格专长」，现已独立为职业特性选择器。请移除本条目后，通过对应职业的「战斗风格」特性重新选择，以获得正确的虚拟 BUFF。
                   </p>
                 )}
@@ -2595,6 +2707,12 @@ export default function CharacterSheet() {
     charIdRef.current = char?.id ?? null
   }, [char?.id])
 
+  // 切换角色时清空持久化队列，防止旧角色的补丁被刷到新角色上
+  useEffect(() => {
+    persistQueueRef.current = []
+    persistFlushPromiseRef.current = null
+  }, [id])
+
   useEffect(() => {
     setEditingName(null)
     setEditingCodename(null)
@@ -2620,13 +2738,19 @@ export default function CharacterSheet() {
       const run = async () => {
         try {
           while (persistQueueRef.current.length > 0) {
+            // 每次迭代重新读取当前角色 ID，避免切换角色后用旧 ID 刷入新补丁
+            const currentId = charIdRef.current
+            if (!currentId) {
+              persistQueueRef.current = []
+              break
+            }
             const batch = []
             while (persistQueueRef.current.length > 0) {
               batch.push(persistQueueRef.current.shift())
             }
             const mergedPatch = mergePatchesList(batch)
             try {
-              const u = await updateCharacter(id, mergedPatch)
+              const u = await updateCharacter(currentId, mergedPatch)
               if (u) {
                 if (persistQueueRef.current.length > 0) {
                   const pendingAfter = mergePatchesList([...persistQueueRef.current])
@@ -2639,14 +2763,14 @@ export default function CharacterSheet() {
               console.error('[persist] 云端保存失败，已回滚为服务器数据', err)
               persistQueueRef.current = []
               try {
-                const fresh = await loadCharacterById(id)
+                const fresh = await loadCharacterById(currentId)
                 if (fresh) setChar(fresh)
                 else {
-                  const c = getCharacter(id)
+                  const c = getCharacter(currentId)
                   if (c) setChar(c)
                 }
               } catch (_) {
-                const c = getCharacter(id)
+                const c = getCharacter(currentId)
                 if (c) setChar(c)
               }
               break

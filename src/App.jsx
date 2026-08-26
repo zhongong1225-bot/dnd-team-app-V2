@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import Login from './pages/Login'
 import Layout from './components/Layout'
@@ -16,6 +16,15 @@ import ModuleLibrary from './pages/ModuleLibrary'
 import CreatureLibraryManager from './pages/CreatureLibraryManager'
 
 const CharacterSheet = lazy(() => import('./pages/CharacterSheet'))
+
+/**
+ * 包装 CharacterSheet，用 URL 中的角色 ID 作为 key 强制重挂载。
+ * 防止切换角色时 persist 队列、useRef、useState 等跨角色泄漏。
+ */
+function CharacterSheetWithKey() {
+  const { id } = useParams()
+  return <CharacterSheet key={id} />
+}
 
 function AppRoutes() {
   const { user } = useAuth()
@@ -53,7 +62,7 @@ function AppRoutes() {
                 </div>
               }
             >
-              <CharacterSheet />
+              <CharacterSheetWithKey />
             </Suspense>
           }
         />

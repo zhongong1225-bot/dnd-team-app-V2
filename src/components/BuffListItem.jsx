@@ -198,30 +198,7 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
         const found = lib.find((c) => c.id === creatureId)
         if (found) creatureName = found.name || creatureId
       } catch {}
-      const parts = [creatureName]
-      // AC 模式简写
-      if (v.acMode === 'max_formula') {
-        const abilLabel = { str: '力', dex: '敏', con: '体', int: '智', wis: '感', cha: '魅' }[v.acFormulaAbility] || ''
-        parts.push(`AC=max(${v.acFormulaBase || 13}${abilLabel ? '+' + abilLabel : ''},兽AC)`)
-      } else if (v.acMode === 'add') {
-        parts.push('AC+兽AC')
-      }
-      // HP 模式简写
-      if (v.hpMode === 'keep_plus_temp') {
-        parts.push('保留HP+公式临时HP')
-      } else if (v.hpMode === 'add') {
-        parts.push('兽HP作临时HP')
-      }
-      // 保留属性
-      if (Array.isArray(v.keepAbilities) && v.keepAbilities.length > 0) {
-        const abilNames = { int: '智力', wis: '感知', cha: '魅力' }
-        parts.push('保留' + v.keepAbilities.map((k) => abilNames[k] || k).join('/'))
-      }
-      // 资源消耗
-      if (v.resourceCostType === 'wild_shape_uses') parts.push('消耗荒野变形次数')
-      else if (v.resourceCostType === 'spell_slot') parts.push(`消耗${v.resourceCostValue || 1}环法术位`)
-      else if (v.resourceCostType === 'charges') parts.push(`消耗${v.resourceCostValue || 1}次充能`)
-      return `变身（${parts.join('，')}）`
+      return `变身（${creatureName}）`
     }
     if (info.effect.subSelect === 'choice' && v && typeof v === 'object' && !Array.isArray(v)) {
       const opts = Array.isArray(v.choiceOptions) ? v.choiceOptions : []
@@ -229,6 +206,8 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       const selectedOpt = opts[selIdx]
       if (!selectedOpt) return ''
       const optName = selectedOpt.name || `选项 ${selIdx + 1}`
+      const desc = selectedOpt.description || ''
+      if (desc) return `${optName}：${desc}`
       const effectCount = Array.isArray(selectedOpt.effects) ? selectedOpt.effects.length : 0
       return `选择：${optName}${effectCount > 0 ? `（${effectCount}个效果）` : ''}`
     }
@@ -275,7 +254,13 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
     }
     if ((buff.effectType === 'recharge_long_rest' || buff.effectType === 'recharge_dawn') && v != null) {
       const norm = normalizeChargeRecoveryValue(v)
-      const text = norm.kind === 'dice' ? `${norm.diceCount}d${norm.diceSides}` : String(norm.fixed)
+      let text
+      if (norm.kind === 'dice') {
+        const bonus = norm.diceBonus || 0
+        text = bonus > 0 ? `${norm.diceCount}d${norm.diceSides}+${bonus}` : `${norm.diceCount}d${norm.diceSides}`
+      } else {
+        text = String(norm.fixed)
+      }
       return `${effectLabel} ${text}`
     }
     if (buff.effectType === 'spell_damage_bonus' && v && typeof v === 'object' && !Array.isArray(v)) {
@@ -347,6 +332,24 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
 export function getBuffSummaryLine(buff, baseAbilities = {}, context = {}) {
   const source = buff.source?.trim() || '未知来源'
   const baseContext = { ...context, abilities: baseAbilities }
+
+  // 变身效果：笼统显示为"变身（子职：生物名）"，不展开细则
+  const isCreatureTransform = buff.effectType === 'creature_transform'
+    || (Array.isArray(buff.effects) && buff.effects.length === 1 && buff.effects[0].effectType === 'creature_transform')
+  if (isCreatureTransform) {
+    const ctValue = buff.effectType === 'creature_transform' ? buff.value : buff.effects[0]?.value
+    if (ctValue && typeof ctValue === 'object' && !Array.isArray(ctValue) && ctValue.creatureId) {
+      let creatureName = ctValue.creatureId
+      try {
+        const lib = JSON.parse(localStorage.getItem('dnd_creature_library') || '[]')
+        const found = lib.find((c) => c.id === ctValue.creatureId)
+        if (found) creatureName = found.name || ctValue.creatureId
+      } catch {}
+      const subclassLabel = ctValue.wildShapeSubclass === 'moon' ? '月亮结社' : '荒野变形'
+      return `${source} | 变身（${subclassLabel}：${creatureName}）`
+    }
+  }
+
   const effectParts = []
   if (Array.isArray(buff.effects) && buff.effects.length) {
     buff.effects.forEach((e) => {
@@ -364,6 +367,25 @@ export function getBuffSummaryLine(buff, baseAbilities = {}, context = {}) {
 /** 结构化效果列表：每条效果带 text 和 suppressed 标记，供逐条渲染 */
 export function getBuffEffectsList(buff, baseAbilities = {}, suppressedEffectTypes = new Set(), context = {}) {
   const baseContext = { ...context, abilities: baseAbilities }
+  const source = buff.source?.trim() || '未知来源'
+
+  // 变身效果：笼统显示
+  const isCreatureTransform = buff.effectType === 'creature_transform'
+    || (Array.isArray(buff.effects) && buff.effects.length === 1 && buff.effects[0].effectType === 'creature_transform')
+  if (isCreatureTransform) {
+    const ctValue = buff.effectType === 'creature_transform' ? buff.value : buff.effects[0]?.value
+    if (ctValue && typeof ctValue === 'object' && !Array.isArray(ctValue) && ctValue.creatureId) {
+      let creatureName = ctValue.creatureId
+      try {
+        const lib = JSON.parse(localStorage.getItem('dnd_creature_library') || '[]')
+        const found = lib.find((c) => c.id === ctValue.creatureId)
+        if (found) creatureName = found.name || ctValue.creatureId
+      } catch {}
+      const subclassLabel = ctValue.wildShapeSubclass === 'moon' ? '月亮结社' : '荒野变形'
+      return [{ text: `变身（${subclassLabel}：${creatureName}）`, suppressed: false }]
+    }
+  }
+
   const effectParts = []
   if (Array.isArray(buff.effects) && buff.effects.length) {
     buff.effects.forEach((e) => {

@@ -990,7 +990,7 @@ function SpellDamageBonusEditor({ value, onChange, referenceData }) {
   )
 }
 
-/** 充能恢复编辑器：固定值或 XdX */
+/** 充能恢复编辑器：固定值或 XdX+Z */
 function ChargeRecoveryEditor({ value, onChange }) {
   const v = normalizeChargeRecoveryValue(value)
   const update = (patch) => onChange({ ...v, ...patch })
@@ -999,7 +999,7 @@ function ChargeRecoveryEditor({ value, onChange }) {
       <div className="flex items-center gap-2">
         <select
           value={v.kind}
-          onChange={(e) => onChange({ kind: e.target.value, fixed: 1, diceCount: 1, diceSides: 6 })}
+          onChange={(e) => onChange({ kind: e.target.value, fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0 })}
           className={inputClass + ' h-8 text-xs w-28 min-w-0'}
         >
           <option value="fixed">固定值</option>
@@ -1028,6 +1028,14 @@ function ChargeRecoveryEditor({ value, onChange }) {
               min={1}
               max={100}
               onChange={(n) => update({ diceSides: n })}
+              compact
+            />
+            <span className="text-gray-400 text-xs">+</span>
+            <NumberStepper
+              value={v.diceBonus || 0}
+              min={0}
+              max={99}
+              onChange={(n) => update({ diceBonus: n })}
               compact
             />
           </div>
@@ -1163,6 +1171,16 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                   onChange={(v) => updateRecovery({ diceSides: Math.max(1, v) })}
                   min={1}
                   max={100}
+                  compact
+                  narrow
+                  className="!h-6 !w-10"
+                />
+                <span className="text-gray-400 text-[10px]">+</span>
+                <NumberStepper
+                  value={rec.diceBonus || 0}
+                  onChange={(v) => updateRecovery({ diceBonus: Math.max(0, v) })}
+                  min={0}
+                  max={99}
                   compact
                   narrow
                   className="!h-6 !w-10"

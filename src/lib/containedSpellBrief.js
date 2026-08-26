@@ -62,6 +62,13 @@ export function formatContainedSpellBrief(value, context = {}) {
   if (Array.isArray(value.spells)) {
     const { totalText, lines } = formatContainedSpellLines(value, context)
     if (lines.length === 0) return totalText || '（未选择法术）'
+    // 法术过多时只显示数量
+    if (lines.length > 3) {
+      const parts = []
+      if (totalText) parts.push(totalText)
+      parts.push(`${lines.length}个法术`)
+      return parts.join(' · ')
+    }
     const parts = []
     if (totalText) parts.push(totalText)
     parts.push(...lines)

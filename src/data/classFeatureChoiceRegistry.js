@@ -24,25 +24,21 @@ export const CLASS_FEATURE_CHOICE_REGISTRY = {
     label: '原初职能',
     options: [
       {
-        id: 'spellschool',
+        id: 'spell_school',
         label: '术师',
         description: '额外1个德鲁伊戏法 / 奥秘和自然+感知调整值',
       },
       {
-        id: 'warden',
+        id: 'guardian_warden',
         label: '卫士',
         description: '军用武器熟练 + 中甲受训',
       },
     ],
     getEffects(optionId) {
-      const desc = this.options.find((o) => o.id === optionId)?.description || ''
-      const descEffect = desc
-        ? [{ effectType: 'custom_condition', category: 'custom', scope: 'global', scopeDetail: [], value: desc }]
-        : []
       switch (optionId) {
-        case 'spellschool':
+        case 'spell_school':
+        case 'spellschool': // 兼容旧数据
           return [
-            ...descEffect,
             {
               effectType: 'skill_bonus',
               category: 'ability',
@@ -54,9 +50,9 @@ export const CLASS_FEATURE_CHOICE_REGISTRY = {
               },
             },
           ]
-        case 'warden':
+        case 'guardian_warden':
+        case 'warden': // 兼容旧数据
           return [
-            ...descEffect,
             {
               effectType: 'weapon_proficiency',
               category: 'proficiency',
@@ -73,7 +69,7 @@ export const CLASS_FEATURE_CHOICE_REGISTRY = {
             },
           ]
         default:
-          return descEffect
+          return []
       }
     },
   },
@@ -119,6 +115,152 @@ export const CLASS_FEATURE_CHOICE_REGISTRY = {
                 extraDice: '',
                 flatBonus: { ref: 'abilityModifier', ability: 'wis', min: 0 },
               },
+            },
+          ]
+        default:
+          return []
+      }
+    },
+  },
+
+  /* ── 牧师 1 级 圣职 ─────────────────────────────────────────────── */
+  '牧师||divine_order': {
+    label: '圣职',
+    options: [
+      {
+        id: 'protector',
+        label: '保护者',
+        description: '军用武器熟练 + 重甲受训',
+      },
+      {
+        id: 'divine_magic',
+        label: '奇术使',
+        description: '额外1个牧师戏法；奥秘和宗教+感知调整值（至少+1）',
+      },
+    ],
+    getEffects(optionId) {
+      switch (optionId) {
+        case 'protector':
+          return [
+            {
+              effectType: 'weapon_proficiency',
+              category: 'proficiency',
+              scope: 'global',
+              scopeDetail: [],
+              value: { proficiencyChecklist: ['martial'] },
+            },
+            {
+              effectType: 'armor_proficiency',
+              category: 'proficiency',
+              scope: 'global',
+              scopeDetail: [],
+              value: { proficiencyChecklist: ['heavy'] },
+            },
+          ]
+        case 'divine_magic':
+        case 'thaumaturgist': // 兼容旧数据
+          return [
+            {
+              effectType: 'skill_bonus',
+              category: 'ability',
+              scope: 'global',
+              scopeDetail: [],
+              value: {
+                arcana: { ref: 'abilityModifier', ability: 'wis', min: 1 },
+                religion: { ref: 'abilityModifier', ability: 'wis', min: 1 },
+              },
+            },
+          ]
+        default:
+          return []
+      }
+    },
+  },
+
+  /* ── 牧师 7 级 受祝击 ───────────────────────────────────────────── */
+  '牧师||blessed_strikes': {
+    label: '受祝击',
+    options: [
+      {
+        id: 'divine_strike',
+        label: '神圣打击',
+        description: '每回合一次，武器命中额外1d8暗蚀/光耀伤害',
+      },
+      {
+        id: 'forceful_spell',
+        label: '强力施法',
+        description: '牧师戏法伤害+感知调整值',
+      },
+    ],
+    getEffects(optionId) {
+      switch (optionId) {
+        case 'divine_strike':
+          return [
+            {
+              effectType: 'extra_damage_dice',
+              category: 'offense',
+              scope: 'global',
+              scopeDetail: [],
+              value: { plus: '1d8', type: '暗蚀/光耀' },
+            },
+          ]
+        case 'forceful_spell':
+          return [
+            {
+              effectType: 'spell_damage_bonus',
+              category: 'offense',
+              scope: 'global',
+              scopeDetail: [],
+              value: {
+                type: '',
+                diceFloor: null,
+                perDieBonus: 0,
+                extraDice: '',
+                flatBonus: { ref: 'abilityModifier', ability: 'wis', min: 0 },
+              },
+            },
+          ]
+        default:
+          return []
+      }
+    },
+  },
+
+  /* ── 牧师 14 级 精通受祝击 ──────────────────────────────────────── */
+  '牧师||improved_blessed_strike': {
+    label: '精通受祝击',
+    options: [
+      {
+        id: 'divine_strike',
+        label: '神圣打击',
+        description: '额外伤害提升至2d8',
+      },
+      {
+        id: 'forceful_spell',
+        label: '强力施法',
+        description: '戏法造成伤害时获得感知调整值×2临时生命',
+      },
+    ],
+    getEffects(optionId) {
+      switch (optionId) {
+        case 'divine_strike':
+          return [
+            {
+              effectType: 'extra_damage_dice',
+              category: 'offense',
+              scope: 'global',
+              scopeDetail: [],
+              value: { plus: '2d8', type: '暗蚀/光耀' },
+            },
+          ]
+        case 'forceful_spell':
+          return [
+            {
+              effectType: 'custom_condition',
+              category: 'custom',
+              scope: 'global',
+              scopeDetail: [],
+              value: '牧师戏法造成伤害时，获得感知调整值×2临时生命值',
             },
           ]
         default:

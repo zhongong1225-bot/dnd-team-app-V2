@@ -217,16 +217,16 @@ export const HARDCODED_FEAT_BUFFS = {
 
   /* ── 星辰专长 ────────────────────────────────────────────────────── */
 
-  star_memory: cond('消耗 1 辉点 + 反应，获得临时专长/能力 1 小时'),
-  star_ring_of_radiance: cond('消耗 1 辉点 + 动作，悬空飞行 30 尺 1 小时（可升阶）'),
-  star_compassionate_care: cond('消耗 1 辉点 + 动作，10 尺内所有生物恢复至满 HP（不死需豁免）'),
-  star_divine_guidance: cond('消耗 1 辉点 + 动作，1 分钟内攻击检定均成功'),
+  star_memory: cond('消耗 1 星辰点 + 反应，获得临时专长/能力 1 小时'),
+  star_ring_of_radiance: cond('消耗 1 星辰点 + 动作，悬空飞行 30 尺 1 小时（可升阶）'),
+  star_compassionate_care: cond('消耗 1 星辰点 + 动作，10 尺内所有生物恢复至满 HP（不死需豁免）'),
+  star_divine_guidance: cond('消耗 1 星辰点 + 动作，1 分钟内攻击检定均成功'),
   star_control_blink: cond('反应动作消失，动作再现（偏离 60 尺），充能 1d6 回合'),
-  star_high_frequency: cond('恢复辉点数，1 分钟后累积 1 级力竭'),
-  star_radiant_weapon: cond('消耗 1 辉点 + 反应，武器 +1d6 伤害；不死生物需豁免否则死亡'),
-  star_radiant_armor: cond('消耗 1 辉点 + 反应，AC+5 持续 1 分钟'),
-  star_luck: cond('消耗 1 辉点 + 反应，1 分钟内任何检定优势，投 1 可重骰'),
-  star_mana_surge: cond('消耗反应 + 1 辉点，恢复所有 3 环法术位（可升阶）'),
+  star_high_frequency: cond('恢复星辰点数，1 分钟后累积 1 级力竭'),
+  star_radiant_weapon: cond('消耗 1 星辰点 + 反应，武器 +1d6 伤害；不死生物需豁免否则死亡'),
+  star_radiant_armor: cond('消耗 1 星辰点 + 反应，AC+5 持续 1 分钟'),
+  star_luck: cond('消耗 1 星辰点 + 反应，1 分钟内任何检定优势，投 1 可重骰'),
+  star_mana_surge: cond('消耗反应 + 1 星辰点，恢复所有 3 环法术位（可升阶）'),
   star_doppelganger: cond('创造灵体复制体，共享 HP/法术位，60 尺内 1 分钟'),
 
   /* ── 传奇恩惠 ────────────────────────────────────────────────────── */

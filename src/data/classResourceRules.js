@@ -384,6 +384,17 @@ export const RESOURCE_RULES = [
     recovery: 'long',
     group: '核心',
   },
+
+  /* ── 全局资源（繁星模组） ─────────────────────────────── */
+  {
+    resourceKey: 'star_points',
+    name: '星辰点',
+    classKey: '_global',
+    formula: 'totalLevel_div5',
+    recovery: 'long',
+    note: '总等级每5级1点，长休恢复',
+    group: '星辰',
+  },
 ]
 
 /* ── 查询函数 ─────────────────────────────────────────────── */
@@ -404,6 +415,12 @@ export function getResourceRulesForClass(classKey) {
  */
 export function getAutoResources(classes) {
   const rules = []
+  // 全局资源（如星辰点）只添加一次
+  const globalRules = RESOURCE_RULES.filter((r) => r.classKey === '_global')
+  for (const r of globalRules) {
+    if (r.recovery === 'none') continue
+    rules.push(r)
+  }
   for (const c of classes) {
     const classRules = getResourceRulesForClass(c.name)
     for (const r of classRules) {
@@ -449,6 +466,8 @@ export function computeResourceMax(rule, { classLevel = 1, totalLevel = 1, abili
         return Math.max(1, Math.ceil(lv / 2))
       case 'level_half_ceil':
         return Math.max(1, Math.ceil(lv / 2))
+      case 'totalLevel_div5':
+        return Math.max(0, Math.floor(totalLevel / 5))
       case 'cha':
         return Math.max(1, abilityMod('cha'))
       case 'wis':

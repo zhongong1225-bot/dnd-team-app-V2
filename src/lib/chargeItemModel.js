@@ -27,7 +27,8 @@ export const RECOVERY_METHODS = [
   { value: 'long_rest', label: '长休恢复' },
   { value: 'dawn', label: '黎明恢复' },
   { value: 'none', label: '无法恢复' },
-  { value: 'absorb_energy', label: '吸收能量恢复' },
+  { value: 'absorb_energy', label: '吸收能量' },
+  { value: 'reaction_absorb', label: '反应吸收' },
 ]
 
 export const RECOVERY_AMOUNT_OPTIONS = [
@@ -38,13 +39,13 @@ export const RECOVERY_AMOUNT_OPTIONS = [
 
 /** 不需要回能数量设置的方式 */
 const NO_AMOUNT_METHODS = new Set(['none'])
-/** 仅支持掷骰的方式 */
-const DICE_ONLY_METHODS = new Set(['absorb_energy'])
+/** 仅支持掷的方式 */
+const DICE_ONLY_METHODS = new Set(['absorb_energy', 'reaction_absorb'])
 
 export function createEmptyChargeItemValue(overrides = {}) {
   return {
     charges: 1,
-    recovery: { method: 'long_rest', kind: 'full', fixed: 1, diceCount: 1, diceSides: 6 },
+    recovery: { method: 'long_rest', kind: 'full', fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0 },
     effects: [],
     ...overrides,
   }
@@ -89,6 +90,7 @@ export function normalizeChargeItemValue(value) {
     fixed: Math.max(0, Number(rec.fixed) || 0),
     diceCount: Math.max(1, Number(rec.diceCount) || 1),
     diceSides: Math.max(1, Number(rec.diceSides) || 6),
+    diceBonus: Math.max(0, Number(rec.diceBonus) || 0),
   }
   // effects
   const rawEffects = Array.isArray(value.effects) ? value.effects : []
@@ -140,7 +142,11 @@ export function formatRecoveryBrief(recovery) {
   const methodLabel = getRecoveryMethodLabel(recovery.method)
   if (recovery.method === 'none') return methodLabel
   if (recovery.kind === 'full') return `${methodLabel}（回满）`
-  if (recovery.kind === 'dice') return `${methodLabel} ${recovery.diceCount}d${recovery.diceSides}`
+  if (recovery.kind === 'dice') {
+    const bonus = Number(recovery.diceBonus) || 0
+    const diceText = `${recovery.diceCount}d${recovery.diceSides}`
+    return bonus > 0 ? `${methodLabel} ${diceText}+${bonus}` : `${methodLabel} ${diceText}`
+  }
   return `${methodLabel} ${recovery.fixed}`
 }
 

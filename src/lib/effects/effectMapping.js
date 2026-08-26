@@ -330,42 +330,44 @@ export function getBuffsFromClassFeatures(character, moduleId) {
       // 选择型特性：检查玩家选择和选项专属 DM 补丁
       const registryEntry = CLASS_FEATURE_CHOICE_REGISTRY[buffKey]
       if (registryEntry) {
-        const chosenOptionId = classFeatureChoices?.[f.id] || null
+        // DM 特性级补丁的 choiceSelected 覆盖（DM 可强制指定选项）
+        const dmChoiceOverride = defaultPatch?.choiceSelected != null ? defaultPatch.choiceSelected : null
 
-        // 检查特性级 DM 补丁（整体覆盖，不走 choice 结构）
-        if (effects.length > 0) {
-          // DM 已在特性级打了补丁，保持扁平效果（向后兼容）
-        } else {
-          // 构建 choice 结构：每个选项包含各自效果，BUFF 编辑器可展示/编辑
-          const choiceOptions = registryEntry.options.map((opt) => {
-            const optBuffKey = `${buffKey}:${opt.id}`
-            const optPatch = moduleId ? loadDefaultBuffPatch(moduleId, 'classFeature', optBuffKey) : null
-            if (optPatch && Array.isArray(optPatch.effects) && optPatch.effects.length) {
-              return { name: opt.label, effects: optPatch.effects }
-            }
-            return { name: opt.label, effects: registryEntry.getEffects(opt.id) }
-          })
+        const chosenOptionId = dmChoiceOverride != null
+          ? registryEntry.options[dmChoiceOverride]?.id || null
+          : (classFeatureChoices?.[f.id] || null)
 
-          const selIdx = chosenOptionId
-            ? registryEntry.options.findIndex((o) => o.id === chosenOptionId)
-            : -1
-
-          if (selIdx >= 0) {
-            optionId = chosenOptionId
-            // sourceLabel 保持仅显示职业名，不追加选项名
+        // 构建 choice 结构：每个选项包含各自效果，BUFF 编辑器可展示/编辑
+        const choiceOptions = registryEntry.options.map((opt) => {
+          const optBuffKey = `${buffKey}:${opt.id}`
+          const optPatch = moduleId ? loadDefaultBuffPatch(moduleId, 'classFeature', optBuffKey) : null
+          if (optPatch && Array.isArray(optPatch.effects) && optPatch.effects.length) {
+            return { name: opt.label, description: opt.description || '', effects: optPatch.effects }
           }
+          return { name: opt.label, description: opt.description || '', effects: registryEntry.getEffects(opt.id) }
+        })
 
-          effects = [{
-            effectType: 'choice',
-            category: 'custom',
-            scope: 'global',
-            scopeDetail: [],
-            value: {
-              choiceOptions,
-              choiceSelected: selIdx >= 0 ? selIdx : 0,
-            },
-          }]
+        const selIdx = chosenOptionId
+          ? registryEntry.options.findIndex((o) => o.id === chosenOptionId)
+          : -1
+
+        if (selIdx >= 0) {
+          optionId = chosenOptionId
+          // sourceLabel 显示职业名和具体选择的选项名
+          const selectedOption = registryEntry.options[selIdx]
+          sourceLabel = `${f.name}：${selectedOption.label}`
         }
+
+        effects = [{
+          effectType: 'choice',
+          category: 'custom',
+          scope: 'global',
+          scopeDetail: [],
+          value: {
+            choiceOptions,
+            choiceSelected: selIdx >= 0 ? selIdx : 0,
+          },
+        }]
       }
 
       // 非选择型特性或无玩家选择时：回退到硬编码默认

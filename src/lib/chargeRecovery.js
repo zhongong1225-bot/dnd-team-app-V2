@@ -24,6 +24,7 @@ export function normalizeChargeRecoveryValue(value) {
         kind,
         diceCount: Math.max(1, Number(value.diceCount) || 1),
         diceSides: Math.max(1, Number(value.diceSides) || 6),
+        diceBonus: Math.max(0, Number(value.diceBonus) || 0),
       }
     }
     return { kind, fixed: Math.max(0, Number(value.fixed) || 0) }
@@ -37,7 +38,8 @@ export function computeRecoveryAmount(value) {
   if (norm.kind === 'dice') {
     const expression = `${norm.diceCount}d${norm.diceSides}`
     const { total, rolls } = rollDice(expression)
-    return { amount: total, expression, rolls }
+    const bonus = norm.diceBonus || 0
+    return { amount: total + bonus, expression: bonus > 0 ? `${expression}+${bonus}` : expression, rolls }
   }
   return { amount: norm.fixed, expression: String(norm.fixed), rolls: [] }
 }
