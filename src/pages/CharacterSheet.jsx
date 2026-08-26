@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo, forwardRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ChevronUp, ChevronDown, Trash2, Star, Upload, X, Plus, Settings, Zap, RefreshCw, Pin } from 'lucide-react'
+import { ChevronUp, ChevronDown, Trash2, Star, Upload, X, Plus, Settings, Zap, RefreshCw } from 'lucide-react'
 
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
@@ -64,22 +64,16 @@ import BuffForm from '../components/BuffForm'
 import { loadDefaultBuffPatch, saveDefaultBuffPatch, buildClassFeatureBuffKey } from '../lib/defaultBuffPatchStore'
 import { CLASS_FEATURE_CHOICE_REGISTRY } from '../data/classFeatureChoiceRegistry'
 import { ACTIVE_ABILITY_REGISTRY, getAbilityById } from '../data/activeAbilityRegistry'
+import { executeAbility, canUseAbility } from '../lib/activeAbilityEngine'
 import { formatRecoveryBrief, buildAbilityDiceExpr } from '../lib/chargeItemModel'
 import { rollDice } from '../data/weaponDatabase'
 import InfoTooltip from '../components/InfoTooltip'
-import { QuickBarPinButton } from '../components/combat/ActiveAbilityQuickBar'
 import { ClassFeatureTooltipContent, FeatTooltipContent } from '../lib/infoTooltipContent'
 import { APP_VERSION_LABEL } from '../config/version'
 
 /** 选项专属 BUFF key：${sourceClass}|${sourceSubclass || ''}|${featureId}:${optionId} */
 function buildClassFeatureOptionBuffKey(sourceClass, sourceSubclass, featureId, optionId) {
   return `${sourceClass}|${sourceSubclass || ''}|${featureId}:${optionId}`
-}
-
-/** 查找职业特性对应的主动技能 ID（按 feature.id 匹配 ability.id） */
-function findActiveAbilityForFeature(featureId) {
-  const ability = ACTIVE_ABILITY_REGISTRY.find((a) => a.id === featureId && a.source === 'class')
-  return ability?.id || null
 }
 
 /** 查找专长对应的主动技能 ID（按 feat.id 匹配 ability.sourceKey） */
@@ -1440,17 +1434,6 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                     </InfoTooltip>
                     <span className={`${CS_LIST_META} ml-2`}>{f.sourceClass}{f.sourceSubclass ? `（${f.sourceSubclass}）` : ''} · {f.level} 级</span>
                   </div>
-                  {(() => {
-                    const abilityId = findActiveAbilityForFeature(f.id)
-                    if (!abilityId) return null
-                    return (
-                      <QuickBarPinButton
-                        abilityId={abilityId}
-                        quickBar={char?.activeAbilityQuickBar}
-                        onUpdateQuickBar={(next) => onSave({ activeAbilityQuickBar: next })}
-                      />
-                    )
-                  })()}
                   <button
                     type="button"
                     onClick={(e) => {
@@ -2004,30 +1987,43 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
                   </div>
                 )}
 
-                {/* 主动技能按钮 */}
-                {row?.featId && hasActiveAbility && (
-                  <div className="mt-2">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        const ability = findActiveAbilityForFeat(row.featId)
-                        if (ability) {
-                          const isPinned = char?.activeAbilityQuickBar?.includes(ability)
-                          const next = isPinned
-                            ? (char?.activeAbilityQuickBar || []).filter((id) => id !== ability)
-                            : [...(char?.activeAbilityQuickBar || []), ability]
-                          onSave({ activeAbilityQuickBar: next })
-                        }
-                      }}
-                      className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-dnd-gold/10 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/20 hover:border-dnd-gold/50 transition-all active:scale-[0.98]"
-                      title={char?.activeAbilityQuickBar?.includes(findActiveAbilityForFeat(row.featId)) ? '从快捷栏移除' : '添加到快捷栏'}
-                    >
-                      <Pin className={`w-3.5 h-3.5 ${char?.activeAbilityQuickBar?.includes(findActiveAbilityForFeat(row.featId)) ? 'text-dnd-gold' : ''}`} />
-                      {char?.activeAbilityQuickBar?.includes(findActiveAbilityForFeat(row.featId)) ? '已安装到快捷栏' : '安装到快捷栏'}
-                    </button>
-                  </div>
-                )}
+                {/* 主动技能使用按钮 */}
+                {row?.featId && hasActiveAbility && (() => {
+                  const abilityId = findActiveAbilityForFeat(row.featId)
+                  const ability = getAbilityById(abilityId)
+                  if (!ability) return null
+                  const check = canUseAbility(ability, char)
+                  const costText = ability.cost.type === 'class_resource'
+                    ? `${ability.cost.amount}${({ star_points: '星', wild_shape: '变', second_wind: '气', lay_on_hands: '疗' }[ability.cost.resourceKey] || '')}`
+                    : ability.cost.type === 'none' ? '免费' : ''
+                  return (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        disabled={!check.usable}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          const result = executeAbility(ability, char)
+                          if (result.success) {
+                            const patches = { ...result.patch }
+                            if (result.resourcePatch) patches.classResources = result.resourcePatch
+                            if (Object.keys(patches).length > 0) onSave(patches)
+                          }
+                        }}
+                        className={`w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-all active:scale-[0.98] ${
+                          check.usable
+                            ? 'bg-dnd-gold/10 text-dnd-gold-light border-dnd-gold/30 hover:bg-dnd-gold/20 hover:border-dnd-gold/50'
+                            : 'bg-gray-800/50 text-gray-500 border-gray-600/50 cursor-not-allowed'
+                        }`}
+                        title={check.usable ? `点击使用${ability.name}` : check.reason}
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                        <span>{ability.name}</span>
+                        {costText && <span className="text-[10px] opacity-70">{costText}</span>}
+                      </button>
+                    </div>
+                  )
+                })()}
 
                 {/* 展开内容 */}
                 {isExpanded && hasDescription && (
@@ -2151,30 +2147,43 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
                   </div>
                 )}
 
-                {/* 主动技能按钮 */}
-                {hasActiveAbility && (
-                  <div className="mt-2">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        const ability = findActiveAbilityForFeat(row.featId)
-                        if (ability) {
-                          const isPinned = char?.activeAbilityQuickBar?.includes(ability)
-                          const next = isPinned
-                            ? (char?.activeAbilityQuickBar || []).filter((id) => id !== ability)
-                            : [...(char?.activeAbilityQuickBar || []), ability]
-                          onSave({ activeAbilityQuickBar: next })
-                        }
-                      }}
-                      className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-dnd-gold/10 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/20 hover:border-dnd-gold/50 transition-all active:scale-[0.98]"
-                      title={char?.activeAbilityQuickBar?.includes(findActiveAbilityForFeat(row.featId)) ? '从快捷栏移除' : '添加到快捷栏'}
-                    >
-                      <Pin className={`w-3.5 h-3.5 ${char?.activeAbilityQuickBar?.includes(findActiveAbilityForFeat(row.featId)) ? 'text-dnd-gold' : ''}`} />
-                      {char?.activeAbilityQuickBar?.includes(findActiveAbilityForFeat(row.featId)) ? '已安装到快捷栏' : '安装到快捷栏'}
-                    </button>
-                  </div>
-                )}
+                {/* 主动技能使用按钮 */}
+                {hasActiveAbility && (() => {
+                  const abilityId = findActiveAbilityForFeat(row.featId)
+                  const ability = getAbilityById(abilityId)
+                  if (!ability) return null
+                  const check = canUseAbility(ability, char)
+                  const costText = ability.cost.type === 'class_resource'
+                    ? `${ability.cost.amount}${({ star_points: '星', wild_shape: '变', second_wind: '气', lay_on_hands: '疗' }[ability.cost.resourceKey] || '')}`
+                    : ability.cost.type === 'none' ? '免费' : ''
+                  return (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        disabled={!check.usable}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          const result = executeAbility(ability, char)
+                          if (result.success) {
+                            const patches = { ...result.patch }
+                            if (result.resourcePatch) patches.classResources = result.resourcePatch
+                            if (Object.keys(patches).length > 0) onSave(patches)
+                          }
+                        }}
+                        className={`w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-all active:scale-[0.98] ${
+                          check.usable
+                            ? 'bg-dnd-gold/10 text-dnd-gold-light border-dnd-gold/30 hover:bg-dnd-gold/20 hover:border-dnd-gold/50'
+                            : 'bg-gray-800/50 text-gray-500 border-gray-600/50 cursor-not-allowed'
+                        }`}
+                        title={check.usable ? `点击使用${ability.name}` : check.reason}
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                        <span>{ability.name}</span>
+                        {costText && <span className="text-[10px] opacity-70">{costText}</span>}
+                      </button>
+                    </div>
+                  )
+                })()}
 
                 {/* 展开内容 */}
                 {isExpanded && hasDescription && (
