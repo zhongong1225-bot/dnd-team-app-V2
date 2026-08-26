@@ -328,7 +328,7 @@ export function formatDamagePiercingTraitsValue(value) {
  * 第一级：大类 (category)
  * 第二级：具体效果 (key, label, dataType, subSelect, hidden)
  */
-const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'active_release', 'container', 'proficiency', 'transformation', 'custom']
+const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'active_release', 'container', 'proficiency', 'transformation', 'choice', 'custom']
 
 export const BUFF_TYPES = {
   ability: {
@@ -479,15 +479,37 @@ export const BUFF_TYPES = {
     label: '变身',
     color: 'pink',
     effects: [
-      /** 变身：引用生物库中的生物ID。value: { creatureId, restoreOriginalOnEnd?, acMode: 'replace' | 'add', hpMode: 'replace' | 'add' } */
+      /**
+       * 变身：引用生物库中的生物ID
+       * value: {
+       *   creatureId: string,
+       *   acMode: 'replace' | 'add' | 'max_formula',
+       *   acFormulaBase: number (max_formula 时基础值，如 13),
+       *   acFormulaAbility: '' | 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha' (max_formula 时加的调整值),
+       *   hpMode: 'replace' | 'add' | 'keep_plus_temp',
+       *   hpFormula: { ref, className?, ability?, mult, add } | null (keep_plus_temp 时临时HP公式),
+       *   keepAbilities: ('int' | 'wis' | 'cha')[] (保留原角色的属性),
+       *   resourceCostType: '' | 'wild_shape_uses' | 'spell_slot' | 'charges',
+       *   resourceCostValue: number,
+       * }
+       */
       { key: 'creature_transform', label: '变身', dataType: 'object', subSelect: 'creatureTransform' },
     ],
   },
   /** 与防御/攻击等大类同级：自由描述类状态，不参与数值计算 */
+  /** 选择型 BUFF：玩家从多个命名选项中选择一个，仅应用选中选项的效果 */
+  choice: {
+    label: '选择',
+    color: 'violet',
+    choiceType: true,
+    effects: [
+      { key: 'choice', label: '选择', dataType: 'object', subSelect: 'choice' },
+    ],
+  },
   custom: {
     label: '自定义',
     color: 'slate',
-    effects: [{ key: 'custom_condition', label: '📝 自由填写 (状态)', dataType: 'text' }],
+    effects: [{ key: 'custom_condition', label: ' 自由填写 (状态)', dataType: 'text' }],
   },
 }
 

@@ -30,6 +30,9 @@ import { CONDITION_OPTIONS, CONDITION_DESCRIPTIONS, EXHAUSTION_DESCRIPTIONS, DAM
 import { inputClass, inputClassInline } from '../lib/inputStyles'
 import { hpBarMainFillClass, HP_BAR_TEMP_FILL_CLASS } from '../lib/hpBarShared'
 import { getAutoResources, computeResourceMax, createResourceEntry } from '../data/classResourceRules'
+import WeaponAttackCard from './combat/WeaponAttackCard'
+import SpellAttackCard from './combat/SpellAttackCard'
+import ItemUseCard from './combat/ItemUseCard'
 
 /** 战斗手段弹窗用：伤害类型选项（与 buffTypes 统一简称）；排除 雷鸣 */
 const DAMAGE_TYPE_OPTIONS = DAMAGE_TYPES.filter((d) => d.label !== '雷鸣').map((d) => ({ value: d.label, label: d.label }))
@@ -3677,453 +3680,122 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             if (isCombo && !comboPrimary) return null
             if (!isPhysical && !isItem && !isSpellAttack && !isCombo && !spellOpt) return null
 
+
+            /* ── 构建共享上下文 ── */
+            const cardCtx = {
+              canEdit, isCombo, gains,
+              // 物理武器计算结果
+              physStats,
+              // 法术相关
+              spellAttackBonus, spellDC, buffStats,
+              // 增益
+              gainAttackBonus, gainDamageBonus, gainPerDieBonus,
+              gainExtraDice, gainAdvantage, gainDiceFloor2,
+              // 公式/角色
+              itemFormulaContext, effectiveAbilities, prof,
+              // 道具相关
+              focusSpellMap,
+              // 回调
+              openEditWeaponMean, openEditSpellAttack, openEditItemMean, openEditComboMean,
+              removeCombatMean, openForCheck, rollAllWeaponDamage, rollDamageDice,
+              consumeSpellSlotForMean, renderAutoGainBadges,
+              // 状态设置
+              setExplosiveUsePending, useScroll, setFocusUsePending, setFocusSpellMap,
+              // 数据源
+              getMergedSpells,
+              // 角色数据（道具卡需要）
+              char,
+            }
+
             return (
-              <div
-                key={cm.id}
-                className={`rounded-lg border border-gray-600 bg-gray-800/80 p-2 ${COMBAT_LIST_ROW_SHADOW}`}
-              >
+              <>
                 {isItem && itemMeanOpt ? (
-                  <div className={COMBAT_MEAN_ROW_GRID}>
-                    <div className="col-span-5 flex items-center gap-1 min-w-0 pr-2">
-                      <ActionLabelBadge source="1 动作" />
-                      <span className={`text-white font-medium ${CM_MEAN_HI} truncate min-w-0`}>{itemMeanOpt.name}</span>
-                      {canEdit && (
-                        <button type="button" onClick={() => openEditItemMean(cm)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-dnd-gold-light shrink-0" title="编辑道具攻击">
-                          <Pencil size={12} />
-                        </button>
-                      )}
-                    </div>
-                    {itemMeanOpt.kind === 'explosive' ? (
-                      (() => {
-                        const currentEntry = char?.inventory?.[cm.itemInventoryIndex]
-                        const currentQty = currentEntry != null ? Math.max(0, Number(currentEntry.qty) ?? 1) : 0
-                        const c = 'pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden'
-                        return (
-                          <>
-                            <div className="col-span-4 pl-2 border-l border-gray-600 flex min-w-0 flex-col gap-0.5 overflow-hidden sm:flex-row sm:items-center sm:gap-x-3">
-                              <span className="flex min-w-0 items-center gap-x-1"><span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>抛距</span><span className={`text-white ${CM_MEAN_HI} truncate`}>{itemMeanOpt.攻击距离 || '—'}{/^\d+$/.test(String(itemMeanOpt.攻击距离 || '').trim()) ? '尺' : ''}</span></span>
-                              <span className="flex min-w-0 items-center gap-x-1"><span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>爆炸半径</span><span className={`text-white ${CM_MEAN_HI} truncate`}>{itemMeanOpt.爆炸半径 != null ? `${itemMeanOpt.爆炸半径}尺` : '—'}</span></span>
+                  <ItemUseCard displayMean={displayMean} itemMeanOpt={itemMeanOpt} ctx={cardCtx} />
+                ) : isSpellAttack ? (
+                  <SpellAttackCard displayMean={displayMean} comboSuffix={comboSuffix} ctx={cardCtx} />
+                ) : isPhysical ? (
+                  <WeaponAttackCard displayMean={displayMean} weaponOpt={weaponOpt} ctx={cardCtx} comboSuffix={comboSuffix} />
+                ) : (
+                  /* 兜底法术卡片（未配置战斗手段详情的原始法术） */
+                  <div
+                    key={cm.id}
+                    className={`rounded-lg border border-gray-600 bg-gray-800/80 p-2 ${COMBAT_LIST_ROW_SHADOW}`}
+                  >
+                    <>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          value={cm.type}
+                          onChange={(e) => updateCombatMean(cm.id, { type: e.target.value, weaponInventoryIndex: null, spellId: null })}
+                          className={inputClass + ' !text-xs h-7 w-24'}
+                          disabled={!canEdit}
+                        >
+                          <option value="physical">物理攻击</option>
+                          <option value="spell">法术攻击</option>
+                        </select>
+                        <ActionLabelBadge source={spell?.castingTime || ''} />
+                        {canEdit && (
+                          <button type="button" onClick={() => removeCombatMean(cm.id)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red" title="移除">
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>法术</span>
+                        <select
+                          value={cm.spellId ?? ''}
+                          onChange={(e) => updateCombatMean(cm.id, { spellId: e.target.value || null })}
+                          className={inputClass + ' !text-xs h-7 flex-1 min-w-0 max-w-[160px]'}
+                          disabled={!canEdit}
+                        >
+                          <option value="">—</option>
+                          {preparedSpellsList.map((p) => (
+                            <option key={p.spellId} value={p.spellId}>{p.spell?.name ?? p.spellId}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {spell && (
+                        <>
+                          {spellIsAttack ? (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>法术攻击</span>
+                              <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums`}>{spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : '—'}</span>
+                              {spellAttackBonus != null && (
+                                <button type="button" onClick={() => { if (!consumeSpellSlotForMean(cm, spell.name)) return; openForCheck(spell.name + ' 法术攻击', spellAttackBonus, { quickRoll: true }) }} className={CM_BTN_RED} title={quickRollTitle('法术攻击')} aria-label={quickRollTitle('法术攻击')}>
+                                  <QuickRollIcon kind="d20" />
+                                </button>
+                              )}
                             </div>
-                            <div className={`${c} col-span-4`}><span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>命中</span><span className={`text-white ${CM_MEAN_HI} truncate`}>—</span></div>
-                            {(() => {
-                              const explosiveDiceCount = (() => { const p = parseCombatDiceExpression((itemMeanOpt.dice || '').trim()); return p ? p.count : 0 })()
-                              const explosiveDamageMod = gainDamageBonus + gainPerDieBonus * explosiveDiceCount
-                              const compactedGainExtraDice = gainExtraDice.map(compactDiceExpression)
-                              const explosiveExtraText = compactedGainExtraDice.length ? (' + ' + compactedGainExtraDice.join(' + ')) : ''
-                              const explosiveModText = (explosiveDamageMod !== 0 && itemMeanOpt.dice) ? ` ${formatSignedModifier(explosiveDamageMod)}` : ''
-                              const damageText = itemMeanOpt.dice
-                                ? compactDiceExpression(`${(itemMeanOpt.dice || '').toUpperCase()} ${itemMeanOpt.damageType || ''}`.trim()) + explosiveExtraText + explosiveModText
-                                : (compactedGainExtraDice.length ? compactedGainExtraDice.join(' + ') : '—')
-                              return (
-                                <div className={`${c} col-span-10 flex flex-wrap items-center gap-x-1 gap-y-1`}>
-                                  <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
-                                  <span className={`text-white font-mono ${CM_MEAN_HI} truncate whitespace-nowrap min-w-0`}>{damageText}</span>
-                                  {renderAutoGainBadges(gains, () => openEditItemMean(cm))}
-                                  <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>数量</span>
-                                  <span className={`text-white ${CM_MEAN_HI} tabular-nums`}>{currentQty}</span>
-                                  {itemMeanOpt.dice && currentQty > 0 && (
-                                    <button type="button" onClick={() => setExplosiveUsePending({ inventoryIndex: itemMeanOpt.index, name: itemMeanOpt.name, diceExpr: itemMeanOpt.dice, damageType: itemMeanOpt.damageType, gains: getEnabledGains(cm) })} className={CM_BTN_GOLD} title={quickRollTitle('投掷伤害（使用后扣 1 数量）')} aria-label={quickRollTitle('投掷伤害（使用后扣 1 数量）')}>
-                                      <QuickRollIcon kind="damage" className={CM_DICE_IC_GOLD} />
+                          ) : (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>法术 DC</span>
+                              <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums`}>{spellDC != null ? spellDC : '—'}</span>
+                            </div>
+                          )}
+                          {spellDamageList.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2">
+                              {spellDamageList.map((d, i) => (
+                                <span key={i} className="inline-flex items-center gap-0.5">
+                                  <span className={`text-white font-mono ${CM_MEAN_HI}`}>{d.dice} {d.type}</span>
+                                  <button type="button" onClick={() => { if (!consumeSpellSlotForMean(cm, spell.name)) return; rollDamageDice(d.dice, spell.name + ' ' + d.type, 'spell-' + cm.id + '-' + i, 0, false, getDamageTypeLabel(d.type) || d.type || '') }} className={CM_BTN_GOLD} title={quickRollTitle('伤害')} aria-label={quickRollTitle('伤害')}>
+                                    <QuickRollIcon kind="damage" className={CM_DICE_IC_GOLD} />
+                                  </button>
+                                  {spellIsAttack && (
+                                    <button type="button" onClick={() => { if (!consumeSpellSlotForMean(cm, spell.name)) return; rollDamageDice(d.dice, spell.name + ' ' + d.type, 'spell-' + cm.id + '-' + i, 0, true, getDamageTypeLabel(d.type) || d.type || '') }} className={CM_BTN_CRIT} title={quickRollTitle('伤害（重击×2伤害骰）')} aria-label={quickRollTitle('伤害（重击×2伤害骰）')}>
+                                      <QuickRollIcon kind="crit" className={CM_DICE_IC_GOLD} />
                                     </button>
                                   )}
-                                </div>
-                              )
-                            })()}
-                            <div className="col-span-1 pl-1 border-l border-gray-600 flex items-center justify-end gap-0.5 shrink-0 min-w-0">
-                              {canEdit && (
-                                <button type="button" onClick={() => removeCombatMean(cm.id)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red shrink-0" title="移除">
-                                  <Trash2 size={12} />
-                                </button>
-                              )}
+                                </span>
+                              ))}
                             </div>
-                          </>
-                        )
-                      })()
-                    ) : itemMeanOpt.kind === 'scroll' ? (
-                      (() => {
-                        const currentEntry = char?.inventory?.[cm.itemInventoryIndex]
-                        const currentQty = currentEntry != null ? Math.max(0, Number(currentEntry.qty) ?? 1) : 0
-                        const c = 'pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden'
-                        return (
-                          <>
-                            <div className="col-span-[16] pl-2 border-l border-gray-600 min-h-7 min-w-0" aria-hidden />
-                            <div className={`${c} col-span-2 justify-center`}><span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>数量</span><span className={`text-white ${CM_MEAN_HI} tabular-nums`}>{currentQty}张</span></div>
-                            <div className="col-span-1 pl-1 border-l border-gray-600 flex items-center justify-end gap-0.5 shrink-0 min-w-0">
-                              {currentQty > 0 && (
-                                <button type="button" onClick={() => useScroll(itemMeanOpt.index)} className={CM_BTN_RED} title={quickRollTitle('使用卷轴（消耗 1 张）')} aria-label={quickRollTitle('使用卷轴（消耗 1 张）')}>
-                                  <QuickRollIcon kind="damage" />
-                                </button>
-                              )}
-                              {canEdit && (
-                                <button type="button" onClick={() => removeCombatMean(cm.id)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red shrink-0" title="移除">
-                                  <Trash2 size={12} />
-                                </button>
-                              )}
-                            </div>
-                          </>
-                        )
-                      })()
-                    ) : (() => {
-                      const currentEntry = char?.inventory?.[cm.itemInventoryIndex]
-                      const currentCharge = currentEntry != null ? Math.max(0, Number(currentEntry.charge) ?? 0) : 0
-                      const containedSpellRaw = extractContainedSpellValueFromEntry(currentEntry)
-                      const cs = normalizeContainedSpellValue(containedSpellRaw, currentEntry?.charge)
-                      const chargeMaxRaw = itemMeanOpt.chargeMax || currentEntry?.chargeMax || cs?.totalCharges || 0
-                      const chargeMax = chargeMaxRaw > 0 ? chargeMaxRaw : (currentCharge > 0 ? currentCharge : 0)
-                      const hasSpells = cs.spells.length > 0
-                      const selectedSub = hasSpells
-                        ? (cs.spells.find((s) => {
-                            const sel = focusSpellMap[cm.itemInventoryIndex]
-                            if (!sel) return false
-                            return (sel.spellId && sel.spellId === s.spellId && sel.spellName === s.spellName) ||
-                              (!sel.spellId && sel.spellName === s.spellName)
-                          }) || cs.spells.find((s) => (s.cost || 1) <= currentCharge) || cs.spells[0])
-                        : null
-                      const level = Math.max(0, Math.min(9, Number(selectedSub?.level) ?? 0))
-                      const itemProto = currentEntry?.itemId ? getItemById(currentEntry.itemId) : null
-                      const useWandScrollTable = !!(itemProto && (/魔杖|卷轴/.test(itemProto.类别 || '') || itemProto.子类型 === '卷轴'))
-                      const basePower = useWandScrollTable ? getWandScrollSpellPower(level) : null
-                      const evalContext = { abilities: effectiveAbilities, level, prof, spellDC, spellAttack: spellAttackBonus }
-                      const entrySpellBonus = getEntrySpellPowerBonus(currentEntry, char, evalContext)
-                      const focusSpellAttackForMean = basePower
-                        ? basePower.attackBonus + entrySpellBonus.atk + gainAttackBonus
-                        : (spellAttackBonus != null ? spellAttackBonus + entrySpellBonus.atk + gainAttackBonus : null)
-                      const focusDcForMean = basePower
-                        ? basePower.dc + entrySpellBonus.dc
-                        : (spellDC != null ? spellDC + entrySpellBonus.dc : null)
-                      const hitRes = selectedSub?.hitResolution && (HIT_RESOLUTION_LABELS[selectedSub.hitResolution] || selectedSub.hitResolution === 'none') ? selectedSub.hitResolution : 'dex_save'
-                      const hitLabel = HIT_RESOLUTION_LABELS[hitRes]
-                      const hitText = hitRes === 'none'
-                        ? ((selectedSub?.range || '').trim() || '—')
-                        : hitRes === 'spell_attack'
-                          ? `${hitLabel} ${focusSpellAttackForMean != null ? (focusSpellAttackForMean >= 0 ? '+' : '') + focusSpellAttackForMean : '—'}`
-                          : `${hitLabel} DC ${focusDcForMean != null ? focusDcForMean : '—'}`
-                      const dCount = Math.max(0, Number(selectedSub?.damageDiceCount) ?? 0)
-                      const dSides = Math.max(1, Number(selectedSub?.damageDiceSides) ?? 6)
-                      const damageDiceText = dCount > 0 ? `${dCount}d${dSides}` : ''
-                      const damageTypeLabel = selectedSub?.damageType ? getDamageTypeLabel(selectedSub.damageType) : ''
-                      const focusSpellDamageExtras = getSpellDamageBonusExtras(selectedSub?.damageType, buffStats?.spellDamageBonuses, itemFormulaContext)
-                      // spell_damage_bonus 的 perDie/diceFloor 已统一通过 auto 增益体现；flatBonus/extraDice 仍自动追加
-                      const focusDamageMod = gainDamageBonus + gainPerDieBonus * dCount + focusSpellDamageExtras.flatBonus
-                      const focusAllExtraDice = [...gainExtraDice, ...focusSpellDamageExtras.extraDice]
-                      const compactedFocusExtraDice = focusAllExtraDice.map(compactDiceExpression)
-                      const focusExtraText = compactedFocusExtraDice.length ? (' + ' + compactedFocusExtraDice.join(' + ')) : ''
-                      const focusModText = (focusDamageMod !== 0 && damageDiceText) ? ` ${formatSignedModifier(focusDamageMod)}` : ''
-                      const focusDamageFloor2 = gainDiceFloor2
-                      const damageText = damageDiceText
-                        ? compactDiceExpression((damageTypeLabel ? `${damageDiceText} ${damageTypeLabel}` : damageDiceText).trim()) + focusExtraText + focusModText
-                        : (compactedFocusExtraDice.length ? compactedFocusExtraDice.join(' + ') : '—')
-                      const spellRange = (selectedSub?.range != null && String(selectedSub.range).trim() !== '') ? (String(selectedSub.range).trim() + (/^\d+$/.test(String(selectedSub.range).trim()) ? '尺' : '')) : '—'
-                      const cell = 'pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden'
-                      const selectedIdx = selectedSub ? cs.spells.indexOf(selectedSub) : -1
-                      const canCast = currentCharge > 0 && selectedSub && (selectedSub.cost || 1) <= currentCharge
-                      return (
-                        <>
-                          <div className={`${cell} col-span-4`}><span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>距离</span><span className={`text-white ${CM_MEAN_HI} truncate`}>{spellRange}</span></div>
-                          <div className={`${cell} col-span-4`}><span className={`text-white ${CM_MEAN_HI} truncate`}>{hitText || '—'}</span></div>
-                          <div className={`${cell} col-span-10 flex flex-wrap items-center gap-x-1 gap-y-1`}>
-                            {hasSpells && cs.spells.length > 1 && (
-                              <>
-                                <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>法术</span>
-                                <select
-                                  value={selectedIdx >= 0 ? selectedIdx : 0}
-                                  onChange={(e) => {
-                                    const idx = Number(e.target.value)
-                                    const sub = cs.spells[idx]
-                                    if (sub) {
-                                      setFocusSpellMap((prev) => ({ ...prev, [cm.itemInventoryIndex]: sub }))
-                                    }
-                                  }}
-                                  className={inputClass + ' !text-xs h-6 py-0 px-1 min-w-0 flex-1 max-w-[140px] bg-gray-800'}
-                                  title="选择要使用的内含法术"
-                                >
-                                  {cs.spells.map((s, idx) => (
-                                    <option key={idx} value={idx}>
-                                      {s.spellName?.trim() || '未命名'} · {s.level || 0}环
-                                    </option>
-                                  ))}
-                                </select>
-                              </>
-                            )}
-                            {hasSpells && cs.spells.length === 1 && (
-                              <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>{cs.spells[0].spellName?.trim() || '内含法术'} · {cs.spells[0].level || 0}环</span>
-                            )}
-                            <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
-                            <span className={`text-white font-mono ${CM_MEAN_HI} truncate whitespace-nowrap min-w-0`}>{damageText}</span>
-                            {renderAutoGainBadges(gains, () => openEditItemMean(cm))}
-                            <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>充能</span>
-                            <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums`}>{currentCharge}/{chargeMax}</span>
-                            {canCast && (
-                              <button type="button" onClick={() => setFocusUsePending({ inventoryIndex: itemMeanOpt.index, name: itemMeanOpt.name, combatMeanId: cm.id, spellSub: selectedSub, gains: getEnabledGains(cm), spellDamageExtras: focusSpellDamageExtras, damageFloor2: focusDamageFloor2 })} className={CM_BTN_RED} title={quickRollTitle(`法器投掷（确认后扣 ${selectedSub?.cost || 1} 充能）`)} aria-label={quickRollTitle(`法器投掷（确认后扣 ${selectedSub?.cost || 1} 充能）`)}>
-                                <QuickRollIcon kind="damage" className={CM_DICE_IC_GOLD} />
-                              </button>
-                            )}
-                          </div>
-                          <div className="col-span-1 pl-1 border-l border-gray-600 flex items-center justify-end gap-0.5 shrink-0 min-w-0">
-                            {canEdit && (
-                              <button type="button" onClick={() => removeCombatMean(cm.id)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red shrink-0" title="移除">
-                                <Trash2 size={12} />
-                              </button>
-                            )}
-                          </div>
+                          )}
                         </>
-                      )
-                    })()}
-                  </div>
-                ) : isSpellAttack ? (
-                  (() => {
-                    const matchedSpell = getMergedSpells().find((s) => s.id === displayMean.spellId || (s.name && s.name.trim() === (displayMean.spellName || '').trim()))
-                    const hitRes = displayMean.hitResolution && HIT_RESOLUTION_LABELS[displayMean.hitResolution] ? displayMean.hitResolution : 'spell_attack'
-                    const hitLabel = HIT_RESOLUTION_LABELS[hitRes]
-                    const rangeDisplay = computeSpellRangeDisplay(matchedSpell?.range, buffStats?.spellRangeMultiplier, buffStats?.spellRangeBonus)
-                    // 条件范围命中/伤害与 spell_damage_bonus 的 perDie/diceFloor 已统一通过 auto 增益体现
-                    const spellAttackForMean = spellAttackBonus != null ? spellAttackBonus + gainAttackBonus : null
-                    const hitValue = hitRes === 'spell_attack' ? (spellAttackForMean != null ? (spellAttackForMean >= 0 ? '+' : '') + spellAttackForMean : null) : (spellDC != null ? spellDC : null)
-                    /** 战斗手段行内空间有限，法术攻击用简称「法攻」避免截断 */
-                    const hitLabelShort = hitRes === 'spell_attack' ? '法攻' : hitLabel
-                    const hitText = hitRes === 'spell_attack' ? (hitValue != null ? `${hitLabelShort} ${hitValue}` : '—') : (hitValue != null ? `${hitLabel} DC ${hitValue}` : '—')
-                    const spellDiceCount = (() => { const p = parseCombatDiceExpression((displayMean.damageDice || '').trim()); return p ? p.count : 0 })()
-                    const spellDamageExtras = getSpellDamageBonusExtras(displayMean.damageTypeSpell, buffStats?.spellDamageBonuses, itemFormulaContext)
-                    const spellDamageMod = gainDamageBonus + gainPerDieBonus * spellDiceCount + spellDamageExtras.flatBonus
-                    const allSpellExtraDice = [...gainExtraDice, ...spellDamageExtras.extraDice]
-                    const compactedSpellExtraDice = allSpellExtraDice.map(compactDiceExpression)
-                    const baseDamageText = (displayMean.damageDice || '').trim()
-                      ? compactDiceExpression((displayMean.damageDice || '').toUpperCase() + (displayMean.damageTypeSpell ? ' ' + getDamageTypeLabel(displayMean.damageTypeSpell) : ''))
-                      : ''
-                    const extraDamageText = compactedSpellExtraDice.length ? (' + ' + compactedSpellExtraDice.join(' + ')) : ''
-                    const modDamageText = (spellDamageMod !== 0 && baseDamageText) ? ` ${formatSignedModifier(spellDamageMod)}` : ''
-                    const damageText = baseDamageText ? `${baseDamageText}${extraDamageText}${modDamageText}` : (compactedSpellExtraDice.length ? compactedSpellExtraDice.join(' + ') : '—')
-                    const spellDamageFloor2 = gainDiceFloor2
-                    const cell = 'pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden'
-                    const empty = 'pl-2 border-l border-gray-600 min-w-0 overflow-hidden'
-                    return (
-                      <div className={COMBAT_MEAN_ROW_GRID}>
-                        <div className="col-span-5 flex items-center gap-1 min-w-0 pr-2">
-                          <ActionLabelBadge source={matchedSpell?.castingTime || ''} />
-                          <span className={`text-white font-medium ${CM_MEAN_HI} truncate min-w-0`}>{(displayMean.spellName || '法术攻击') + comboSuffix}</span>
-                          {canEdit && (
-                            <button type="button" onClick={() => isCombo ? openEditComboMean(cm) : openEditSpellAttack(displayMean)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-dnd-gold-light shrink-0" title={isCombo ? '编辑组合技' : '编辑法术'}>
-                              <Pencil size={12} />
-                            </button>
-                          )}
-                        </div>
-                        <div className={`${empty} col-span-4`}><span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>距离</span><span className={`text-white ${CM_MEAN_HI} truncate`}>{rangeDisplay}</span></div>
-                        <div className={`${cell} col-span-4 flex items-center gap-x-1.5 min-w-0`}>
-                          <span className={`text-white ${CM_MEAN_HI} truncate min-w-0`}>{hitText}</span>
-                          {hitRes === 'spell_attack' && spellAttackForMean != null && (
-                            <button type="button" onClick={() => { if (!consumeSpellSlotForMean(displayMean, displayMean.spellName || '法术')) return; openForCheck((displayMean.spellName || '法术攻击') + ' 法术攻击', spellAttackForMean, { quickRoll: true, advantage: gainAdvantage }) }} className={CM_BTN_RED} title={quickRollTitle('法术攻击')} aria-label={quickRollTitle('法术攻击')}>
-                              <QuickRollIcon kind="d20" />
-                            </button>
-                          )}
-                        </div>
-                        <div className="col-span-10 pl-2 border-l border-gray-600 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1">
-                          <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
-                          <span className={`min-w-0 flex-1 font-mono ${CM_MEAN_HI} tabular-nums text-white whitespace-nowrap sm:truncate`}>{damageText}</span>
-                          {renderAutoGainBadges(gains, () => isCombo ? openEditComboMean(cm) : openEditSpellAttack(displayMean))}
-                          {(displayMean.damageDice || '').trim() && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => { if (!consumeSpellSlotForMean(displayMean, displayMean.spellName || '法术')) return; rollDamageDice((displayMean.damageDice || '').trim(), (displayMean.spellName || '法术') + ' ' + (getDamageTypeLabel(displayMean.damageTypeSpell) || ''), 'spell_attack-' + displayMean.id, spellDamageMod, false, getDamageTypeLabel(displayMean.damageTypeSpell) || '', { extraDice: allSpellExtraDice, floor2: spellDamageFloor2 }) }}
-                                className={CM_BTN_GOLD}
-                                title={quickRollTitle('伤害')}
-                                aria-label={quickRollTitle('伤害')}
-                              >
-                                <QuickRollIcon kind="damage" className={CM_DICE_IC_GOLD} />
-                              </button>
-                              {hitRes === 'spell_attack' && (
-                                <button
-                                  type="button"
-                                  onClick={() => { if (!consumeSpellSlotForMean(displayMean, displayMean.spellName || '法术')) return; rollDamageDice((displayMean.damageDice || '').trim(), (displayMean.spellName || '法术') + ' ' + (getDamageTypeLabel(displayMean.damageTypeSpell) || ''), 'spell_attack-' + displayMean.id, spellDamageMod, true, getDamageTypeLabel(displayMean.damageTypeSpell) || '', { extraDice: allSpellExtraDice, floor2: spellDamageFloor2 }) }}
-                                  className={CM_BTN_CRIT}
-                                  title={quickRollTitle('伤害（重击×2伤害骰）')}
-                                  aria-label={quickRollTitle('伤害（重击×2伤害骰）')}
-                                >
-                                  <QuickRollIcon kind="crit" className={CM_DICE_IC_GOLD} />
-                                </button>
-                              )}
-                            </>
-                          )}
-                        </div>
-                        <div className="col-span-1 pl-1 border-l border-gray-600 flex items-center justify-end gap-0.5 shrink-0 min-w-0">
-                          {canEdit && (
-                            <button type="button" onClick={() => removeCombatMean(cm.id)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red shrink-0" title="移除">
-                              <Trash2 size={12} />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })()
-                ) : isPhysical ? (
-                  <div className={COMBAT_MEAN_ROW_GRID}>
-                    <div className="col-span-5 flex items-center gap-1 min-w-0 pr-2">
-                      <ActionLabelBadge source="1 动作" />
-                      <span className={`text-white font-medium ${CM_MEAN_HI} truncate min-w-0`}>{(weaponOpt?.name ?? '—') + (displayMean.weaponNameSuffix ? String(displayMean.weaponNameSuffix).trim() : '') + comboSuffix}</span>
-                      {canEdit && (
-                        <button type="button" onClick={() => isCombo ? openEditComboMean(cm) : openEditWeaponMean(displayMean)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-dnd-gold-light shrink-0" title={isCombo ? '编辑组合技' : '编辑武器'}>
-                          <Pencil size={12} />
-                        </button>
                       )}
-                    </div>
-                    {weaponOpt && (
-                      (() => {
-                        const weaponCritDiceMult = getCritDamageDiceMultiplierFromItemEntry(weaponOpt.entry, itemFormulaContext)
-                        const weaponCritThreatMin = getCritThreatMinNaturalFromItemEntry(weaponOpt.entry)
-                        const isRanged = weaponOpt.proto?.子类型 === '远程'
-                        const entryAttackDist = (weaponOpt.entry?.攻击距离 ?? '').toString().trim()
-                        const protoAttackDist = (weaponOpt.proto?.攻击距离 ?? '').toString().trim()
-                        const entryNote = (weaponOpt.entry?.附注 ?? '').trim()
-                        const protoNote = (weaponOpt.proto?.附注 ?? '').trim()
-                        const entryRangeMatch = entryNote.match(/(\d+\s*\/\s*\d+)/)
-                        const manualRangeFromNote = entryRangeMatch ? entryRangeMatch[1].replace(/\s+/g, '') : ''
-                        const { range: entryNoteRange } = parseWeaponNoteToTraits(entryNote)
-                        const { range: protoNoteRange } = parseWeaponNoteToTraits(protoNote)
-                        const mergedNote = (entryNote || protoNote || '').trim()
-                        // 射程显示优先手动输入（装备条目）→ 词条默认（武器库）→ 近战兜底
-                        const explicitRange = entryAttackDist || manualRangeFromNote || entryNoteRange || protoAttackDist || protoNoteRange
-                        const reachBonus = buffStats?.reachBonus ?? 0
-                        const addReachToRange = (rangeStr) => {
-                          if (!reachBonus || isRanged) return rangeStr
-                          if (/^\d+(\s*\/\s*\d+)?$/.test(String(rangeStr || '').trim())) {
-                            return String(rangeStr).split('/').map((p) => Number(p.trim()) + reachBonus).join('/')
-                          }
-                          const touchMatch = String(rangeStr || '').match(/触及\s*(\d*)\s*尺?/)
-                          if (touchMatch) {
-                            const base = touchMatch[1] ? Number(touchMatch[1]) : 0
-                            return `触及${base + reachBonus}尺`
-                          }
-                          return rangeStr
-                        }
-                        const rawMeleeReachLabel = /触及/.test(mergedNote) ? '触及10尺' : '触及'
-                        const rangeDisplay = explicitRange
-                          ? addReachToRange(explicitRange)
-                          : (isRanged ? '—' : addReachToRange(rawMeleeReachLabel))
-                        return (
-                      <>
-                        <div className="col-span-4 pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden">
-                          <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>射程</span>
-                          <span className={`text-white ${CM_MEAN_HI} truncate`}>{rangeDisplay}</span>
-                        </div>
-                        <div className="col-span-4 pl-2 border-l border-gray-600 flex items-center gap-x-1.5 min-w-0 overflow-hidden">
-                          <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>攻击</span>
-                          <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums truncate`}>{physicalAttackBonus >= 0 ? '+' : ''}{physicalAttackBonus}</span>
-                          <button type="button" onClick={() => openForCheck(weaponOpt.name + ' 攻击' + comboSuffix, physicalAttackBonus, { quickRoll: true, critThreatMinNatural: weaponCritThreatMin, advantage: gainAdvantage })} className={CM_BTN_RED} title={quickRollTitle('攻击')} aria-label={quickRollTitle('攻击')}>
-                            <QuickRollIcon kind="d20" />
-                          </button>
-                        </div>
-                        <div className="col-span-10 pl-2 border-l border-gray-600 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1">
-                          <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
-                          <span className={`min-w-0 flex-1 font-mono ${CM_MEAN_HI} tabular-nums text-white whitespace-nowrap [overflow-wrap:anywhere] sm:truncate`}>
-                            {formatWeaponAttackDiceDisplay(attackParsed)}
-                            <span
-                              title={`伤害加值明细：属性调整值 ${abilityMod >= 0 ? '+' : ''}${abilityMod}，Buff 伤害加值 ${buffDamageBonus >= 0 ? '+' : ''}${buffDamageBonus}，增益伤害加值 ${gainDamageBonus >= 0 ? '+' : ''}${gainDamageBonus}${weaponPerDieMod !== 0 ? `，每骰加成 ${weaponPerDieMod >= 0 ? '+' : ''}${weaponPerDieMod}` : ''}`}
-                              className="cursor-help"
-                            >
-                              {formatSignedModifier(totalDamageMod)}
-                            </span>{' '}
-                            {displayDamageType}
-                            {filterExtraDiceAgainstMain(attackParsed, rawDamageType, weaponExtraDiceStrings).map((d) => ` + ${d}`).join('')}
-                          </span>
-                          {renderAutoGainBadges(gains, () => isCombo ? openEditComboMean(cm) : openEditWeaponMean(displayMean))}
-                          {((attackParsed.diceList?.length || attackParsed.dice)
-                            || filterExtraDiceAgainstMain(attackParsed, rawDamageType, weaponExtraDiceStrings).length > 0) && (
-                            <>
-                              <button type="button" onClick={() => rollAllWeaponDamage(displayMean, weaponOpt, attackParsed, totalDamageMod, displayDamageType, false)} className={CM_BTN_GOLD} title={quickRollTitle('伤害')} aria-label={quickRollTitle('伤害')}>
-                                <QuickRollIcon kind="damage" />
-                              </button>
-                              <button type="button" onClick={() => rollAllWeaponDamage(displayMean, weaponOpt, attackParsed, totalDamageMod, displayDamageType, true)} className={CM_BTN_CRIT} title={quickRollTitle(`伤害（重击×${weaponCritDiceMult}伤害骰）`)} aria-label={quickRollTitle(`伤害（重击×${weaponCritDiceMult}伤害骰）`)}>
-                                <QuickRollIcon kind="crit" />
-                              </button>
-                            </>
-                          )}
-                        </div>
-                        <div className="col-span-1 flex min-w-0 items-center justify-end gap-0.5 pl-1 border-l border-gray-600 shrink-0">
-                          {canEdit && (
-                            <button type="button" onClick={() => removeCombatMean(cm.id)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red shrink-0" title="移除">
-                              <Trash2 size={12} />
-                            </button>
-                          )}
-                        </div>
-                      </>
-                        )
-                      })()
-                    )}
+                    </>
                   </div>
-                ) : (
-                  <>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <select
-                        value={cm.type}
-                        onChange={(e) => updateCombatMean(cm.id, { type: e.target.value, weaponInventoryIndex: null, spellId: null })}
-                        className={inputClass + ' !text-xs h-7 w-24'}
-                        disabled={!canEdit}
-                      >
-                        <option value="physical">物理攻击</option>
-                        <option value="spell">法术攻击</option>
-                      </select>
-                      <ActionLabelBadge source={spell?.castingTime || ''} />
-                      {canEdit && (
-                        <button type="button" onClick={() => removeCombatMean(cm.id)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red" title="移除">
-                          <Trash2 size={12} />
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>法术</span>
-                      <select
-                        value={cm.spellId ?? ''}
-                        onChange={(e) => updateCombatMean(cm.id, { spellId: e.target.value || null })}
-                        className={inputClass + ' !text-xs h-7 flex-1 min-w-0 max-w-[160px]'}
-                        disabled={!canEdit}
-                      >
-                        <option value="">—</option>
-                        {preparedSpellsList.map((p) => (
-                          <option key={p.spellId} value={p.spellId}>{p.spell?.name ?? p.spellId}</option>
-                        ))}
-                      </select>
-                    </div>
-                    {spell && (
-                      <>
-                        {spellIsAttack ? (
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>法术攻击</span>
-                            <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums`}>{spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : '—'}</span>
-                            {spellAttackBonus != null && (
-                              <button type="button" onClick={() => { if (!consumeSpellSlotForMean(cm, spell.name)) return; openForCheck(spell.name + ' 法术攻击', spellAttackBonus, { quickRoll: true }) }} className={CM_BTN_RED} title={quickRollTitle('法术攻击')} aria-label={quickRollTitle('法术攻击')}>
-                                <QuickRollIcon kind="d20" />
-                              </button>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>法术 DC</span>
-                            <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums`}>{spellDC != null ? spellDC : '—'}</span>
-                          </div>
-                        )}
-                        {spellDamageList.length > 0 && (
-                          <div className="flex flex-wrap items-center gap-2">
-                            {spellDamageList.map((d, i) => (
-                              <span key={i} className="inline-flex items-center gap-0.5">
-                                <span className={`text-white font-mono ${CM_MEAN_HI}`}>{d.dice} {d.type}</span>
-                                <button type="button" onClick={() => { if (!consumeSpellSlotForMean(cm, spell.name)) return; rollDamageDice(d.dice, spell.name + ' ' + d.type, 'spell-' + cm.id + '-' + i, 0, false, getDamageTypeLabel(d.type) || d.type || '') }} className={CM_BTN_GOLD} title={quickRollTitle('伤害')} aria-label={quickRollTitle('伤害')}>
-                                  <QuickRollIcon kind="damage" className={CM_DICE_IC_GOLD} />
-                                </button>
-                                {spellIsAttack && (
-                                  <button type="button" onClick={() => { if (!consumeSpellSlotForMean(cm, spell.name)) return; rollDamageDice(d.dice, spell.name + ' ' + d.type, 'spell-' + cm.id + '-' + i, 0, true, getDamageTypeLabel(d.type) || d.type || '') }} className={CM_BTN_CRIT} title={quickRollTitle('伤害（重击×2伤害骰）')} aria-label={quickRollTitle('伤害（重击×2伤害骰）')}>
-                                    <QuickRollIcon kind="crit" className={CM_DICE_IC_GOLD} />
-                                  </button>
-                                )}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </>
                 )}
-              </div>
+              </>
             )
+
           })}
           {canEdit && (
             <button type="button" onClick={openAddCombatMeanModal} className={`text-dnd-text-muted ${CM_MEAN_LABEL} font-semibold uppercase tracking-wider hover:text-dnd-gold-light hover:underline`}>

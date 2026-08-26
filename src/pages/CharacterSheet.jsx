@@ -67,6 +67,11 @@ import { rollDice } from '../data/weaponDatabase'
 import InfoTooltip from '../components/InfoTooltip'
 import { ClassFeatureTooltipContent, FeatTooltipContent } from '../lib/infoTooltipContent'
 import { APP_VERSION_LABEL } from '../config/version'
+
+/** 选项专属 BUFF key：${sourceClass}|${sourceSubclass || ''}|${featureId}:${optionId} */
+function buildClassFeatureOptionBuffKey(sourceClass, sourceSubclass, featureId, optionId) {
+  return `${sourceClass}|${sourceSubclass || ''}|${featureId}:${optionId}`
+}
 import { inputClass } from '../lib/inputStyles'
 
 const RAW_AVATAR_FILE_MAX = 12 * 1024 * 1024 // 裁剪前原图上限，裁剪后会压到约 800KB 内
@@ -1230,8 +1235,10 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
 }
 
 /** 职业特性选择块：需要玩家做互斥选择的特性（如原初职能：术师/卫士） */
-function ClassFeatureChoiceBlock({ char, feature, canEdit, onSave }) {
-  const [modalOpen, setModalOpen] = useState(false)
+function ClassFeatureChoiceBlock({ char, feature, canEdit, onSave, modalOpen: externalModalOpen, onOpenModal, hideInline, onEditOptionBuff }) {
+  const [internalModalOpen, setInternalModalOpen] = useState(false)
+  const modalOpen = externalModalOpen !== undefined ? externalModalOpen : internalModalOpen
+  const setModalOpen = onOpenModal || setInternalModalOpen
   const sourceClass = feature.sourceClass ?? ''
   const sourceSubclass = feature.sourceSubclass ?? ''
   const featureId = feature.id
@@ -1260,26 +1267,30 @@ function ClassFeatureChoiceBlock({ char, feature, canEdit, onSave }) {
   }
 
   return (
-    <div className="mt-2 border-t border-gray-600/35 pt-2">
-      <div className="flex flex-wrap items-center gap-1.5">
-        {chosenOption ? (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-white/10 bg-[#243147]/60 text-[11px] text-gray-200" title={chosenOption.description}>
-            {chosenOption.label}
-          </span>
-        ) : (
-          <span className="text-gray-500 text-[11px]">未选择</span>
-        )}
-        {canEdit && (
-          <button
-            type="button"
-            onClick={() => setModalOpen(true)}
-            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] text-gray-400 hover:text-dnd-gold hover:bg-white/5 transition-colors"
-            title={`选择${registryEntry.label}`}
-          >
-            <Plus className="w-3 h-3" />
-          </button>
-        )}
-      </div>
+    <>
+      {!hideInline && (
+        <div className="mt-2 border-t border-gray-600/35 pt-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {chosenOption ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-white/10 bg-[#243147]/60 text-[11px] text-gray-200" title={chosenOption.description}>
+                {chosenOption.label}
+              </span>
+            ) : (
+              <span className="text-gray-500 text-[11px]">未选择</span>
+            )}
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => setModalOpen(true)}
+                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] text-gray-400 hover:text-dnd-gold hover:bg-white/5 transition-colors"
+                title={`选择${registryEntry.label}`}
+              >
+                <Plus className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {modalOpen && (
         <>
@@ -1297,24 +1308,39 @@ function ClassFeatureChoiceBlock({ char, feature, canEdit, onSave }) {
               </div>
               <div className="p-4 space-y-2">
                 {registryEntry.options.map((opt) => (
-                  <label
+                  <div
                     key={opt.id}
-                    className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                      chosenOptionId === opt.id ? 'border-dnd-gold/50 bg-dnd-gold/10' : 'border-white/10 hover:bg-white/5'
+                    className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${
+                      chosenOptionId === opt.id ? 'border-dnd-gold/50 bg-dnd-gold/10' : 'border-white/10'
                     }`}
                   >
-                    <input
-                      type="radio"
-                      name={`choice-${featureId}`}
-                      checked={chosenOptionId === opt.id}
-                      onChange={() => handleConfirm(opt.id)}
-                      className="mt-0.5 accent-amber-500"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-white">{opt.label}</div>
-                      {opt.description && <p className="text-xs text-gray-400 mt-1 whitespace-pre-line">{opt.description}</p>}
-                    </div>
-                  </label>
+                    <label className="flex items-start gap-3 flex-1 min-w-0 cursor-pointer" onClick={() => handleConfirm(opt.id)}>
+                      <input
+                        type="radio"
+                        name={`choice-${featureId}`}
+                        checked={chosenOptionId === opt.id}
+                        onChange={() => handleConfirm(opt.id)}
+                        className="mt-0.5 accent-amber-500"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-white">{opt.label}</div>
+                        {opt.description && <p className="text-xs text-gray-400 mt-1 whitespace-pre-line">{opt.description}</p>}
+                      </div>
+                    </label>
+                    {canEdit && onEditOptionBuff && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onEditOptionBuff({ feature, optionId: opt.id, optionLabel: opt.label })
+                        }}
+                        className="p-1.5 rounded-lg text-gray-500 hover:bg-white/10 hover:text-dnd-gold transition-colors shrink-0"
+                        title={`配置 ${opt.label} BUFF 效果`}
+                      >
+                        <Settings className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
               <div className="p-4 border-t border-white/10 flex justify-end">
@@ -1326,7 +1352,7 @@ function ClassFeatureChoiceBlock({ char, feature, canEdit, onSave }) {
           </div>
         </>
       )}
-    </div>
+    </>
   )
 }
 
@@ -1337,6 +1363,8 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
   const overridesMap = useRuleTextOverridesMap(moduleId)
   const [expandedFeatureIds, setExpandedFeatureIds] = useState(new Set())
   const [buffEditorFeature, setBuffEditorFeature] = useState(null)
+  const [buffEditorOption, setBuffEditorOption] = useState(null) // { feature, optionId, optionLabel }
+  const [choiceModalFeature, setChoiceModalFeature] = useState(null)
   const toggleFeatureExpand = (key) => {
     setExpandedFeatureIds((prev) => {
       const next = new Set(prev)
@@ -1400,10 +1428,15 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation()
-                      setBuffEditorFeature(f)
+                      const isChoiceType = !!CLASS_FEATURE_CHOICE_REGISTRY[buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)]
+                      if (isChoiceType) {
+                        setChoiceModalFeature(f)
+                      } else {
+                        setBuffEditorFeature(f)
+                      }
                     }}
                     className="p-1.5 rounded-lg text-gray-500 hover:bg-white/10 hover:text-dnd-gold transition-colors"
-                    title="配置 BUFF 效果"
+                    title={CLASS_FEATURE_CHOICE_REGISTRY[buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)] ? '选择特性选项' : '配置 BUFF 效果'}
                   >
                     <Settings className="w-4 h-4" />
                   </button>
@@ -1420,7 +1453,13 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                   <FightingStylesBlock char={char} feature={f} canEdit={canEdit} onSave={onSave} moduleId={moduleId} />
                 )}
                 {CLASS_FEATURE_CHOICE_REGISTRY[buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)] && (
-                  <ClassFeatureChoiceBlock char={char} feature={f} canEdit={canEdit} onSave={onSave} />
+                  <ClassFeatureChoiceBlock
+                    char={char}
+                    feature={f}
+                    canEdit={canEdit}
+                    onSave={onSave}
+                    onEditOptionBuff={setBuffEditorOption}
+                  />
                 )}
                 <ClassFeatureActions feature={f} moduleId={moduleId} char={char} onSave={onSave} />
               </li>
@@ -1508,6 +1547,110 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                     setBuffEditorFeature(null)
                   }}
                   onCancel={() => setBuffEditorFeature(null)}
+                />
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 齿轮按钮触发的选择型特性 modal */}
+      {choiceModalFeature && (
+        <ClassFeatureChoiceBlock
+          char={char}
+          feature={choiceModalFeature}
+          canEdit={canEdit}
+          onSave={onSave}
+          modalOpen={true}
+          onOpenModal={(v) => { if (!v) setChoiceModalFeature(null) }}
+          onEditOptionBuff={setBuffEditorOption}
+          hideInline
+        />
+      )}
+
+      {/* 选项专属 BUFF 编辑器弹窗 */}
+      {buffEditorOption && (
+        <>
+          <div
+            className="fixed inset-0 z-[300] bg-black/60"
+            onClick={() => setBuffEditorOption(null)}
+            aria-hidden
+          />
+          <div
+            className="fixed inset-0 z-[301] flex items-center justify-center p-4 sm:p-8 overflow-auto"
+            onClick={() => setBuffEditorOption(null)}
+          >
+            <div
+              className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-4 border-b border-white/10">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-semibold text-dnd-gold-light/90">
+                    配置 BUFF：{buffEditorOption.feature.name} — {buffEditorOption.optionLabel}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setBuffEditorOption(null)}
+                    className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <p className="text-xs text-dnd-text-muted mt-1">
+                  {isAdmin
+                    ? 'DM 配置该选项的默认 BUFF 效果，玩家选择该选项时自动获得。'
+                    : '查看该选项的 BUFF 效果（只读）。'}
+                </p>
+              </div>
+              <div className="p-4">
+                <BuffForm
+                  key={`cf-opt-buff-${buffEditorOption.feature.sourceClass}-${buffEditorOption.feature.sourceSubclass || ''}-${buffEditorOption.feature.id}-${buffEditorOption.optionId}`}
+                  compact
+                  readOnly={!isAdmin}
+                  hideDuration
+                  initial={{
+                    source: `${buffEditorOption.feature.sourceClass}-${buffEditorOption.feature.name}（${buffEditorOption.optionLabel}）`,
+                    effects: loadDefaultBuffPatch(
+                      moduleId,
+                      'classFeature',
+                      buildClassFeatureOptionBuffKey(
+                        buffEditorOption.feature.sourceClass,
+                        buffEditorOption.feature.sourceSubclass,
+                        buffEditorOption.feature.id,
+                        buffEditorOption.optionId,
+                      ),
+                    )?.effects ?? [],
+                    enabled: loadDefaultBuffPatch(
+                      moduleId,
+                      'classFeature',
+                      buildClassFeatureOptionBuffKey(
+                        buffEditorOption.feature.sourceClass,
+                        buffEditorOption.feature.sourceSubclass,
+                        buffEditorOption.feature.id,
+                        buffEditorOption.optionId,
+                      ),
+                    )?.enabled !== false,
+                  }}
+                  onSave={(buff) => {
+                    saveDefaultBuffPatch(
+                      moduleId,
+                      'classFeature',
+                      buildClassFeatureOptionBuffKey(
+                        buffEditorOption.feature.sourceClass,
+                        buffEditorOption.feature.sourceSubclass,
+                        buffEditorOption.feature.id,
+                        buffEditorOption.optionId,
+                      ),
+                      {
+                        effects: buff.effects,
+                        enabled: buff.enabled,
+                        sourceName: `${buffEditorOption.feature.sourceClass}-${buffEditorOption.feature.name}（${buffEditorOption.optionLabel}）`,
+                      },
+                    )
+                    setBuffEditorOption(null)
+                  }}
+                  onCancel={() => setBuffEditorOption(null)}
                 />
               </div>
             </div>

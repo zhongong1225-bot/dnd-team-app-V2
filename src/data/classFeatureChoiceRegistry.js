@@ -26,19 +26,23 @@ export const CLASS_FEATURE_CHOICE_REGISTRY = {
       {
         id: 'spellschool',
         label: '术师',
-        description:
-          '额外学会 1 道德鲁伊戏法；智力（奥秘和自然）检定加值 = 感知调整值（最低+1）',
+        description: '额外1个德鲁伊戏法 / 奥秘和自然+感知调整值',
       },
       {
         id: 'warden',
         label: '卫士',
-        description: '获得军用武器熟练和中甲受训',
+        description: '军用武器熟练 + 中甲受训',
       },
     ],
     getEffects(optionId) {
+      const desc = this.options.find((o) => o.id === optionId)?.description || ''
+      const descEffect = desc
+        ? [{ effectType: 'custom_condition', category: 'custom', scope: 'global', scopeDetail: [], value: desc }]
+        : []
       switch (optionId) {
         case 'spellschool':
           return [
+            ...descEffect,
             {
               effectType: 'skill_bonus',
               category: 'ability',
@@ -52,6 +56,7 @@ export const CLASS_FEATURE_CHOICE_REGISTRY = {
           ]
         case 'warden':
           return [
+            ...descEffect,
             {
               effectType: 'weapon_proficiency',
               category: 'proficiency',
@@ -68,7 +73,7 @@ export const CLASS_FEATURE_CHOICE_REGISTRY = {
             },
           ]
         default:
-          return []
+          return descEffect
       }
     },
   },
@@ -80,16 +85,26 @@ export const CLASS_FEATURE_CHOICE_REGISTRY = {
       {
         id: 'forceful',
         label: '强力施法',
-        description: '德鲁伊戏法造成的伤害可加上感知调整值',
+        description: '戏法伤害+感知调整值',
       },
       {
         id: 'primal_strike',
         label: '原力蛮击',
-        description: '每回合一次，武器攻击或荒野变形中的野兽攻击命中时，额外 1d8 寒冷/火焰/闪电/雷鸣伤害',
+        description: '每回合一次额外1d8元素伤害',
       },
     ],
     getEffects(optionId) {
       switch (optionId) {
+        case 'primal_strike':
+          return [
+            {
+              effectType: 'extra_damage_dice',
+              category: 'offense',
+              scope: 'weapon_or_beast',
+              scopeDetail: [],
+              value: { plus: '1d8', type: '寒冷/火焰/闪电/雷鸣' },
+            },
+          ]
         case 'forceful':
           return [
             {
@@ -104,16 +119,6 @@ export const CLASS_FEATURE_CHOICE_REGISTRY = {
                 extraDice: '',
                 flatBonus: { ref: 'abilityModifier', ability: 'wis', min: 0 },
               },
-            },
-          ]
-        case 'primal_strike':
-          return [
-            {
-              effectType: 'damage_bonus',
-              category: 'offense',
-              scope: 'weapon_or_beast',
-              scopeDetail: [],
-              value: 4.5,
             },
           ]
         default:

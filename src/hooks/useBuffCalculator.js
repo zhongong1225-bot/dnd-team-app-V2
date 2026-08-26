@@ -175,7 +175,36 @@ export function computeBuffStats(character, activeBuffs) {
         if (ct.creatureId) {
           const creature = getCreatureById(ct.creatureId)
           if (creature) {
-            creatureTransformData = { creature, acMode: ct.acMode || 'replace', hpMode: ct.hpMode || 'replace' }
+            creatureTransformData = {
+              creature,
+              acMode: ct.acMode || 'replace',
+              acFormulaBase: Number(ct.acFormulaBase) || 13,
+              acFormulaAbility: ct.acFormulaAbility || '',
+              hpMode: ct.hpMode || 'replace',
+              hpFormula: ct.hpFormula || null,
+              keepAbilities: Array.isArray(ct.keepAbilities) ? ct.keepAbilities : [],
+              resourceCostType: ct.resourceCostType || '',
+              resourceCostValue: Number(ct.resourceCostValue) || 1,
+              wildShapeMode: !!ct.wildShapeMode,
+              wildShapeSubclass: ct.wildShapeSubclass || 'regular',
+            }
+            // ── 荒野变形模式：根据德鲁伊子职自动覆盖设置 ──
+            if (creatureTransformData.wildShapeMode) {
+              creatureTransformData.keepAbilities = ['int', 'wis', 'cha']
+              creatureTransformData.acMode = 'max_formula'
+              creatureTransformData.acFormulaBase = 13
+              creatureTransformData.acFormulaAbility = 'wis'
+              creatureTransformData.hpMode = 'keep_plus_temp'
+              const isMoon = creatureTransformData.wildShapeSubclass === 'moon'
+              creatureTransformData.hpFormula = {
+                ref: 'classLevel',
+                className: '德鲁伊',
+                mult: isMoon ? 3 : 1,
+                add: 0,
+              }
+              creatureTransformData.resourceCostType = 'wild_shape_uses'
+              creatureTransformData.resourceCostValue = 1
+            }
             break // 只取第一个有效的变身效果
           }
         }
@@ -186,6 +215,15 @@ export function computeBuffStats(character, activeBuffs) {
     const baseAbilities = creatureTransformData?.creature?.abilities 
       ? { ...creatureTransformData.creature.abilities }
       : (character?.abilities ?? { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 })
+
+    // 变身保留属性：将原角色对应属性覆盖回 baseAbilities（如荒野变形保留心智属性）
+    if (creatureTransformData && Array.isArray(creatureTransformData.keepAbilities) && character?.abilities) {
+      for (const key of creatureTransformData.keepAbilities) {
+        if (character.abilities[key] != null) {
+          baseAbilities[key] = character.abilities[key]
+        }
+      }
+    }
 
     const xpVal = character?.xp
     const charLevel = xpVal != null && Number(xpVal) >= 0
@@ -496,6 +534,15 @@ export function computeBuffStats(character, activeBuffs) {
         const equipmentAC = getAC(charWithBuffedAbilities)
         baseAC = (equipmentAC?.total ?? 10) + creatureAC
       }
+    } else if (creatureTransformData && creatureTransformData.acMode === 'max_formula') {
+      // 取高值模式：公式值（如 13+感知调整值）与生物AC 取较高者
+      const creatureAC = creatureTransformData.creature.ac ?? 10
+      let formulaVal = creatureTransformData.acFormulaBase ?? 13
+      const abilKey = creatureTransformData.acFormulaAbility
+      if (abilKey) {
+        formulaVal += abilityModifier(finalAbilities[abilKey] ?? 10)
+      }
+      baseAC = Math.max(formulaVal, creatureAC)
     } else if (armorOverrideBase !== null) {
       const dexMod = abilityModifier(finalAbilities.dex ?? 10)
       let acFromDex = 0
@@ -677,6 +724,14 @@ export function computeBuffStats(character, activeBuffs) {
       } else if (creatureTransformData.hpMode === 'add') {
         // 叠加模式：生物 HP 作为临时 HP
         tempHp = Math.max(tempHp, creatureHP)
+      } else if (creatureTransformData.hpMode === 'keep_plus_temp') {
+        // 保留原HP + 公式临时HP：不修改 maxHpBonus，用公式计算 tempHp
+        if (creatureTransformData.hpFormula && creatureTransformData.hpFormula.ref) {
+          const formulaVal = evalVal(creatureTransformData.hpFormula)
+          if (!Number.isNaN(formulaVal) && formulaVal > 0) {
+            tempHp = Math.max(tempHp, Math.floor(formulaVal))
+          }
+        }
       }
     }
 
@@ -800,7 +855,15 @@ export function computeBuffStats(character, activeBuffs) {
         creatureId: creatureTransformData.creature.id,
         creatureName: creatureTransformData.creature.name,
         acMode: creatureTransformData.acMode,
+        acFormulaBase: creatureTransformData.acFormulaBase,
+        acFormulaAbility: creatureTransformData.acFormulaAbility,
         hpMode: creatureTransformData.hpMode,
+        hpFormula: creatureTransformData.hpFormula,
+        keepAbilities: creatureTransformData.keepAbilities,
+        resourceCostType: creatureTransformData.resourceCostType,
+        resourceCostValue: creatureTransformData.resourceCostValue,
+        wildShapeMode: creatureTransformData.wildShapeMode,
+        wildShapeSubclass: creatureTransformData.wildShapeSubclass,
         creatureHP: parseHpFormula(creatureTransformData.creature.hp),
         creatureAC: creatureTransformData.creature.ac,
         creatureSpeed: creatureTransformData.creature.speed,

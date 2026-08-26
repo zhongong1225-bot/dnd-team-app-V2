@@ -177,6 +177,7 @@ function normalizeInitialEffects(initial) {
     let value = e.value ?? 0
     if (e.effectType === 'concentration_save_enhance') value = normalizeConcentrationSaveEnhanceValue(value)
     if (e.effectType === 'attack_damage_bonus') value = normalizeAttackDamageBonusModuleValue(value)
+    if (e.effectType === 'choice') value = normalizeChoiceValue(value)
     const { scope, scopeDetail } = normalizeScope(e.scope, e.scopeDetail)
     const break20 = e.break20 && typeof e.break20 === 'object' && !Array.isArray(e.break20) ? e.break20 : {}
     return {
@@ -257,14 +258,10 @@ function normalizeValueForSave(module, currentEffect) {
     return { base: 10, applyDexMod: true, maxDexBonus: null, extra: 0, shieldCompatible: false }
   }
   if (needsSubSelect === 'creatureTransform') {
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      return {
-        creatureId: String(value.creatureId || ''),
-        acMode: value.acMode === 'add' ? 'add' : 'replace',
-        hpMode: value.hpMode === 'add' ? 'add' : 'replace',
-      }
-    }
-    return { creatureId: '', acMode: 'replace', hpMode: 'replace' }
+    return normalizeCreatureTransformValue(value)
+  }
+  if (needsSubSelect === 'choice') {
+    return normalizeChoiceValue(value)
   }
   if (currentEffect.key === 'recharge_long_rest' || currentEffect.key === 'recharge_dawn') {
     return normalizeChargeRecoveryValue(value)
@@ -1411,7 +1408,7 @@ function ArmorOverrideEditor({ value, onChange, referenceData }) {
   )
 }
 
-/** 生物变身编辑器：引用生物库中的生物 */
+/** 变身效果编辑器：引用生物库 + AC/HP/属性/资源 全方位配置 */
 function CreatureTransformEditor({ value, onChange }) {
   const data = normalizeCreatureTransformValue(value)
   const patchData = (patch) => onChange({ ...data, ...patch })
@@ -1421,9 +1418,108 @@ function CreatureTransformEditor({ value, onChange }) {
 
   const labelCls = 'text-[10px] text-dnd-text-muted shrink-0 leading-none'
   const selectCls = inputClass.replace(/\bh-10\b/, 'h-6').replace(/\bpx-3\b/, 'px-1').replace(/\btext-sm\b/, 'text-xs') + ' cursor-pointer'
+  const inputCls = selectCls
+
+  const abilityOptions = [
+    { key: 'int', label: '智力' },
+    { key: 'wis', label: '感知' },
+    { key: 'cha', label: '魅力' },
+  ]
+  const abilityRefOptions = [
+    { value: '', label: '—' },
+    { value: 'str', label: '力量' },
+    { value: 'dex', label: '敏捷' },
+    { value: 'con', label: '体质' },
+    { value: 'int', label: '智力' },
+    { value: 'wis', label: '感知' },
+    { value: 'cha', label: '魅力' },
+  ]
+  const hpRefOptions = [
+    { value: '', label: '无' },
+    { value: 'classLevel', label: '职业等级' },
+    { value: 'level', label: '角色等级' },
+    { value: 'abilityModifier', label: '属性调整值' },
+    { value: 'proficiency', label: '熟练加值' },
+  ]
+
+  const toggleKeepAbility = (key) => {
+    const next = data.keepAbilities.includes(key)
+      ? data.keepAbilities.filter((k) => k !== key)
+      : [...data.keepAbilities, key]
+    patchData({ keepAbilities: next })
+  }
+
+  /** 切换荒野变形模式：自动配置所有参数 */
+  const toggleWildShapeMode = (enabled) => {
+    if (enabled) {
+      const isMoon = data.wildShapeSubclass === 'moon'
+      patchData({
+        wildShapeMode: true,
+        keepAbilities: ['int', 'wis', 'cha'],
+        acMode: 'max_formula',
+        acFormulaBase: 13,
+        acFormulaAbility: 'wis',
+        hpMode: 'keep_plus_temp',
+        hpFormula: { ref: 'classLevel', className: '德鲁伊', mult: isMoon ? 3 : 1, add: 0 },
+        resourceCostType: 'wild_shape_uses',
+        resourceCostValue: 1,
+      })
+    } else {
+      patchData({ wildShapeMode: false })
+    }
+  }
+
+  /** 切换荒野变形子职：自动更新临时HP倍率 */
+  const changeWildShapeSubclass = (subclass) => {
+    const isMoon = subclass === 'moon'
+    patchData({
+      wildShapeSubclass: subclass,
+      hpFormula: { ref: 'classLevel', className: '德鲁伊', mult: isMoon ? 3 : 1, add: 0 },
+    })
+  }
 
   return (
     <div className="rounded-md bg-[#161e2b]/50 p-2 flex flex-col gap-y-1.5 w-full text-xs">
+      {/* 荒野变形模式开关 */}
+      <div className="flex items-center gap-x-1.5">
+        <label className="inline-flex items-center gap-1.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={data.wildShapeMode}
+            onChange={(e) => toggleWildShapeMode(e.target.checked)}
+            className="w-3.5 h-3.5 accent-amber-500"
+          />
+          <span className="text-[11px] text-dnd-gold-light font-medium">荒野变形模式</span>
+        </label>
+      </div>
+
+      {/* 荒野变形子职选择 + CR 提示 */}
+      {data.wildShapeMode && (
+        <div className="rounded border border-amber-900/40 bg-amber-950/20 px-2 py-1.5 space-y-1">
+          <div className="flex items-center gap-x-1.5">
+            <span className={labelCls}>子职</span>
+            <select
+              value={data.wildShapeSubclass}
+              onChange={(e) => changeWildShapeSubclass(e.target.value)}
+              className={selectCls + ' flex-1 min-w-0'}
+            >
+              <option value="regular">普通德鲁伊</option>
+              <option value="moon">月亮结社</option>
+            </select>
+          </div>
+          <div className="text-[10px] text-gray-400 space-y-0.5">
+            <div>保留属性：智力/感知/魅力 | AC = max(野兽AC, 13+感知调整值)</div>
+            <div>临时HP = 德鲁伊等级 × {data.wildShapeSubclass === 'moon' ? '3' : '1'} | 消耗 1 次荒野变形</div>
+            {data.wildShapeSubclass === 'regular' && (
+              <div className="text-amber-400/70">CR上限: 2级¼ → 4级½ → 8级1（8级起可飞行）</div>
+            )}
+            {data.wildShapeSubclass === 'moon' && (
+              <div className="text-amber-400/70">CR上限: 2级1 → 6级=等级÷3 | 10级元素形态</div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* 选择生物 */}
       <div className="flex items-center gap-x-1.5">
         <span className={labelCls}>生物</span>
@@ -1451,31 +1547,172 @@ function CreatureTransformEditor({ value, onChange }) {
         </div>
       )}
 
-      {/* AC 模式 */}
-      <div className="flex items-center gap-x-1.5">
-        <span className={labelCls}>AC处理</span>
-        <select
-          value={data.acMode}
-          onChange={(e) => patchData({ acMode: e.target.value })}
-          className={selectCls + ' !w-[5rem] shrink-0'}
-        >
-          <option value="replace">替换</option>
-          <option value="add">叠加</option>
-        </select>
-      </div>
+      {/* ── 荒野变形模式：锁定自动配置，隐藏手动设置 ── */}
+      {data.wildShapeMode ? (
+        <div className="text-[10px] text-gray-500 italic text-center py-1">
+          荒野变形模式下，属性/AC/HP/消耗已自动配置
+        </div>
+      ) : (
+        <>
+          {/* 保留原角色属性 */}
+          <div className="flex items-center gap-x-1.5">
+            <span className={labelCls}>保留属性</span>
+            <div className="flex gap-x-2">
+              {abilityOptions.map(({ key, label }) => (
+                <label key={key} className="inline-flex items-center gap-0.5 text-[10px] text-gray-400 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={data.keepAbilities.includes(key)}
+                    onChange={() => toggleKeepAbility(key)}
+                    className="w-3 h-3 accent-amber-500"
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
 
-      {/* HP 模式 */}
-      <div className="flex items-center gap-x-1.5">
-        <span className={labelCls}>HP处理</span>
-        <select
-          value={data.hpMode}
-          onChange={(e) => patchData({ hpMode: e.target.value })}
-          className={selectCls + ' !w-[5rem] shrink-0'}
-        >
-          <option value="replace">替换</option>
-          <option value="add">叠加</option>
-        </select>
-      </div>
+          {/* AC 模式 */}
+          <div className="flex items-center gap-x-1.5">
+            <span className={labelCls}>AC处理</span>
+            <select
+              value={data.acMode}
+              onChange={(e) => patchData({ acMode: e.target.value })}
+              className={selectCls + ' !w-auto flex-1 min-w-0'}
+            >
+              <option value="replace">替换为生物AC</option>
+              <option value="add">叠加生物AC</option>
+              <option value="max_formula">取高值（公式 vs 生物AC）</option>
+            </select>
+          </div>
+
+          {/* AC 公式（仅 max_formula 模式） */}
+          {data.acMode === 'max_formula' && (
+            <div className="flex items-center gap-x-1.5 pl-2">
+              <span className={labelCls}>公式</span>
+              <input
+                type="number"
+                value={data.acFormulaBase}
+                onChange={(e) => patchData({ acFormulaBase: Number(e.target.value) || 0 })}
+                className={inputCls + ' !w-12'}
+                placeholder="13"
+              />
+              <span className="text-gray-500 text-[10px]">+</span>
+              <select
+                value={data.acFormulaAbility}
+                onChange={(e) => patchData({ acFormulaAbility: e.target.value })}
+                className={selectCls + ' !w-auto flex-1 min-w-0'}
+              >
+                {abilityRefOptions.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              <span className="text-gray-500 text-[10px]">调整值</span>
+            </div>
+          )}
+
+          {/* HP 模式 */}
+          <div className="flex items-center gap-x-1.5">
+            <span className={labelCls}>HP处理</span>
+            <select
+              value={data.hpMode}
+              onChange={(e) => patchData({ hpMode: e.target.value })}
+              className={selectCls + ' !w-auto flex-1 min-w-0'}
+            >
+              <option value="replace">替换为生物HP</option>
+              <option value="add">生物HP作临时HP</option>
+              <option value="keep_plus_temp">保留原HP + 公式临时HP</option>
+            </select>
+          </div>
+
+          {/* HP 公式（仅 keep_plus_temp 模式） */}
+          {data.hpMode === 'keep_plus_temp' && (
+            <div className="flex items-center gap-x-1.5 pl-2 flex-wrap">
+              <span className={labelCls}>公式</span>
+              <select
+                value={data.hpFormula?.ref || ''}
+                onChange={(e) => patchData({ hpFormula: { ...data.hpFormula, ref: e.target.value } || { ref: e.target.value, mult: 1, add: 0 } })}
+                className={selectCls + ' !w-auto flex-1 min-w-0'}
+              >
+                {hpRefOptions.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              {data.hpFormula?.ref === 'classLevel' && (
+                <>
+                  <input
+                    type="text"
+                    value={data.hpFormula?.className || ''}
+                    onChange={(e) => patchData({ hpFormula: { ...data.hpFormula, className: e.target.value } })}
+                    className={inputCls + ' !w-16'}
+                    placeholder="职业名"
+                  />
+                </>
+              )}
+              {data.hpFormula?.ref === 'abilityModifier' && (
+                <select
+                  value={data.hpFormula?.ability || ''}
+                  onChange={(e) => patchData({ hpFormula: { ...data.hpFormula, ability: e.target.value } })}
+                  className={selectCls + ' !w-auto flex-1 min-w-0'}
+                >
+                  {abilityRefOptions.filter((o) => o.value).map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              )}
+              <span className="text-gray-500 text-[10px]">×</span>
+              <input
+                type="number"
+                value={data.hpFormula?.mult ?? 1}
+                onChange={(e) => patchData({ hpFormula: { ...data.hpFormula, mult: Number(e.target.value) || 1 } })}
+                className={inputCls + ' !w-10'}
+              />
+            </div>
+          )}
+
+          {/* 资源消耗 */}
+          <div className="flex items-center gap-x-1.5">
+            <span className={labelCls}>消耗</span>
+            <select
+              value={data.resourceCostType}
+              onChange={(e) => patchData({ resourceCostType: e.target.value })}
+              className={selectCls + ' !w-auto flex-1 min-w-0'}
+            >
+              <option value="">无</option>
+              <option value="wild_shape_uses">荒野变形次数</option>
+              <option value="spell_slot">法术位</option>
+              <option value="charges">充能次数</option>
+            </select>
+          </div>
+
+          {/* 资源消耗详细 */}
+          {data.resourceCostType === 'spell_slot' && (
+            <div className="flex items-center gap-x-1.5 pl-2">
+              <span className={labelCls}>环位</span>
+              <input
+                type="number"
+                min={1}
+                max={9}
+                value={data.resourceCostValue}
+                onChange={(e) => patchData({ resourceCostValue: Number(e.target.value) || 1 })}
+                className={inputCls + ' !w-12'}
+              />
+            </div>
+          )}
+          {(data.resourceCostType === 'wild_shape_uses' || data.resourceCostType === 'charges') && (
+            <div className="flex items-center gap-x-1.5 pl-2">
+              <span className={labelCls}>次数</span>
+              <input
+                type="number"
+                min={1}
+                value={data.resourceCostValue}
+                onChange={(e) => patchData({ resourceCostValue: Number(e.target.value) || 1 })}
+                className={inputCls + ' !w-12'}
+              />
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }
@@ -1497,13 +1734,46 @@ function normalizeArmorOverrideValue(value) {
 /** 规范化生物变身值 */
 function normalizeCreatureTransformValue(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { creatureId: '', acMode: 'replace', hpMode: 'replace' }
+    return { creatureId: '', acMode: 'replace', acFormulaBase: 13, acFormulaAbility: '', hpMode: 'replace', hpFormula: null, keepAbilities: [], resourceCostType: '', resourceCostValue: 1, wildShapeMode: false, wildShapeSubclass: 'regular' }
   }
+  const ka = Array.isArray(value.keepAbilities) ? value.keepAbilities.filter((k) => ['int', 'wis', 'cha'].includes(k)) : []
   return {
     creatureId: String(value.creatureId || ''),
-    acMode: value.acMode === 'add' ? 'add' : 'replace',
-    hpMode: value.hpMode === 'add' ? 'add' : 'replace',
+    acMode: ['replace', 'add', 'max_formula'].includes(value.acMode) ? value.acMode : 'replace',
+    acFormulaBase: Number(value.acFormulaBase) || 13,
+    acFormulaAbility: ['dex', 'wis', 'con', 'str', 'int', 'cha'].includes(value.acFormulaAbility) ? value.acFormulaAbility : '',
+    hpMode: ['replace', 'add', 'keep_plus_temp'].includes(value.hpMode) ? value.hpMode : 'replace',
+    hpFormula: value.hpFormula && typeof value.hpFormula === 'object' ? value.hpFormula : null,
+    keepAbilities: ka,
+    resourceCostType: ['', 'wild_shape_uses', 'spell_slot', 'charges'].includes(value.resourceCostType) ? value.resourceCostType : '',
+    resourceCostValue: Number(value.resourceCostValue) || 1,
+    wildShapeMode: !!value.wildShapeMode,
+    wildShapeSubclass: value.wildShapeSubclass === 'moon' ? 'moon' : 'regular',
   }
+}
+
+/** 规范化选择型 BUFF 值 */
+function normalizeChoiceValue(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { choiceOptions: [{ name: '选项 A', effects: [] }], choiceSelected: 0 }
+  }
+  const opts = Array.isArray(value.choiceOptions) && value.choiceOptions.length > 0
+    ? value.choiceOptions.map((o) => ({
+        name: String(o?.name || '选项'),
+        effects: Array.isArray(o?.effects) ? o.effects.map((e) => ({
+          id: e.id || 'e_' + Math.random().toString(36).slice(2),
+          category: e.category || '',
+          effectType: e.effectType || '',
+          scope: e.scope || 'global',
+          scopeDetail: Array.isArray(e.scopeDetail) ? e.scopeDetail : [],
+          value: e.value ?? 0,
+          break20: e.break20 && typeof e.break20 === 'object' ? e.break20 : {},
+          customText: typeof e.customText === 'string' ? e.customText : '',
+        })) : [],
+      }))
+    : [{ name: '选项 A', effects: [] }]
+  const sel = Number(value.choiceSelected) || 0
+  return { choiceOptions: opts, choiceSelected: Math.min(Math.max(0, sel), opts.length - 1) }
 }
 
 /** 多选下拉：点击显示已选，展开后为复选框列表，选择感强 */
@@ -2950,7 +3220,200 @@ function EffectValueEditor({
           value={value}
           onChange={(v) => onChange({ ...module, value: v })}
         />
+      ) : needsSubSelect === 'choice' ? (
+        <ChoiceBUFFEditor
+          choiceOptions={value?.choiceOptions}
+          choiceSelected={value?.choiceSelected}
+          onChange={(v) => onChange({ ...module, value: v })}
+        />
       ) : null}
+    </div>
+  )
+}
+
+/** 选择型 BUFF 编辑器：多选项 + 每选项独立效果列表 */
+function ChoiceBUFFEditor({ choiceOptions = [], choiceSelected = 0, onChange }) {
+  const [editingOptionIdx, setEditingOptionIdx] = useState(null)
+  const [editingModule, setEditingModule] = useState(null)
+
+  const safeOptions = Array.isArray(choiceOptions) && choiceOptions.length > 0 ? choiceOptions : [{ name: '选项 A', effects: [] }]
+  const selectedIdx = Math.min(Math.max(0, Number(choiceSelected) || 0), safeOptions.length - 1)
+  const selectedOption = safeOptions[selectedIdx]
+
+  const updateOptions = (next) => onChange({ choiceOptions: next, choiceSelected: Math.min(selectedIdx, next.length - 1) })
+
+  const addOption = () => {
+    const next = [...safeOptions, { name: `选项 ${String.fromCharCode(65 + safeOptions.length)}`, effects: [] }]
+    updateOptions(next)
+  }
+
+  const removeOption = (idx) => {
+    if (safeOptions.length <= 1) return
+    const next = safeOptions.filter((_, i) => i !== idx)
+    const newSelected = selectedIdx >= next.length ? next.length - 1 : selectedIdx
+    onChange({ choiceOptions: next, choiceSelected: newSelected })
+  }
+
+  const renameOption = (idx, name) => {
+    const next = safeOptions.map((o, i) => (i === idx ? { ...o, name } : o))
+    updateOptions(next)
+  }
+
+  const openEditModule = (modId) => {
+    const mod = selectedOption.effects.find((m) => m.id === modId)
+    if (mod) setEditingModule({ ...mod })
+  }
+
+  const saveModule = (draft) => {
+    const opts = safeOptions.map((o, i) => {
+      if (i !== selectedIdx) return o
+      const exists = o.effects.some((m) => m.id === draft.id)
+      return {
+        ...o,
+        effects: exists ? o.effects.map((m) => (m.id === draft.id ? draft : m)) : [...o.effects, draft],
+      }
+    })
+    updateOptions(opts)
+    setEditingModule(null)
+  }
+
+  const addModule = () => {
+    setEditingModule({
+      id: 'e_' + Math.random().toString(36).slice(2),
+      category: '',
+      effectType: '',
+      scope: SCOPE_KIND.global,
+      scopeDetail: [],
+      value: 0,
+      break20: {},
+      customText: '',
+    })
+  }
+
+  const removeModule = (modId) => {
+    const opts = safeOptions.map((o, i) =>
+      i === selectedIdx ? { ...o, effects: o.effects.filter((m) => m.id !== modId) } : o
+    )
+    updateOptions(opts)
+  }
+
+  const labelCls = 'text-[10px] text-dnd-text-muted shrink-0 leading-none'
+  const selectCls = inputClass.replace(/\bh-10\b/, 'h-6').replace(/\bpx-3\b/, 'px-1').replace(/\btext-sm\b/, 'text-xs') + ' cursor-pointer'
+
+  return (
+    <div className="space-y-2">
+      {/* 选项选择器 */}
+      <div>
+        <span className={labelCls + ' block mb-1'}>选项</span>
+        <div className="flex flex-wrap gap-1">
+          {safeOptions.map((opt, idx) => (
+            <div key={idx} className="flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => onChange({ choiceOptions: safeOptions, choiceSelected: idx })}
+                className={`px-2 py-0.5 rounded text-[11px] border transition-colors ${
+                  idx === selectedIdx
+                    ? 'border-violet-500 bg-violet-500/20 text-violet-300'
+                    : 'border-gray-600 bg-gray-800/50 text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                {opt.name || `选项 ${idx + 1}`}
+              </button>
+              {safeOptions.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeOption(idx)}
+                  className="p-0.5 rounded text-gray-600 hover:text-red-400 hover:bg-red-900/30 transition-colors"
+                  title="删除选项"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              )}
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={addOption}
+            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] text-gray-500 hover:text-violet-400 hover:bg-violet-500/10 border border-dashed border-gray-600 hover:border-violet-500/50 transition-colors"
+          >
+            <Plus className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+
+      {/* 当前选中选项的名称编辑 */}
+      <div className="flex items-center gap-x-1.5">
+        <span className={labelCls}>选项名</span>
+        <input
+          type="text"
+          value={selectedOption.name || ''}
+          onChange={(e) => renameOption(selectedIdx, e.target.value)}
+          className={selectCls + ' flex-1 min-w-0'}
+          placeholder={`选项 ${selectedIdx + 1}`}
+        />
+      </div>
+
+      {/* 当前选项的效果列表 */}
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <span className={labelCls}>效果（{selectedOption.name || `选项 ${selectedIdx + 1}`}）</span>
+          <button
+            type="button"
+            onClick={addModule}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-violet-500 text-violet-400 hover:bg-violet-500/20 text-[10px] font-medium"
+          >
+            <Plus className="w-3 h-3" />
+            添加效果
+          </button>
+        </div>
+        {selectedOption.effects.length === 0 ? (
+          <p className="text-gray-500 text-[10px] text-center py-1.5">暂无效果，点击添加</p>
+        ) : (
+          <div className="space-y-1">
+            {selectedOption.effects.map((mod) => {
+              const catData = BUFF_TYPES[mod.category]
+              const currentEffect = catData?.effects?.find((e) => e.key === mod.effectType)
+              const summary = currentEffect
+                ? getEffectSummaryShort({ effectType: mod.effectType, value: mod.value, customText: mod.customText, scope: mod.scope, scopeDetail: mod.scopeDetail }, {})
+                : '未选择效果'
+              const rawLabel = currentEffect ? (currentEffect.label ?? mod.effectType) : '—'
+              const displayLabel = summary && summary !== rawLabel && summary !== '未选择效果' ? summary : rawLabel
+              return (
+                <div
+                  key={mod.id}
+                  className="rounded border border-white/[0.08] bg-[#1a2333]/60 px-2 py-1 flex items-center justify-between gap-2"
+                >
+                  <span className="text-dnd-gold-light/90 text-[11px] font-medium truncate">{displayLabel}</span>
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <button type="button" onClick={() => openEditModule(mod.id)} className="p-0.5 rounded text-gray-400 hover:bg-gray-700 hover:text-dnd-gold transition-colors" title="编辑">
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                    <button type="button" onClick={() => removeModule(mod.id)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors" title="删除">
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 效果编辑弹窗 */}
+      {editingModule && (
+        <>
+          <div className="fixed inset-0 z-[200] bg-black/50" onClick={() => setEditingModule(null)} aria-hidden />
+          <div className="fixed inset-0 z-[201] flex items-center justify-center p-4 sm:p-8 overflow-auto" onClick={() => setEditingModule(null)}>
+            <div className="w-full max-w-2xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+              <EffectModuleModal
+                module={editingModule}
+                onSave={saveModule}
+                onCancel={() => setEditingModule(null)}
+              />
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -3382,6 +3845,7 @@ function EffectModuleModal({
               if (nextType === 'spell_ability_attack') patch.value = { ability: 'int' }
               if (nextType === 'base_speed_increment') patch.value = { walk: 0, fly: 0, swim: 0, climb: 0 }
               if (nextType === 'ability_score_uncapped') patch.break20 = {}
+              if (nextType === 'choice') patch.value = { choiceOptions: [{ name: '选项 A', effects: [] }, { name: '选项 B', effects: [] }], choiceSelected: 0 }
               updateDraft(patch)
             }}
             className={inputClass + ' h-8 text-xs w-full min-w-0'}
@@ -3439,4 +3903,4 @@ function EffectModuleModal({
   )
 }
 
-export { EffectValueEditor, isComplexValueType, DamageDiceInlineRow, NumberStepper, AttackDamageBonusFields, newWeaponBonusRow, EffectModuleModal, ArmorOverrideEditor, CreatureTransformEditor }
+export { EffectValueEditor, isComplexValueType, DamageDiceInlineRow, NumberStepper, AttackDamageBonusFields, newWeaponBonusRow, EffectModuleModal, ArmorOverrideEditor, CreatureTransformEditor, ChoiceBUFFEditor }

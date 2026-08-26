@@ -198,7 +198,39 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
         const found = lib.find((c) => c.id === creatureId)
         if (found) creatureName = found.name || creatureId
       } catch {}
-      return `变身（${creatureName}）`
+      const parts = [creatureName]
+      // AC 模式简写
+      if (v.acMode === 'max_formula') {
+        const abilLabel = { str: '力', dex: '敏', con: '体', int: '智', wis: '感', cha: '魅' }[v.acFormulaAbility] || ''
+        parts.push(`AC=max(${v.acFormulaBase || 13}${abilLabel ? '+' + abilLabel : ''},兽AC)`)
+      } else if (v.acMode === 'add') {
+        parts.push('AC+兽AC')
+      }
+      // HP 模式简写
+      if (v.hpMode === 'keep_plus_temp') {
+        parts.push('保留HP+公式临时HP')
+      } else if (v.hpMode === 'add') {
+        parts.push('兽HP作临时HP')
+      }
+      // 保留属性
+      if (Array.isArray(v.keepAbilities) && v.keepAbilities.length > 0) {
+        const abilNames = { int: '智力', wis: '感知', cha: '魅力' }
+        parts.push('保留' + v.keepAbilities.map((k) => abilNames[k] || k).join('/'))
+      }
+      // 资源消耗
+      if (v.resourceCostType === 'wild_shape_uses') parts.push('消耗荒野变形次数')
+      else if (v.resourceCostType === 'spell_slot') parts.push(`消耗${v.resourceCostValue || 1}环法术位`)
+      else if (v.resourceCostType === 'charges') parts.push(`消耗${v.resourceCostValue || 1}次充能`)
+      return `变身（${parts.join('，')}）`
+    }
+    if (info.effect.subSelect === 'choice' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const opts = Array.isArray(v.choiceOptions) ? v.choiceOptions : []
+      const selIdx = Math.min(Math.max(0, Number(v.choiceSelected) || 0), opts.length - 1)
+      const selectedOpt = opts[selIdx]
+      if (!selectedOpt) return ''
+      const optName = selectedOpt.name || `选项 ${selIdx + 1}`
+      const effectCount = Array.isArray(selectedOpt.effects) ? selectedOpt.effects.length : 0
+      return `选择：${optName}${effectCount > 0 ? `（${effectCount}个效果）` : ''}`
     }
     if ((buff.effectType === 'ability_override' || buff.effectType === 'ability_score_uncapped') && isPlainAbilityObject(v)) {
       const entries = Object.entries(v).filter(([k, val]) => k !== 'advantage' && val != null && val !== 0)

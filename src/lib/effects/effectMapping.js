@@ -14,7 +14,7 @@ import { loadDefaultBuffPatch, mergeWithDefaultPatch, buildClassFeatureBuffKey }
 import { getAvailableFeatures } from '../../data/classDatabase'
 import { HARDCODED_FEAT_BUFFS } from '../../data/featDefaultBuffs'
 import { HARDCODED_CLASS_FEATURE_BUFFS } from '../../data/classFeatureDefaultBuffs'
-import { getChoiceEffects } from '../../data/classFeatureChoiceRegistry'
+import { getChoiceEffects, CLASS_FEATURE_CHOICE_REGISTRY } from '../../data/classFeatureChoiceRegistry'
 import { findShieldSlot } from '../equipmentLayers'
 
 const FEAT_BY_ID = new Map(FEATS.map((x) => [x.id, x]))
@@ -322,20 +322,63 @@ export function getBuffsFromClassFeatures(character, moduleId) {
       const buffKey = buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)
       const defaultPatch = moduleId ? loadDefaultBuffPatch(moduleId, 'classFeature', buffKey) : null
       let effects = Array.isArray(defaultPatch?.effects) && defaultPatch.effects.length ? defaultPatch.effects : []
-      // DM 未配置时：先检查玩家选择，再回退到硬编码默认
-      if (effects.length === 0) {
+      let duration = defaultPatch?.duration
+      let enabled = defaultPatch?.enabled !== false
+      let sourceLabel = f.name
+      let optionId = null
+
+      // 选择型特性：检查玩家选择和选项专属 DM 补丁
+      const registryEntry = CLASS_FEATURE_CHOICE_REGISTRY[buffKey]
+      if (registryEntry) {
+        const chosenOptionId = classFeatureChoices?.[f.id] || null
+
+        // 检查特性级 DM 补丁（整体覆盖，不走 choice 结构）
+        if (effects.length > 0) {
+          // DM 已在特性级打了补丁，保持扁平效果（向后兼容）
+        } else {
+          // 构建 choice 结构：每个选项包含各自效果，BUFF 编辑器可展示/编辑
+          const choiceOptions = registryEntry.options.map((opt) => {
+            const optBuffKey = `${buffKey}:${opt.id}`
+            const optPatch = moduleId ? loadDefaultBuffPatch(moduleId, 'classFeature', optBuffKey) : null
+            if (optPatch && Array.isArray(optPatch.effects) && optPatch.effects.length) {
+              return { name: opt.label, effects: optPatch.effects }
+            }
+            return { name: opt.label, effects: registryEntry.getEffects(opt.id) }
+          })
+
+          const selIdx = chosenOptionId
+            ? registryEntry.options.findIndex((o) => o.id === chosenOptionId)
+            : -1
+
+          if (selIdx >= 0) {
+            optionId = chosenOptionId
+            // sourceLabel 保持仅显示职业名，不追加选项名
+          }
+
+          effects = [{
+            effectType: 'choice',
+            category: 'custom',
+            scope: 'global',
+            scopeDetail: [],
+            value: {
+              choiceOptions,
+              choiceSelected: selIdx >= 0 ? selIdx : 0,
+            },
+          }]
+        }
+      }
+
+      // 非选择型特性或无玩家选择时：回退到硬编码默认
+      if (effects.length === 0 && !optionId && !registryEntry) {
         const choiceResult = getChoiceEffects(buffKey, classFeatureChoices)
         if (choiceResult) effects = choiceResult.effects
       }
-      if (effects.length === 0 && HARDCODED_CLASS_FEATURE_BUFFS[buffKey]) {
+      if (effects.length === 0 && !registryEntry && HARDCODED_CLASS_FEATURE_BUFFS[buffKey]) {
         effects = HARDCODED_CLASS_FEATURE_BUFFS[buffKey]
       }
       if (effects.length === 0) return null
-      const duration = defaultPatch?.duration
-      const enabled = defaultPatch?.enabled !== false
-      const sourceLabel = f.sourceSubclass ? `${f.sourceClass}（${f.sourceSubclass}）-${f.name}` : `${f.sourceClass}-${f.name}`
       return {
-        id: `classfeature_${f.sourceClass}_${f.sourceSubclass || ''}_${f.id}`,
+        id: `classfeature_${f.sourceClass}_${f.sourceSubclass || ''}_${f.id}${optionId ? `_${optionId}` : ''}`,
         source: sourceLabel,
         effects,
         ...(duration ? { duration } : {}),
@@ -344,6 +387,7 @@ export function getBuffsFromClassFeatures(character, moduleId) {
         featureId: f.id,
         sourceClass: f.sourceClass,
         sourceSubclass: f.sourceSubclass || '',
+        ...(optionId ? { optionId } : {}),
       }
     })
     .filter(Boolean)
@@ -460,14 +504,35 @@ export function getFlatEffectEntries(buffs) {
   for (const b of list) {
     if (b && b.enabled === false) continue
     const effects = getEffectsFromBuff(b)
-    effects.forEach((e) => out.push({
-      effectType: e.effectType,
-      value: e.value,
-      scope: e.scope,
-      scopeDetail: e.scopeDetail,
-      itemInventoryId: e.itemInventoryId ?? b?.itemInventoryId,
-      break20: e.break20,
-    }))
+    for (const e of effects) {
+      // 选择型 BUFF：展开选中选项的效果
+      if (e.effectType === 'choice' && e.value && typeof e.value === 'object' && !Array.isArray(e.value)) {
+        const opts = Array.isArray(e.value.choiceOptions) ? e.value.choiceOptions : []
+        const selIdx = Math.min(Math.max(0, Number(e.value.choiceSelected) || 0), opts.length - 1)
+        const selectedOpt = opts[selIdx]
+        if (selectedOpt && Array.isArray(selectedOpt.effects)) {
+          for (const se of selectedOpt.effects) {
+            out.push({
+              effectType: se.effectType ?? '',
+              value: se.value,
+              scope: se.scope,
+              scopeDetail: se.scopeDetail,
+              itemInventoryId: se.itemInventoryId ?? b?.itemInventoryId,
+              break20: se.break20,
+            })
+          }
+        }
+        continue
+      }
+      out.push({
+        effectType: e.effectType,
+        value: e.value,
+        scope: e.scope,
+        scopeDetail: e.scopeDetail,
+        itemInventoryId: e.itemInventoryId ?? b?.itemInventoryId,
+        break20: e.break20,
+      })
+    }
   }
   return out
 }
