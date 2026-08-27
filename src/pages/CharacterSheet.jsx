@@ -64,7 +64,7 @@ import FeatPickerModal from '../components/FeatPickerModal'
 import BuffForm from '../components/BuffForm'
 import { loadDefaultBuffPatch, saveDefaultBuffPatch, buildClassFeatureBuffKey } from '../lib/defaultBuffPatchStore'
 import { CLASS_FEATURE_CHOICE_REGISTRY, CHOICE_ID_ALIASES } from '../data/classFeatureChoiceRegistry'
-import { ACTIVE_ABILITY_REGISTRY, getAbilityById } from '../data/activeAbilityRegistry'
+import { getBuffsFromClassFeatures, getBuffsFromSelectedFeats } from '../lib/effects/effectMapping'
 import { executeAbility, canUseAbility, findAllActiveAbilitiesForFeature } from '../lib/activeAbilityEngine'
 import { formatRecoveryBrief, buildAbilityDiceExpr, RESOURCE_TYPE_OPTIONS, normalizeChargeItemValue, computeScaledEffect, getMaxSpendableAmount, resolveAbilityMod } from '../lib/chargeItemModel'
 import { rollDice } from '../data/weaponDatabase'
@@ -77,18 +77,33 @@ function buildClassFeatureOptionBuffKey(sourceClass, sourceSubclass, featureId, 
   return `${sourceClass}|${sourceSubclass || ''}|${featureId}:${optionId}`
 }
 
-/** 查找专长对应的主动技能 ID（按 feat.id 匹配 ability.sourceKey） */
-function findActiveAbilityForFeat(featId) {
-  const ability = ACTIVE_ABILITY_REGISTRY.find((a) => a.source === 'feat' && a.sourceKey === featId)
-  return ability?.id || null
+/** 从 BUFF 条目查找专长对应的第一个主动技能 */
+function findActiveAbilityForFeat(featId, char, moduleId) {
+  const featBuffs = getBuffsFromSelectedFeats(char, moduleId)
+  const buff = featBuffs.find(b => b.featId === featId)
+  return buff?.activeAbilities?.[0] || null
 }
 
-/** 查找职业特性对应的主动技能（按 sourceClass + featureId 精确匹配） */
-function findActiveAbilityForClassFeature(sourceClass, featureId) {
-  const ability = ACTIVE_ABILITY_REGISTRY.find(
-    (a) => a.source === 'class' && a.sourceKey === sourceClass && a.featureId === featureId,
-  )
-  return ability?.id || null
+/** 从 BUFF 条目查找职业特性对应的第一个主动技能 */
+function findActiveAbilityForClassFeature(sourceClass, featureId, char, moduleId) {
+  const cfBuffs = getBuffsFromClassFeatures(char, moduleId)
+  const buff = cfBuffs.find(b => b.sourceClass === sourceClass && b.featureId === featureId)
+  return buff?.activeAbilities?.[0] || null
+}
+
+/** 从所有 BUFF 条目按 ID 查找主动技能 */
+function getAbilityFromBuffEntries(abilityId, char, moduleId) {
+  const cfBuffs = getBuffsFromClassFeatures(char, moduleId)
+  for (const buff of cfBuffs) {
+    const ab = (buff.activeAbilities || []).find(a => a.id === abilityId)
+    if (ab) return ab
+  }
+  const featBuffs = getBuffsFromSelectedFeats(char, moduleId)
+  for (const buff of featBuffs) {
+    const ab = (buff.activeAbilities || []).find(a => a.id === abilityId)
+    if (ab) return ab
+  }
+  return null
 }
 
 import { inputClass } from '../lib/inputStyles'
@@ -1164,9 +1179,8 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
   const effects = Array.isArray(defaultPatch?.effects) ? defaultPatch.effects : []
   const chargeEffects = effects.filter((e) => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
 
-  /* ── 主动技能（activeAbilityRegistry）── */
-  const abilityId = findActiveAbilityForClassFeature(feature.sourceClass, feature.id)
-  const ability = abilityId ? getAbilityById(abilityId) : null
+  /* ── 主动技能（BUFF 条目）── */
+  const ability = findActiveAbilityForClassFeature(feature.sourceClass, feature.id, char, moduleId)
   const abilityCheck = ability ? canUseAbility(ability, char) : null
   const abilityCostText = ability?.cost.type === 'class_resource'
     ? `${ability.cost.amount}${({ wild_shape: '变', second_wind: '气', lay_on_hands: '疗' }[ability.cost.resourceKey] || '')}`
@@ -1765,7 +1779,7 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
               {/* 主动技能使用按钮 */}
               {f.id === 'focus_points' && f.sourceClass === '火铳手' ? (
                 (() => {
-                  const focusAbilities = findAllActiveAbilitiesForFeature('火铳手', 'focus_points', char)
+                  const focusAbilities = findAllActiveAbilitiesForFeature('火铳手', 'focus_points', char, moduleId)
                   if (focusAbilities.length === 0) return null
                   return (
                     <div className="mt-2 space-y-1">
@@ -2239,7 +2253,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
             const category = feat?.category || (legacyStyle ? '旧版战斗风格' : slot.category)
             const isExpanded = expandedFeatIds.has(row?.featId)
             const hasDescription = Boolean(feat?.description)
-            const hasActiveAbility = row?.featId ? !!findActiveAbilityForFeat(row.featId) : false
+            const hasActiveAbility = row?.featId ? !!findActiveAbilityForFeat(row.featId, char, moduleId) : false
 
             return (
               <li key={slot.id} className="panel-card-compact">
@@ -2345,8 +2359,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
 
                 {/* 主动技能使用按钮 */}
                 {row?.featId && hasActiveAbility && (() => {
-                  const abilityId = findActiveAbilityForFeat(row.featId)
-                  const ability = getAbilityById(abilityId)
+                  const ability = findActiveAbilityForFeat(row.featId, char, moduleId)
                   if (!ability) return null
                   const check = canUseAbility(ability, char)
                   const costText = ability.cost.type === 'class_resource'
@@ -2419,7 +2432,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
             )
             const isExpanded = expandedFeatIds.has(row.featId)
             const hasDescription = Boolean(feat?.description)
-            const hasActiveAbility = !!findActiveAbilityForFeat(row.featId)
+            const hasActiveAbility = !!findActiveAbilityForFeat(row.featId, char, moduleId)
             return (
               <li
                 key={`free-${row.featId}-${i}`}
@@ -2505,8 +2518,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
 
                 {/* 主动技能使用按钮 */}
                 {hasActiveAbility && (() => {
-                  const abilityId = findActiveAbilityForFeat(row.featId)
-                  const ability = getAbilityById(abilityId)
+                  const ability = findActiveAbilityForFeat(row.featId, char, moduleId)
                   if (!ability) return null
                   const check = canUseAbility(ability, char)
                   const costText = ability.cost.type === 'class_resource'
@@ -3384,6 +3396,7 @@ export default function CharacterSheet() {
               level={level}
               canEdit={canEdit}
               onSave={persist}
+              moduleId={moduleId}
             />
           </section>
           )}

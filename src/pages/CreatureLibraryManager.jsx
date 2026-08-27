@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   loadCreatureLibrary,
@@ -8,7 +8,12 @@ import {
   deleteCreature,
   DEFAULT_CREATURE,
   CREATURE_SIZES,
+  normalizeTraits,
+  normalizeActions,
+  createEmptyTrait,
+  createEmptyAction,
 } from '../data/creatureLibrary'
+import BuffForm from '../components/BuffForm'
 
 const CREATURE_TYPES = [
   { value: 'beast', label: '野兽' },
@@ -38,11 +43,70 @@ function modStr(val) {
   return m >= 0 ? `+${m}` : `${m}`
 }
 
+/** 将 AI 返回的数据映射到 DEFAULT_CREATURE 结构 */
+function mapParsedToCreature(parsed) {
+  const base = { ...DEFAULT_CREATURE, abilities: { ...DEFAULT_CREATURE.abilities }, speed: { ...DEFAULT_CREATURE.speed } }
+
+  if (parsed.name) base.name = parsed.nameZh || parsed.name
+  if (parsed.size) base.size = parsed.size
+  if (parsed.type) base.type = parsed.type
+  if (parsed.cr != null) base.cr = Number(parsed.cr) || 0
+
+  // Abilities
+  if (parsed.abilities && typeof parsed.abilities === 'object') {
+    for (const key of ABILITY_KEYS) {
+      if (parsed.abilities[key] != null) {
+        base.abilities[key] = Number(parsed.abilities[key]) || 10
+      }
+    }
+  }
+
+  // HP — may be "45 (6d8+18)" format
+  if (parsed.hp != null) {
+    const hpStr = String(parsed.hp)
+    const numMatch = hpStr.match(/^(\d+)/)
+    base.hp = numMatch ? Number(numMatch[1]) : hpStr
+    const diceMatch = hpStr.match(/\(([^)]+)\)/)
+    if (diceMatch) base.hitDice = diceMatch[1]
+  }
+
+  // AC
+  if (parsed.ac != null) base.ac = Number(parsed.ac) || 10
+
+  // Speed
+  if (parsed.speed && typeof parsed.speed === 'object') {
+    for (const key of ['walk', 'fly', 'swim', 'climb']) {
+      if (parsed.speed[key] != null) {
+        base.speed[key] = Number(parsed.speed[key]) || null
+      }
+    }
+  }
+
+  // Resistances / Immunities
+  if (Array.isArray(parsed.damageResistances)) base.resistances = parsed.damageResistances
+  if (Array.isArray(parsed.damageImmunities)) base.immunities = parsed.damageImmunities
+  if (Array.isArray(parsed.conditionImmunities)) base.conditionImmunities = parsed.conditionImmunities
+  if (Array.isArray(parsed.damageVulnerabilities)) base.vulnerabilities = parsed.damageVulnerabilities
+
+  // Traits / Actions — normalize to structured objects
+  if (Array.isArray(parsed.traits)) base.traits = normalizeTraits(parsed.traits)
+  if (Array.isArray(parsed.actions)) base.actions = normalizeActions(parsed.actions)
+  if (Array.isArray(parsed.reactions)) base.reactions = parsed.reactions
+  if (Array.isArray(parsed.legendaryActions)) base.legendaryActions = parsed.legendaryActions
+
+  return base
+}
+
 export default function CreatureLibraryManager() {
   const navigate = useNavigate()
   const [creatures, setCreatures] = useState([])
   const [editing, setEditing] = useState(null) // null = list view, object = edit form
   const [filter, setFilter] = useState('')
+  const [parseLoading, setParseLoading] = useState(false)
+  const [parseError, setParseError] = useState('')
+  const [previewImage, setPreviewImage] = useState(null)
+  const fileInputRef = useRef(null)
+  const listFileInputRef = useRef(null)
 
   const refresh = useCallback(() => {
     setCreatures(loadCreatureLibrary())
@@ -55,11 +119,17 @@ export default function CreatureLibraryManager() {
   )
 
   const startNew = () => {
-    setEditing({ ...DEFAULT_CREATURE, id: '', name: '', abilities: { ...DEFAULT_CREATURE.abilities } })
+    setEditing({ ...DEFAULT_CREATURE, id: '', name: '', abilities: { ...DEFAULT_CREATURE.abilities }, traits: [], actions: [] })
   }
 
   const startEdit = (creature) => {
-    setEditing({ ...creature, abilities: { ...creature.abilities }, speed: { ...creature.speed } })
+    setEditing({
+      ...creature,
+      abilities: { ...creature.abilities },
+      speed: { ...creature.speed },
+      traits: normalizeTraits(creature.traits),
+      actions: normalizeActions(creature.actions),
+    })
   }
 
   const handleSave = () => {
@@ -90,8 +160,155 @@ export default function CreatureLibraryManager() {
     speed: { ...prev.speed, [key]: val ? Number(val) : null },
   }))
 
+  // ── 特质 & 动作 编辑 ──────────────────────────────────────────────
+  const [editingTraitBuffId, setEditingTraitBuffId] = useState(null) // 正在用 BuffForm 编辑效果的特质 id
+
+  const addTrait = () => {
+    const t = createEmptyTrait('新特质')
+    setEditing(prev => ({ ...prev, traits: [...(prev.traits || []), t] }))
+  }
+  const removeTrait = (id) => {
+    setEditing(prev => ({ ...prev, traits: (prev.traits || []).filter(t => t.id !== id) }))
+  }
+  const patchTrait = (id, key, val) => {
+    setEditing(prev => ({
+      ...prev,
+      traits: (prev.traits || []).map(t => t.id === id ? { ...t, [key]: val } : t),
+    }))
+  }
+  const saveTraitEffects = (traitId, buffPayload) => {
+    const effects = (buffPayload?.effects || []).map(e => ({
+      effectType: e.effectType,
+      value: e.value,
+      scope: e.scope,
+      scopeDetail: e.scopeDetail,
+      category: e.category,
+    }))
+    setEditing(prev => ({
+      ...prev,
+      traits: (prev.traits || []).map(t => t.id === traitId ? { ...t, effects } : t),
+    }))
+    setEditingTraitBuffId(null)
+  }
+
+  const addAction = () => {
+    const a = createEmptyAction('新动作')
+    setEditing(prev => ({ ...prev, actions: [...(prev.actions || []), a] }))
+  }
+  const removeAction = (id) => {
+    setEditing(prev => ({ ...prev, actions: (prev.actions || []).filter(a => a.id !== id) }))
+  }
+  const patchAction = (id, key, val) => {
+    setEditing(prev => ({
+      ...prev,
+      actions: (prev.actions || []).map(a => a.id === id ? { ...a, [key]: val } : a),
+    }))
+  }
+
+  // ── 截图录入 ──────────────────────────────────────────────────────
+  const handleImageFile = useCallback(async (file) => {
+    if (!file || !file.type.startsWith('image/')) return
+    setParseError('')
+    setParseLoading(true)
+    setPreviewImage(null)
+
+    try {
+      // Read file as base64 data URL
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result)
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+
+      setPreviewImage(dataUrl)
+
+      // Call API
+      const res = await fetch('/api/parse-creature', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || data.detail || '解析失败')
+      }
+
+      // Map parsed data to creature form
+      const mapped = mapParsedToCreature(data)
+      setEditing(prev => prev ? { ...mapped, id: prev.id } : mapped)
+    } catch (err) {
+      console.error('Parse creature error:', err)
+      setParseError(err.message || '截图解析失败，请手动填写')
+    } finally {
+      setParseLoading(false)
+    }
+  }, [])
+
+  const handlePaste = useCallback((e) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault()
+        const file = item.getAsFile()
+        if (file) handleImageFile(file)
+        return
+      }
+    }
+  }, [handleImageFile])
+
+  // Global paste listener when editing
+  useEffect(() => {
+    if (!editing) return
+    const handler = (e) => handlePaste(e)
+    document.addEventListener('paste', handler)
+    return () => document.removeEventListener('paste', handler)
+  }, [editing, handlePaste])
+
+  // 列表页截图新建
+  const handleListScreenshot = useCallback(async (file) => {
+    if (!file || !file.type.startsWith('image/')) return
+    setParseError('')
+    setParseLoading(true)
+    setPreviewImage(null)
+
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result)
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+
+      setPreviewImage(dataUrl)
+
+      const res = await fetch('/api/parse-creature', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || data.detail || '解析失败')
+
+      const mapped = mapParsedToCreature(data)
+      setEditing({ ...mapped, id: '' })
+    } catch (err) {
+      console.error('Parse creature error:', err)
+      setParseError(err.message || '截图解析失败')
+      // Still open edit form so user can fill manually
+      setEditing({ ...DEFAULT_CREATURE, id: '', name: '', abilities: { ...DEFAULT_CREATURE.abilities }, traits: [], actions: [] })
+    } finally {
+      setParseLoading(false)
+    }
+  }, [])
+
   if (editing) {
+    const editingTrait = editingTraitBuffId ? (editing.traits || []).find(t => t.id === editingTraitBuffId) : null
     return (
+      <>
       <div className="p-4 pb-24 min-h-screen" style={{ backgroundColor: 'var(--page-bg)' }}>
         <div className="flex items-center justify-between mb-4">
           <h1 className="font-display text-lg font-semibold text-white">
@@ -101,6 +318,42 @@ export default function CreatureLibraryManager() {
         </div>
 
         <div className="space-y-3">
+          {/* 截图录入 */}
+          <div className="rounded-lg bg-dnd-card border border-white/10 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={parseLoading}
+                className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-medium shrink-0"
+              >
+                {parseLoading ? '解析中...' : '上传截图'}
+              </button>
+              <span className="text-[10px] text-dnd-text-muted">或 Ctrl+V 粘贴图片</span>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={e => {
+                  const file = e.target.files?.[0]
+                  if (file) handleImageFile(file)
+                  e.target.value = ''
+                }}
+              />
+            </div>
+            {previewImage && (
+              <div className="relative">
+                <img src={previewImage} alt="preview" className="max-h-40 rounded border border-white/10" />
+              </div>
+            )}
+            {parseLoading && (
+              <div className="text-xs text-indigo-400 animate-pulse">AI 正在识别生物数据...</div>
+            )}
+            {parseError && (
+              <div className="text-xs text-dnd-red bg-dnd-red/10 rounded px-2 py-1">{parseError}</div>
+            )}
+          </div>
+
           {/* 基本信息 */}
           <div className="rounded-lg bg-dnd-card border border-white/10 p-3 space-y-2">
             <div>
@@ -196,6 +449,69 @@ export default function CreatureLibraryManager() {
             </div>
           </div>
 
+          {/* 动作 */}
+          <div className="rounded-lg bg-dnd-card border border-white/10 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-dnd-text-muted">动作</span>
+              <button onClick={addAction} className="text-dnd-gold text-xs hover:text-dnd-gold-light">+ 添加</button>
+            </div>
+            {(editing.actions || []).length === 0 && <div className="text-[10px] text-gray-600">无动作</div>}
+            {(editing.actions || []).map((a, idx) => (
+              <div key={a.id} className="space-y-1 border-t border-white/5 pt-2">
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-dnd-text-muted w-5 shrink-0">{idx + 1}.</span>
+                  <input className={`${inputCls} flex-1`} placeholder="动作名称" value={a.name} onChange={e => patchAction(a.id, 'name', e.target.value)} />
+                  <button onClick={() => removeAction(a.id)} className="text-dnd-red/60 hover:text-dnd-red text-xs shrink-0 px-1">×</button>
+                </div>
+                <textarea
+                  className={`${inputCls} resize-none`}
+                  rows={2}
+                  placeholder="动作描述（如：命中 +5，伤害 2d6+3 挥砍）"
+                  value={a.description}
+                  onChange={e => patchAction(a.id, 'description', e.target.value)}
+                />
+              </div>
+            ))}
+          </div>
+
+          {/* 特质 */}
+          <div className="rounded-lg bg-dnd-card border border-white/10 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-dnd-text-muted">特质</span>
+              <button onClick={addTrait} className="text-dnd-gold text-xs hover:text-dnd-gold-light">+ 添加</button>
+            </div>
+            {(editing.traits || []).length === 0 && <div className="text-[10px] text-gray-600">无特质</div>}
+            {(editing.traits || []).map((t, idx) => (
+              <div key={t.id} className="space-y-1 border-t border-white/5 pt-2">
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-dnd-text-muted w-5 shrink-0">{idx + 1}.</span>
+                  <input className={`${inputCls} flex-1`} placeholder="特质名称" value={t.name} onChange={e => patchTrait(t.id, 'name', e.target.value)} />
+                  <button onClick={() => removeTrait(t.id)} className="text-dnd-red/60 hover:text-dnd-red text-xs shrink-0 px-1">×</button>
+                </div>
+                <textarea
+                  className={`${inputCls} resize-none`}
+                  rows={2}
+                  placeholder="特质描述（可选）"
+                  value={t.description}
+                  onChange={e => patchTrait(t.id, 'description', e.target.value)}
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setEditingTraitBuffId(t.id)}
+                    className="px-2 py-0.5 rounded bg-indigo-600/80 hover:bg-indigo-500 text-white text-[10px]"
+                  >
+                    编辑效果 {(t.effects || []).length > 0 && `(${t.effects.length})`}
+                  </button>
+                  {(t.effects || []).length > 0 && (
+                    <span className="text-[10px] text-indigo-400">
+                      {t.effects.map(e => e.effectType).filter(Boolean).join(', ')}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
           {/* 操作按钮 */}
           <div className="flex gap-2 pt-2">
             <button
@@ -214,6 +530,31 @@ export default function CreatureLibraryManager() {
           </div>
         </div>
       </div>
+
+      {editingTrait && (
+        <div className="fixed inset-0 z-50 bg-[var(--page-bg)] overflow-y-auto">
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-display text-base font-semibold text-white">
+                编辑特质效果 — {editingTrait.name}
+              </h2>
+              <button
+                onClick={() => setEditingTraitBuffId(null)}
+                className="text-dnd-text-muted text-sm hover:text-white"
+              >
+                取消
+              </button>
+            </div>
+            <BuffForm
+              compact
+              initial={{ effects: editingTrait.effects || [], source: editingTrait.name }}
+              onSave={(payload) => saveTraitEffects(editingTrait.id, payload)}
+              onCancel={() => setEditingTraitBuffId(null)}
+            />
+          </div>
+        </div>
+      )}
+      </>
     )
   }
 
@@ -224,7 +565,27 @@ export default function CreatureLibraryManager() {
           <button onClick={() => navigate(-1)} className="text-dnd-text-muted hover:text-white text-lg">←</button>
           <h1 className="font-display text-lg font-semibold text-white">生物库</h1>
         </div>
-        <button onClick={startNew} className="px-3 py-1.5 rounded-lg bg-dnd-gold text-black text-xs font-medium">+ 新建</button>
+        <div className="flex items-center gap-2">
+          <button onClick={startNew} className="px-3 py-1.5 rounded-lg bg-dnd-gold text-black text-xs font-medium">+ 新建</button>
+          <button
+            onClick={() => listFileInputRef.current?.click()}
+            disabled={parseLoading}
+            className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-medium"
+          >
+            {parseLoading ? '解析中...' : '截图新建'}
+          </button>
+          <input
+            ref={listFileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={e => {
+              const file = e.target.files?.[0]
+              if (file) handleListScreenshot(file)
+              e.target.value = ''
+            }}
+          />
+        </div>
       </div>
 
       {/* 搜索 */}
@@ -234,6 +595,17 @@ export default function CreatureLibraryManager() {
         value={filter}
         onChange={e => setFilter(e.target.value)}
       />
+
+      {/* 截图新建状态 */}
+      {parseLoading && !editing && (
+        <div className="mb-3 text-xs text-indigo-400 animate-pulse">AI 正在识别生物数据...</div>
+      )}
+      {parseError && !editing && (
+        <div className="mb-3 text-xs text-dnd-red bg-dnd-red/10 rounded px-2 py-1">
+          {parseError}
+          <button onClick={() => setParseError('')} className="ml-2 underline">关闭</button>
+        </div>
+      )}
 
       {/* 列表 */}
       {filtered.length === 0 ? (

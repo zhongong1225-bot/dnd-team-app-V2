@@ -20,13 +20,13 @@ const SLOT_COUNT = 5
  * @param {Function} props.onExecute - 执行技能回调 (ability, context) => void
  * @param {boolean} props.canEdit - 是否可编辑
  */
-export default function ActiveAbilityQuickBar({ char, quickBar, onUpdateQuickBar, onExecute, canEdit }) {
+export default function ActiveAbilityQuickBar({ char, quickBar, onUpdateQuickBar, onExecute, canEdit, moduleId }) {
   const [selectingSlot, setSelectingSlot] = useState(null)
 
   // 获取角色可用的所有主动技能
   const availableAbilities = useMemo(() => {
-    return getAbilitiesForCharacter(char)
-  }, [char])
+    return getAbilitiesForCharacter(char, moduleId)
+  }, [char, moduleId])
 
   // 构建槽位列表（固定 SLOT_COUNT 格）
   const slots = useMemo(() => {

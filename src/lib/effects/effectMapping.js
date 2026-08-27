@@ -14,6 +14,7 @@ import { loadDefaultBuffPatch, mergeWithDefaultPatch, buildClassFeatureBuffKey }
 import { getAvailableFeatures } from '../../data/classDatabase'
 import { HARDCODED_FEAT_BUFFS } from '../../data/featDefaultBuffs'
 import { HARDCODED_CLASS_FEATURE_BUFFS } from '../../data/classFeatureDefaultBuffs'
+import { DEFAULT_CLASS_FEATURE_ABILITIES, DEFAULT_FEAT_ABILITIES } from '../../data/defaultActiveAbilities'
 import { getChoiceEffects, CLASS_FEATURE_CHOICE_REGISTRY, CHOICE_ID_ALIASES } from '../../data/classFeatureChoiceRegistry'
 import { findShieldSlot } from '../equipmentLayers'
 
@@ -190,10 +191,12 @@ export function getBuffsFromSelectedFeats(character, moduleId) {
     }
     const duration = patch?.duration
     const enabled = patch?.enabled !== false
+    const defaultAbilities = DEFAULT_FEAT_ABILITIES[item.featId] || []
     out.push({
       id: `feat_${item.featId}`,
       source: name,
       effects,
+      ...(defaultAbilities.length ? { activeAbilities: defaultAbilities } : {}),
       ...(duration ? { duration } : {}),
       enabled,
       fromFeat: true,
@@ -452,11 +455,14 @@ export function getBuffsFromClassFeatures(character, moduleId) {
       if (effects.length === 0 && !registryEntry && HARDCODED_CLASS_FEATURE_BUFFS[buffKey]) {
         effects = HARDCODED_CLASS_FEATURE_BUFFS[buffKey]
       }
-      if (effects.length === 0) return null
+      // 注入默认主动技能（即使无被动效果也保留条目）
+      const defaultAbilities = DEFAULT_CLASS_FEATURE_ABILITIES[buffKey] || []
+      if (effects.length === 0 && defaultAbilities.length === 0) return null
       return {
         id: `classfeature_${f.sourceClass}_${f.sourceSubclass || ''}_${f.id}${optionId ? `_${optionId}` : ''}`,
         source: sourceLabel,
         effects,
+        ...(defaultAbilities.length ? { activeAbilities: defaultAbilities } : {}),
         ...(duration ? { duration } : {}),
         enabled,
         fromClassFeature: true,

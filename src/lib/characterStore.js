@@ -262,6 +262,7 @@ export function addCharacter(ownerName, data = {}) {
     wallet: data.wallet ?? {},
     equipment: data.equipment ?? {},
     buffs: data.buffs ?? [],
+    shields: Array.isArray(data.shields) ? data.shields : [],
     notes: data.notes ?? '',
     createdAt: now,
     updatedAt: now,

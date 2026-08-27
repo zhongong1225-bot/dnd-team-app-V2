@@ -89,6 +89,12 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
   if (buff.effectType === 'crit_extra_dice' && typeof v === 'number' && !Number.isNaN(v)) {
     return `${effectLabel}${v}`
   }
+  if (buff.effectType === 'crit_range_override' && typeof v === 'number' && !Number.isNaN(v)) {
+    return `${effectLabel}${v}-20`
+  }
+  if (buff.effectType === 'crit_range_increment' && typeof v === 'number' && !Number.isNaN(v)) {
+    return `${effectLabel}+${v}`
+  }
   if (info.effect.dataType === 'number' && (typeof v === 'number' || isFormulaValue(v))) {
     if (isFormulaValue(v)) return `${effectLabel}${formatFormulaLabelWithEval(v, context)}`
     const sign = v >= 0 ? '+' : ''
@@ -333,6 +339,13 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
     const labels = types.map(getDamageTypeLabel)
     return labels.map((l) => `${l}${suffix}`).join('，')
   }
+  // 按伤害类型固定减免
+  if (buff.effectType === 'damage_reduction_typed' && v && typeof v === 'object' && !Array.isArray(v)) {
+    const types = Array.isArray(v.types) ? v.types : []
+    const reduction = Number(v.reduction) || 0
+    const labels = types.map(getDamageTypeLabel)
+    return `${labels.join('、')}伤害减免${reduction}`
+  }
   // 新增效果类型显示
   if (buff.effectType === 'special_senses' && v && typeof v === 'object') {
     const senses = Array.isArray(v.senses) ? v.senses : []
@@ -443,6 +456,12 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
   }
   if (buff.effectType === 'crit_extra_dice' && typeof buff.value === 'number') {
     return { label: effectLabel, value: String(buff.value) }
+  }
+  if (buff.effectType === 'crit_range_override' && typeof buff.value === 'number') {
+    return { label: effectLabel, value: `${buff.value}-20` }
+  }
+  if (buff.effectType === 'crit_range_increment' && typeof buff.value === 'number') {
+    return { label: effectLabel, value: `+${buff.value}` }
   }
   if (info.effect.dataType === 'number' && (typeof buff.value === 'number' || isFormulaValue(buff.value))) {
     if (isFormulaValue(buff.value)) return { label: effectLabel, value: formatFormulaLabelWithEval(buff.value, context) }
@@ -576,6 +595,18 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
   if (buff.effectType === 'damage_piercing_traits' && buff.value && typeof buff.value === 'object' && !Array.isArray(buff.value)) {
     const str = formatDamagePiercingTraitsValue(buff.value)
     return { label: effectLabel, value: str || null }
+  }
+  if (buff.effectType === 'damage_reduction_typed' && buff.value && typeof buff.value === 'object' && !Array.isArray(buff.value)) {
+    const types = Array.isArray(buff.value.types) ? buff.value.types : []
+    const reduction = Number(buff.value.reduction) || 0
+    const labels = types.map(getDamageTypeLabel)
+    return { label: effectLabel, value: `${labels.join('、')}-${reduction}` }
+  }
+  if (buff.effectType === 'damage_type_relation' && buff.value && typeof buff.value === 'object' && !Array.isArray(buff.value)) {
+    const types = Array.isArray(buff.value.types) ? buff.value.types : []
+    const relation = buff.value.relation || 'resist'
+    const suffix = relation === 'resist' ? '抗性' : relation === 'immune' ? '免疫' : '易伤'
+    return { label: effectLabel, value: types.map(getDamageTypeLabel).map(l => `${l}${suffix}`).join('，') }
   }
   return { label: effectLabel, value: buff.value != null ? String(buff.value) : null }
 }

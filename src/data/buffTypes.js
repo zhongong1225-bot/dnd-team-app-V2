@@ -392,6 +392,10 @@ export const BUFF_TYPES = {
       // 暴击范围扩大：仅本件物品；武器攻击快捷投掷威胁高亮按「当前这把武器」自己的附魔，不因其它已装备武器串用
       // 互动调整方式：范围选项：默认 20，可选 19-20、18-20。
       { key: 'crit_range_expand', label: '暴击范围扩大', dataType: 'text' },
+      // 暴击范围覆盖：明确范围（19-20、18-20），多个效果取最低威胁下限
+      { key: 'crit_range_override', label: '暴击范围（覆盖）', dataType: 'number' },
+      // 暴击范围增量：-N，多个效果可叠加
+      { key: 'crit_range_increment', label: '暴击范围（+N）', dataType: 'number' },
       // 暴击×：仅作用于「该件物品」自身；战斗手段里每把武器单独读自己的附魔，不会因其它已装备武器上的×4而串用
       { key: 'crit_extra_dice', label: '暴击×', dataType: 'number' },
       // 表格：伤害骰（自定义一行：箭 - 数字 + 骰子 箭 类型 箭，箭为下拉）
@@ -421,6 +425,8 @@ export const BUFF_TYPES = {
       { key: 'vulnerable_type', label: '伤害易伤', dataType: 'array', subSelect: 'damageType', hidden: true },
       /** 固定值：每次受到伤害时再减去该数值（在免疫/易伤/抗性之后结算，见 useBuffCalculator.calculateDamage） */
       { key: 'damage_reduction', label: '伤害减免', dataType: 'number' },
+      /** 按伤害类型的固定减免。value: { types: string[], reduction: number } */
+      { key: 'damage_reduction_typed', label: '类型减免', dataType: 'object', subSelect: 'damageReductionTyped' },
       { key: 'max_hp_bonus', label: '生命上限', dataType: 'number' },
       { key: 'temp_hp', label: '临时生命', dataType: 'number' },
       { key: 'regeneration', label: '再生', dataType: 'number' },
@@ -685,6 +691,7 @@ export const SCOPE_KIND = {
   weapon_category: 'weapon_category',
   druid_cantrip: 'druid_cantrip',
   weapon_or_beast: 'weapon_or_beast',
+  aura: 'aura',
   custom: 'custom',
 }
 
@@ -699,6 +706,7 @@ export const SCOPE_KIND_OPTIONS = [
   { value: SCOPE_KIND.creature_type, label: '某类生物', tooltip: '仅对指定类型的目标生效' },
   { value: SCOPE_KIND.damage_type, label: '某类伤害类型', tooltip: '仅对指定类型的伤害生效' },
   { value: SCOPE_KIND.weapon_category, label: '某类武器', tooltip: '仅对指定类别的武器生效' },
+  { value: SCOPE_KIND.aura, label: '灵光', tooltip: '灵光范围内的友方目标生效' },
   { value: SCOPE_KIND.custom, label: '自定义', tooltip: '自定义条件，由 DM 描述生效范围' },
 ]
 
@@ -862,6 +870,8 @@ export function scopeMatchesCombatMean(effect, ctx = {}) {
   if (scope === SCOPE_KIND.weapon_or_beast) {
     return ctx.sourceKind === 'physical'
   }
+  // 灵光：被动区域效果，系统无法建模空间范围，视为始终生效
+  if (scope === SCOPE_KIND.aura) return true
   const details = Array.isArray(effect.scopeDetail) ? effect.scopeDetail.filter(Boolean) : []
   if (details.length === 0) return false
   if (scope === SCOPE_KIND.creature_type) {
@@ -904,6 +914,7 @@ export function formatScopeBrief(scope, scopeDetail) {
   if (s === SCOPE_KIND.natural_weapon) return '（天生武器）'
   if (s === SCOPE_KIND.druid_cantrip) return '（德鲁伊戏法）'
   if (s === SCOPE_KIND.weapon_or_beast) return '（武器/野兽攻击）'
+  if (s === SCOPE_KIND.aura) return '（灵光）'
   const details = Array.isArray(scopeDetail) ? scopeDetail.filter(Boolean) : []
   if (details.length === 0) return ''
   if (s === SCOPE_KIND.creature_type) {

@@ -12,6 +12,7 @@ import {
   scopeMatchesCombatMean,
 } from '../data/buffTypes'
 import { getFlatEffectEntries } from '../lib/effects/effectMapping'
+import { getActiveShieldEffects } from '../lib/shieldEngine'
 import { loadCreatureLibrary, getCreatureById, parseHpFormula } from '../data/creatureLibrary'
 
 /**
@@ -75,17 +76,25 @@ export function sumWeaponCategoryAttackDamageBonus(entries, proto, context = {})
 }
 
 /** 仅从单件物品 effects 读取重击威胁下限（含）；默认仅自然 20 */
-export function getCritThreatMinNaturalFromItemEntry(entry) {
+export function getCritThreatMinNaturalFromItemEntry(entry, context = {}) {
   let min = 20
+  let increment = 0
   const arr = entry?.effects
   if (!Array.isArray(arr)) return min
   for (const e of arr) {
     if (e?.effectType === 'crit_range_expand') {
       const mn = parseCritRangeThreatMin(e.value)
       if (mn != null) min = Math.min(min, mn)
+    } else if (e?.effectType === 'crit_range_override') {
+      const n = evaluateBuffValue(e.value, context)
+      if (!Number.isNaN(n) && n >= 1 && n <= 20) min = Math.min(min, Math.floor(n))
+    } else if (e?.effectType === 'crit_range_increment') {
+      const n = evaluateBuffValue(e.value, context)
+      if (!Number.isNaN(n) && n >= 1) increment += Math.floor(n)
     }
   }
-  return min
+  // 增量从覆盖结果中再扩展
+  return Math.max(1, min - increment)
 }
 
 /** 解析「施法距离延伸」的倍率与固定增量，兼容旧文本/纯数字/公式/对象 */
@@ -160,9 +169,13 @@ function parseBaseSpeedIncrement(raw, evalVal) {
 /**
  * 纯函数版 BUFF 计算（与 useBuffCalculator 结果一致），供单元测试与效果覆盖校验。
  */
-export function computeBuffStats(character, activeBuffs) {
+export function computeBuffStats(character, activeBuffs, shieldEffects) {
   const buffs = (activeBuffs || []).filter((b) => b.enabled !== false)
     const rawEntries = getFlatEffectEntries(buffs)
+    // 注入活跃护盾效果
+    if (Array.isArray(shieldEffects) && shieldEffects.length > 0) {
+      rawEntries.push(...shieldEffects.filter((e) => e?.effectType))
+    }
     const entries = rawEntries.filter((e) => !DISPLAY_ONLY_EFFECT_TYPES.includes(e.effectType))
 
     // ── 生物变身效果：收集所有 creature_transform，只取第一个有效的（不叠加）──
@@ -607,6 +620,7 @@ export function computeBuffStats(character, activeBuffs) {
     let spellRangeBonus = 0
     const ignoreResistanceTypes = []
     let damageReduction = 0
+    const damageReductionTyped = {}
     // 新增效果类型变量
     let specialSenses = { senses: [], range: 0 }
     let healingBonus = 0
@@ -628,6 +642,16 @@ export function computeBuffStats(character, activeBuffs) {
       else if (b.effectType === 'damage_reduction') {
         const dr = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
         if (!Number.isNaN(dr)) damageReduction += dr
+      }
+      else if (b.effectType === 'damage_reduction_typed' && raw && typeof raw === 'object') {
+        const types = Array.isArray(raw.types) ? raw.types : []
+        const red = Number(evalVal(raw.reduction)) || 0
+        if (red > 0) {
+          for (const t of types) {
+            const key = String(t).toLowerCase()
+            damageReductionTyped[key] = (damageReductionTyped[key] || 0) + red
+          }
+        }
       }
       else if (b.effectType === 'ac_cap_stone_layer') {
         const y = evalVal(raw)
@@ -917,6 +941,7 @@ export function computeBuffStats(character, activeBuffs) {
       spellRangeBonus,
       ignoreResistanceTypes,
       damageReduction,
+      damageReductionTyped,
       tempHp,
       maxHpBonus,
       regeneration,
@@ -962,8 +987,9 @@ export function computeBuffStats(character, activeBuffs) {
     }
 }
 
-export function useBuffCalculator(character, activeBuffs) {
-  return useMemo(() => computeBuffStats(character, activeBuffs), [character, activeBuffs])
+export function useBuffCalculator(character, activeBuffs, shields) {
+  const shieldEffects = useMemo(() => getActiveShieldEffects(shields), [shields])
+  return useMemo(() => computeBuffStats(character, activeBuffs, shieldEffects), [character, activeBuffs, shieldEffects])
 }
 
 /**
@@ -978,6 +1004,7 @@ export function calculateDamage(baseRoll, damageType, buffStats) {
     dmgTypeBonus = {},
     ignoreResistanceTypes = [],
     damageReduction: flatDr = 0,
+    damageReductionTyped = {},
   } = buffStats
   const type = getDamageTypeValue(damageType) || String(damageType || '').toLowerCase()
   const typeBonus = dmgTypeBonus[type] || 0
@@ -988,6 +1015,9 @@ export function calculateDamage(baseRoll, damageType, buffStats) {
   if (resistTypes.includes(type) && !ignoreResistanceTypes.includes(type)) result = Math.floor(result / 2)
   const dr = Number(flatDr) || 0
   if (dr !== 0) result = Math.max(0, result - dr)
+  // 按伤害类型的固定减免
+  const typedDr = Number(damageReductionTyped[type]) || 0
+  if (typedDr !== 0) result = Math.max(0, result - typedDr)
   return result
 }
 

@@ -140,9 +140,12 @@ export function listCreatures(filters = {}) {
   }
   if (filters.keyword) {
     const kw = filters.keyword.toLowerCase()
-    library = library.filter(c => 
+    library = library.filter(c =>
       c.name.toLowerCase().includes(kw) ||
-      (c.traits && c.traits.some(t => t.toLowerCase().includes(kw)))
+      (c.traits && c.traits.some(t => {
+        const text = typeof t === 'string' ? t : (t.name || '') + ' ' + (t.description || '')
+        return text.toLowerCase().includes(kw)
+      }))
     )
   }
   
@@ -211,4 +214,39 @@ export function transformCreatureToCharacterData(creature, options = {}) {
   }
   
   return result
+}
+
+/** 生成唯一 ID */
+function uid() {
+  return 't_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6)
+}
+
+/** 规范化特质：兼容旧版 string[] 和新版 object[] */
+export function normalizeTraits(traits) {
+  if (!Array.isArray(traits)) return []
+  return traits.map(t => {
+    if (typeof t === 'string') return { id: uid(), name: t, description: '', effects: [] }
+    if (t && typeof t === 'object') return { id: t.id || uid(), name: t.name || '', description: t.description || '', effects: Array.isArray(t.effects) ? t.effects : [] }
+    return null
+  }).filter(Boolean)
+}
+
+/** 规范化动作：兼容旧版 string[] 和新版 object[] */
+export function normalizeActions(actions) {
+  if (!Array.isArray(actions)) return []
+  return actions.map(a => {
+    if (typeof a === 'string') return { id: uid(), name: a, description: '' }
+    if (a && typeof a === 'object') return { id: a.id || uid(), name: a.name || '', description: a.description || '' }
+    return null
+  }).filter(Boolean)
+}
+
+/** 创建一个空特质 */
+export function createEmptyTrait(name = '') {
+  return { id: uid(), name, description: '', effects: [] }
+}
+
+/** 创建一个空动作 */
+export function createEmptyAction(name = '') {
+  return { id: uid(), name, description: '' }
 }

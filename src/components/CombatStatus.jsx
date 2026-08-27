@@ -28,6 +28,7 @@ import { CONDITION_OPTIONS, CONDITION_DESCRIPTIONS, EXHAUSTION_DESCRIPTIONS, DAM
 import { inputClass, inputClassInline } from '../lib/inputStyles'
 import { hpBarMainFillClass, HP_BAR_TEMP_FILL_CLASS } from '../lib/hpBarShared'
 import { RESOURCE_RULES, getAutoResources, computeResourceMax, createResourceEntry } from '../data/classResourceRules'
+import { recoverShieldsOnRest } from '../lib/shieldEngine'
 import WeaponAttackCard from './combat/WeaponAttackCard'
 import SpellAttackCard from './combat/SpellAttackCard'
 import ItemUseCard from './combat/ItemUseCard'
@@ -56,8 +57,8 @@ import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
 import { rollDice, rollCombatDicePool, parseCombatDiceExpression } from '../data/weaponDatabase'
 import { buildQuickRollAnimation } from '../lib/quickRollAnimation'
 import ActiveAbilityQuickBar from './combat/ActiveAbilityQuickBar'
+import ActionPanel from './combat/ActionPanel'
 import { executeAbility, canUseAbility } from '../lib/activeAbilityEngine'
-import { getAbilityById } from '../data/activeAbilityRegistry'
 import { isNewContainedSpellValue, normalizeContainedSpellValue, extractContainedSpellValueFromEntry } from '../lib/containedSpellModel'
 import { getFlatEffectEntries } from '../lib/effects/effectMapping'
 
@@ -483,7 +484,7 @@ function computeSpellRangeDisplay(rawRange, multiplier = 1, bonus = 0) {
   return text
 }
 
-export default function CombatStatus({ char, hp, abilities, level, canEdit, onSave }) {
+export default function CombatStatus({ char, hp, abilities, level, canEdit, onSave, moduleId }) {
   const { openForCheck } = useRoll()
   const { currentModuleId } = useModule()
   const combatModuleId = currentModuleId || 'default'
@@ -502,7 +503,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       combatModuleId,
     ],
   )
-  const buffStats = useBuffCalculator(char, mergedBuffs)
+  const buffStats = useBuffCalculator(char, mergedBuffs, char?.shields)
 
   const itemFormulaContext = useMemo(() => {
     const effectiveAbilities = buffStats?.abilities ?? abilities ?? {}
@@ -565,6 +566,14 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [addResourceName, setAddResourceName] = useState('')
   const [addResourceMax, setAddResourceMax] = useState(2)
   const [isAddingResource, setIsAddingResource] = useState(false)
+
+  // ── 护盾数据（仅用于休息恢复，管理 UI 已移至 BUFF 编辑器）──
+  const shields = Array.isArray(char?.shields) ? char.shields : []
+
+  const saveShields = useCallback((next) => {
+    onSave({ shields: next })
+  }, [onSave])
+
   const normalizeCombatMeanType = (t) => {
     if (t === 'spell_attack' || t === 'spell' || t === 'item' || t === 'combo') return t
     return 'physical'
@@ -1689,6 +1698,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       return r
     })
     saveClassResources(next)
+    // 护盾短休恢复
+    if (shields.length > 0) saveShields(recoverShieldsOnRest(shields, 'short'))
     // 魔契师短休恢复契约法术位
     const pactLv = getPactLevel(char)
     if (pactLv > 0) {
@@ -1718,6 +1729,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const handleLongRest = () => {
     const next = classResources.map((r) => ({ ...r, current: r.max }))
     saveClassResources(next)
+    // 护盾长休恢复
+    if (shields.length > 0) saveShields(recoverShieldsOnRest(shields, 'long'))
     const ds = getDefaultDeathSaves()
     setDeathSaves(ds)
     onSave({ deathSaves: ds })
@@ -2529,6 +2542,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         </button>
       ) : null}
 
+      {/* 主动技能面板 */}
+      <ActionPanel char={char} onExecute={handleExecuteAbility} moduleId={moduleId} />
+
       <div className="flex flex-col gap-2 mt-2">
         <div className="min-w-0 w-full flex flex-col gap-2">
       <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-2 w-full min-w-0">
@@ -2897,6 +2913,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         onUpdateQuickBar={handleUpdateQuickBar}
         onExecute={handleExecuteAbility}
         canEdit={canEdit}
+        moduleId={moduleId}
       />
     </div>
   )

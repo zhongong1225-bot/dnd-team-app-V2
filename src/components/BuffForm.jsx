@@ -3823,6 +3823,9 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
   const [effectModules, setEffectModules] = useState(() => normalizeInitialEffects(initial))
   /** null | module object：弹窗内正在添加/编辑的效果模块 */
   const [editingModule, setEditingModule] = useState(null)
+  /* ── 主动技能管理 ── */
+  const [activeAbilities, setActiveAbilities] = useState(() => Array.isArray(initial?.activeAbilities) ? initial.activeAbilities.map(a => ({...a})) : [])
+  const [editingAbility, setEditingAbility] = useState(null) // null | ability draft object
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -3852,6 +3855,12 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
       duration: duration.trim() || undefined,
       effects,
       enabled: initial?.enabled !== false,
+    }
+    if (activeAbilities.length > 0) {
+      payload.activeAbilities = activeAbilities.map(a => ({
+        ...a,
+        effects: (a.effects || []).map(e => ({ type: e.type, description: e.description || '', ...(e.formula ? { formula: e.formula } : {}), ...(e.applicableAbilities ? { applicableAbilities: e.applicableAbilities } : {}), ...(e.duration ? { duration: e.duration } : {}) })),
+      }))
     }
     if (!initial?.fromFeat && !initial?.fromItem) {
       payload.sourceKind = normalizeBuffSourceKindKey(sourceKind)
@@ -3896,6 +3905,66 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
 
   const removeModule = (id) => {
     setEffectModules((prev) => prev.filter((m) => m.id !== id))
+  }
+
+  /* ── 主动技能 handler ── */
+  const ACTION_TYPE_OPTIONS = [
+    { value: 'action', label: '动作' },
+    { value: 'bonus_action', label: '附赠动作' },
+    { value: 'reaction', label: '反应' },
+    { value: 'special', label: '特殊' },
+  ]
+  const COOLDOWN_OPTIONS = [
+    { value: 'none', label: '无冷却' },
+    { value: 'short_rest', label: '短休' },
+    { value: 'long_rest', label: '长休' },
+    { value: 'special', label: '特殊' },
+  ]
+  const ABILITY_EFFECT_TYPE_OPTIONS = [
+    { value: 'heal', label: '治疗' },
+    { value: 'buff', label: '增益' },
+    { value: 'creature_transform', label: '变身' },
+    { value: 'save_redirect', label: '豁免扭转' },
+    { value: 'teleport', label: '传送' },
+    { value: 'heal_full', label: '完全恢复' },
+    { value: 'restore_star_points', label: '恢复星辰点' },
+    { value: 'restore_spell_slots', label: '恢复法术位' },
+    { value: 'summon', label: '召唤' },
+    { value: 'custom_condition', label: '自定义' },
+  ]
+
+  const newEmptyAbility = () => ({
+    id: 'ab_' + Math.random().toString(36).slice(2, 9),
+    name: '',
+    actionType: 'action',
+    cost: { type: 'none' },
+    cooldown: 'none',
+    icon: 'Zap',
+    description: '',
+    needsInteraction: 'none',
+    effects: [],
+  })
+
+  const handleAddAbility = () => {
+    setEditingAbility(newEmptyAbility())
+  }
+
+  const handleEditAbility = (id) => {
+    const a = activeAbilities.find(x => x.id === id)
+    if (a) setEditingAbility({ ...a, cost: { ...a.cost }, effects: (a.effects || []).map(e => ({ ...e })) })
+  }
+
+  const handleSaveAbility = (draft) => {
+    setActiveAbilities(prev => {
+      const exists = prev.some(a => a.id === draft.id)
+      if (exists) return prev.map(a => a.id === draft.id ? draft : a)
+      return [...prev, draft]
+    })
+    setEditingAbility(null)
+  }
+
+  const handleRemoveAbility = (id) => {
+    setActiveAbilities(prev => prev.filter(a => a.id !== id))
   }
 
   return (
@@ -4054,6 +4123,293 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
                 spellAttackBonus={spellAttackBonus}
                 useWandScrollTable={useWandScrollTable}
               />
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── 主动技能列表 ── */}
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">主动技能（可多条）</label>
+          {!readOnly && (
+          <button
+            type="button"
+            onClick={handleAddAbility}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500 text-amber-400 hover:bg-amber-500/20 text-[10px] font-medium"
+          >
+            <Plus className="w-3 h-3" />
+            添加技能
+          </button>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          {activeAbilities.length === 0 ? (
+            <p className="text-gray-500 text-xs text-center py-2">暂无主动技能，点击右上角添加</p>
+          ) : (
+            activeAbilities.map((ab) => {
+              const actionLabel = ACTION_TYPE_OPTIONS.find(o => o.value === ab.actionType)?.label || ab.actionType
+              const cdLabel = COOLDOWN_OPTIONS.find(o => o.value === ab.cooldown)?.label || ab.cooldown
+              return (
+                <div
+                  key={ab.id}
+                  className="rounded-lg border border-white/[0.08] bg-[#1a2333]/60 px-2 py-1.5 flex items-center justify-between gap-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <span className="text-dnd-gold-light/90 text-xs font-medium">{ab.name || '未命名技能'}</span>
+                    <span className="text-gray-500 text-[10px] ml-2">{actionLabel}{ab.cooldown !== 'none' ? ` · ${cdLabel}` : ''}</span>
+                  </div>
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    {!readOnly && (
+                    <>
+                    <button
+                      type="button"
+                      onClick={() => handleEditAbility(ab.id)}
+                      className="p-1 rounded text-gray-400 hover:bg-gray-700 hover:text-dnd-gold transition-colors"
+                      title="编辑"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAbility(ab.id)}
+                      className="p-1 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors"
+                      title="删除"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                    </>
+                    )}
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </div>
+
+      {/* ── 主动技能编辑弹窗 ── */}
+      {editingAbility && (
+        <>
+          <div
+            className="fixed inset-0 z-[200] bg-black/50"
+            onClick={() => setEditingAbility(null)}
+            aria-hidden
+          />
+          <div
+            className="fixed inset-0 z-[201] flex items-center justify-center p-4 sm:p-8 overflow-auto"
+            onClick={() => setEditingAbility(null)}
+          >
+            <div
+              className="w-full max-w-lg max-h-[90vh] overflow-auto bg-gray-800 rounded-xl border border-gray-600 p-4 space-y-3"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-dnd-gold-light text-sm font-bold">编辑主动技能</h3>
+
+              {/* 名称 */}
+              <div>
+                <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">技能名称 *</label>
+                <input
+                  type="text"
+                  value={editingAbility.name}
+                  onChange={(e) => setEditingAbility({ ...editingAbility, name: e.target.value })}
+                  placeholder="如：二次呼吸、圣疗术..."
+                  className={inputClass}
+                />
+              </div>
+
+              {/* 动作类型 + 冷却 */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">动作类型</label>
+                  <select
+                    value={editingAbility.actionType}
+                    onChange={(e) => setEditingAbility({ ...editingAbility, actionType: e.target.value })}
+                    className={inputClass}
+                  >
+                    {ACTION_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">冷却</label>
+                  <select
+                    value={editingAbility.cooldown}
+                    onChange={(e) => setEditingAbility({ ...editingAbility, cooldown: e.target.value })}
+                    className={inputClass}
+                  >
+                    {COOLDOWN_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* 消耗 */}
+              <div>
+                <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">消耗类型</label>
+                <select
+                  value={editingAbility.cost?.type || 'none'}
+                  onChange={(e) => setEditingAbility({ ...editingAbility, cost: { ...editingAbility.cost, type: e.target.value } })}
+                  className={inputClass}
+                >
+                  <option value="none">无消耗</option>
+                  <option value="resource">职业资源</option>
+                  <option value="charges">充能次数</option>
+                </select>
+                {editingAbility.cost?.type !== 'none' && (
+                <div className="grid grid-cols-2 gap-2 mt-1.5">
+                  <div>
+                    <label className="block text-gray-400 text-[10px] mb-0.5">资源Key</label>
+                    <input
+                      type="text"
+                      value={editingAbility.cost?.resourceKey || ''}
+                      onChange={(e) => setEditingAbility({ ...editingAbility, cost: { ...editingAbility.cost, resourceKey: e.target.value } })}
+                      placeholder="如：rage, sorcery_points"
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-gray-400 text-[10px] mb-0.5">数量</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={editingAbility.cost?.amount || 1}
+                      onChange={(e) => setEditingAbility({ ...editingAbility, cost: { ...editingAbility.cost, amount: parseInt(e.target.value) || 1 } })}
+                      className={inputClass}
+                    />
+                  </div>
+                </div>
+                )}
+              </div>
+
+              {/* 图标 + 需要交互 */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">图标</label>
+                  <input
+                    type="text"
+                    value={editingAbility.icon}
+                    onChange={(e) => setEditingAbility({ ...editingAbility, icon: e.target.value })}
+                    placeholder="Zap"
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">需要交互</label>
+                  <select
+                    value={editingAbility.needsInteraction || 'none'}
+                    onChange={(e) => setEditingAbility({ ...editingAbility, needsInteraction: e.target.value })}
+                    className={inputClass}
+                  >
+                    <option value="none">无</option>
+                    <option value="target_creature">选择目标生物</option>
+                    <option value="target_point">选择目标位置</option>
+                    <option value="self_confirm">自我确认</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* 描述 */}
+              <div>
+                <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">描述</label>
+                <textarea
+                  value={editingAbility.description}
+                  onChange={(e) => setEditingAbility({ ...editingAbility, description: e.target.value })}
+                  placeholder="技能效果描述..."
+                  rows={2}
+                  className={inputClass + ' resize-none'}
+                />
+              </div>
+
+              {/* 效果子列表 */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">技能效果</label>
+                  <button
+                    type="button"
+                    onClick={() => setEditingAbility({
+                      ...editingAbility,
+                      effects: [...(editingAbility.effects || []), { type: '', description: '' }]
+                    })}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500 text-amber-400 hover:bg-amber-500/20 text-[10px] font-medium"
+                  >
+                    <Plus className="w-3 h-3" />
+                    添加效果
+                  </button>
+                </div>
+                <div className="space-y-1.5">
+                  {(editingAbility.effects || []).map((eff, idx) => (
+                    <div key={idx} className="flex items-start gap-1.5 bg-gray-900/40 rounded-lg p-2">
+                      <div className="flex-1 space-y-1">
+                        <select
+                          value={eff.type}
+                          onChange={(e) => {
+                            const newEffects = [...(editingAbility.effects || [])]
+                            newEffects[idx] = { ...newEffects[idx], type: e.target.value }
+                            setEditingAbility({ ...editingAbility, effects: newEffects })
+                          }}
+                          className={inputClass + ' h-7 text-[11px]'}
+                        >
+                          <option value="">选择效果类型</option>
+                          {ABILITY_EFFECT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
+                        <input
+                          type="text"
+                          value={eff.description || ''}
+                          onChange={(e) => {
+                            const newEffects = [...(editingAbility.effects || [])]
+                            newEffects[idx] = { ...newEffects[idx], description: e.target.value }
+                            setEditingAbility({ ...editingAbility, effects: newEffects })
+                          }}
+                          placeholder="效果描述或公式..."
+                          className={inputClass + ' h-7 text-[11px]'}
+                        />
+                        {eff.type === 'heal' && (
+                        <input
+                          type="text"
+                          value={eff.formula || ''}
+                          onChange={(e) => {
+                            const newEffects = [...(editingAbility.effects || [])]
+                            newEffects[idx] = { ...newEffects[idx], formula: e.target.value }
+                            setEditingAbility({ ...editingAbility, effects: newEffects })
+                          }}
+                          placeholder="治疗公式，如 2d6+3"
+                          className={inputClass + ' h-7 text-[11px]'}
+                        />
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newEffects = (editingAbility.effects || []).filter((_, i) => i !== idx)
+                          setEditingAbility({ ...editingAbility, effects: newEffects })
+                        }}
+                        className="p-1 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors mt-0.5"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {(editingAbility.effects || []).length === 0 && (
+                    <p className="text-gray-500 text-[10px] text-center py-1">暂无效果</p>
+                  )}
+                </div>
+              </div>
+
+              {/* 弹窗按钮 */}
+              <div className="flex gap-1.5 justify-end pt-1">
+                <button type="button" onClick={() => setEditingAbility(null)} className="px-3 py-1.5 rounded-lg border border-gray-600 text-gray-400 hover:bg-gray-700 text-xs">
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!editingAbility.name.trim()) return
+                    handleSaveAbility(editingAbility)
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-dnd-red/70 hover:bg-dnd-red text-white font-medium text-xs"
+                >
+                  保存技能
+                </button>
+              </div>
             </div>
           </div>
         </>

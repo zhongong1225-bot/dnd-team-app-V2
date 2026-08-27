@@ -9,7 +9,7 @@
  * 不直接操作 UI / 骰子 / BUFF 系统 —— 调用方根据返回结果自行处理。
  */
 
-import { ACTIVE_ABILITY_REGISTRY, getAbilityById } from '../data/activeAbilityRegistry.js'
+import { getBuffsFromClassFeatures, getBuffsFromSelectedFeats } from './effects/effectMapping.js'
 import { getCharacterClasses } from '../data/classDatabase.js'
 
 /* ─────────────────────────────────────────────────────────
@@ -19,40 +19,72 @@ import { getCharacterClasses } from '../data/classDatabase.js'
 /**
  * 获取角色当前可用的所有主动技能
  * @param {Object} char — 角色数据
+ * @param {string} [moduleId] — 模组 ID
  * @returns {Array<{ ability: ActiveAbility, context: Object }>}
  */
-export function getAbilitiesForCharacter(char) {
+export function getAbilitiesForCharacter(char, moduleId) {
   if (!char) return []
   const classes = getCharacterClasses(char)
-  const classKeys = new Set(classes.map((c) => c.name))
   const classLevelMap = {}
   for (const c of classes) {
     classLevelMap[c.name] = Math.max(classLevelMap[c.name] || 0, c.level)
   }
-  const featIds = new Set((char.selectedFeats || []).map((f) => f.featId))
   const results = []
 
-  for (const ability of ACTIVE_ABILITY_REGISTRY) {
-    if (ability.source === 'class' && classKeys.has(ability.sourceKey)) {
-      if (ability.subclassFilter) {
-        const match = classes.find(
-          (c) => c.name === ability.sourceKey && c.subclass === ability.subclassFilter,
-        )
-        if (!match) continue
-      }
+  // 从职业特性 BUFF 条目提取主动技能
+  const cfBuffs = getBuffsFromClassFeatures(char, moduleId)
+  for (const buff of cfBuffs) {
+    if (!Array.isArray(buff.activeAbilities)) continue
+    const level = classLevelMap[buff.sourceClass] || 1
+    for (const ab of buff.activeAbilities) {
+      if (ab.minLevel && level < ab.minLevel) continue
+      if (ab.subclassFilter && buff.sourceSubclass !== ab.subclassFilter) continue
       results.push({
-        ability,
-        context: buildContext(char, classLevelMap[ability.sourceKey] || 1),
+        ability: { ...ab, sourceKey: buff.sourceClass },
+        context: buildContext(char, level),
       })
-    } else if (ability.source === 'feat' && featIds.has(ability.sourceKey)) {
+    }
+  }
+
+  // 从专长 BUFF 条目提取主动技能
+  const featBuffs = getBuffsFromSelectedFeats(char, moduleId)
+  for (const buff of featBuffs) {
+    if (!Array.isArray(buff.activeAbilities)) continue
+    for (const ab of buff.activeAbilities) {
       results.push({
-        ability,
+        ability: { ...ab, sourceKey: buff.featId },
         context: buildContext(char, char.level || 1),
       })
     }
   }
 
   return results
+}
+
+/**
+ * 查找某个职业特性下所有可用的主动技能（按等级+子职过滤）
+ * 用于专注点等一个 featureId 对应多个技能的场景
+ */
+export function findAllActiveAbilitiesForFeature(sourceClass, featureId, char, moduleId) {
+  if (!char) return []
+  const classes = getCharacterClasses(char)
+  const cls = classes.find((c) => c.name === sourceClass)
+  if (!cls) return []
+  const classLevel = cls.level
+  const subclass = cls.subclass
+
+  const cfBuffs = getBuffsFromClassFeatures(char, moduleId)
+  const abilities = []
+  for (const buff of cfBuffs) {
+    if (buff.sourceClass !== sourceClass || buff.featureId !== featureId) continue
+    if (!Array.isArray(buff.activeAbilities)) continue
+    for (const ab of buff.activeAbilities) {
+      if (ab.minLevel && classLevel < ab.minLevel) continue
+      if (ab.subclassFilter && ab.subclassFilter !== subclass) continue
+      abilities.push(ab)
+    }
+  }
+  return abilities
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -192,11 +224,27 @@ export function executeAbility(ability, char, options = {}) {
  * 短休 / 长休时重置独立冷却技能
  * @param {Object} char
  * @param {'short'|'long'} restType
+ * @param {string} [moduleId]
  * @returns {Object|null} — activeAbilityState 补丁，null 表示无需变更
  */
-export function resetAbilityCooldowns(char, restType) {
+export function resetAbilityCooldowns(char, restType, moduleId) {
   const state = char.activeAbilityState
   if (!state) return null
+
+  // 从 BUFF 条目构建 abilityId → cooldown 映射
+  const abilityCooldownMap = {}
+  const cfBuffs = getBuffsFromClassFeatures(char, moduleId)
+  for (const buff of cfBuffs) {
+    for (const ab of (buff.activeAbilities || [])) {
+      abilityCooldownMap[ab.id] = ab.cooldown
+    }
+  }
+  const featBuffs = getBuffsFromSelectedFeats(char, moduleId)
+  for (const buff of featBuffs) {
+    for (const ab of (buff.activeAbilities || [])) {
+      abilityCooldownMap[ab.id] = ab.cooldown
+    }
+  }
 
   const cooldownForRest = restType === 'long' ? ['short_rest', 'long_rest'] : ['short_rest']
   const next = { ...state }
@@ -204,8 +252,8 @@ export function resetAbilityCooldowns(char, restType) {
 
   for (const [abilityId, usage] of Object.entries(state)) {
     if (!usage?.used) continue
-    const ability = getAbilityById(abilityId)
-    if (ability && cooldownForRest.includes(ability.cooldown)) {
+    const cooldown = abilityCooldownMap[abilityId]
+    if (cooldown && cooldownForRest.includes(cooldown)) {
       next[abilityId] = { used: false }
       changed = true
     }
