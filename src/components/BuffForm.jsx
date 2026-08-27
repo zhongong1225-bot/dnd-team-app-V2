@@ -4055,6 +4055,7 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
             effectModules.map((mod) => {
               const catData = BUFF_TYPES[mod.category]
               const currentEffect = catData?.effects?.find((e) => e.key === mod.effectType)
+              const isCustomText = mod.effectType === 'custom_condition'
               const summary = currentEffect
                 ? getEffectSummaryShort({ effectType: mod.effectType, value: mod.value, customText: mod.customText, scope: mod.scope, scopeDetail: mod.scopeDetail }, effectSummaryContext)
                 : '未选择效果'
@@ -4064,10 +4065,17 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
               return (
                 <div
                   key={mod.id}
-                  className="rounded-lg border border-white/[0.08] bg-[#1a2333]/60 px-2 py-1.5 flex items-center justify-between gap-2"
+                  className={`rounded-lg border px-2 py-1.5 flex items-center justify-between gap-2 ${
+                    isCustomText
+                      ? 'border-dashed border-gray-600/50 bg-gray-800/30'
+                      : 'border-white/[0.08] bg-[#1a2333]/60'
+                  }`}
                 >
-                  <div className="min-w-0 flex-1">
-                    <span className="text-dnd-gold-light/90 text-xs font-medium">{displayLabel}</span>
+                  <div className="min-w-0 flex-1 flex items-center gap-1.5">
+                    {isCustomText && (
+                      <span className="text-[9px] text-gray-500 bg-gray-700/50 px-1 py-0.5 rounded shrink-0 font-medium">文案</span>
+                    )}
+                    <span className={`text-xs ${isCustomText ? 'text-gray-400' : 'text-dnd-gold-light/90'} font-medium`}>{displayLabel}</span>
                   </div>
                   <div className="flex items-center gap-0.5 shrink-0">
                     {!readOnly && (
