@@ -45,6 +45,7 @@ import { useCombatState } from '../hooks/useCombatState'
 import { useBuffCalculator } from '../hooks/useBuffCalculator'
 import {
   getMergedBuffsForCalculator,
+  getEffectsFromBuff,
   mergeFeatBuffPatchesFromMergedList,
   mergeInvocationBuffPatchesFromMergedList,
   mergeFightingStyleBuffPatchesFromMergedList,
@@ -2923,6 +2924,25 @@ export default function CharacterSheet() {
     ],
   )
   const buffStats = useBuffCalculator(char, mergedBuffs)
+
+  // 自动同步 BUFF 中的工具/乐器熟练项到 char.proficiencies.tools
+  useEffect(() => {
+    if (!char) return
+    const buffTools = new Set()
+    for (const buff of mergedBuffs) {
+      for (const eff of getEffectsFromBuff(buff)) {
+        if (eff.effectType === 'specific_tool_proficiency' && Array.isArray(eff.value)) {
+          eff.value.forEach((t) => buffTools.add(t))
+        }
+      }
+    }
+    const desired = [...buffTools].sort()
+    const current = [...(char.proficiencies?.tools ?? [])].sort()
+    if (JSON.stringify(desired) !== JSON.stringify(current)) {
+      persist({ proficiencies: { ...(char.proficiencies ?? {}), tools: desired } })
+    }
+  }, [mergedBuffs])
+
   const canEdit = isAdmin || char?.owner === user?.name
   const isCreatureTemplate = char?.subordinateTemplate === 'creature'
 
