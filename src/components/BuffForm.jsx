@@ -275,6 +275,15 @@ function normalizeValueForSave(module, currentEffect) {
     }
     return { relation: 'resist', types: [] }
   }
+  if (needsSubSelect === 'damageReductionTyped') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return {
+        types: Array.isArray(value.types) ? value.types : [],
+        reduction: Number(value.reduction) || 0,
+      }
+    }
+    return { types: [], reduction: 0 }
+  }
   if (needsSubSelect === 'specialSenses') {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       return {
@@ -316,6 +325,18 @@ function normalizeValueForSave(module, currentEffect) {
     if (Number.isNaN(n) || n < 2) return 2
     return Math.min(10, Math.floor(n))
   }
+  if (currentEffect.key === 'crit_range_override') {
+    if (isFormulaValue(value)) return value
+    const n = Number(value)
+    if (Number.isNaN(n) || n < 1 || n > 20) return 19
+    return Math.floor(n)
+  }
+  if (currentEffect.key === 'crit_range_increment') {
+    if (isFormulaValue(value)) return value
+    const n = Number(value)
+    if (Number.isNaN(n) || n < 1) return 1
+    return Math.floor(n)
+  }
   if (currentEffect.key === 'base_speed_increment') {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       const read = (key) => {
@@ -350,6 +371,7 @@ function isComplexValueType(currentEffect) {
     needsSubSelect === 'containedSpell' ||
     needsSubSelect === 'proficiencyChecklist' ||
     needsSubSelect === 'damageTypeRelation' ||
+    needsSubSelect === 'damageReductionTyped' ||
     needsSubSelect === 'specialSenses'
   )
 }
@@ -1531,6 +1553,7 @@ function ArmorOverrideEditor({ value, onChange, referenceData }) {
 function CreatureTransformEditor({ value, onChange }) {
   const data = normalizeCreatureTransformValue(value)
   const patchData = (patch) => onChange({ ...data, ...patch })
+  const [showAdvanced, setShowAdvanced] = useState(!data.wildShapeMode && (data.acMode !== 'max_formula' || data.hpMode !== 'keep_plus_temp' || data.resourceCostType !== ''))
 
   const creatures = useMemo(() => loadCreatureLibrary(), [])
   const selectedCreature = data.creatureId ? getCreatureById(data.creatureId) : null
@@ -1673,161 +1696,175 @@ function CreatureTransformEditor({ value, onChange }) {
         </div>
       ) : (
         <>
-          {/* 保留原角色属性 */}
-          <div className="flex items-center gap-x-1.5">
-            <span className={labelCls}>保留属性</span>
-            <div className="flex gap-x-2">
-              {abilityOptions.map(({ key, label }) => (
-                <label key={key} className="inline-flex items-center gap-0.5 text-[10px] text-gray-400 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={data.keepAbilities.includes(key)}
-                    onChange={() => toggleKeepAbility(key)}
-                    className="w-3 h-3 accent-amber-500"
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-          </div>
+          {/* 高级配置折叠开关 */}
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-200 transition-colors mt-0.5"
+          >
+            <ChevronDown className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-0' : '-rotate-90'}`} />
+            高级配置
+          </button>
 
-          {/* AC 模式 */}
-          <div className="flex items-center gap-x-1.5">
-            <span className={labelCls}>AC处理</span>
-            <select
-              value={data.acMode}
-              onChange={(e) => patchData({ acMode: e.target.value })}
-              className={selectCls + ' !w-auto flex-1 min-w-0'}
-            >
-              <option value="replace">替换为生物AC</option>
-              <option value="add">叠加生物AC</option>
-              <option value="max_formula">取高值（公式 vs 生物AC）</option>
-            </select>
-          </div>
+          {showAdvanced && (
+            <div className="space-y-1.5 pl-1 border-l border-white/[0.06] ml-0.5">
+              {/* 保留原角色属性 */}
+              <div className="flex items-center gap-x-1.5">
+                <span className={labelCls}>保留属性</span>
+                <div className="flex gap-x-2">
+                  {abilityOptions.map(({ key, label }) => (
+                    <label key={key} className="inline-flex items-center gap-0.5 text-[10px] text-gray-400 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={data.keepAbilities.includes(key)}
+                        onChange={() => toggleKeepAbility(key)}
+                        className="w-3 h-3 accent-amber-500"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </div>
 
-          {/* AC 公式（仅 max_formula 模式） */}
-          {data.acMode === 'max_formula' && (
-            <div className="flex items-center gap-x-1.5 pl-2">
-              <span className={labelCls}>公式</span>
-              <input
-                type="number"
-                value={data.acFormulaBase}
-                onChange={(e) => patchData({ acFormulaBase: Number(e.target.value) || 0 })}
-                className={inputCls + ' !w-12'}
-                placeholder="13"
-              />
-              <span className="text-gray-500 text-[10px]">+</span>
-              <select
-                value={data.acFormulaAbility}
-                onChange={(e) => patchData({ acFormulaAbility: e.target.value })}
-                className={selectCls + ' !w-auto flex-1 min-w-0'}
-              >
-                {abilityRefOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-              <span className="text-gray-500 text-[10px]">调整值</span>
-            </div>
-          )}
-
-          {/* HP 模式 */}
-          <div className="flex items-center gap-x-1.5">
-            <span className={labelCls}>HP处理</span>
-            <select
-              value={data.hpMode}
-              onChange={(e) => patchData({ hpMode: e.target.value })}
-              className={selectCls + ' !w-auto flex-1 min-w-0'}
-            >
-              <option value="replace">替换为生物HP</option>
-              <option value="add">生物HP作临时HP</option>
-              <option value="keep_plus_temp">保留原HP + 公式临时HP</option>
-            </select>
-          </div>
-
-          {/* HP 公式（仅 keep_plus_temp 模式） */}
-          {data.hpMode === 'keep_plus_temp' && (
-            <div className="flex items-center gap-x-1.5 pl-2 flex-wrap">
-              <span className={labelCls}>公式</span>
-              <select
-                value={data.hpFormula?.ref || ''}
-                onChange={(e) => patchData({ hpFormula: { ...data.hpFormula, ref: e.target.value } || { ref: e.target.value, mult: 1, add: 0 } })}
-                className={selectCls + ' !w-auto flex-1 min-w-0'}
-              >
-                {hpRefOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-              {data.hpFormula?.ref === 'classLevel' && (
-                <>
-                  <input
-                    type="text"
-                    value={data.hpFormula?.className || ''}
-                    onChange={(e) => patchData({ hpFormula: { ...data.hpFormula, className: e.target.value } })}
-                    className={inputCls + ' !w-16'}
-                    placeholder="职业名"
-                  />
-                </>
-              )}
-              {data.hpFormula?.ref === 'abilityModifier' && (
+              {/* AC 模式 */}
+              <div className="flex items-center gap-x-1.5">
+                <span className={labelCls}>AC处理</span>
                 <select
-                  value={data.hpFormula?.ability || ''}
-                  onChange={(e) => patchData({ hpFormula: { ...data.hpFormula, ability: e.target.value } })}
+                  value={data.acMode}
+                  onChange={(e) => patchData({ acMode: e.target.value })}
                   className={selectCls + ' !w-auto flex-1 min-w-0'}
                 >
-                  {abilityRefOptions.filter((o) => o.value).map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
+                  <option value="replace">替换为生物AC</option>
+                  <option value="add">叠加生物AC</option>
+                  <option value="max_formula">取高值（公式 vs 生物AC）</option>
                 </select>
+              </div>
+
+              {/* AC 公式（仅 max_formula 模式） */}
+              {data.acMode === 'max_formula' && (
+                <div className="flex items-center gap-x-1.5 pl-2">
+                  <span className={labelCls}>公式</span>
+                  <input
+                    type="number"
+                    value={data.acFormulaBase}
+                    onChange={(e) => patchData({ acFormulaBase: Number(e.target.value) || 0 })}
+                    className={inputCls + ' !w-12'}
+                    placeholder="13"
+                  />
+                  <span className="text-gray-500 text-[10px]">+</span>
+                  <select
+                    value={data.acFormulaAbility}
+                    onChange={(e) => patchData({ acFormulaAbility: e.target.value })}
+                    className={selectCls + ' !w-auto flex-1 min-w-0'}
+                  >
+                    {abilityRefOptions.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  <span className="text-gray-500 text-[10px]">调整值</span>
+                </div>
               )}
-              <span className="text-gray-500 text-[10px]">×</span>
-              <input
-                type="number"
-                value={data.hpFormula?.mult ?? 1}
-                onChange={(e) => patchData({ hpFormula: { ...data.hpFormula, mult: Number(e.target.value) || 1 } })}
-                className={inputCls + ' !w-10'}
-              />
-            </div>
-          )}
 
-          {/* 资源消耗 */}
-          <div className="flex items-center gap-x-1.5">
-            <span className={labelCls}>消耗</span>
-            <select
-              value={data.resourceCostType}
-              onChange={(e) => patchData({ resourceCostType: e.target.value })}
-              className={selectCls + ' !w-auto flex-1 min-w-0'}
-            >
-              <option value="">无</option>
-              <option value="wild_shape_uses">荒野变形次数</option>
-              <option value="spell_slot">法术位</option>
-              <option value="charges">充能次数</option>
-            </select>
-          </div>
+              {/* HP 模式 */}
+              <div className="flex items-center gap-x-1.5">
+                <span className={labelCls}>HP处理</span>
+                <select
+                  value={data.hpMode}
+                  onChange={(e) => patchData({ hpMode: e.target.value })}
+                  className={selectCls + ' !w-auto flex-1 min-w-0'}
+                >
+                  <option value="replace">替换为生物HP</option>
+                  <option value="add">生物HP作临时HP</option>
+                  <option value="keep_plus_temp">保留原HP + 公式临时HP</option>
+                </select>
+              </div>
 
-          {/* 资源消耗详细 */}
-          {data.resourceCostType === 'spell_slot' && (
-            <div className="flex items-center gap-x-1.5 pl-2">
-              <span className={labelCls}>环位</span>
-              <input
-                type="number"
-                min={1}
-                max={9}
-                value={data.resourceCostValue}
-                onChange={(e) => patchData({ resourceCostValue: Number(e.target.value) || 1 })}
-                className={inputCls + ' !w-12'}
-              />
-            </div>
-          )}
-          {(data.resourceCostType === 'wild_shape_uses' || data.resourceCostType === 'charges') && (
-            <div className="flex items-center gap-x-1.5 pl-2">
-              <span className={labelCls}>次数</span>
-              <input
-                type="number"
-                min={1}
-                value={data.resourceCostValue}
-                onChange={(e) => patchData({ resourceCostValue: Number(e.target.value) || 1 })}
-                className={inputCls + ' !w-12'}
-              />
+              {/* HP 公式（仅 keep_plus_temp 模式） */}
+              {data.hpMode === 'keep_plus_temp' && (
+                <div className="flex items-center gap-x-1.5 pl-2 flex-wrap">
+                  <span className={labelCls}>公式</span>
+                  <select
+                    value={data.hpFormula?.ref || ''}
+                    onChange={(e) => patchData({ hpFormula: { ...data.hpFormula, ref: e.target.value } || { ref: e.target.value, mult: 1, add: 0 } })}
+                    className={selectCls + ' !w-auto flex-1 min-w-0'}
+                  >
+                    {hpRefOptions.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  {data.hpFormula?.ref === 'classLevel' && (
+                    <>
+                      <input
+                        type="text"
+                        value={data.hpFormula?.className || ''}
+                        onChange={(e) => patchData({ hpFormula: { ...data.hpFormula, className: e.target.value } })}
+                        className={inputCls + ' !w-16'}
+                        placeholder="职业名"
+                      />
+                    </>
+                  )}
+                  {data.hpFormula?.ref === 'abilityModifier' && (
+                    <select
+                      value={data.hpFormula?.ability || ''}
+                      onChange={(e) => patchData({ hpFormula: { ...data.hpFormula, ability: e.target.value } })}
+                      className={selectCls + ' !w-auto flex-1 min-w-0'}
+                    >
+                      {abilityRefOptions.filter((o) => o.value).map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  )}
+                  <span className="text-gray-500 text-[10px]">×</span>
+                  <input
+                    type="number"
+                    value={data.hpFormula?.mult ?? 1}
+                    onChange={(e) => patchData({ hpFormula: { ...data.hpFormula, mult: Number(e.target.value) || 1 } })}
+                    className={inputCls + ' !w-10'}
+                  />
+                </div>
+              )}
+
+              {/* 资源消耗 */}
+              <div className="flex items-center gap-x-1.5">
+                <span className={labelCls}>消耗</span>
+                <select
+                  value={data.resourceCostType}
+                  onChange={(e) => patchData({ resourceCostType: e.target.value })}
+                  className={selectCls + ' !w-auto flex-1 min-w-0'}
+                >
+                  <option value="">无</option>
+                  <option value="wild_shape_uses">荒野变形次数</option>
+                  <option value="spell_slot">法术位</option>
+                  <option value="charges">充能次数</option>
+                </select>
+              </div>
+
+              {/* 资源消耗详细 */}
+              {data.resourceCostType === 'spell_slot' && (
+                <div className="flex items-center gap-x-1.5 pl-2">
+                  <span className={labelCls}>环位</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={9}
+                    value={data.resourceCostValue}
+                    onChange={(e) => patchData({ resourceCostValue: Number(e.target.value) || 1 })}
+                    className={inputCls + ' !w-12'}
+                  />
+                </div>
+              )}
+              {(data.resourceCostType === 'wild_shape_uses' || data.resourceCostType === 'charges') && (
+                <div className="flex items-center gap-x-1.5 pl-2">
+                  <span className={labelCls}>次数</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={data.resourceCostValue}
+                    onChange={(e) => patchData({ resourceCostValue: Number(e.target.value) || 1 })}
+                    className={inputCls + ' !w-12'}
+                  />
+                </div>
+              )}
             </div>
           )}
         </>
@@ -2141,6 +2178,7 @@ function EffectValueEditor({
     }
     return ABILITY_KEYS[0] ?? 'str'
   })
+  const [profSearch, setProfSearch] = useState('')
   const effects = catData?.effects ?? []
   const currentEffect = effects.find((e) => e.key === module.effectType)
   const isAbilityScoreEffect =
@@ -2275,6 +2313,40 @@ function EffectValueEditor({
               <option key={o} value={o}>{o}</option>
             ))}
           </select>
+          <div />
+          <div />
+        </>
+      )
+    }
+    if (currentEffect?.key === 'crit_range_override') {
+      const options = [19, 18, 17, 16]
+      return (
+        <>
+          <select
+            value={value || 19}
+            onChange={(e) => onChange({ ...module, value: Number(e.target.value) })}
+            className={compactClass + ' w-full min-w-0'}
+          >
+            {options.map((o) => (
+              <option key={o} value={o}>{o}-20</option>
+            ))}
+          </select>
+          <div />
+          <div />
+        </>
+      )
+    }
+    if (currentEffect?.key === 'crit_range_increment') {
+      return (
+        <>
+          <NumberStepper
+            value={value || 1}
+            min={1}
+            max={5}
+            onChange={(v) => onChange({ ...module, value: v })}
+            compact
+            narrow
+          />
           <div />
           <div />
         </>
@@ -2718,6 +2790,37 @@ function EffectValueEditor({
       </div>
     )
   }
+  if (currentEffect?.key === 'crit_range_override') {
+    const options = [19, 18, 17, 16]
+    return (
+      <div className="flex items-center gap-2">
+        <select
+          value={value || 19}
+          onChange={(e) => onChange({ ...module, value: Number(e.target.value) })}
+          className={inputClass + ' min-w-[7rem]'}
+        >
+          {options.map((o) => (
+            <option key={o} value={o}>{o}-20</option>
+          ))}
+        </select>
+        <span className="text-xs text-gray-500">覆盖，多个取最低</span>
+      </div>
+    )
+  }
+  if (currentEffect?.key === 'crit_range_increment') {
+    return (
+      <div className="flex items-center gap-2">
+        <NumberStepper
+          value={value || 1}
+          min={1}
+          max={5}
+          onChange={(v) => onChange({ ...module, value: v })}
+          compact={false}
+        />
+        <span className="text-xs text-gray-500">可叠加</span>
+      </div>
+    )
+  }
 
   if (currentEffect?.key === 'extra_damage_dice' || needsSubSelect === 'damageDiceInline') {
     const raw = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -2883,7 +2986,7 @@ function EffectValueEditor({
       ) : needsSubSelect === 'proficiencyChecklist' ? (
         (() => {
           const optKey = currentEffect?.proficiencyOptions
-          const options =
+          const allOptions =
             optKey === 'armor' ? ARMOR_PROFICIENCY_OPTIONS :
             optKey === 'weapon' ? WEAPON_PROFICIENCY_OPTIONS :
             optKey === 'vehicle' ? VEHICLE_PROFICIENCY_OPTIONS :
@@ -2894,25 +2997,72 @@ function EffectValueEditor({
             optKey === 'weaponMastery' ? WEAPON_MASTERY_OPTIONS :
             []
           const arr = Array.isArray(value) ? value : []
+          const filter = profSearch.trim().toLowerCase()
+          const filtered = filter ? allOptions.filter((o) => o.label.toLowerCase().includes(filter)) : allOptions
           return (
-            <div className="flex flex-wrap gap-2">
-              {options.map((o) => {
-                const checked = arr.includes(o.value)
-                return (
-                  <label key={o.value} className="flex items-center gap-1 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) => {
-                        const next = e.target.checked ? [...arr, o.value] : arr.filter((x) => x !== o.value)
-                        onChange({ ...module, value: next })
-                      }}
-                      className="rounded border-gray-600 bg-gray-800 text-dnd-red"
-                    />
-                    <span className="text-sm text-gray-300">{o.label}</span>
-                  </label>
-                )
-              })}
+            <div className="space-y-1.5">
+              {/* 搜索 + 已选计数 */}
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1 min-w-0">
+                  <input
+                    type="text"
+                    value={profSearch}
+                    onChange={(e) => setProfSearch(e.target.value)}
+                    placeholder="搜索..."
+                    className={inputClass + ' h-6 text-xs w-full pl-2 pr-6'}
+                  />
+                  {profSearch && (
+                    <button type="button" onClick={() => setProfSearch('')} className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+                <span className="text-[10px] text-gray-500 whitespace-nowrap">已选 {arr.length}</span>
+              </div>
+              {/* 已选项标签 */}
+              {arr.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {arr.map((v) => {
+                    const opt = allOptions.find((o) => o.value === v)
+                    if (!opt) return null
+                    return (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => onChange({ ...module, value: arr.filter((x) => x !== v) })}
+                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] hover:bg-amber-500/25 transition-colors"
+                      >
+                        {opt.label}
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+              {/* 过滤后的选项列表 */}
+              <div className="max-h-36 overflow-y-auto space-y-0.5 pr-1 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
+                {filtered.length === 0 ? (
+                  <p className="text-gray-500 text-[10px] text-center py-1">无匹配项</p>
+                ) : (
+                  filtered.map((o) => {
+                    const checked = arr.includes(o.value)
+                    return (
+                      <label key={o.value} className="flex items-center gap-1.5 cursor-pointer px-1 py-0.5 rounded hover:bg-white/[0.03] transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const next = e.target.checked ? [...arr, o.value] : arr.filter((x) => x !== o.value)
+                            onChange({ ...module, value: next })
+                          }}
+                          className="rounded border-gray-600 bg-gray-800 text-dnd-red w-3.5 h-3.5"
+                        />
+                        <span className={`text-xs ${checked ? 'text-gray-200' : 'text-gray-400'}`}>{o.label}</span>
+                      </label>
+                    )
+                  })
+                )}
+              </div>
             </div>
           )
         })()
@@ -3387,6 +3537,45 @@ function EffectValueEditor({
             </div>
           )
         })()
+      ) : needsSubSelect === 'damageReductionTyped' ? (
+        (() => {
+          const dv = value && typeof value === 'object' ? value : {}
+          const types = Array.isArray(dv.types) ? dv.types : []
+          const reduction = dv.reduction != null ? Number(dv.reduction) || 0 : 0
+          return (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400">减免量</span>
+                <input
+                  type="number"
+                  value={reduction}
+                  onChange={(e) => onChange({ ...module, value: { ...dv, reduction: Number(e.target.value) || 0 } })}
+                  className={inputClass + ' !py-1 !w-20 text-sm'}
+                  min={0}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {DAMAGE_TYPES.map((dt) => {
+                  const checked = types.includes(dt.value)
+                  return (
+                    <label key={dt.value} className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          const next = e.target.checked ? [...types, dt.value] : types.filter((x) => x !== dt.value)
+                          onChange({ ...module, value: { ...dv, types: next } })
+                        }}
+                        className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                      />
+                      <span className="text-sm text-gray-300">{dt.label}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })()
       ) : needsSubSelect === 'specialSenses' ? (
         (() => {
           const sv = value && typeof value === 'object' ? value : {}
@@ -3600,20 +3789,15 @@ function ChoiceBUFFEditor({ choiceOptions = [], choiceSelected = 0, onChange }) 
         )}
       </div>
 
-      {/* 效果编辑弹窗 */}
+      {/* 效果编辑：内嵌（避免第三层弹窗） */}
       {editingModule && (
-        <>
-          <div className="fixed inset-0 z-[200] bg-black/50" onClick={() => setEditingModule(null)} aria-hidden />
-          <div className="fixed inset-0 z-[201] flex items-center justify-center p-4 sm:p-8 overflow-auto" onClick={() => setEditingModule(null)}>
-            <div className="w-full max-w-2xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-              <EffectModuleModal
-                module={editingModule}
-                onSave={saveModule}
-                onCancel={() => setEditingModule(null)}
-              />
-            </div>
-          </div>
-        </>
+        <div className="rounded-lg border border-violet-500/30 bg-[#1e2738]/80 p-2 mt-1">
+          <EffectModuleModal
+            module={editingModule}
+            onSave={saveModule}
+            onCancel={() => setEditingModule(null)}
+          />
+        </div>
       )}
     </div>
   )
@@ -4015,50 +4199,62 @@ function EffectModuleModal({
         </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div>
-          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">效果大类</label>
-          <select
-            value={draft.category || ''}
-            onChange={(e) => {
-              const newCat = e.target.value
-              const newEffects = BUFF_TYPES[newCat]?.effects ?? []
-              updateDraft({ category: newCat, effectType: newCat ? (newEffects[0]?.key ?? '') : '' })
-            }}
-            className={inputClass + ' h-8 text-xs w-full min-w-0'}
-          >
-            <option value="">&lt;选择大类&gt;</option>
-            {getCategories().map((c) => (
-              <option key={c.key} value={c.key}>{c.label}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">具体效果</label>
-          <select
-            value={effectiveEffectType}
-            onChange={(e) => {
-              const nextType = e.target.value
-              const patch = { effectType: nextType }
-              if (nextType === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
-              if (nextType === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(draft.value)
-              if (nextType === 'spell_damage_bonus') patch.value = { type: '', diceFloor: 0, perDieBonus: 0, extraDice: '', flatBonus: 0 }
-              if (nextType === 'spell_ability_attack') patch.value = { ability: 'int' }
-              if (nextType === 'base_speed_increment') patch.value = { walk: 0, fly: 0, swim: 0, climb: 0 }
-              if (nextType === 'ability_score_uncapped') patch.break20 = {}
-              if (nextType === 'choice') patch.value = { choiceOptions: [{ name: '选项 A', effects: [] }, { name: '选项 B', effects: [] }], choiceSelected: 0 }
-              updateDraft(patch)
-            }}
-            className={inputClass + ' h-8 text-xs w-full min-w-0'}
-            disabled={!hasCategory}
-          >
-            <option value="">&lt;选择效果&gt;</option>
-            {visibleEffects.map((e) => (
-              <option key={e.key} value={e.key}>{e.label}</option>
-            ))}
-          </select>
+      {/* 效果大类：按钮网格 */}
+      <div>
+        <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-1">效果大类</label>
+        <div className="grid grid-cols-2 gap-1">
+          {getCategories().map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              onClick={() => {
+                const newEffects = BUFF_TYPES[c.key]?.effects ?? []
+                updateDraft({ category: c.key, effectType: newEffects[0]?.key ?? '' })
+              }}
+              className={`px-2 py-1.5 rounded-md text-[11px] font-medium border transition-all ${
+                draft.category === c.key
+                  ? 'border-amber-500 bg-amber-500/20 text-amber-300 shadow-[0_0_6px_rgba(245,158,11,0.15)]'
+                  : 'border-white/[0.08] bg-[#1a2333]/60 text-gray-400 hover:text-gray-200 hover:border-white/[0.15] hover:bg-[#1a2333]'
+              }`}
+            >
+              {c.label}
+            </button>
+          ))}
         </div>
       </div>
+
+      {/* 具体效果：按钮列表 */}
+      {hasCategory && (
+        <div>
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-1">具体效果</label>
+          <div className="max-h-32 overflow-y-auto space-y-0.5 pr-1 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
+            {visibleEffects.map((e) => (
+              <button
+                key={e.key}
+                type="button"
+                onClick={() => {
+                  const patch = { effectType: e.key }
+                  if (e.key === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
+                  if (e.key === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(draft.value)
+                  if (e.key === 'spell_damage_bonus') patch.value = { type: '', diceFloor: 0, perDieBonus: 0, extraDice: '', flatBonus: 0 }
+                  if (e.key === 'spell_ability_attack') patch.value = { ability: 'int' }
+                  if (e.key === 'base_speed_increment') patch.value = { walk: 0, fly: 0, swim: 0, climb: 0 }
+                  if (e.key === 'ability_score_uncapped') patch.break20 = {}
+                  if (e.key === 'choice') patch.value = { choiceOptions: [{ name: '选项 A', effects: [] }, { name: '选项 B', effects: [] }], choiceSelected: 0 }
+                  updateDraft(patch)
+                }}
+                className={`w-full text-left px-2.5 py-1 rounded text-[11px] transition-all ${
+                  effectiveEffectType === e.key
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50'
+                    : 'bg-[#1a2333]/40 text-gray-400 hover:text-gray-200 hover:bg-[#1a2333]/80 border border-transparent'
+                }`}
+              >
+                {e.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {showScope && (
         <ScopeEditor
