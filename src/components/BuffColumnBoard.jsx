@@ -13,7 +13,7 @@ import { dataTransferHasType } from '../lib/dndTransferTypes'
 const STASH_TEMPLATE_DRAG_MIME = 'application/x-dnd-team-buff-stash'
 
 /** 可跨区拖动的归类（专长/装备不可作为落点改 sourceKind） */
-const MOVABLE_TARGET_KEYS = new Set(['adventure', 'class_race', 'temporary'])
+const MOVABLE_TARGET_KEYS = new Set(['adventure', 'class', 'race', 'temporary'])
 
 function setBuffEntryDragData(e, buffId) {
   e.dataTransfer.setData(BUFF_ENTRY_DRAG_MIME, buffId)

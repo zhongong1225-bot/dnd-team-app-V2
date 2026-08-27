@@ -176,7 +176,7 @@ export async function removeItemTemplate(moduleId, id) {
 
 function getBuffSourceKindForSync(buff) {
   if (buff.fromFeat) return 'feat'
-  if (buff.fromInvocation || buff.fromFightingStyle) return 'class_race'
+  if (buff.fromInvocation || buff.fromFightingStyle) return 'class'
   if (buff.fromItem) return 'equipment'
   return normalizeBuffSourceKindKey(buff.sourceKind)
 }

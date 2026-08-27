@@ -180,7 +180,7 @@ export default function BuffManager({
   const formOnSave = formState?.mode === 'stash' ? handleSaveStash : handleSaveActive
 
   const buffBuckets = useMemo(() => {
-    const m = { feat: [], adventure: [], class_race: [], equipment: [], temporary: [] }
+    const m = { feat: [], adventure: [], class: [], race: [], equipment: [], temporary: [] }
     for (const b of list) {
       const k = getColumnKeyForBuff(b)
       if (!m[k]) m[k] = []
@@ -394,7 +394,7 @@ export default function BuffManager({
         <p className="text-gray-500 text-[10px] shrink-0 min-w-0 leading-snug">
           当前 Buff
           {stashEditable ? '（可从上方拖入临时模板至任一类分区）' : ''}
-          {canEdit ? ' · 左侧分类名可拖动调整上下顺序；冒险/职业&种族/临时之间可拖动词条改归类' : ''}
+          {canEdit ? ' · 左侧分类名可拖动调整上下顺序；冒险/职业/种族/临时之间可拖动词条改归类' : ''}
         </p>
       </div>
 

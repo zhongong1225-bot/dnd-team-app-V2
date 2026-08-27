@@ -7,7 +7,8 @@ export const BUFF_SOURCE_KIND_OPTIONS = [
   { key: 'feat', label: '专长' },
   { key: 'equipment', label: '装备' },
   { key: 'temporary', label: '临时' },
-  { key: 'class_race', label: '职业&种族' },
+  { key: 'class', label: '职业' },
+  { key: 'race', label: '种族' },
   { key: 'adventure', label: '冒险' },
 ]
 
@@ -25,8 +26,8 @@ const LABEL_BY_KEY = Object.fromEntries(BUFF_SOURCE_KIND_OPTIONS.map((o) => [o.k
 
 const VALID_KEYS = new Set(BUFF_SOURCE_KIND_OPTIONS.map((o) => o.key))
 
-/** 横向 Buff 分栏顺序（左→右）；须包含全部五类各一次 */
-export const BUFF_COLUMN_KEYS = ['feat', 'adventure', 'class_race', 'equipment', 'temporary']
+/** 横向 Buff 分栏顺序（左→右）；须包含全部六类各一次 */
+export const BUFF_COLUMN_KEYS = ['feat', 'adventure', 'class', 'race', 'equipment', 'temporary']
 
 export const BUFF_COLUMN_DRAG_MIME = 'application/x-dnd-team-buff-column'
 export const BUFF_ENTRY_DRAG_MIME = 'application/x-dnd-team-buff-entry'
@@ -59,7 +60,7 @@ export function normalizeBuffColumnOrder(order) {
 export function getColumnKeyForBuff(buff) {
   if (!buff) return 'adventure'
   if (buff.fromFeat || buff.fromInvocation || buff.fromFightingStyle) return 'feat'
-  if (buff.fromClassFeature) return 'class_race'
+  if (buff.fromClassFeature) return 'class'
   if (buff.fromItem) return 'equipment'
   return normalizeBuffSourceKindKey(buff.sourceKind)
 }
@@ -120,7 +121,8 @@ export function getBuffSourceKindTitle(buff) {
   const label = LABEL_BY_KEY[key] ?? '冒险'
   const hint = {
     temporary: '玩家手动归类为临时',
-    class_race: '玩家手动归类为职业与种族特性',
+    class: '玩家手动归类为职业特性',
+    race: '玩家手动归类为种族特性',
     adventure: '玩家手动归类为冒险/剧情等',
   }[key]
   return hint ? `${label}：${hint}` : label

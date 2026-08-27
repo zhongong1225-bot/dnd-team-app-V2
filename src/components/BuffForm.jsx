@@ -42,6 +42,7 @@ import {
   normalizeChargeItemValue,
   createChargeEffectEntry,
   RECOVERY_METHODS,
+  RESOURCE_TYPE_OPTIONS,
   recoverySupportsAmount,
   recoveryIsDiceOnly,
   formatRecoveryBrief,
@@ -1045,13 +1046,13 @@ function ChargeRecoveryEditor({ value, onChange }) {
   )
 }
 
-/** 统一充能物品编辑器：充能数 + 回能方式 + 消耗效果（内含法术/奇能/护盾） */
+/** 统一充能物品编辑器：消耗资源选择 + 充能数/回能方式 + 消耗效果（内含法术/奇能/护盾） */
 function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWandScrollTable }) {
   const data = normalizeChargeItemValue(module.value)
   const patchData = (patch) => onChange({ ...module, value: { ...data, ...patch } })
 
-  const labelCls = 'text-[10px] text-dnd-text-muted shrink-0 leading-none'
-  const inputCls = inputClass.replace(/\bh-10\b/, 'h-6').replace(/\bpx-3\b/, 'px-1').replace(/\btext-sm\b/, 'text-xs').replace(/\bw-full\b/, 'flex-1 min-w-0')
+  const labelCls = 'text-[11px] text-dnd-text-muted shrink-0 leading-none'
+  const inputCls = inputClass.replace(/\bh-10\b/, 'h-7').replace(/\bpx-3\b/, 'px-1.5').replace(/\btext-sm\b/, 'text-xs').replace(/\bw-full\b/, 'flex-1 min-w-0')
   const selectCls = inputCls + ' cursor-pointer'
 
   const HIT_OPTIONS = [
@@ -1064,6 +1065,8 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
     { value: 'spell_attack', label: '法攻' },
     { value: 'none', label: '效应' },
   ]
+
+  const isChargesMode = data.resourceType === 'charges'
 
   // ── recovery helpers ──
   const rec = data.recovery
@@ -1103,105 +1106,124 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
   }
 
   return (
-    <div className="rounded-md bg-[#161e2b]/50 p-2 flex flex-col gap-y-1.5 w-full text-xs">
-      {/* ── 充能数 ── */}
-      <div className="flex items-center gap-x-1.5">
-        <span className={labelCls}>充能</span>
-        <NumberStepper
-          value={data.charges}
-          onChange={(v) => patchData({ charges: Math.max(0, Math.min(999, v)) })}
-          min={0}
-          max={999}
-          compact
-          narrow
-          className="!h-6"
-        />
-      </div>
-
-      {/* ── 回能方式 ── */}
-      <div className="flex items-center gap-x-1.5 flex-wrap">
-        <span className={labelCls}>回能</span>
+    <div className="rounded-lg bg-[#161e2b]/60 p-3 flex flex-col gap-y-3 w-full text-xs">
+      {/* ── 消耗资源 ── */}
+      <div className="flex items-center gap-x-2">
+        <span className={labelCls}>消耗资源</span>
         <select
-          value={rec.method}
-          onChange={(e) => setRecoveryMethod(e.target.value)}
-          className={selectCls + ' !w-[6rem] shrink-0'}
+          value={data.resourceType}
+          onChange={(e) => patchData({ resourceType: e.target.value })}
+          className={selectCls + ' !w-[8rem] shrink-0'}
         >
-          {RECOVERY_METHODS.map((m) => (
-            <option key={m.value} value={m.value}>{m.label}</option>
+          {RESOURCE_TYPE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
-        {recoverySupportsAmount(rec.method) && (
-          <>
-            {!recoveryIsDiceOnly(rec.method) && (
-              <select
-                value={rec.kind}
-                onChange={(e) => updateRecovery({ kind: e.target.value })}
-                className={selectCls + ' !w-[4rem] shrink-0'}
-              >
-                <option value="full">回满</option>
-                <option value="fixed">固定</option>
-                <option value="dice">掷骰</option>
-              </select>
-            )}
-            {rec.kind === 'fixed' && (
-              <NumberStepper
-                value={rec.fixed}
-                onChange={(v) => updateRecovery({ fixed: Math.max(0, v) })}
-                min={0}
-                max={999}
-                compact
-                narrow
-                className="!h-6"
-              />
-            )}
-            {(rec.kind === 'dice' || recoveryIsDiceOnly(rec.method)) && (
-              <div className="flex items-center gap-x-0.5">
-                <NumberStepper
-                  value={rec.diceCount}
-                  onChange={(v) => updateRecovery({ diceCount: Math.max(1, v) })}
-                  min={1}
-                  max={99}
-                  compact
-                  narrow
-                  className="!h-6 !w-10"
-                />
-                <span className="text-gray-400 text-[10px]">d</span>
-                <NumberStepper
-                  value={rec.diceSides}
-                  onChange={(v) => updateRecovery({ diceSides: Math.max(1, v) })}
-                  min={1}
-                  max={100}
-                  compact
-                  narrow
-                  className="!h-6 !w-10"
-                />
-                <span className="text-gray-400 text-[10px]">+</span>
-                <NumberStepper
-                  value={rec.diceBonus || 0}
-                  onChange={(v) => updateRecovery({ diceBonus: Math.max(0, v) })}
-                  min={0}
-                  max={99}
-                  compact
-                  narrow
-                  className="!h-6 !w-10"
-                />
-              </div>
-            )}
-          </>
-        )}
-        {rec.method === 'none' && (
-          <span className="text-gray-500 text-[10px]">充能耗尽后无法恢复</span>
+        {!isChargesMode && (
+          <span className="text-gray-500 text-[10px]">次数与恢复由职业资源管理</span>
         )}
       </div>
 
+      {/* ── 充能数 + 回能方式（仅充能数模式） ── */}
+      {isChargesMode && (
+        <div className="flex flex-col gap-y-2 rounded-md bg-[#0d1520]/40 p-2.5">
+          <div className="flex items-center gap-x-2">
+            <span className={labelCls}>总充能</span>
+            <NumberStepper
+              value={data.charges}
+              onChange={(v) => patchData({ charges: Math.max(0, Math.min(999, v)) })}
+              min={0}
+              max={999}
+              compact
+              narrow
+              className="!h-7"
+            />
+          </div>
+          <div className="flex items-center gap-x-2 flex-wrap">
+            <span className={labelCls}>回能方式</span>
+            <select
+              value={rec.method}
+              onChange={(e) => setRecoveryMethod(e.target.value)}
+              className={selectCls + ' !w-[6rem] shrink-0'}
+            >
+              {RECOVERY_METHODS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+            {recoverySupportsAmount(rec.method) && (
+              <>
+                {!recoveryIsDiceOnly(rec.method) && (
+                  <select
+                    value={rec.kind}
+                    onChange={(e) => updateRecovery({ kind: e.target.value })}
+                    className={selectCls + ' !w-[4rem] shrink-0'}
+                  >
+                    <option value="full">回满</option>
+                    <option value="fixed">固定</option>
+                    <option value="dice">掷骰</option>
+                  </select>
+                )}
+                {rec.kind === 'fixed' && (
+                  <NumberStepper
+                    value={rec.fixed}
+                    onChange={(v) => updateRecovery({ fixed: Math.max(0, v) })}
+                    min={0}
+                    max={999}
+                    compact
+                    narrow
+                    className="!h-7"
+                  />
+                )}
+                {(rec.kind === 'dice' || recoveryIsDiceOnly(rec.method)) && (
+                  <div className="flex items-center gap-x-0.5">
+                    <NumberStepper
+                      value={rec.diceCount}
+                      onChange={(v) => updateRecovery({ diceCount: Math.max(1, v) })}
+                      min={1}
+                      max={99}
+                      compact
+                      narrow
+                      className="!h-7 !w-10"
+                    />
+                    <span className="text-gray-400 text-[10px]">d</span>
+                    <NumberStepper
+                      value={rec.diceSides}
+                      onChange={(v) => updateRecovery({ diceSides: Math.max(1, v) })}
+                      min={1}
+                      max={100}
+                      compact
+                      narrow
+                      className="!h-7 !w-10"
+                    />
+                    <span className="text-gray-400 text-[10px]">+</span>
+                    <NumberStepper
+                      value={rec.diceBonus || 0}
+                      onChange={(v) => updateRecovery({ diceBonus: Math.max(0, v) })}
+                      min={0}
+                      max={99}
+                      compact
+                      narrow
+                      className="!h-7 !w-10"
+                    />
+                  </div>
+                )}
+              </>
+            )}
+            {rec.method === 'none' && (
+              <span className="text-gray-500 text-[10px]">充能耗尽后无法恢复</span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── 消耗效果 ── */}
-      <div className="flex flex-col gap-y-1">
+      <div className="flex flex-col gap-y-1.5">
         <div className="flex items-center justify-between">
           <span className={labelCls}>消耗效果</span>
-          <div className="flex items-center gap-x-1">
-            <button type="button" onClick={() => addEffect('spell')} className="px-1.5 py-0.5 rounded border border-cyan-700/60 text-cyan-400 hover:bg-cyan-900/30 text-[10px]" title="添加内含法术">+法术</button>
-            <button type="button" onClick={() => addEffect('ability')} className="px-1.5 py-0.5 rounded border border-amber-700/60 text-amber-400 hover:bg-amber-900/30 text-[10px]" title="添加内含奇能">+奇能</button>
-            <button type="button" onClick={() => addEffect('shield')} className="px-1.5 py-0.5 rounded border border-emerald-700/60 text-emerald-400 hover:bg-emerald-900/30 text-[10px]" title="添加内含护盾">+护盾</button>
+          <div className="flex items-center gap-x-1.5">
+            <button type="button" onClick={() => addEffect('spell')} className="px-2.5 py-1 rounded-md border border-cyan-600/70 bg-cyan-900/20 text-cyan-300 hover:bg-cyan-800/40 hover:border-cyan-500/80 text-[11px] font-medium transition-colors" title="添加内含法术">+ 法术</button>
+            <button type="button" onClick={() => addEffect('ability')} className="px-2.5 py-1 rounded-md border border-amber-600/70 bg-amber-900/20 text-amber-300 hover:bg-amber-800/40 hover:border-amber-500/80 text-[11px] font-medium transition-colors" title="添加内含奇能">+ 奇能</button>
+            <button type="button" onClick={() => addEffect('shield')} className="px-2.5 py-1 rounded-md border border-emerald-600/70 bg-emerald-900/20 text-emerald-300 hover:bg-emerald-800/40 hover:border-emerald-500/80 text-[11px] font-medium transition-colors" title="添加内含护盾">+ 护盾</button>
           </div>
         </div>
 
@@ -1219,10 +1241,12 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
               : (useWandScrollTable && wandPower
                 ? (hitRes === 'spell_attack' ? (wandPower.attackBonus >= 0 ? '+' : '') + wandPower.attackBonus : String(wandPower.dc))
                 : (hitRes === 'spell_attack' && spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : (spellDC != null ? String(spellDC) : null)))
+            const spellScalingEnabled = !!sp.scalingEnabled
+            const spellSU = sp.scalingPerUnit || {}
             return (
-              <div key={eff.id} className="rounded border border-cyan-800/30 bg-[#0d1520]/50 px-1.5 py-1">
-                <div className="flex items-center gap-x-1 flex-wrap">
-                  <span className="text-cyan-400 text-[10px] shrink-0">法术</span>
+              <div key={eff.id} className="rounded-md border border-cyan-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                <div className="flex items-center gap-x-1.5 flex-wrap">
+                  <span className="text-cyan-400 text-[11px] shrink-0 font-medium">法术</span>
                   <input
                     type="text"
                     value={spellInputValue(sp)}
@@ -1245,15 +1269,10 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                     list={'charge-spell-' + (module.id ?? '') + '-' + idx}
                     title="法术名称"
                   />
-                  <datalist id={'charge-spell-' + (module.id ?? '') + '-' + idx}>
-                    {getMergedSpells().map((s) => (
-                      <option key={s.id} value={s.name} />
-                    ))}
-                  </datalist>
                   <span className={labelCls}>环</span>
-                  <NumberStepper value={Math.max(0, Math.min(9, level))} onChange={(v) => updateEffect(idx, { value: { ...sp, level: Math.max(0, Math.min(9, v)) } })} min={0} max={9} compact narrow className="!h-6 !w-10" />
+                  <NumberStepper value={Math.max(0, Math.min(9, level))} onChange={(v) => updateEffect(idx, { value: { ...sp, level: Math.max(0, Math.min(9, v)) } })} min={0} max={9} compact narrow className="!h-7 !w-10" />
                   <span className={labelCls}>耗</span>
-                  <NumberStepper value={sp.cost ?? 1} onChange={(v) => updateEffect(idx, { value: { ...sp, cost: Math.max(0, Math.min(99, v)) } })} min={0} max={99} compact narrow className="!h-6 !w-10" />
+                  <NumberStepper value={sp.cost ?? 1} onChange={(v) => updateEffect(idx, { value: { ...sp, cost: Math.max(0, Math.min(99, v)) } })} min={0} max={99} compact narrow className="!h-7 !w-10" />
                   <span className="text-gray-600 mx-0.5">|</span>
                   <span className={labelCls}>命中</span>
                   <select value={hitRes} onChange={(e) => updateEffect(idx, { value: { ...sp, hitResolution: e.target.value } })} className={selectCls + ' !w-[3rem]'}>
@@ -1263,8 +1282,26 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                   <span className={labelCls}>距离</span>
                   <input type="text" value={sp.range ?? ''} onChange={(e) => updateEffect(idx, { value: { ...sp, range: e.target.value } })} placeholder="自身" className={inputCls + ' !w-[3rem]'} />
                   <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
-                    <Trash2 className="w-3 h-3" />
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
+                </div>
+                {/* 缩放配置行 */}
+                <div className="flex items-center gap-x-1.5 flex-wrap mt-1.5">
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={spellScalingEnabled}
+                      onChange={(e) => updateEffect(idx, { value: { ...sp, scalingEnabled: e.target.checked } })}
+                      className="w-3 h-3 accent-cyan-500"
+                    />
+                    <span className="text-cyan-300/80 text-[10px]">每额外+1资源</span>
+                  </label>
+                  {spellScalingEnabled && (
+                    <>
+                      <span className={labelCls}>+伤害骰</span>
+                      <NumberStepper value={spellSU.damageDiceCount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...sp, scalingPerUnit: { ...spellSU, damageDiceCount: Math.max(0, v) } } })} min={0} max={20} compact narrow className="!h-7 !w-10" />
+                    </>
+                  )}
                 </div>
               </div>
             )
@@ -1272,10 +1309,12 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
 
           if (eff.type === 'ability') {
             const av = eff.value || {}
+            const scalingEnabled = !!av.scalingEnabled
+            const su = av.scalingPerUnit || {}
             return (
-              <div key={eff.id} className="rounded border border-amber-800/30 bg-[#0d1520]/50 px-1.5 py-1">
-                <div className="flex items-center gap-x-1 flex-wrap">
-                  <span className="text-amber-400 text-[10px] shrink-0">奇能</span>
+              <div key={eff.id} className="rounded-md border border-amber-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                <div className="flex items-center gap-x-1.5 flex-wrap">
+                  <span className="text-amber-400 text-[11px] shrink-0 font-medium">奇能</span>
                   <input
                     type="text"
                     value={av.text ?? ''}
@@ -1284,20 +1323,20 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                     className={inputCls + ' min-w-[6rem]'}
                   />
                   <span className={labelCls}>次数</span>
-                  <NumberStepper value={av.uses ?? 1} onChange={(v) => updateEffect(idx, { value: { ...av, uses: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-6 !w-10" />
+                  <NumberStepper value={av.uses ?? 1} onChange={(v) => updateEffect(idx, { value: { ...av, uses: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-10" />
                   <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
-                    <Trash2 className="w-3 h-3" />
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
                 {/* 骰子配置行 */}
-                <div className="flex items-center gap-x-1 flex-wrap mt-1">
+                <div className="flex items-center gap-x-1.5 flex-wrap mt-1.5">
                   <span className={labelCls}>骰子</span>
-                  <NumberStepper value={av.diceCount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, diceCount: Math.max(0, v) } })} min={0} max={20} compact narrow className="!h-6 !w-10" />
+                  <NumberStepper value={av.diceCount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, diceCount: Math.max(0, v) } })} min={0} max={20} compact narrow className="!h-7 !w-10" />
                   <span className="text-gray-500 text-[10px]">d</span>
                   <select
                     value={av.diceSides ?? 10}
                     onChange={(e) => updateEffect(idx, { value: { ...av, diceSides: Number(e.target.value) } })}
-                    className={inputCls + ' !h-6 !w-14 !text-[11px] !px-1'}
+                    className={inputCls + ' !h-7 !w-14 !text-[11px] !px-1'}
                   >
                     {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
@@ -1305,17 +1344,37 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                   <select
                     value={av.abilityMod ?? ''}
                     onChange={(e) => updateEffect(idx, { value: { ...av, abilityMod: e.target.value } })}
-                    className={inputCls + ' !h-6 !w-20 !text-[11px] !px-1'}
+                    className={inputCls + ' !h-7 !w-20 !text-[11px] !px-1'}
                   >
                     {ALL_MOD_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                   <select
                     value={av.resultType ?? 'heal'}
                     onChange={(e) => updateEffect(idx, { value: { ...av, resultType: e.target.value } })}
-                    className={inputCls + ' !h-6 !w-16 !text-[11px] !px-1'}
+                    className={inputCls + ' !h-7 !w-16 !text-[11px] !px-1'}
                   >
                     {RESULT_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
+                </div>
+                {/* 缩放配置行 */}
+                <div className="flex items-center gap-x-1.5 flex-wrap mt-1.5">
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={scalingEnabled}
+                      onChange={(e) => updateEffect(idx, { value: { ...av, scalingEnabled: e.target.checked } })}
+                      className="w-3 h-3 accent-amber-500"
+                    />
+                    <span className="text-amber-300/80 text-[10px]">每额外+1资源</span>
+                  </label>
+                  {scalingEnabled && (
+                    <>
+                      <span className={labelCls}>+骰</span>
+                      <NumberStepper value={su.diceCount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, scalingPerUnit: { ...su, diceCount: Math.max(0, v) } } })} min={0} max={20} compact narrow className="!h-7 !w-10" />
+                      <span className={labelCls}>+固定</span>
+                      <NumberStepper value={su.flatBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, scalingPerUnit: { ...su, flatBonus: Math.max(0, v) } } })} min={0} max={99} compact narrow className="!h-7 !w-10" />
+                    </>
+                  )}
                 </div>
               </div>
             )
@@ -1323,16 +1382,36 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
 
           if (eff.type === 'shield') {
             const sv = eff.value || {}
+            const shieldScalingEnabled = !!sv.scalingEnabled
+            const shieldSU = sv.scalingPerUnit || {}
             return (
-              <div key={eff.id} className="rounded border border-emerald-800/30 bg-[#0d1520]/50 px-1.5 py-1">
-                <div className="flex items-center gap-x-1">
-                  <span className="text-emerald-400 text-[10px] shrink-0">护盾</span>
+              <div key={eff.id} className="rounded-md border border-emerald-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                <div className="flex items-center gap-x-1.5 flex-wrap">
+                  <span className="text-emerald-400 text-[11px] shrink-0 font-medium">护盾</span>
                   <span className={labelCls}>层数</span>
-                  <NumberStepper value={sv.amount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...sv, amount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-6 !w-12" />
+                  <NumberStepper value={sv.amount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...sv, amount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" />
                   <span className="text-gray-500 text-[10px]">每次消耗1层</span>
                   <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
-                    <Trash2 className="w-3 h-3" />
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
+                </div>
+                {/* 缩放配置行 */}
+                <div className="flex items-center gap-x-1.5 flex-wrap mt-1.5">
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={shieldScalingEnabled}
+                      onChange={(e) => updateEffect(idx, { value: { ...sv, scalingEnabled: e.target.checked } })}
+                      className="w-3 h-3 accent-emerald-500"
+                    />
+                    <span className="text-emerald-300/80 text-[10px]">每额外+1资源</span>
+                  </label>
+                  {shieldScalingEnabled && (
+                    <>
+                      <span className={labelCls}>+层数</span>
+                      <NumberStepper value={shieldSU.amount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...sv, scalingPerUnit: { ...shieldSU, amount: Math.max(0, v) } } })} min={0} max={99} compact narrow className="!h-7 !w-10" />
+                    </>
+                  )}
                 </div>
               </div>
             )

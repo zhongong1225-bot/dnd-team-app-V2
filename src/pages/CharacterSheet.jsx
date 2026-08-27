@@ -56,6 +56,7 @@ import EldritchInvocationPicker from '../components/EldritchInvocationPicker'
 import FightingStylePicker from '../components/FightingStylePicker'
 import CombatStatus from '../components/CombatStatus'
 import EquipmentAndInventory from '../components/EquipmentAndInventory'
+import MartialTechniquesPanel from '../components/MartialTechniquesPanel'
 import AbilityModule from '../components/AbilityModule'
 import AvatarCropModal from '../components/AvatarCropModal'
 import CharacterSheetTopBar from '../components/CharacterSheetTopBar'
@@ -65,7 +66,7 @@ import { loadDefaultBuffPatch, saveDefaultBuffPatch, buildClassFeatureBuffKey } 
 import { CLASS_FEATURE_CHOICE_REGISTRY } from '../data/classFeatureChoiceRegistry'
 import { ACTIVE_ABILITY_REGISTRY, getAbilityById } from '../data/activeAbilityRegistry'
 import { executeAbility, canUseAbility } from '../lib/activeAbilityEngine'
-import { formatRecoveryBrief, buildAbilityDiceExpr } from '../lib/chargeItemModel'
+import { formatRecoveryBrief, buildAbilityDiceExpr, RESOURCE_TYPE_OPTIONS, normalizeChargeItemValue, computeScaledEffect, getMaxSpendableAmount, resolveAbilityMod } from '../lib/chargeItemModel'
 import { rollDice } from '../data/weaponDatabase'
 import InfoTooltip from '../components/InfoTooltip'
 import { ClassFeatureTooltipContent, FeatTooltipContent } from '../lib/infoTooltipContent'
@@ -79,6 +80,12 @@ function buildClassFeatureOptionBuffKey(sourceClass, sourceSubclass, featureId, 
 /** 查找专长对应的主动技能 ID（按 feat.id 匹配 ability.sourceKey） */
 function findActiveAbilityForFeat(featId) {
   const ability = ACTIVE_ABILITY_REGISTRY.find((a) => a.source === 'feat' && a.sourceKey === featId)
+  return ability?.id || null
+}
+
+/** 查找职业特性对应的主动技能 ID（按 sourceClass 匹配 ability.sourceKey） */
+function findActiveAbilityForClassFeature(sourceClass) {
+  const ability = ACTIVE_ABILITY_REGISTRY.find((a) => a.source === 'class' && a.sourceKey === sourceClass)
   return ability?.id || null
 }
 
@@ -1143,103 +1150,338 @@ function FightingStylesBlock({ char, feature, canEdit, onSave, moduleId }) {
   )
 }
 
-/** 职业特性动作按钮：根据 BUFF 配置渲染充能使用等按钮 */
+/** 职业特性动作按钮：根据 BUFF 配置渲染充能使用等按钮（含确认弹窗 + 效果处理） */
 function ClassFeatureActions({ feature, moduleId, char, onSave }) {
   const [lastResult, setLastResult] = useState(null)
+  const [confirmingIdx, setConfirmingIdx] = useState(null)
+  const [customAmount, setCustomAmount] = useState(1)
+  const [maxAmount, setMaxAmount] = useState(1)
+
   const buffKey = buildClassFeatureBuffKey(feature.sourceClass, feature.sourceSubclass, feature.id)
   const defaultPatch = loadDefaultBuffPatch(moduleId, 'classFeature', buffKey)
   const effects = Array.isArray(defaultPatch?.effects) ? defaultPatch.effects : []
-
-  // 查找充能效果
   const chargeEffects = effects.filter((e) => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
 
-  // 清除上次的掷骰结果（3 秒后自动消失）
   useEffect(() => {
     if (!lastResult) return
-    const timer = setTimeout(() => setLastResult(null), 3000)
+    const timer = setTimeout(() => setLastResult(null), 4000)
     return () => clearTimeout(timer)
   }, [lastResult])
 
-  if (chargeEffects.length === 0) return null
+  /* ── 辅助：计算法术 DC（简化版，不含 buffStats） ── */
+  const computeSpellDC = useCallback(() => {
+    if (!char) return null
+    const level = char.level || 1
+    const L = Math.max(1, Math.min(20, Math.floor(level)))
+    const prof = proficiencyBonus(L)
+    const spellAbility = getPrimarySpellcastingAbility(char)
+    if (!spellAbility) return null
+    const mod = abilityModifier(char.abilities?.[spellAbility] ?? 10)
+    return 8 + prof + mod
+  }, [char])
 
-  const handleUse = (chargeValue) => {
-    if (!char || !onSave) return
-    const abilityEffects = (chargeValue.effects || []).filter((eff) => eff.type === 'ability' && eff.value?.diceCount > 0)
+  const computeSpellAttack = useCallback(() => {
+    if (!char) return null
+    const level = char.level || 1
+    const L = Math.max(1, Math.min(20, Math.floor(level)))
+    const prof = proficiencyBonus(L)
+    const spellAbility = getPrimarySpellcastingAbility(char)
+    if (!spellAbility) return null
+    const mod = abilityModifier(char.abilities?.[spellAbility] ?? 10)
+    return prof + mod
+  }, [char])
 
-    if (abilityEffects.length === 0) {
-      // 无骰子效果，仅显示信息
-      const lines = (chargeValue.effects || []).map((eff) => {
-        if (eff.type === 'spell') return `法术：${eff.value?.spellName || '(未命名)'}`
-        if (eff.type === 'ability') return `能力：${eff.value?.text || '(无描述)'}`
-        if (eff.type === 'shield') return `护盾：${eff.value?.amount ?? 1}`
-        return ''
-      }).filter(Boolean)
-      setLastResult({ text: lines.join('；') || '(未配置效果)', total: 0 })
-      return
-    }
-
-    // 处理第一个有骰子的 ability 效果
-    const eff = abilityEffects[0]
-    const av = eff.value
-    const { expr, mod } = buildAbilityDiceExpr(av, char)
-    if (!expr) {
-      setLastResult({ text: '无可掷骰子', total: 0 })
-      return
-    }
-
-    const { total, rolls } = rollDice(expr)
-    const isHeal = av.resultType !== 'damage'
-    const currentHp = Number(char.hp?.current) || 0
-
-    // 计算 maxHp（简化：基础 + BUFF 加成）
-    const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
-
-    let newHp = currentHp
-    if (isHeal) {
-      newHp = Math.min(maxHp, currentHp + total)
-    } else {
-      newHp = Math.max(0, currentHp - total)
-    }
-
-    // 保存 HP
-    onSave({ hp: { ...char.hp, current: newHp } })
-
-    const modLabel = mod !== 0 ? (mod > 0 ? `+${mod}` : `${mod}`) : ''
-    const diceStr = rolls.length > 0 ? `${rolls.join('+')}` : expr
-    setLastResult({
-      text: `${isHeal ? '💚' : '⚔️'} ${feature.name}：${diceStr}${modLabel} = ${total}`,
-      total,
-      isHeal,
-    })
+  const getResourceLabel = (resourceType) => {
+    return RESOURCE_TYPE_OPTIONS.find((o) => o.value === resourceType)?.label ?? resourceType
   }
+
+  /* ── 打开确认弹窗 ── */
+  const openConfirm = (idx, chargeValue) => {
+    const norm = normalizeChargeItemValue(chargeValue)
+    const maxSpend = getMaxSpendableAmount(norm, char)
+    setMaxAmount(maxSpend)
+    setCustomAmount(1)
+    setConfirmingIdx(idx)
+  }
+
+  /* ── 确认使用：执行效果 + 扣除资源 ── */
+  const handleConfirmUse = () => {
+    if (confirmingIdx === null || !char || !onSave) return
+    const chargeValue = chargeEffects[confirmingIdx]?.value
+    if (!chargeValue) return
+    const norm = normalizeChargeItemValue(chargeValue)
+    const amt = customAmount
+    const patch = {}
+    const resultLines = []
+
+    /* 1. 资源消耗（按选择数量扣除） */
+    const isClassResource = norm.resourceType !== 'charges'
+    if (isClassResource) {
+      const res = (char.classResources || []).find((r) => r.resourceKey === norm.resourceType)
+      if (res) {
+        const newResources = (char.classResources || []).map((r) => {
+          if (r.resourceKey !== norm.resourceType) return r
+          return { ...r, current: Math.max(0, r.current - amt) }
+        })
+        patch.classResources = newResources
+      }
+      resultLines.push(`消耗 ${amt} ${getResourceLabel(norm.resourceType)}`)
+    } else {
+      resultLines.push(`消耗 ${amt} 充能（共 ${norm.charges}）`)
+    }
+
+    /* 2. 逐个处理效果（使用缩放后的数值） */
+    for (const eff of (norm.effects || [])) {
+      const ev = eff.value || {}
+      const scaled = computeScaledEffect(ev, amt)
+
+      if (eff.type === 'spell') {
+        const spellName = ev.spellName || '(未命名法术)'
+        const scaledDice = scaled.damageDiceCount ?? (ev.damageDiceCount || 0)
+
+        if (ev.hitResolution === 'spell_attack') {
+          const atkBonus = computeSpellAttack()
+          const d20 = rollDice('1d20')
+          resultLines.push(
+            `${spellName} 攻击: d20=${d20.total}${atkBonus != null ? `${atkBonus >= 0 ? '+' : ''}${atkBonus}` : ''} = ${d20.total + (atkBonus || 0)}`,
+          )
+        } else if (ev.hitResolution && ev.hitResolution !== 'none') {
+          const dc = computeSpellDC()
+          const saveLabel = ev.hitResolution.replace('_save', '')
+          resultLines.push(`${spellName} 豁免DC ${dc ?? '?'} (${saveLabel})`)
+        } else {
+          resultLines.push(`${spellName}`)
+        }
+
+        if (scaledDice > 0) {
+          const diceExpr = `${scaledDice}d${ev.damageDiceSides || 6}`
+          const { total, rolls } = rollDice(diceExpr)
+          const damageType = ev.damageType || ''
+          resultLines.push(`  伤害: ${rolls.join('+')} = ${total}${damageType ? ` ${damageType}` : ''}`)
+        }
+      } else if (eff.type === 'ability') {
+        const scaledDice = scaled.diceCount ?? (ev.diceCount || 0)
+        const scaledFlat = scaled.flatBonus ?? 0
+        const sides = ev.diceSides || 10
+        const mod = resolveAbilityMod(ev.abilityMod, char)
+        const totalMod = mod + scaledFlat
+
+        if (scaledDice > 0) {
+          let diceExpr = `${scaledDice}d${sides}`
+          if (totalMod > 0) diceExpr += `+${totalMod}`
+          else if (totalMod < 0) diceExpr += `${totalMod}`
+          const { total, rolls } = rollDice(diceExpr)
+          const isHeal = ev.resultType !== 'damage'
+          const modLabel = totalMod !== 0 ? (totalMod > 0 ? `+${totalMod}` : `${totalMod}`) : ''
+          const diceStr = rolls.length > 0 ? rolls.join('+') : `${scaledDice}d${sides}`
+
+          if (isHeal) {
+            const currentHp = Number(char.hp?.current) || 0
+            const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
+            const newHp = Math.min(maxHp, currentHp + total)
+            patch.hp = { ...char.hp, current: newHp }
+            resultLines.push(`💚 治疗: ${diceStr}${modLabel} = ${total}`)
+          } else {
+            const currentHp = Number(char.hp?.current) || 0
+            const newHp = Math.max(0, currentHp - total)
+            patch.hp = { ...char.hp, current: newHp }
+            resultLines.push(`⚔️ 伤害: ${diceStr}${modLabel} = ${total}`)
+          }
+        } else if (ev.text) {
+          resultLines.push(ev.text)
+        }
+      } else if (eff.type === 'shield') {
+        const scaledAmount = scaled.amount ?? (ev.amount || 1)
+        resultLines.push(`🛡️ 护盾: ${scaledAmount}`)
+      }
+    }
+
+    if (resultLines.length === 0) resultLines.push('(未配置效果)')
+
+    onSave(patch)
+    setLastResult({ lines: resultLines })
+    setConfirmingIdx(null)
+  }
+
+  if (chargeEffects.length === 0) return null
 
   return (
     <div className="mt-2 pt-2 border-t border-gray-700/35 flex flex-wrap items-center gap-1.5">
       {chargeEffects.map((chargeEff, idx) => {
-        const chargeValue = chargeEff.value
-        const charges = chargeValue.charges ?? 0
-        const recovery = chargeValue.recovery
+        const cv = chargeEff.value
+        const charges = cv.charges ?? 0
+        const recovery = cv.recovery
         const recoveryLabel = recovery ? formatRecoveryBrief(recovery) : ''
+        const resourceType = cv.resourceType || 'charges'
+        const resLabel = getResourceLabel(resourceType)
 
         return (
           <button
             key={idx}
             type="button"
-            onClick={() => handleUse(chargeValue)}
+            onClick={() => openConfirm(idx, cv)}
             className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors"
-            title={`${charges} 充能 | ${recoveryLabel}`}
+            title={resourceType === 'charges' ? `${charges} 充能 | ${recoveryLabel}` : `消耗: ${resLabel}`}
           >
             <Zap className="w-3 h-3" />
             使用 {feature.name}
-            {charges > 0 && <span className="text-[10px] opacity-70">({charges})</span>}
+            {resourceType === 'charges' && charges > 0 && (
+              <span className="text-[10px] opacity-70">({charges})</span>
+            )}
           </button>
         )
       })}
       {lastResult && (
-        <span className={`text-[11px] ${lastResult.isHeal ? 'text-green-400' : 'text-red-400'}`}>
-          {lastResult.text}
-        </span>
+        <div className="w-full mt-1 text-[11px] text-gray-300 space-y-0.5">
+          {lastResult.lines.map((line, i) => (
+            <div key={i}>{line}</div>
+          ))}
+        </div>
       )}
+
+      {/* ── 确认弹窗 ── */}
+      {confirmingIdx !== null && chargeEffects[confirmingIdx] && (() => {
+        const cv = chargeEffects[confirmingIdx].value
+        const norm = normalizeChargeItemValue(cv)
+        const isClassResource = norm.resourceType !== 'charges'
+        const resLabel = getResourceLabel(norm.resourceType)
+        const amt = customAmount
+        const hasScaling = norm.effects.some((e) => e.value?.scalingEnabled)
+
+        return (
+          <>
+            <div className="fixed inset-0 z-[400] bg-black/60" onClick={() => setConfirmingIdx(null)} aria-hidden />
+            <div className="fixed inset-0 z-[401] flex items-center justify-center p-4" onClick={() => setConfirmingIdx(null)}>
+              <div
+                className="bg-[#1a1f2e] border border-dnd-gold/30 rounded-lg p-4 max-w-sm w-full shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-bold text-dnd-gold-light">使用 {feature.name}</h3>
+                  <button type="button" onClick={() => setConfirmingIdx(null)} className="text-gray-400 hover:text-white">
+                    <X size={14} />
+                  </button>
+                </div>
+
+                {/* 消耗数量选择 */}
+                <div className="flex items-center gap-x-2 mb-3">
+                  <span className="text-xs text-gray-300">消耗数量</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setCustomAmount(Math.max(1, amt - 1))}
+                      className="w-6 h-6 rounded bg-gray-700/60 text-gray-300 hover:bg-gray-600/80 flex items-center justify-center text-sm font-bold transition-colors"
+                    >−</button>
+                    <span className="w-8 text-center text-sm font-bold text-dnd-gold-light tabular-nums">{amt}</span>
+                    <button
+                      type="button"
+                      onClick={() => setCustomAmount(Math.min(maxAmount, amt + 1))}
+                      className="w-6 h-6 rounded bg-gray-700/60 text-gray-300 hover:bg-gray-600/80 flex items-center justify-center text-sm font-bold transition-colors"
+                    >+</button>
+                  </div>
+                  <span className="text-[10px] text-gray-500">
+                    {isClassResource
+                      ? `${resLabel}（剩余 ${(() => { const res = (char.classResources || []).find((r) => r.resourceKey === norm.resourceType); return res ? `${res.current}/${res.max}` : '?' })()}）`
+                      : `充能（总 ${norm.charges}）`
+                    }
+                  </span>
+                </div>
+
+                {/* 效果列表（显示缩放后的数值） */}
+                {(norm.effects || []).length > 0 && (
+                  <div className="space-y-1.5 mb-4">
+                    <div className="text-[10px] text-gray-500 uppercase tracking-wide">效果</div>
+                    {norm.effects.map((eff, i) => {
+                      const ev = eff.value || {}
+                      const scaled = computeScaledEffect(ev, amt)
+                      if (eff.type === 'spell') {
+                        const scaledDice = scaled.damageDiceCount ?? (ev.damageDiceCount || 0)
+                        const diceExpr = scaledDice > 0 ? `${scaledDice}d${ev.damageDiceSides || 6}` : ''
+                        return (
+                          <div key={i} className="text-xs text-gray-300 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400/60 shrink-0" />
+                            <span className="text-cyan-300">{ev.spellName || '(未命名法术)'}</span>
+                            {ev.hitResolution && ev.hitResolution !== 'none' && (
+                              <span className="text-[10px] text-gray-500">
+                                {ev.hitResolution === 'spell_attack' ? '法术攻击' : `${ev.hitResolution.replace('_save', '')}豁免`}
+                              </span>
+                            )}
+                            {diceExpr && (
+                              <span className="text-[10px] text-red-400/80">{diceExpr}{ev.damageType ? ` ${ev.damageType}` : ''}</span>
+                            )}
+                            {hasScaling && amt > 1 && ev.scalingEnabled && (
+                              <span className="text-[9px] text-amber-400/60">×{amt}</span>
+                            )}
+                          </div>
+                        )
+                      }
+                      if (eff.type === 'ability') {
+                        const scaledDice = scaled.diceCount ?? (ev.diceCount || 0)
+                        const scaledFlat = scaled.flatBonus ?? 0
+                        const sides = ev.diceSides || 10
+                        const mod = resolveAbilityMod(ev.abilityMod, char)
+                        const totalMod = mod + scaledFlat
+                        let expr = ''
+                        if (scaledDice > 0) {
+                          expr = `${scaledDice}d${sides}`
+                          if (totalMod > 0) expr += `+${totalMod}`
+                          else if (totalMod < 0) expr += `${totalMod}`
+                        }
+                        return (
+                          <div key={i} className="text-xs text-gray-300 flex items-center gap-1.5">
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${ev.resultType === 'damage' ? 'bg-red-400/60' : 'bg-green-400/60'}`} />
+                            <span>{ev.text || '(能力)'}</span>
+                            {expr && (
+                              <span className={`text-[10px] ${ev.resultType === 'damage' ? 'text-red-400/80' : 'text-green-400/80'}`}>
+                                {expr} {ev.resultType === 'damage' ? '伤害' : '治疗'}
+                              </span>
+                            )}
+                            {hasScaling && amt > 1 && ev.scalingEnabled && (
+                              <span className="text-[9px] text-amber-400/60">×{amt}</span>
+                            )}
+                          </div>
+                        )
+                      }
+                      if (eff.type === 'shield') {
+                        const scaledAmount = scaled.amount ?? (ev.amount || 1)
+                        return (
+                          <div key={i} className="text-xs text-gray-300 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-400/60 shrink-0" />
+                            <span>护盾 {scaledAmount}</span>
+                            {hasScaling && amt > 1 && ev.scalingEnabled && (
+                              <span className="text-[9px] text-amber-400/60">×{amt}</span>
+                            )}
+                          </div>
+                        )
+                      }
+                      return null
+                    })}
+                  </div>
+                )}
+
+                {/* 确认 / 取消 */}
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingIdx(null)}
+                    className="px-3 py-1.5 rounded-md text-xs bg-gray-700/50 text-gray-300 border border-gray-600/50 hover:bg-gray-600/50 transition-colors"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmUse}
+                    disabled={amt < 1 || amt > maxAmount}
+                    className="px-3 py-1.5 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/40 hover:bg-dnd-gold/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    确认使用{amt > 1 ? ` (${amt})` : ''}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        )
+      })()}
     </div>
   )
 }
@@ -1387,96 +1629,163 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
   const available = useMemo(() => getAvailableFeatures(char), [char])
   if (available.length === 0) return null
   return (
-    <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-4">
-      <div className="space-y-3">
-        <p className="text-gray-500 text-xs">根据当前职业与等级自动展示职业特性。</p>
-        <ul className="space-y-2">
-          {available.map((f) => {
-            const key = featureKey(f)
-            const isExpanded = expandedFeatureIds.has(key)
-            const name = resolveRuleText(
-              overridesMap,
-              f.sourceSubclass
-                ? buildSubclassFeatureNameKey(f.sourceClass, f.sourceSubclass, f.id)
-                : buildClassFeatureNameKey(f.sourceClass, f.id),
-              f.name,
-            )
-            const descText = resolveRuleText(
-              overridesMap,
-              f.sourceSubclass
-                ? buildSubclassFeatureKey(f.sourceClass, f.sourceSubclass, f.id)
-                : buildClassFeatureKey(f.sourceClass, f.id),
-              f.description,
-            )
-            return (
-              <li key={key} className="rounded-lg border border-gray-600 bg-gray-800/50 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div
-                    className="flex-1 min-w-0 cursor-pointer select-none"
-                    onClick={() => toggleFeatureExpand(key)}
+    <div className="module-panel panel-highlight-top">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="text-xs text-dnd-text-muted">
+          职业特性 <span className="text-dnd-gold-light font-medium">{available.length}</span>
+        </div>
+      </div>
+      <ul className="space-y-2">
+        {available.map((f) => {
+          const key = featureKey(f)
+          const isExpanded = expandedFeatureIds.has(key)
+          const name = resolveRuleText(
+            overridesMap,
+            f.sourceSubclass
+              ? buildSubclassFeatureNameKey(f.sourceClass, f.sourceSubclass, f.id)
+              : buildClassFeatureNameKey(f.sourceClass, f.id),
+            f.name,
+          )
+          const descText = resolveRuleText(
+            overridesMap,
+            f.sourceSubclass
+              ? buildSubclassFeatureKey(f.sourceClass, f.sourceSubclass, f.id)
+              : buildClassFeatureKey(f.sourceClass, f.id),
+            f.description,
+          )
+          const hasDescription = Boolean(descText)
+          const hasActiveAbility = !!findActiveAbilityForClassFeature(f.sourceClass)
+          return (
+            <li key={key} className="panel-card-compact">
+              {/* 名字 + 操作图标行 */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <InfoTooltip
+                    content={
+                      <ClassFeatureTooltipContent
+                        feature={{
+                          name,
+                          description: descText,
+                          level: f.level,
+                          sourceClass: f.sourceClass,
+                          sourceSubclass: f.sourceSubclass,
+                          id: f.id,
+                        }}
+                      />
+                    }
+                    triggerClassName="inline"
                   >
-                    <InfoTooltip
-                      content={
-                        <ClassFeatureTooltipContent
-                          feature={{
-                            name,
-                            description: descText,
-                            level: f.level,
-                            sourceClass: f.sourceClass,
-                            sourceSubclass: f.sourceSubclass,
-                            id: f.id,
-                          }}
-                        />
-                      }
-                      triggerClassName="inline"
+                    <span
+                      className="text-base font-bold text-white cursor-pointer select-none hover:text-gray-100 transition-colors truncate block"
+                      onClick={() => toggleFeatureExpand(key)}
                     >
-                      <span className={CS_LIST_TITLE}>{name}</span>
-                    </InfoTooltip>
-                    <span className={`${CS_LIST_META} ml-2`}>{f.sourceClass}{f.sourceSubclass ? `（${f.sourceSubclass}）` : ''} · {f.level} 级</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      const isChoiceType = !!CLASS_FEATURE_CHOICE_REGISTRY[buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)]
-                      if (isChoiceType) {
-                        setChoiceModalFeature(f)
-                      } else {
-                        setBuffEditorFeature(f)
-                      }
-                    }}
-                    className="p-1.5 rounded-lg text-gray-500 hover:bg-white/10 hover:text-dnd-gold transition-colors"
-                    title={CLASS_FEATURE_CHOICE_REGISTRY[buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)] ? '选择特性选项' : '配置 BUFF 效果'}
-                  >
-                    <Settings className="w-4 h-4" />
-                  </button>
+                      {name}
+                    </span>
+                  </InfoTooltip>
+                  <span className="text-xs text-gray-500 shrink-0">{f.sourceClass}{f.sourceSubclass ? `（${f.sourceSubclass}）` : ''} · {f.level} 级</span>
                 </div>
-                {isExpanded && descText && (
-                  <p className={`${CS_LIST_BODY} mt-2 border-t border-gray-700/35 pt-2 whitespace-pre-line`}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    const isChoiceType = !!CLASS_FEATURE_CHOICE_REGISTRY[buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)]
+                    if (isChoiceType) {
+                      setChoiceModalFeature(f)
+                    } else {
+                      setBuffEditorFeature(f)
+                    }
+                  }}
+                  className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
+                  title={CLASS_FEATURE_CHOICE_REGISTRY[buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)] ? '选择特性选项' : '配置 BUFF 效果'}
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* 简介行 */}
+              {hasDescription && (
+                <div
+                  className="mt-1 flex items-center gap-1.5 cursor-pointer group"
+                  onClick={() => toggleFeatureExpand(key)}
+                >
+                  <span className="text-xs text-gray-500 group-hover:text-gray-400 transition-colors truncate flex-1">
+                    {(() => {
+                      const firstLine = descText.split('\n')[0]
+                      return firstLine.length > 40 ? firstLine.slice(0, 40) + '…' : firstLine
+                    })()}
+                  </span>
+                  <span className="text-gray-600 group-hover:text-gray-400 transition-colors shrink-0">
+                    {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </span>
+                </div>
+              )}
+
+              {/* 主动技能使用按钮 */}
+              {hasActiveAbility && (() => {
+                const abilityId = findActiveAbilityForClassFeature(f.sourceClass)
+                const ability = getAbilityById(abilityId)
+                if (!ability) return null
+                const check = canUseAbility(ability, char)
+                const costText = ability.cost.type === 'class_resource'
+                  ? `${ability.cost.amount}${({ wild_shape: '变', second_wind: '气', lay_on_hands: '疗' }[ability.cost.resourceKey] || '')}`
+                  : ability.cost.type === 'none' ? '免费' : ''
+                return (
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      disabled={!check.usable}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const result = executeAbility(ability, char)
+                        if (result.success) {
+                          const patches = { ...result.patch }
+                          if (result.classResources) patches.classResources = result.classResources
+                          if (Object.keys(patches).length > 0) onSave(patches)
+                        }
+                      }}
+                      className={`w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-all active:scale-[0.98] ${
+                        check.usable
+                          ? 'bg-dnd-gold/10 text-dnd-gold-light border-dnd-gold/30 hover:bg-dnd-gold/20 hover:border-dnd-gold/50'
+                          : 'bg-gray-800/50 text-gray-500 border-gray-600/50 cursor-not-allowed'
+                      }`}
+                      title={check.usable ? `点击使用${ability.name}` : check.reason}
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      <span>{ability.name}</span>
+                      {costText && <span className="text-[10px] opacity-70">{costText}</span>}
+                    </button>
+                  </div>
+                )
+              })()}
+
+              {/* 展开内容 */}
+              {isExpanded && hasDescription && (
+                <div className="mt-2 pt-2 border-t border-gray-700/40">
+                  <p className="text-sm text-gray-400 leading-relaxed whitespace-pre-line">
                     {descText}
                   </p>
-                )}
-                {f.id === 'eldritch_invocations' && (
-                  <EldritchInvocationsBlock char={char} canEdit={canEdit} onSave={onSave} moduleId={moduleId} />
-                )}
-                {FIGHTING_STYLE_FEATURE_IDS.has(f.id) && (
-                  <FightingStylesBlock char={char} feature={f} canEdit={canEdit} onSave={onSave} moduleId={moduleId} />
-                )}
-                {CLASS_FEATURE_CHOICE_REGISTRY[buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)] && (
-                  <ClassFeatureChoiceBlock
-                    char={char}
-                    feature={f}
-                    canEdit={canEdit}
-                    onSave={onSave}
-                    onEditOptionBuff={setBuffEditorOption}
-                  />
-                )}
-                <ClassFeatureActions feature={f} moduleId={moduleId} char={char} onSave={onSave} />
-              </li>
-            )
-          })}
-        </ul>
-      </div>
+                </div>
+              )}
+              {f.id === 'eldritch_invocations' && (
+                <EldritchInvocationsBlock char={char} canEdit={canEdit} onSave={onSave} moduleId={moduleId} />
+              )}
+              {FIGHTING_STYLE_FEATURE_IDS.has(f.id) && (
+                <FightingStylesBlock char={char} feature={f} canEdit={canEdit} onSave={onSave} moduleId={moduleId} />
+              )}
+              {CLASS_FEATURE_CHOICE_REGISTRY[buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)] && (
+                <ClassFeatureChoiceBlock
+                  char={char}
+                  feature={f}
+                  canEdit={canEdit}
+                  onSave={onSave}
+                  onEditOptionBuff={setBuffEditorOption}
+                />
+              )}
+              <ClassFeatureActions feature={f} moduleId={moduleId} char={char} onSave={onSave} />
+            </li>
+          )
+        })}
+      </ul>
 
       {/* BUFF 编辑器弹窗 */}
       {buffEditorFeature && (
@@ -1778,7 +2087,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
 
   const [pickerState, setPickerState] = useState({ open: false, slotId: null, category: '' })
   const openPickerForSlot = (slot) => setPickerState({ open: true, slotId: slot.id, category: slot.category })
-  const openPickerForExtraLegendary = () => setPickerState({ open: true, slotId: 'extra', category: '传奇恩惠' })
+  const openPickerForExtra = () => setPickerState({ open: true, slotId: 'extra', category: '' })
   const closePicker = () => setPickerState({ open: false, slotId: null, category: '' })
 
   const handlePick = ({ featId, effects = [] }) => {
@@ -1790,7 +2099,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
         featId,
         level: level || 19,
         sourceClass: '',
-        category: '传奇恩惠',
+        category: '额外专长',
       }
       if (effects.length > 0) row.featBuffPatch = { effects }
       next = [...raw, row]
@@ -1859,11 +2168,11 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
         {canEdit && (
           <button
             type="button"
-            onClick={openPickerForExtraLegendary}
+            onClick={openPickerForExtra}
             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-gray-700/50 text-gray-300 hover:bg-gray-600/60 hover:text-white border border-gray-600/50 transition-all active:scale-95"
           >
             <Plus className="w-3.5 h-3.5" />
-            添加传奇专长
+            额外添加专长
           </button>
         )}
       </div>
@@ -2006,7 +2315,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
                           const result = executeAbility(ability, char)
                           if (result.success) {
                             const patches = { ...result.patch }
-                            if (result.resourcePatch) patches.classResources = result.resourcePatch
+                            if (result.classResources) patches.classResources = result.classResources
                             if (Object.keys(patches).length > 0) onSave(patches)
                           }
                         }}
@@ -2166,7 +2475,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
                           const result = executeAbility(ability, char)
                           if (result.success) {
                             const patches = { ...result.patch }
-                            if (result.resourcePatch) patches.classResources = result.resourcePatch
+                            if (result.classResources) patches.classResources = result.classResources
                             if (Object.keys(patches).length > 0) onSave(patches)
                           }
                         }}
@@ -3038,6 +3347,16 @@ export default function CharacterSheet() {
               onSave={persist}
               onWalletSuccess={noop}
               activityActor={user?.name}
+            />
+          </section>
+          )}
+          {!isCreatureTemplate && (
+          <section id="sheet-martial" className="character-sheet-section-anchor mt-6">
+            <h3 className="section-title">武技</h3>
+            <MartialTechniquesPanel
+              char={char}
+              canEdit={canEdit}
+              onSave={persist}
             />
           </section>
           )}

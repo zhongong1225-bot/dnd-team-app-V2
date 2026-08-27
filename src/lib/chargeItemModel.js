@@ -37,6 +37,36 @@ export const RECOVERY_AMOUNT_OPTIONS = [
   { value: 'dice', label: '掷骰' },
 ]
 
+/** 消耗资源类型选项：充能数 + 职业资源 */
+export const RESOURCE_TYPE_OPTIONS = [
+  { value: 'charges', label: '充能数' },
+  { value: 'rage', label: '狂暴次数' },
+  { value: 'bardic_inspiration', label: '吟游诗人激励' },
+  { value: 'channel_divinity', label: '引导神力' },
+  { value: 'wild_shape', label: '荒野变形次数' },
+  { value: 'second_wind', label: '回气' },
+  { value: 'action_surge', label: '动作如潮' },
+  { value: 'indomitable', label: '不屈' },
+  { value: 'superiority_dice', label: '卓越骰' },
+  { value: 'ki', label: '气点' },
+  { value: 'lay_on_hands', label: '圣疗池' },
+  { value: 'paladin_channel_divinity', label: '圣武士引导神力' },
+  { value: 'sneak_attack_dice', label: '诡诈打击骰' },
+  { value: 'lucky_strike', label: '幸运一击' },
+  { value: 'sorcery_points', label: '术法点' },
+  { value: 'arcane_recovery', label: '奥术回想' },
+  { value: 'invocations', label: '魔能祈唤' },
+  { value: 'anima_points', label: '魂力点' },
+  { value: 'wild_impulse', label: '狂野冲动' },
+  { value: 'focus_points', label: '专注点' },
+  { value: 'artifact_sorcery', label: '器魂术法点' },
+  { value: 'blade_channel_divinity', label: '圣魂之刃引导神力' },
+  { value: 'arcane_fury', label: '奥术之怒' },
+  { value: 'martial_rage', label: '天诛之剑怒气' },
+  { value: 'shadow_summon', label: '召影' },
+  { value: 'star_points', label: '星辰点' },
+]
+
 /** 不需要回能数量设置的方式 */
 const NO_AMOUNT_METHODS = new Set(['none'])
 /** 仅支持掷的方式 */
@@ -44,6 +74,7 @@ const DICE_ONLY_METHODS = new Set(['absorb_energy', 'reaction_absorb'])
 
 export function createEmptyChargeItemValue(overrides = {}) {
   return {
+    resourceType: 'charges',
     charges: 1,
     recovery: { method: 'long_rest', kind: 'full', fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0 },
     effects: [],
@@ -59,13 +90,13 @@ function genId() {
 export function createChargeEffectEntry(type, overrides = {}) {
   const id = genId()
   if (type === 'spell') {
-    return { id, type, value: createEmptyContainedSpellSub(), ...overrides }
+    return { id, type, value: { ...createEmptyContainedSpellSub(), scalingEnabled: false, scalingPerUnit: { damageDiceCount: 0 } }, ...overrides }
   }
   if (type === 'ability') {
-    return { id, type, value: { text: '', uses: 1, diceCount: 0, diceSides: 10, abilityMod: '', resultType: 'heal' }, ...overrides }
+    return { id, type, value: { text: '', uses: 1, diceCount: 0, diceSides: 10, abilityMod: '', resultType: 'heal', scalingEnabled: false, scalingPerUnit: { diceCount: 0, flatBonus: 0 } }, ...overrides }
   }
   if (type === 'shield') {
-    return { id, type, value: { amount: 1 }, ...overrides }
+    return { id, type, value: { amount: 1, scalingEnabled: false, scalingPerUnit: { amount: 0 } }, ...overrides }
   }
   return { id, type, value: {}, ...overrides }
 }
@@ -75,6 +106,9 @@ export function normalizeChargeItemValue(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return createEmptyChargeItemValue()
   }
+  // resourceType：旧数据无此字段，默认 'charges'
+  const validResourceTypes = RESOURCE_TYPE_OPTIONS.map((o) => o.value)
+  const resourceType = validResourceTypes.includes(value.resourceType) ? value.resourceType : 'charges'
   const charges = typeof value.charges === 'number'
     ? Math.max(0, value.charges)
     : (parseInt(value.charges, 10) || 0)
@@ -99,10 +133,17 @@ export function normalizeChargeItemValue(value) {
     const type = ['spell', 'ability', 'shield'].includes(e.type) ? e.type : 'spell'
     const id = e.id || genId()
     if (type === 'spell') {
-      return { id, type, value: createEmptyContainedSpellSub(e.value && typeof e.value === 'object' ? e.value : {}) }
+      const rawSpellVal = e.value && typeof e.value === 'object' ? e.value : {}
+      const spVal = createEmptyContainedSpellSub(rawSpellVal)
+      // scaling fields
+      const rawSp = rawSpellVal.scalingPerUnit && typeof rawSpellVal.scalingPerUnit === 'object' ? rawSpellVal.scalingPerUnit : {}
+      spVal.scalingEnabled = !!rawSpellVal.scalingEnabled
+      spVal.scalingPerUnit = { damageDiceCount: Math.max(0, Number(rawSp.damageDiceCount) || 0) }
+      return { id, type, value: spVal }
     }
     if (type === 'ability') {
       const av = e.value && typeof e.value === 'object' ? e.value : {}
+      const rawSU = av.scalingPerUnit && typeof av.scalingPerUnit === 'object' ? av.scalingPerUnit : {}
       return { id, type, value: {
         text: typeof av.text === 'string' ? av.text : '',
         uses: Math.max(1, Number(av.uses) || 1),
@@ -110,15 +151,27 @@ export function normalizeChargeItemValue(value) {
         diceSides: Math.max(1, Number(av.diceSides) || 10),
         abilityMod: typeof av.abilityMod === 'string' ? av.abilityMod : '',
         resultType: av.resultType === 'damage' ? 'damage' : 'heal',
+        scalingEnabled: !!av.scalingEnabled,
+        scalingPerUnit: {
+          diceCount: Math.max(0, Number(rawSU.diceCount) || 0),
+          flatBonus: Math.max(0, Number(rawSU.flatBonus) || 0),
+        },
       } }
     }
     if (type === 'shield') {
       const sv = e.value && typeof e.value === 'object' ? e.value : {}
-      return { id, type, value: { amount: Math.max(1, Number(sv.amount) || 1) } }
+      const rawSU = sv.scalingPerUnit && typeof sv.scalingPerUnit === 'object' ? sv.scalingPerUnit : {}
+      return { id, type, value: {
+        amount: Math.max(1, Number(sv.amount) || 1),
+        scalingEnabled: !!sv.scalingEnabled,
+        scalingPerUnit: {
+          amount: Math.max(0, Number(rawSU.amount) || 0),
+        },
+      } }
     }
     return { id, type, value: {} }
   })
-  return { charges, recovery, effects }
+  return { resourceType, charges, recovery, effects }
 }
 
 /** 回能方式是否支持自定义回能数量 */
@@ -154,8 +207,13 @@ export function formatRecoveryBrief(recovery) {
 export function formatChargeItemBrief(value) {
   const norm = normalizeChargeItemValue(value)
   const parts = []
-  parts.push(`${norm.charges} 充能`)
-  parts.push(formatRecoveryBrief(norm.recovery))
+  if (norm.resourceType === 'charges') {
+    parts.push(`${norm.charges} 充能`)
+    parts.push(formatRecoveryBrief(norm.recovery))
+  } else {
+    const resLabel = RESOURCE_TYPE_OPTIONS.find((o) => o.value === norm.resourceType)?.label ?? norm.resourceType
+    parts.push(`消耗：${resLabel}`)
+  }
   if (norm.effects.length > 0) {
     const effectLabels = norm.effects.map((e) => {
       if (e.type === 'spell') {
@@ -241,4 +299,59 @@ export function buildAbilityDiceExpr(abilityValue, character) {
   if (mod > 0) expr += `+${mod}`
   else if (mod < 0) expr += `${mod}`
   return { expr, mod }
+}
+
+/**
+ * 计算缩放后的效果数值
+ * @param {object} effectValue - 效果值（ability/spell/shield 的 value）
+ * @param {number} amount - 消耗资源数量（≥1）
+ * @returns {object} 缩放后的数值
+ */
+export function computeScaledEffect(effectValue, amount) {
+  const amt = Math.max(1, Math.floor(Number(amount) || 1))
+  const extra = amt - 1 // 基础 1 单位不叠加
+  const scaling = effectValue?.scalingEnabled ? (effectValue?.scalingPerUnit || {}) : {}
+
+  // ability
+  if (effectValue && 'diceCount' in effectValue && 'resultType' in effectValue) {
+    const baseDice = Math.max(0, Number(effectValue.diceCount) || 0)
+    const perUnitDice = Math.max(0, Number(scaling.diceCount) || 0)
+    const flatBonus = Math.max(0, Number(scaling.flatBonus) || 0)
+    return {
+      diceCount: baseDice + perUnitDice * extra,
+      flatBonus: flatBonus * extra,
+    }
+  }
+  // spell
+  if (effectValue && 'damageDiceCount' in effectValue && 'hitResolution' in effectValue) {
+    const baseDmgDice = Math.max(0, Number(effectValue.damageDiceCount) || 0)
+    const perUnitDmgDice = Math.max(0, Number(scaling.damageDiceCount) || 0)
+    return {
+      damageDiceCount: baseDmgDice + perUnitDmgDice * extra,
+    }
+  }
+  // shield
+  if (effectValue && 'amount' in effectValue && !('diceCount' in effectValue)) {
+    const baseAmount = Math.max(1, Number(effectValue.amount) || 1)
+    const perUnitAmount = Math.max(0, Number(scaling.amount) || 0)
+    return {
+      amount: baseAmount + perUnitAmount * extra,
+    }
+  }
+  return {}
+}
+
+/**
+ * 获取资源可用上限（用于确认弹窗的数量选择器）
+ * @param {object} norm - normalizeChargeItemValue 的结果
+ * @param {object} char - 角色数据
+ * @returns {number} 可用上限
+ */
+export function getMaxSpendableAmount(norm, char) {
+  if (!norm || !char) return 1
+  if (norm.resourceType === 'charges') {
+    return Math.max(1, Math.floor(Number(norm.charges) || 1))
+  }
+  const res = (char.classResources || []).find((r) => r.resourceKey === norm.resourceType)
+  return res ? Math.max(1, Math.floor(Number(res.current) || 0)) : 1
 }
