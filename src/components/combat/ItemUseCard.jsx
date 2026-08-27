@@ -57,8 +57,8 @@ function getSpellDamageBonusExtras(damageType, spellDamageBonuses, formulaContex
   let flatBonus = 0
   const extraDice = []
   for (const b of spellDamageBonuses) {
-    if (b.damageType && b.damageType !== damageType) continue
-    if (b.flat) flatBonus += Number(b.flat) || 0
+    if (b.type && b.type !== damageType) continue
+    if (b.flatBonus) flatBonus += Number(b.flatBonus) || 0
     if (b.extraDice) extraDice.push(b.extraDice)
   }
   return { flatBonus, extraDice }

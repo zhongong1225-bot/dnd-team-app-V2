@@ -63,7 +63,7 @@ import CharacterSheetTopBar from '../components/CharacterSheetTopBar'
 import FeatPickerModal from '../components/FeatPickerModal'
 import BuffForm from '../components/BuffForm'
 import { loadDefaultBuffPatch, saveDefaultBuffPatch, buildClassFeatureBuffKey } from '../lib/defaultBuffPatchStore'
-import { CLASS_FEATURE_CHOICE_REGISTRY } from '../data/classFeatureChoiceRegistry'
+import { CLASS_FEATURE_CHOICE_REGISTRY, CHOICE_ID_ALIASES } from '../data/classFeatureChoiceRegistry'
 import { ACTIVE_ABILITY_REGISTRY, getAbilityById } from '../data/activeAbilityRegistry'
 import { executeAbility, canUseAbility } from '../lib/activeAbilityEngine'
 import { formatRecoveryBrief, buildAbilityDiceExpr, RESOURCE_TYPE_OPTIONS, normalizeChargeItemValue, computeScaledEffect, getMaxSpendableAmount, resolveAbilityMod } from '../lib/chargeItemModel'
@@ -1171,8 +1171,8 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
   /* ── 辅助：计算法术 DC（简化版，不含 buffStats） ── */
   const computeSpellDC = useCallback(() => {
     if (!char) return null
-    const level = char.level || 1
-    const L = Math.max(1, Math.min(20, Math.floor(level)))
+    const totalLevel = getCharacterClasses(char).reduce((s, c) => s + (c.level || 0), 0) || 1
+    const L = Math.max(1, Math.min(20, Math.floor(totalLevel)))
     const prof = proficiencyBonus(L)
     const spellAbility = getPrimarySpellcastingAbility(char)
     if (!spellAbility) return null
@@ -1182,8 +1182,8 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
 
   const computeSpellAttack = useCallback(() => {
     if (!char) return null
-    const level = char.level || 1
-    const L = Math.max(1, Math.min(20, Math.floor(level)))
+    const totalLevel = getCharacterClasses(char).reduce((s, c) => s + (c.level || 0), 0) || 1
+    const L = Math.max(1, Math.min(20, Math.floor(totalLevel)))
     const prof = proficiencyBonus(L)
     const spellAbility = getPrimarySpellcastingAbility(char)
     if (!spellAbility) return null
@@ -1498,7 +1498,8 @@ function ClassFeatureChoiceBlock({ char, feature, canEdit, onSave, modalOpen: ex
   const registryEntry = CLASS_FEATURE_CHOICE_REGISTRY[buffKey]
 
   const chosenOptionId = useMemo(() => {
-    return char?.classFeatureChoices?.[featureId] || null
+    const raw = char?.classFeatureChoices?.[featureId] || null
+    return CHOICE_ID_ALIASES[raw] || raw
   }, [char?.classFeatureChoices, featureId])
 
   const chosenOption = useMemo(() => {

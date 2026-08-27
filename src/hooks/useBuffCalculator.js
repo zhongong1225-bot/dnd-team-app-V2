@@ -317,6 +317,7 @@ export function computeBuffStats(character, activeBuffs) {
       spellDC: spellAbility ? 8 + contextProf + finalSpellMod : 0,
       spellAttack: spellAbility ? contextProf + finalSpellMod : 0,
       classLevels,
+      speed: character?.speed ?? 30,
     }
     const evalVal = (raw) => evaluateBuffValue(raw, formulaContext)
 
@@ -459,28 +460,57 @@ export function computeBuffStats(character, activeBuffs) {
       else if (b.effectType === 'disadv_all') disadvAll++
     }
 
+    // D&D 5e: 同时有优势和劣势来源时抵消为正常
+    const resolveAdvDisadv = (hasAdv, hasDisadv) => {
+      if (hasAdv && hasDisadv) return 'normal'
+      if (hasDisadv) return 'disadvantage'
+      if (hasAdv) return 'advantage'
+      return 'normal'
+    }
     let advantage = {
-      melee: disadvAll > 0 ? 'disadvantage' : advMelee + advAllAttack > 0 ? 'advantage' : 'normal',
-      ranged: disadvAll > 0 ? 'disadvantage' : advRanged + advAllAttack > 0 ? 'advantage' : 'normal',
-      save: disadvAll > 0 || disadvSave > 0 ? 'disadvantage' : advSave > 0 ? 'advantage' : 'normal',
-      skill: disadvAll > 0 || disadvSkill > 0 ? 'disadvantage' : advSkill > 0 ? 'advantage' : 'normal',
+      melee: resolveAdvDisadv(advMelee + advAllAttack > 0, disadvAll > 0),
+      ranged: resolveAdvDisadv(advRanged + advAllAttack > 0, disadvAll > 0),
+      save: resolveAdvDisadv(advSave > 0, disadvAll > 0 || disadvSave > 0),
+      skill: resolveAdvDisadv(advSkill > 0, disadvAll > 0 || disadvSkill > 0),
     }
 
     // 7. 状态效果与力竭的减益（力竭规则参考 D&D 2024）
-    const conditions = Array.isArray(character?.conditions) ? character.conditions : []
+    // 先收集状态免疫（来自 BUFF 效果）
+    const conditionImmunities = new Set()
+    for (const b of entries) {
+      if (b.effectType === 'condition_immunity' && Array.isArray(b.value)) {
+        for (const c of b.value) conditionImmunities.add(String(c))
+      }
+    }
+    const rawConditions = Array.isArray(character?.conditions) ? character.conditions : []
+    const conditions = rawConditions.filter((c) => !conditionImmunities.has(c))
     const exhaustionLevel = Math.max(0, Math.min(6, Number(character?.exhaustionLevel) || 0))
     let speedMultiplier = 1
     let maxHpMultiplier = 1
     const disadvantageKeys = new Set()
+    const advantageAgainstYou = new Set() // 针对你的攻击优势
     // D&D 2024 力竭：d20 检定 -2×等级，速度 -5尺×等级，6级死亡（不再用劣势/生命减半）
     const d20ExhaustionPenalty = exhaustionLevel >= 6 ? -12 : -2 * exhaustionLevel
     const speedExhaustionPenalty = exhaustionLevel >= 6 ? 999 : 5 * exhaustionLevel
     if (conditions.includes('poisoned')) { disadvantageKeys.add('melee'); disadvantageKeys.add('ranged'); disadvantageKeys.add('skill') }
-    if (conditions.includes('blinded')) { disadvantageKeys.add('melee'); disadvantageKeys.add('ranged') }
-    if (conditions.includes('frightened')) disadvantageKeys.add('skill')
-    if (['stunned', 'paralyzed', 'unconscious'].some((c) => conditions.includes(c))) speedMultiplier = 0
-    if (disadvantageKeys.size) {
-      advantage = { ...advantage, ...Object.fromEntries([...disadvantageKeys].map((k) => [k, 'disadvantage'])) }
+    if (conditions.includes('blinded')) { disadvantageKeys.add('melee'); disadvantageKeys.add('ranged'); advantageAgainstYou.add('melee'); advantageAgainstYou.add('ranged') }
+    if (conditions.includes('frightened')) { disadvantageKeys.add('melee'); disadvantageKeys.add('ranged'); disadvantageKeys.add('skill') }
+    if (conditions.includes('restrained')) { disadvantageKeys.add('melee'); disadvantageKeys.add('ranged'); disadvantageKeys.add('skill'); advantageAgainstYou.add('melee'); advantageAgainstYou.add('ranged') }
+    if (conditions.includes('prone')) { disadvantageKeys.add('melee'); advantageAgainstYou.add('melee') }
+    if (conditions.includes('grappled')) { speedMultiplier = 0 }
+    if (conditions.includes('petrified')) { disadvantageKeys.add('melee'); disadvantageKeys.add('ranged'); disadvantageKeys.add('skill'); advantageAgainstYou.add('melee'); advantageAgainstYou.add('ranged') }
+    if (conditions.includes('invisible')) { /* 攻击你时有劣势，你攻击别人有优势 — 由 DM 手动管理 */ }
+    if (['stunned', 'paralyzed', 'unconscious'].some((c) => conditions.includes(c))) { speedMultiplier = 0; advantageAgainstYou.add('melee'); advantageAgainstYou.add('ranged') }
+    // 应用状态效果：优势/劣势抵消
+    if (disadvantageKeys.size || advantageAgainstYou.size) {
+      const newAdv = { ...advantage }
+      for (const k of disadvantageKeys) {
+        newAdv[k] = resolveAdvDisadv(newAdv[k] === 'advantage', true)
+      }
+      for (const k of advantageAgainstYou) {
+        // 针对你的优势不影响你的攻击优势/劣势，仅记录（供武器卡片使用）
+      }
+      advantage = newAdv
     }
 
     // 4. AC（使用增益后的属性，使敏捷等加成正确）、速度、先攻、DC、熟练
@@ -581,6 +611,7 @@ export function computeBuffStats(character, activeBuffs) {
     let specialSenses = { senses: [], range: 0 }
     let healingBonus = 0
     let deathSaveBonus = 0
+    let deathWard = false
     let extraAttack = 0
     let extraActionResource = 0
 
@@ -721,6 +752,10 @@ export function computeBuffStats(character, activeBuffs) {
         const dv = evalVal(raw)
         if (!Number.isNaN(dv)) deathSaveBonus += dv
       }
+      // 防死：一次 HP 降至 0 以下时强制改为 1（布尔值）
+      else if (b.effectType === 'death_ward') {
+        if (raw === true || raw === 'true' || raw === 1) deathWard = true
+      }
       // 新增：额外攻击（数值）
       else if (b.effectType === 'extra_attack') {
         const ea = evalVal(raw)
@@ -819,13 +854,14 @@ export function computeBuffStats(character, activeBuffs) {
       }
     }
 
-    // 变身效果速度处理：用生物速度替换角色速度
+    // 变身效果速度处理：用生物速度替换角色基础速度，但保留已有的速度加值
     if (creatureTransformData) {
       const creatureSpeed = creatureTransformData.creature.speed
       if (creatureSpeed && typeof creatureSpeed === 'object') {
         const charSpeed = character?.speed ?? 30
+        const existingSpeedBonus = speedBonus
         if (creatureSpeed.walk != null) {
-          speedBonus = Number(creatureSpeed.walk) - charSpeed
+          speedBonus = Number(creatureSpeed.walk) - charSpeed + existingSpeedBonus
         }
         if (creatureSpeed.swim != null) {
           swimSpeedBonus = Number(creatureSpeed.swim)
@@ -897,6 +933,8 @@ export function computeBuffStats(character, activeBuffs) {
       specialSenses,
       healingBonus,
       deathSaveBonus,
+      deathWard,
+      conditionImmunities: [...conditionImmunities],
       extraAttack,
       extraActionResource,
       // 变身效果相关信息

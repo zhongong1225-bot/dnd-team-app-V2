@@ -14,7 +14,7 @@ import { loadDefaultBuffPatch, mergeWithDefaultPatch, buildClassFeatureBuffKey }
 import { getAvailableFeatures } from '../../data/classDatabase'
 import { HARDCODED_FEAT_BUFFS } from '../../data/featDefaultBuffs'
 import { HARDCODED_CLASS_FEATURE_BUFFS } from '../../data/classFeatureDefaultBuffs'
-import { getChoiceEffects, CLASS_FEATURE_CHOICE_REGISTRY } from '../../data/classFeatureChoiceRegistry'
+import { getChoiceEffects, CLASS_FEATURE_CHOICE_REGISTRY, CHOICE_ID_ALIASES } from '../../data/classFeatureChoiceRegistry'
 import { findShieldSlot } from '../equipmentLayers'
 
 const FEAT_BY_ID = new Map(FEATS.map((x) => [x.id, x]))
@@ -405,9 +405,11 @@ export function getBuffsFromClassFeatures(character, moduleId) {
         // DM 特性级补丁的 choiceSelected 覆盖（DM 可强制指定选项）
         const dmChoiceOverride = defaultPatch?.choiceSelected != null ? defaultPatch.choiceSelected : null
 
-        const chosenOptionId = dmChoiceOverride != null
+        const rawChosenId = dmChoiceOverride != null
           ? registryEntry.options[dmChoiceOverride]?.id || null
           : (classFeatureChoices?.[f.id] || null)
+        // 兼容旧 ID：改名后自动映射到新 ID
+        const chosenOptionId = CHOICE_ID_ALIASES[rawChosenId] || rawChosenId
 
         // 构建 choice 结构：每个选项包含各自效果，BUFF 编辑器可展示/编辑
         const choiceOptions = registryEntry.options.map((opt) => {

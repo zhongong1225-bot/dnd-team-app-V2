@@ -290,3 +290,10 @@ export function getChoiceEffects(buffKey, classFeatureChoices) {
   if (effects.length === 0) return null
   return { effects, chosenOptionId }
 }
+
+// 选项 ID 改名兼容：旧 ID → 新 ID
+export const CHOICE_ID_ALIASES = {
+  spellschool: 'spell_school',
+  warden: 'guardian_warden',
+  thaumaturgist: 'divine_magic',
+}
