@@ -3846,10 +3846,6 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
       }
       return out
     }).filter((ef) => ef.effectType)
-    if (!effects.length && !initial?.fromFeat) {
-      alert('请至少添加一条附魔效果后再保存。')
-      return
-    }
     const payload = {
       ...initial,
       source: source.trim(),
