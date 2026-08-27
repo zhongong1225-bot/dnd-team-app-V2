@@ -25,6 +25,8 @@ import {
   TOOL_PROFICIENCY_OPTIONS,
   LANGUAGE_PROFICIENCY_OPTIONS,
   WEAPON_MASTERY_OPTIONS,
+  SPECIAL_SENSES_OPTIONS,
+  DAMAGE_RELATION_OPTIONS,
   migrateProficiencyTextToArray,
 } from '../data/buffTypes'
 import { WEAPON_BUFF_CATEGORY_SELECT_OPTIONS } from '../data/itemDatabase'
@@ -264,6 +266,24 @@ function normalizeValueForSave(module, currentEffect) {
   if (needsSubSelect === 'choice') {
     return normalizeChoiceValue(value)
   }
+  if (needsSubSelect === 'damageTypeRelation') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return {
+        relation: ['resist', 'immune', 'vulnerable'].includes(value.relation) ? value.relation : 'resist',
+        types: Array.isArray(value.types) ? value.types : [],
+      }
+    }
+    return { relation: 'resist', types: [] }
+  }
+  if (needsSubSelect === 'specialSenses') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return {
+        senses: Array.isArray(value.senses) ? value.senses : [],
+        range: Number(value.range) || 60,
+      }
+    }
+    return { senses: [], range: 60 }
+  }
   if (currentEffect.key === 'recharge_long_rest' || currentEffect.key === 'recharge_dawn') {
     return normalizeChargeRecoveryValue(value)
   }
@@ -328,7 +348,9 @@ function isComplexValueType(currentEffect) {
     needsSubSelect === 'condition' ||
     needsSubSelect === 'damagePiercingTraits' ||
     needsSubSelect === 'containedSpell' ||
-    needsSubSelect === 'proficiencyChecklist'
+    needsSubSelect === 'proficiencyChecklist' ||
+    needsSubSelect === 'damageTypeRelation' ||
+    needsSubSelect === 'specialSenses'
   )
 }
 
@@ -2867,6 +2889,7 @@ function EffectValueEditor({
             optKey === 'vehicle' ? VEHICLE_PROFICIENCY_OPTIONS :
             optKey === 'instrument' ? INSTRUMENT_PROFICIENCY_OPTIONS :
             optKey === 'tool' ? TOOL_PROFICIENCY_OPTIONS :
+            optKey === 'toolAndInstrument' ? [...TOOL_PROFICIENCY_OPTIONS, ...INSTRUMENT_PROFICIENCY_OPTIONS] :
             optKey === 'language' ? LANGUAGE_PROFICIENCY_OPTIONS :
             optKey === 'weaponMastery' ? WEAPON_MASTERY_OPTIONS :
             []
@@ -3323,6 +3346,87 @@ function EffectValueEditor({
           choiceSelected={value?.choiceSelected}
           onChange={(v) => onChange({ ...module, value: v })}
         />
+      ) : needsSubSelect === 'damageTypeRelation' ? (
+        (() => {
+          const rel = value && typeof value === 'object' ? value : {}
+          const relation = rel.relation || 'resist'
+          const types = Array.isArray(rel.types) ? rel.types : []
+          return (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400">关系类型</span>
+                <select
+                  value={relation}
+                  onChange={(e) => onChange({ ...module, value: { ...rel, relation: e.target.value } })}
+                  className={inputClass + ' !py-1 text-sm'}
+                >
+                  {DAMAGE_RELATION_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {DAMAGE_TYPES.map((dt) => {
+                  const checked = types.includes(dt.value)
+                  return (
+                    <label key={dt.value} className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          const next = e.target.checked ? [...types, dt.value] : types.filter((x) => x !== dt.value)
+                          onChange({ ...module, value: { ...rel, types: next } })
+                        }}
+                        className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                      />
+                      <span className="text-sm text-gray-300">{dt.label}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })()
+      ) : needsSubSelect === 'specialSenses' ? (
+        (() => {
+          const sv = value && typeof value === 'object' ? value : {}
+          const senses = Array.isArray(sv.senses) ? sv.senses : []
+          const range = sv.range != null ? sv.range : 60
+          return (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400">范围（尺）</span>
+                <input
+                  type="number"
+                  value={range}
+                  onChange={(e) => onChange({ ...module, value: { ...sv, range: Number(e.target.value) || 0 } })}
+                  className={inputClass + ' !py-1 !w-20 text-sm'}
+                  min={0}
+                  step={10}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {SPECIAL_SENSES_OPTIONS.map((o) => {
+                  const checked = senses.includes(o.value)
+                  return (
+                    <label key={o.value} className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          const next = e.target.checked ? [...senses, o.value] : senses.filter((x) => x !== o.value)
+                          onChange({ ...module, value: { ...sv, senses: next } })
+                        }}
+                        className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                      />
+                      <span className="text-sm text-gray-300">{o.label}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })()
       ) : null}
     </div>
   )

@@ -577,6 +577,12 @@ export function computeBuffStats(character, activeBuffs) {
     let spellRangeBonus = 0
     const ignoreResistanceTypes = []
     let damageReduction = 0
+    // 新增效果类型变量
+    let specialSenses = { senses: [], range: 0 }
+    let healingBonus = 0
+    let deathSaveBonus = 0
+    let extraAttack = 0
+    let extraActionResource = 0
 
     const initiativeProfBonus = proficiencyBonus(charLevel)
 
@@ -696,6 +702,35 @@ export function computeBuffStats(character, activeBuffs) {
         climbSpeedBonus += spd.climb
         if (spd.fly > flightSpeed) flightSpeed = spd.fly
       }
+      // 新增：特殊感官（对象：{ senses: string[], range: number }）
+      else if (b.effectType === 'special_senses' && raw && typeof raw === 'object') {
+        const senses = Array.isArray(raw.senses) ? raw.senses : []
+        const range = Number(raw.range) || 0
+        specialSenses = {
+          senses: [...new Set([...specialSenses.senses, ...senses])],
+          range: Math.max(specialSenses.range, range),
+        }
+      }
+      // 新增：治疗增强（数值）
+      else if (b.effectType === 'healing_bonus') {
+        const hv = evalVal(raw)
+        if (!Number.isNaN(hv)) healingBonus += hv
+      }
+      // 新增：死亡豁免加值（数值）
+      else if (b.effectType === 'death_save_bonus') {
+        const dv = evalVal(raw)
+        if (!Number.isNaN(dv)) deathSaveBonus += dv
+      }
+      // 新增：额外攻击（数值）
+      else if (b.effectType === 'extra_attack') {
+        const ea = evalVal(raw)
+        if (!Number.isNaN(ea)) extraAttack += ea
+      }
+      // 新增：额外动作资源（数值）
+      else if (b.effectType === 'extra_action_resource') {
+        const ear = evalVal(raw)
+        if (!Number.isNaN(ear)) extraActionResource += ear
+      }
     }
 
     // 5. 生命：temp_hp 取最大，max_hp_bonus 累加；变身效果 HP 处理
@@ -744,7 +779,15 @@ export function computeBuffStats(character, activeBuffs) {
     for (const b of entries) {
       const arr = Array.isArray(b.value) ? b.value : (b.value && b.value.types) ? b.value.types : []
       const toValue = (t) => getDamageTypeValue(t) || String(t).toLowerCase()
-      if (b.effectType === 'resist_type') resistTypes.push(...arr.map(toValue).filter(Boolean))
+      if (b.effectType === 'damage_type_relation' && b.value && typeof b.value === 'object') {
+        // 新版统一格式：{ types: string[], relation: 'resist'|'immune'|'vulnerable' }
+        const relation = b.value.relation
+        const types = Array.isArray(b.value.types) ? b.value.types : []
+        if (relation === 'resist') resistTypes.push(...types.map(toValue).filter(Boolean))
+        else if (relation === 'immune') immuneTypes.push(...types.map(toValue).filter(Boolean))
+        else if (relation === 'vulnerable') vulnerableTypes.push(...types.map(toValue).filter(Boolean))
+      }
+      else if (b.effectType === 'resist_type') resistTypes.push(...arr.map(toValue).filter(Boolean))
       else if (b.effectType === 'immune_type') immuneTypes.push(...arr.map(toValue).filter(Boolean))
       else if (b.effectType === 'vulnerable_type') vulnerableTypes.push(...arr.map(toValue).filter(Boolean))
       else if (b.effectType === 'dmg_type_specific' && b.value && typeof b.value === 'object' && b.value.type) {
@@ -850,6 +893,12 @@ export function computeBuffStats(character, activeBuffs) {
       d20ExhaustionPenalty,
       speedExhaustionPenalty,
       weaponCategoryAttackDamageBonuses,
+      // 新增效果类型
+      specialSenses,
+      healingBonus,
+      deathSaveBonus,
+      extraAttack,
+      extraActionResource,
       // 变身效果相关信息
       creatureTransform: creatureTransformData ? {
         creatureId: creatureTransformData.creature.id,

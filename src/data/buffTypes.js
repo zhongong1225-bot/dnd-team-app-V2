@@ -166,6 +166,21 @@ export const DAMAGE_DICE_ARROW_OPTIONS = [
   { value: '命中时', label: '命中时' },
 ]
 
+/** 特殊感官选项 */
+export const SPECIAL_SENSES_OPTIONS = [
+  { value: 'blindsight', label: '盲视' },
+  { value: 'darkvision', label: '黑暗视觉' },
+  { value: 'tremorsense', label: '震颤感知' },
+  { value: 'truesight', label: '真实视觉' },
+]
+
+/** 伤害关系类型（抗性/免疫/易伤） */
+export const DAMAGE_RELATION_OPTIONS = [
+  { value: 'resist', label: '抗性' },
+  { value: 'immune', label: '免疫' },
+  { value: 'vulnerable', label: '易伤' },
+]
+
 /** 护甲熟练选项 */
 export const ARMOR_PROFICIENCY_OPTIONS = [
   { value: 'light', label: '轻甲' },
@@ -357,7 +372,7 @@ export const BUFF_TYPES = {
       // 表格：命中加值（仅影响攻击检定）
       { key: 'attack_bonus', label: '命中加值', dataType: 'object', subSelect: 'numberAndAdvantage' },
       // 表格：伤害加值（仅影响伤害）
-      { key: 'damage_bonus', label: '伤害加值', dataType: 'object', subSelect: 'numberAndAdvantage' },
+      { key: 'damage_bonus', label: '固定伤害加值', dataType: 'object', subSelect: 'numberAndAdvantage' },
       // 旧版：命中/伤害加值。保留以兼容旧 Buff，但新建时隐藏。
       { key: 'attack_damage_bonus', label: '命中/伤害加值', dataType: 'object', subSelect: 'numberAndAdvantage', hidden: true },
       // 表格：攻击距离
@@ -373,7 +388,7 @@ export const BUFF_TYPES = {
       //   ☑️ 元素穿透: 忽略 [火/冷/雷/酸/毒] 抗性
       //   ☑️ 正邪穿透: 忽略 [光/暗] 抗性
       // dataType: array + 自定义子选择器 damagePiercingTraits
-      { key: 'damage_piercing_traits', label: '伤害穿透特性', dataType: 'array', subSelect: 'damagePiercingTraits' },
+      { key: 'damage_piercing_traits', label: '伤害穿透', dataType: 'array', subSelect: 'damagePiercingTraits' },
       // 暴击范围扩大：仅本件物品；武器攻击快捷投掷威胁高亮按「当前这把武器」自己的附魔，不因其它已装备武器串用
       // 互动调整方式：范围选项：默认 20，可选 19-20、18-20。
       { key: 'crit_range_expand', label: '暴击范围扩大', dataType: 'text' },
@@ -386,6 +401,10 @@ export const BUFF_TYPES = {
       { key: 'infinite_ammo', label: '弹药无限', dataType: 'boolean' },
       // 武器攻击改为使用施法属性（智力/感知/魅力）计算命中与伤害
       { key: 'spell_ability_attack', label: '施法属性命中', dataType: 'object', subSelect: 'spellAbilityForAttack' },
+      // 额外攻击次数（如 haste 给一次额外攻击）
+      { key: 'extra_attack', label: '额外攻击', dataType: 'number' },
+      // 额外动作资源（如 action surge 给额外动作）
+      { key: 'extra_action_resource', label: '额外动作资源', dataType: 'number' },
     ],
   },
   defense: {
@@ -395,15 +414,23 @@ export const BUFF_TYPES = {
       { key: 'ac_bonus', label: '额外AC', dataType: 'number' },
       /** AC覆盖：用于法师护甲、武僧无甲护甲等修改基础AC的效果。value: { base, applyDexMod, maxDexBonus?, extra, shieldCompatible? } */
       { key: 'armor_override', label: 'AC覆盖', dataType: 'object', subSelect: 'armorOverride' },
-      { key: 'resist_type', label: '伤害抗性', dataType: 'array', subSelect: 'damageType' },
-      { key: 'immune_type', label: '伤害免疫', dataType: 'array', subSelect: 'damageType' },
-      { key: 'vulnerable_type', label: '伤害易伤', dataType: 'array', subSelect: 'damageType' },
+      /** 统一伤害关系：抗性/免疫/易伤合并为一个效果。value: { types: string[], relation: 'resist'|'immune'|'vulnerable' } */
+      { key: 'damage_type_relation', label: '伤害关系', dataType: 'object', subSelect: 'damageTypeRelation' },
+      { key: 'resist_type', label: '伤害抗性', dataType: 'array', subSelect: 'damageType', hidden: true },
+      { key: 'immune_type', label: '伤害免疫', dataType: 'array', subSelect: 'damageType', hidden: true },
+      { key: 'vulnerable_type', label: '伤害易伤', dataType: 'array', subSelect: 'damageType', hidden: true },
       /** 固定值：每次受到伤害时再减去该数值（在免疫/易伤/抗性之后结算，见 useBuffCalculator.calculateDamage） */
       { key: 'damage_reduction', label: '伤害减免', dataType: 'number' },
       { key: 'max_hp_bonus', label: '生命上限', dataType: 'number' },
       { key: 'temp_hp', label: '临时生命', dataType: 'number' },
       { key: 'regeneration', label: '再生', dataType: 'number' },
       { key: 'condition_immunity', label: '状态免疫', dataType: 'array', subSelect: 'condition' },
+      /** 特殊感官：黑暗视觉、盲视等。value: { senses: string[], range: number } */
+      { key: 'special_senses', label: '特殊感官', dataType: 'object', subSelect: 'specialSenses' },
+      /** 治疗增强：治疗效果加值。value: number */
+      { key: 'healing_bonus', label: '治疗增强', dataType: 'number' },
+      /** 死亡豁免加值。value: number */
+      { key: 'death_save_bonus', label: '死亡豁免加值', dataType: 'number' },
       /** 防死：一次 HP 降至 0 以下时，强制改为 1 并消耗该效果 */
       { key: 'death_ward', label: '防死', dataType: 'boolean' },
     ],
@@ -425,12 +452,12 @@ export const BUFF_TYPES = {
       // 表格：施法距离延伸。典型来源：法术延展专长。
       // 互动调整方式：倍率/数值 — 选择 x2 或输入固定增量。规则逻辑：仅影响法术射程。
       { key: 'spell_range_extension', label: '施法距离延伸', dataType: 'text' },
-      // 表格：法术攻击加值。仅数值。
-      { key: 'spell_attack_bonus', label: '法术攻击加值', dataType: 'number' },
-      // 表格：法术豁免 DC 加值。仅数值。
-      { key: 'save_dc_bonus', label: 'DC', dataType: 'number' },
-      // 表格：施法增伤。伤害类型 / 伤害骰下限 / 每骰 +X / 追加骰 / 公式固定加值
-      { key: 'spell_damage_bonus', label: '施法增伤', dataType: 'object', subSelect: 'spellDamageBonus' },
+      // 表格：法术攻击加值。仅数值。（已通过 scope 机制替代，隐藏）
+      { key: 'spell_attack_bonus', label: '法术攻击加值', dataType: 'number', hidden: true },
+      // 表格：法术豁免 DC 加值。仅数值。（已通过 scope 机制替代，隐藏）
+      { key: 'save_dc_bonus', label: 'DC', dataType: 'number', hidden: true },
+      // 表格：施法增伤。伤害类型 / 伤害骰下限 / 每骰 +X / 追加骰 / 公式固定加值（已通过 scope 机制替代，隐藏）
+      { key: 'spell_damage_bonus', label: '施法增伤', dataType: 'object', subSelect: 'spellDamageBonus', hidden: true },
       // 以下保留旧 key，供已有数据与计算器解析
       { key: 'speed_bonus', label: '移动速度', dataType: 'number', hidden: true },
       { key: 'flight_speed', label: '飞行速度', dataType: 'object', subSelect: 'flightSpeed', hidden: true },
@@ -465,8 +492,8 @@ export const BUFF_TYPES = {
     label: '熟练',
     color: 'teal',
     effects: [
-      { key: 'specific_tool_proficiency', label: '工具熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'tool' },
-      { key: 'instrument_proficiency', label: '乐器熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'instrument' },
+      { key: 'specific_tool_proficiency', label: '工具/乐器熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'toolAndInstrument' },
+      { key: 'instrument_proficiency', label: '乐器熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'instrument', hidden: true },
       { key: 'armor_proficiency', label: '护甲熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'armor' },
       { key: 'weapon_proficiency', label: '武器熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'weapon' },
       { key: 'language_proficiency', label: '语言熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'language' },
@@ -499,7 +526,7 @@ export const BUFF_TYPES = {
   /** 与防御/攻击等大类同级：自由描述类状态，不参与数值计算 */
   /** 选择型 BUFF：玩家从多个命名选项中选择一个，仅应用选中选项的效果 */
   choice: {
-    label: '选择',
+    label: '选项效果（多选一）',
     color: 'violet',
     choiceType: true,
     effects: [
@@ -663,18 +690,16 @@ export const SCOPE_KIND = {
 
 /** 范围 kind 下拉选项（用于 BuffForm） */
 export const SCOPE_KIND_OPTIONS = [
-  { value: SCOPE_KIND.global, label: '全局' },
-  { value: SCOPE_KIND.self_weapon, label: '本武器' },
-  { value: SCOPE_KIND.physical_attack, label: '物理攻击' },
-  { value: SCOPE_KIND.melee_attack, label: '近战攻击' },
-  { value: SCOPE_KIND.ranged_attack, label: '远射攻击' },
-  { value: SCOPE_KIND.natural_weapon, label: '天生武器' },
-  { value: SCOPE_KIND.creature_type, label: '某类生物' },
-  { value: SCOPE_KIND.damage_type, label: '某类伤害类型' },
-  { value: SCOPE_KIND.weapon_category, label: '某类武器' },
-  { value: SCOPE_KIND.druid_cantrip, label: '德鲁伊戏法' },
-  { value: SCOPE_KIND.weapon_or_beast, label: '武器/野兽攻击' },
-  { value: SCOPE_KIND.custom, label: '自定义' },
+  { value: SCOPE_KIND.global, label: '全局', tooltip: '对所有战斗手段生效' },
+  { value: SCOPE_KIND.self_weapon, label: '本武器', tooltip: '仅对该物品自身的攻击生效' },
+  { value: SCOPE_KIND.physical_attack, label: '物理攻击', tooltip: '对所有物理武器攻击生效' },
+  { value: SCOPE_KIND.melee_attack, label: '近战攻击', tooltip: '仅对近战武器攻击生效' },
+  { value: SCOPE_KIND.ranged_attack, label: '远射攻击', tooltip: '仅对远程武器攻击生效' },
+  { value: SCOPE_KIND.natural_weapon, label: '天生武器', tooltip: '仅对天生武器（爪、啮咬等）生效' },
+  { value: SCOPE_KIND.creature_type, label: '某类生物', tooltip: '仅对指定类型的目标生效' },
+  { value: SCOPE_KIND.damage_type, label: '某类伤害类型', tooltip: '仅对指定类型的伤害生效' },
+  { value: SCOPE_KIND.weapon_category, label: '某类武器', tooltip: '仅对指定类别的武器生效' },
+  { value: SCOPE_KIND.custom, label: '自定义', tooltip: '自定义条件，由 DM 描述生效范围' },
 ]
 
 /** 生物类型选项（D&D 5e 常见生物类型） */

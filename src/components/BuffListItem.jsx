@@ -1,6 +1,6 @@
 import { Trash2, Pencil } from 'lucide-react'
 import { getBuffSourceKindLabel, getBuffSourceKindTitle } from '../lib/buffSourceKind'
-import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue, formatDamageForAttack, formatScopeBrief, normalizeScope, formatSpellDamageBonusValue, ARMOR_PROFICIENCY_OPTIONS, WEAPON_PROFICIENCY_OPTIONS, VEHICLE_PROFICIENCY_OPTIONS, INSTRUMENT_PROFICIENCY_OPTIONS, TOOL_PROFICIENCY_OPTIONS, LANGUAGE_PROFICIENCY_OPTIONS, WEAPON_MASTERY_OPTIONS } from '../data/buffTypes'
+import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue, formatDamageForAttack, formatScopeBrief, normalizeScope, formatSpellDamageBonusValue, ARMOR_PROFICIENCY_OPTIONS, WEAPON_PROFICIENCY_OPTIONS, VEHICLE_PROFICIENCY_OPTIONS, INSTRUMENT_PROFICIENCY_OPTIONS, TOOL_PROFICIENCY_OPTIONS, LANGUAGE_PROFICIENCY_OPTIONS, WEAPON_MASTERY_OPTIONS, SPECIAL_SENSES_OPTIONS } from '../data/buffTypes'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { formatContainedSpellBrief } from '../lib/containedSpellBrief'
 import { normalizeChargeRecoveryValue } from '../lib/chargeRecovery'
@@ -324,6 +324,34 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       const labels = v.map((val) => profOptMap[buff.effectType].find((o) => o.value === val)?.label ?? val)
       return labels.join('、')
     }
+  }
+  // 新版统一抗性格式：damage_type_relation
+  if (buff.effectType === 'damage_type_relation' && v && typeof v === 'object' && !Array.isArray(v)) {
+    const types = Array.isArray(v.types) ? v.types : []
+    const relation = v.relation || 'resist'
+    const suffix = relation === 'resist' ? '抗性' : relation === 'immune' ? '免疫' : '易伤'
+    const labels = types.map(getDamageTypeLabel)
+    return labels.map((l) => `${l}${suffix}`).join('，')
+  }
+  // 新增效果类型显示
+  if (buff.effectType === 'special_senses' && v && typeof v === 'object') {
+    const senses = Array.isArray(v.senses) ? v.senses : []
+    const range = Number(v.range) || 0
+    const senseLabels = senses.map(s => SPECIAL_SENSES_OPTIONS.find(o => o.value === s)?.label ?? s)
+    const rangeStr = range > 0 ? `${range}尺` : ''
+    return senseLabels.join('、') + (rangeStr ? `（${rangeStr}）` : '')
+  }
+  if (buff.effectType === 'healing_bonus') {
+    return `治疗+${evaluateBuffValue(v, baseContext) || 0}`
+  }
+  if (buff.effectType === 'death_save_bonus') {
+    return `死亡豁免+${evaluateBuffValue(v, baseContext) || 0}`
+  }
+  if (buff.effectType === 'extra_attack') {
+    return `额外攻击+${evaluateBuffValue(v, baseContext) || 0}`
+  }
+  if (buff.effectType === 'extra_action_resource') {
+    return `额外动作资源+${evaluateBuffValue(v, baseContext) || 0}`
   }
   return v != null ? `${effectLabel}${String(v)}` : effectLabel
 }

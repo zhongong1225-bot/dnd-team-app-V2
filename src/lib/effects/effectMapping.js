@@ -21,6 +21,78 @@ const FEAT_BY_ID = new Map(FEATS.map((x) => [x.id, x]))
 const INVOCATION_BY_ID = new Map(ELDRITCH_INVOCATIONS.map((x) => [x.id, x]))
 const FIGHTING_STYLE_BY_ID = new Map(FIGHTING_STYLES.map((x) => [x.id, x]))
 
+/**
+ * 数据迁移：将旧版 resist_type/immune_type/vulnerable_type 合并为 damage_type_relation
+ * 同时将 instrument_proficiency 合并到 specific_tool_proficiency
+ * @param {Array} effects - BUFF 效果数组
+ * @returns {Array} 迁移后的效果数组
+ */
+function migrateDamageRelationAndInstrument(effects) {
+  if (!Array.isArray(effects) || !effects.length) return effects
+
+  const result = []
+  const instrumentValues = [] // 收集旧版 instrument_proficiency 的值
+
+  for (const e of effects) {
+    if (!e || typeof e !== 'object') {
+      result.push(e)
+      continue
+    }
+
+    const { effectType, value } = e
+
+    // 迁移 resist_type/immune_type/vulnerable_type → damage_type_relation
+    if (effectType === 'resist_type' || effectType === 'immune_type' || effectType === 'vulnerable_type') {
+      const relation = effectType === 'resist_type' ? 'resist'
+        : effectType === 'immune_type' ? 'immune'
+        : 'vulnerable'
+      const types = Array.isArray(value) ? value : (value && typeof value === 'string' ? [value] : [])
+      // 尝试合并到已有的 damage_type_relation（如果 relation 相同）
+      const existing = result.find(r => r.effectType === 'damage_type_relation' && r.value?.relation === relation)
+      if (existing) {
+        const existingTypes = Array.isArray(existing.value.types) ? existing.value.types : []
+        existing.value = { ...existing.value, types: [...new Set([...existingTypes, ...types])] }
+      } else {
+        result.push({ ...e, effectType: 'damage_type_relation', value: { types, relation } })
+      }
+      continue
+    }
+
+    // 收集 instrument_proficiency，稍后合并到 specific_tool_proficiency
+    if (effectType === 'instrument_proficiency') {
+      const vals = Array.isArray(value) ? value : (typeof value === 'string' ? [value] : [])
+      instrumentValues.push(...vals)
+      continue
+    }
+
+    // 如果是 specific_tool_proficiency，检查是否需要合并 instrumentValues
+    if (effectType === 'specific_tool_proficiency') {
+      // 先保留，最后统一处理
+      result.push(e)
+      continue
+    }
+
+    result.push(e)
+  }
+
+  // 将收集到的 instrument_proficiency 合并到 specific_tool_proficiency
+  if (instrumentValues.length > 0) {
+    const existingTool = result.find(r => r.effectType === 'specific_tool_proficiency')
+    if (existingTool) {
+      const existingVals = Array.isArray(existingTool.value) ? existingTool.value : []
+      existingTool.value = [...new Set([...existingVals, ...instrumentValues])]
+    } else {
+      result.push({
+        effectType: 'specific_tool_proficiency',
+        value: [...new Set(instrumentValues)],
+        category: 'defense',
+      })
+    }
+  }
+
+  return result
+}
+
 function normalizeSelectedFeatsForBuffs(character) {
   const raw = character?.selectedFeats ?? []
   if (!Array.isArray(raw)) return []
@@ -419,7 +491,7 @@ export function getMergedBuffsForCalculator(character, moduleId) {
 export function getEffectsFromBuff(buff) {
   if (!buff) return []
   if (Array.isArray(buff.effects) && buff.effects.length) {
-    const migrated = migrateProficiencyTextToArray(buff.effects)
+    const migrated = migrateDamageRelationAndInstrument(migrateProficiencyTextToArray(buff.effects))
     return migrated.map((e) => ({
       ...e,
       effectType: e.effectType ?? '',
@@ -428,13 +500,13 @@ export function getEffectsFromBuff(buff) {
     }))
   }
   if (buff.effectType != null || buff.category != null) {
-    const migrated = migrateProficiencyTextToArray([buff])[0]
-    return [{
-      ...migrated,
-      effectType: migrated.effectType ?? '',
-      value: migrated.value,
-      category: normalizeEffectCategory(migrated.effectType ?? '', migrated.category),
-    }]
+    const migrated = migrateDamageRelationAndInstrument(migrateProficiencyTextToArray([buff]))
+    return migrated.map((e) => ({
+      ...e,
+      effectType: e.effectType ?? '',
+      value: e.value,
+      category: normalizeEffectCategory(e.effectType ?? '', e.category),
+    }))
   }
   return []
 }
@@ -447,7 +519,7 @@ export function getEffectsFromBuff(buff) {
 export function getEffectsFromItem(entry) {
   if (!entry) return []
   if (Array.isArray(entry.effects) && entry.effects.length) {
-    const migrated = migrateProficiencyTextToArray(entry.effects)
+    const migrated = migrateDamageRelationAndInstrument(migrateProficiencyTextToArray(entry.effects))
     return migrated.map((e) => ({
       category: normalizeEffectCategory(e.effectType ?? '', e.category),
       effectType: e.effectType ?? '',
