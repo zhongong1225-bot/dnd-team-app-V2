@@ -456,7 +456,9 @@ export function getBuffsFromClassFeatures(character, moduleId) {
         effects = HARDCODED_CLASS_FEATURE_BUFFS[buffKey]
       }
       // 注入默认主动技能（即使无被动效果也保留条目）
-      const defaultAbilities = DEFAULT_CLASS_FEATURE_ABILITIES[buffKey] || []
+      // 优先级：DM 补丁配置 > 硬编码默认
+      const patchAbilities = Array.isArray(defaultPatch?.activeAbilities) ? defaultPatch.activeAbilities : null
+      const defaultAbilities = patchAbilities || DEFAULT_CLASS_FEATURE_ABILITIES[buffKey] || []
       if (effects.length === 0 && defaultAbilities.length === 0) return null
       return {
         id: `classfeature_${f.sourceClass}_${f.sourceSubclass || ''}_${f.id}${optionId ? `_${optionId}` : ''}`,

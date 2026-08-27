@@ -85,13 +85,6 @@ function findActiveAbilityForFeat(featId, char, moduleId) {
   return buff?.activeAbilities?.[0] || null
 }
 
-/** 从 BUFF 条目查找职业特性对应的第一个主动技能 */
-function findActiveAbilityForClassFeature(sourceClass, featureId, char, moduleId) {
-  const cfBuffs = getBuffsFromClassFeatures(char, moduleId)
-  const buff = cfBuffs.find(b => b.sourceClass === sourceClass && b.featureId === featureId)
-  return buff?.activeAbilities?.[0] || null
-}
-
 /** 从所有 BUFF 条目按 ID 查找主动技能 */
 function getAbilityFromBuffEntries(abilityId, char, moduleId) {
   const cfBuffs = getBuffsFromClassFeatures(char, moduleId)
@@ -1180,12 +1173,17 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
   const effects = Array.isArray(defaultPatch?.effects) ? defaultPatch.effects : []
   const chargeEffects = effects.filter((e) => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
 
-  /* ── 主动技能（BUFF 条目）── */
-  const ability = findActiveAbilityForClassFeature(feature.sourceClass, feature.id, char, moduleId)
-  const abilityCheck = ability ? canUseAbility(ability, char) : null
-  const abilityCostText = ability?.cost.type === 'class_resource'
-    ? `${ability.cost.amount}${({ wild_shape: '变', second_wind: '气', lay_on_hands: '疗' }[ability.cost.resourceKey] || '')}`
-    : ability?.cost.type === 'none' ? '免费' : ''
+  /* ── 主动技能（BUFF 条目，支持多个）── */
+  const abilities = findAllActiveAbilitiesForFeature(feature.sourceClass, feature.id, char, moduleId)
+  const abilityChecks = abilities.map((ab) => ({ ability: ab, check: canUseAbility(ab, char) }))
+  const getAbilityCostText = (ab) => {
+    if (ab?.cost?.type === 'class_resource') {
+      const shortLabels = { wild_shape: '变', second_wind: '气', lay_on_hands: '疗', focus_points: '专注' }
+      const label = shortLabels[ab.cost.resourceKey] || ''
+      return `${ab.cost.amount}${label}`
+    }
+    return ab?.cost?.type === 'none' ? '免费' : ''
+  }
 
   useEffect(() => {
     if (!lastResult) return
@@ -1328,18 +1326,19 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
     setConfirmingIdx(null)
   }
 
-  if (!ability && chargeEffects.length === 0) return null
+  if (abilityChecks.length === 0 && chargeEffects.length === 0) return null
 
   return (
     <div className="mt-2 space-y-1.5">
-      {/* 主动技能按钮 */}
-      {ability && abilityCheck && (
+      {/* 主动技能按钮（支持多个） */}
+      {abilityChecks.map(({ ability: ab, check }) => (
         <button
+          key={ab.id}
           type="button"
-          disabled={!abilityCheck.usable}
+          disabled={!check.usable}
           onClick={(e) => {
             e.stopPropagation()
-            const result = executeAbility(ability, char)
+            const result = executeAbility(ab, char)
             if (result.success) {
               const patches = { ...result.patch }
               if (result.classResources) patches.classResources = result.classResources
@@ -1347,17 +1346,17 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
             }
           }}
           className={`w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-all active:scale-[0.98] ${
-            abilityCheck.usable
+            check.usable
               ? 'bg-dnd-gold/10 text-dnd-gold-light border-dnd-gold/30 hover:bg-dnd-gold/20 hover:border-dnd-gold/50'
               : 'bg-gray-800/50 text-gray-500 border-gray-600/50 cursor-not-allowed'
           }`}
-          title={abilityCheck.usable ? `点击使用${ability.name}` : abilityCheck.reason}
+          title={check.usable ? `点击使用${ab.name}` : check.reason}
         >
           <Zap className="w-3.5 h-3.5" />
-          <span>{ability.name}</span>
-          {abilityCostText && <span className="text-[10px] opacity-70">{abilityCostText}</span>}
+          <span>{ab.name}</span>
+          {getAbilityCostText(ab) && <span className="text-[10px] opacity-70">{getAbilityCostText(ab)}</span>}
         </button>
-      )}
+      ))}
 
       {/* 充能/BUFF 效果按钮 */}
       {chargeEffects.length > 0 && (
@@ -1776,49 +1775,6 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                   </span>
                 </div>
               )}
-
-              {/* 主动技能使用按钮 */}
-              {f.id === 'focus_points' && f.sourceClass === '火铳手' ? (
-                (() => {
-                  const focusAbilities = findAllActiveAbilitiesForFeature('火铳手', 'focus_points', char, moduleId)
-                  if (focusAbilities.length === 0) return null
-                  return (
-                    <div className="mt-2 space-y-1">
-                      <div className="text-[10px] text-dnd-gold-light/70 uppercase tracking-wider font-bold mb-1">专注技能</div>
-                      {focusAbilities.map((ab) => {
-                        const check = canUseAbility(ab, char)
-                        const costLabel = ab.cost?.amount ? `${ab.cost.amount}专注` : ''
-                        return (
-                          <button
-                            key={ab.id}
-                            type="button"
-                            disabled={!check.usable}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              const result = executeAbility(ab, char)
-                              if (result.success) {
-                                const patches = { ...result.patch }
-                                if (result.classResources) patches.classResources = result.classResources
-                                if (Object.keys(patches).length > 0) onSave(patches)
-                              }
-                            }}
-                            className={`w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-all active:scale-[0.98] ${
-                              check.usable
-                                ? 'bg-dnd-gold/10 text-dnd-gold-light border-dnd-gold/30 hover:bg-dnd-gold/20 hover:border-dnd-gold/50'
-                                : 'bg-gray-800/50 text-gray-500 border-gray-600/50 cursor-not-allowed'
-                            }`}
-                            title={check.usable ? ab.description : check.reason}
-                          >
-                            <Zap className="w-3.5 h-3.5" />
-                            <span>{ab.name}</span>
-                            {costLabel && <span className="text-[10px] opacity-70">{costLabel}</span>}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  )
-                })()
-              ) : null}
 
               {/* 展开内容 */}
               {isExpanded && hasDescription && (
