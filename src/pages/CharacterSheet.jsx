@@ -65,7 +65,7 @@ import BuffForm from '../components/BuffForm'
 import { loadDefaultBuffPatch, saveDefaultBuffPatch, buildClassFeatureBuffKey } from '../lib/defaultBuffPatchStore'
 import { CLASS_FEATURE_CHOICE_REGISTRY, CHOICE_ID_ALIASES } from '../data/classFeatureChoiceRegistry'
 import { ACTIVE_ABILITY_REGISTRY, getAbilityById } from '../data/activeAbilityRegistry'
-import { executeAbility, canUseAbility } from '../lib/activeAbilityEngine'
+import { executeAbility, canUseAbility, findAllActiveAbilitiesForFeature } from '../lib/activeAbilityEngine'
 import { formatRecoveryBrief, buildAbilityDiceExpr, RESOURCE_TYPE_OPTIONS, normalizeChargeItemValue, computeScaledEffect, getMaxSpendableAmount, resolveAbilityMod } from '../lib/chargeItemModel'
 import { rollDice } from '../data/weaponDatabase'
 import InfoTooltip from '../components/InfoTooltip'
@@ -83,9 +83,11 @@ function findActiveAbilityForFeat(featId) {
   return ability?.id || null
 }
 
-/** 查找职业特性对应的主动技能 ID（按 sourceClass 匹配 ability.sourceKey） */
-function findActiveAbilityForClassFeature(sourceClass) {
-  const ability = ACTIVE_ABILITY_REGISTRY.find((a) => a.source === 'class' && a.sourceKey === sourceClass)
+/** 查找职业特性对应的主动技能（按 sourceClass + featureId 精确匹配） */
+function findActiveAbilityForClassFeature(sourceClass, featureId) {
+  const ability = ACTIVE_ABILITY_REGISTRY.find(
+    (a) => a.source === 'class' && a.sourceKey === sourceClass && a.featureId === featureId,
+  )
   return ability?.id || null
 }
 
@@ -1162,6 +1164,14 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
   const effects = Array.isArray(defaultPatch?.effects) ? defaultPatch.effects : []
   const chargeEffects = effects.filter((e) => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
 
+  /* ── 主动技能（activeAbilityRegistry）── */
+  const abilityId = findActiveAbilityForClassFeature(feature.sourceClass, feature.id)
+  const ability = abilityId ? getAbilityById(abilityId) : null
+  const abilityCheck = ability ? canUseAbility(ability, char) : null
+  const abilityCostText = ability?.cost.type === 'class_resource'
+    ? `${ability.cost.amount}${({ wild_shape: '变', second_wind: '气', lay_on_hands: '疗' }[ability.cost.resourceKey] || '')}`
+    : ability?.cost.type === 'none' ? '免费' : ''
+
   useEffect(() => {
     if (!lastResult) return
     const timer = setTimeout(() => setLastResult(null), 4000)
@@ -1303,34 +1313,66 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
     setConfirmingIdx(null)
   }
 
-  if (chargeEffects.length === 0) return null
+  if (!ability && chargeEffects.length === 0) return null
 
   return (
-    <div className="mt-2 pt-2 border-t border-gray-700/35 flex flex-wrap items-center gap-1.5">
-      {chargeEffects.map((chargeEff, idx) => {
-        const cv = chargeEff.value
-        const charges = cv.charges ?? 0
-        const recovery = cv.recovery
-        const recoveryLabel = recovery ? formatRecoveryBrief(recovery) : ''
-        const resourceType = cv.resourceType || 'charges'
-        const resLabel = getResourceLabel(resourceType)
+    <div className="mt-2 space-y-1.5">
+      {/* 主动技能按钮 */}
+      {ability && abilityCheck && (
+        <button
+          type="button"
+          disabled={!abilityCheck.usable}
+          onClick={(e) => {
+            e.stopPropagation()
+            const result = executeAbility(ability, char)
+            if (result.success) {
+              const patches = { ...result.patch }
+              if (result.classResources) patches.classResources = result.classResources
+              if (Object.keys(patches).length > 0) onSave(patches)
+            }
+          }}
+          className={`w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-all active:scale-[0.98] ${
+            abilityCheck.usable
+              ? 'bg-dnd-gold/10 text-dnd-gold-light border-dnd-gold/30 hover:bg-dnd-gold/20 hover:border-dnd-gold/50'
+              : 'bg-gray-800/50 text-gray-500 border-gray-600/50 cursor-not-allowed'
+          }`}
+          title={abilityCheck.usable ? `点击使用${ability.name}` : abilityCheck.reason}
+        >
+          <Zap className="w-3.5 h-3.5" />
+          <span>{ability.name}</span>
+          {abilityCostText && <span className="text-[10px] opacity-70">{abilityCostText}</span>}
+        </button>
+      )}
 
-        return (
-          <button
-            key={idx}
-            type="button"
-            onClick={() => openConfirm(idx, cv)}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors"
-            title={resourceType === 'charges' ? `${charges} 充能 | ${recoveryLabel}` : `消耗: ${resLabel}`}
-          >
-            <Zap className="w-3 h-3" />
-            使用 {feature.name}
-            {resourceType === 'charges' && charges > 0 && (
-              <span className="text-[10px] opacity-70">({charges})</span>
-            )}
-          </button>
-        )
-      })}
+      {/* 充能/BUFF 效果按钮 */}
+      {chargeEffects.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {chargeEffects.map((chargeEff, idx) => {
+            const cv = chargeEff.value
+            const charges = cv.charges ?? 0
+            const recovery = cv.recovery
+            const recoveryLabel = recovery ? formatRecoveryBrief(recovery) : ''
+            const resourceType = cv.resourceType || 'charges'
+            const resLabel = getResourceLabel(resourceType)
+
+            return (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => openConfirm(idx, cv)}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors"
+                title={resourceType === 'charges' ? `${charges} 充能 | ${recoveryLabel}` : `消耗: ${resLabel}`}
+              >
+                <Zap className="w-3 h-3" />
+                使用 {feature.name}
+                {resourceType === 'charges' && charges > 0 && (
+                  <span className="text-[10px] opacity-70">({charges})</span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      )}
       {lastResult && (
         <div className="w-full mt-1 text-[11px] text-gray-300 space-y-0.5">
           {lastResult.lines.map((line, i) => (
@@ -1655,7 +1697,6 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
             f.description,
           )
           const hasDescription = Boolean(descText)
-          const hasActiveAbility = !!findActiveAbilityForClassFeature(f.sourceClass)
           return (
             <li key={key} className="panel-card-compact">
               {/* 名字 + 操作图标行 */}
@@ -1722,42 +1763,47 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
               )}
 
               {/* 主动技能使用按钮 */}
-              {hasActiveAbility && (() => {
-                const abilityId = findActiveAbilityForClassFeature(f.sourceClass)
-                const ability = getAbilityById(abilityId)
-                if (!ability) return null
-                const check = canUseAbility(ability, char)
-                const costText = ability.cost.type === 'class_resource'
-                  ? `${ability.cost.amount}${({ wild_shape: '变', second_wind: '气', lay_on_hands: '疗' }[ability.cost.resourceKey] || '')}`
-                  : ability.cost.type === 'none' ? '免费' : ''
-                return (
-                  <div className="mt-2">
-                    <button
-                      type="button"
-                      disabled={!check.usable}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        const result = executeAbility(ability, char)
-                        if (result.success) {
-                          const patches = { ...result.patch }
-                          if (result.classResources) patches.classResources = result.classResources
-                          if (Object.keys(patches).length > 0) onSave(patches)
-                        }
-                      }}
-                      className={`w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-all active:scale-[0.98] ${
-                        check.usable
-                          ? 'bg-dnd-gold/10 text-dnd-gold-light border-dnd-gold/30 hover:bg-dnd-gold/20 hover:border-dnd-gold/50'
-                          : 'bg-gray-800/50 text-gray-500 border-gray-600/50 cursor-not-allowed'
-                      }`}
-                      title={check.usable ? `点击使用${ability.name}` : check.reason}
-                    >
-                      <Zap className="w-3.5 h-3.5" />
-                      <span>{ability.name}</span>
-                      {costText && <span className="text-[10px] opacity-70">{costText}</span>}
-                    </button>
-                  </div>
-                )
-              })()}
+              {f.id === 'focus_points' && f.sourceClass === '火铳手' ? (
+                (() => {
+                  const focusAbilities = findAllActiveAbilitiesForFeature('火铳手', 'focus_points', char)
+                  if (focusAbilities.length === 0) return null
+                  return (
+                    <div className="mt-2 space-y-1">
+                      <div className="text-[10px] text-dnd-gold-light/70 uppercase tracking-wider font-bold mb-1">专注技能</div>
+                      {focusAbilities.map((ab) => {
+                        const check = canUseAbility(ab, char)
+                        const costLabel = ab.cost?.amount ? `${ab.cost.amount}专注` : ''
+                        return (
+                          <button
+                            key={ab.id}
+                            type="button"
+                            disabled={!check.usable}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const result = executeAbility(ab, char)
+                              if (result.success) {
+                                const patches = { ...result.patch }
+                                if (result.classResources) patches.classResources = result.classResources
+                                if (Object.keys(patches).length > 0) onSave(patches)
+                              }
+                            }}
+                            className={`w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-all active:scale-[0.98] ${
+                              check.usable
+                                ? 'bg-dnd-gold/10 text-dnd-gold-light border-dnd-gold/30 hover:bg-dnd-gold/20 hover:border-dnd-gold/50'
+                                : 'bg-gray-800/50 text-gray-500 border-gray-600/50 cursor-not-allowed'
+                            }`}
+                            title={check.usable ? ab.description : check.reason}
+                          >
+                            <Zap className="w-3.5 h-3.5" />
+                            <span>{ab.name}</span>
+                            {costLabel && <span className="text-[10px] opacity-70">{costLabel}</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )
+                })()
+              ) : null}
 
               {/* 展开内容 */}
               {isExpanded && hasDescription && (
@@ -3323,6 +3369,8 @@ export default function CharacterSheet() {
               referenceData={referenceData}
               baseReferenceData={baseReferenceData}
               formulaContext={buffFormulaContext}
+              shields={char.shields ?? []}
+              onShieldsChange={canEdit ? (next) => persist({ shields: next }) : undefined}
             />
           </section>
           )}
