@@ -1,5 +1,5 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
-import { Plus, Pencil, Trash2, ArrowDownToLine, Library, Search, ChevronDown } from 'lucide-react'
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
+import { Plus, Pencil, Trash2, ArrowDownToLine, Library, Search, ChevronDown, Minus } from 'lucide-react'
 import { getBuffSummaryLine } from './BuffListItem'
 import BuffForm from './BuffForm'
 import BuffColumnBoard from './BuffColumnBoard'
@@ -14,6 +14,8 @@ import { dataTransferHasType } from '../lib/dndTransferTypes'
 import { computeSuppressedEffects } from '../hooks/useBuffCalculator'
 import { useModule } from '../contexts/ModuleContext'
 import { inputClass } from '../lib/inputStyles'
+import { createShield, adjustShieldCharges, toggleShieldActive, getShieldTypeLabel, isShieldEffective, SHIELD_TYPE_OPTIONS, SHIELD_ACTIVATION_OPTIONS, SHIELD_RECOVERY_OPTIONS } from '../lib/shieldEngine'
+import { BUFF_TYPES } from '../data/buffTypes'
 
 const STASH_DRAG_MIME = 'application/x-dnd-team-buff-stash'
 
@@ -35,6 +37,8 @@ export default function BuffManager({
   baseReferenceData,
   formulaContext = {},
   sourceNameOptions = [],
+  shields = [],
+  onShieldsChange,
 }) {
   const { moduleLibrary } = useModule()
   const [formState, setFormState] = useState(null)
@@ -51,6 +55,63 @@ export default function BuffManager({
   const stash = Array.isArray(stashBuffs) ? stashBuffs : []
   const stashEditable = typeof onStashChange === 'function' && typeof onApplyStashTemplate === 'function'
   const showStashSection = stashEditable || stash.length > 0
+
+  // ── 护盾状态 ──
+  const shieldList = Array.isArray(shields) ? shields : []
+  const shieldEditable = typeof onShieldsChange === 'function'
+  const [showShieldEditor, setShowShieldEditor] = useState(false)
+  const [shieldDraft, setShieldDraft] = useState({ name: '', shieldType: 'charged', activationMode: 'active', maxCharges: 1, maxDuration: 10, recovery: 'long', effects: [] })
+  const [shieldEffectDraft, setShieldEffectDraft] = useState({ effectType: 'ac_bonus', value: '' })
+
+  const saveShields = useCallback((next) => {
+    onShieldsChange?.(next)
+  }, [onShieldsChange])
+
+  const addShield = () => {
+    const s = createShield({
+      name: shieldDraft.name || '新护盾',
+      shieldType: shieldDraft.shieldType,
+      activationMode: shieldDraft.activationMode,
+      maxCharges: Number(shieldDraft.maxCharges) || 1,
+      maxDuration: Number(shieldDraft.maxDuration) || 10,
+      recovery: shieldDraft.recovery,
+      effects: shieldDraft.effects.filter((e) => e.effectType),
+    })
+    saveShields([...shieldList, s])
+    setShieldDraft({ name: '', shieldType: 'charged', activationMode: 'active', maxCharges: 1, maxDuration: 10, recovery: 'long', effects: [] })
+    setShieldEffectDraft({ effectType: 'ac_bonus', value: '' })
+    setShowShieldEditor(false)
+  }
+
+  const removeShield = (id) => {
+    saveShields(shieldList.filter((s) => s.id !== id))
+  }
+
+  const updateShield = (id, patch) => {
+    saveShields(shieldList.map((s) => s.id === id ? { ...s, ...patch } : s))
+  }
+
+  const handleShieldAdjust = (id, delta) => {
+    saveShields(adjustShieldCharges(shieldList, id, delta))
+  }
+
+  const handleShieldToggle = (id) => {
+    saveShields(toggleShieldActive(shieldList, id))
+  }
+
+  const addEffectToShieldDraft = () => {
+    let val = shieldEffectDraft.value
+    const et = shieldEffectDraft.effectType
+    if (['ac_bonus', 'damage_reduction', 'max_hp_bonus', 'temp_hp', 'base_speed_increment', 'attack_bonus', 'damage_bonus'].includes(et)) {
+      val = Number(val) || 0
+    }
+    setShieldDraft({ ...shieldDraft, effects: [...shieldDraft.effects, { effectType: et, value: val }] })
+    setShieldEffectDraft({ effectType: 'ac_bonus', value: '' })
+  }
+
+  const removeEffectFromShieldDraft = (idx) => {
+    setShieldDraft({ ...shieldDraft, effects: shieldDraft.effects.filter((_, i) => i !== idx) })
+  }
 
   const handleAddActive = () => {
     setFormState({ mode: 'active', id: null })
@@ -419,6 +480,210 @@ export default function BuffManager({
       <p className="text-gray-600 text-[10px] mt-1.5 leading-snug">
         ※ DC 与法术攻击加值不累加，只取最高值生效；被覆盖的词条显示为灰色删除线。
       </p>
+
+      {/* ── 护盾模块 ── */}
+      {(shieldList.length > 0 || shieldEditable) && (
+        <div className="w-full mt-2 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-2 flex flex-col gap-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-dnd-gold-light font-bold uppercase tracking-wider text-sm">护盾</span>
+            {shieldEditable && !showShieldEditor && (
+              <button type="button" onClick={() => setShowShieldEditor(true)} className="flex items-center gap-0.5 text-xs text-dnd-gold-light hover:text-white px-1.5 py-0.5 rounded border border-dnd-gold/30 hover:border-dnd-gold/60 bg-dnd-gold/5 hover:bg-dnd-gold/10 transition-colors" title="新建护盾">
+                <Plus size={12} /> 新建
+              </button>
+            )}
+          </div>
+
+          {/* 护盾列表 */}
+          {shieldList.length > 0 && (
+            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-0 gap-y-0.5 min-w-0 w-full">
+              {shieldList.map((s) => {
+                const effective = isShieldEffective(s)
+                return (
+                  <React.Fragment key={s.id}>
+                    {/* 名称 + 状态 */}
+                    <div className="min-w-0 flex items-center gap-0.5 px-1 py-0.5 rounded-l border border-gray-600 border-r-0 bg-gray-800/80">
+                      <span className={`text-sm font-medium truncate ${effective ? 'text-cyan-300' : 'text-dnd-text-muted'}`} title={s.description || ''}>
+                        {s.name}
+                      </span>
+                      <span className="text-[9px] text-gray-400 shrink-0">{getShieldTypeLabel(s.shieldType)}</span>
+                      {s.activationMode === 'active' && (
+                        <button
+                          type="button"
+                          onClick={() => handleShieldToggle(s.id)}
+                          className={`text-[10px] px-1 py-px rounded shrink-0 border transition-colors ${effective ? 'border-cyan-500/50 bg-cyan-900/30 text-cyan-300' : 'border-gray-600 bg-gray-700/50 text-gray-400'}`}
+                          title={effective ? '点击停用' : '点击激活'}
+                        >
+                          {effective ? '开' : '关'}
+                        </button>
+                      )}
+                      {s.activationMode === 'passive' && (
+                        <span className="text-[9px] text-emerald-400 bg-emerald-900/30 px-0.5 rounded shrink-0">被动</span>
+                      )}
+                    </div>
+                    {/* 充能/持续显示 */}
+                    <div className="flex items-center justify-end px-1 py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
+                      {s.shieldType === 'charged' && (
+                        s.recovery === 'unrecoverable' && s.charges === 0
+                          ? <span className="text-amber-400 text-xs font-medium">待修复</span>
+                          : <span className="text-white font-mono text-sm tabular-nums">{s.charges}/{s.maxCharges}</span>
+                      )}
+                      {s.shieldType === 'single_use' && (
+                        <span className={`text-sm font-mono ${s.charges > 0 ? 'text-white' : 'text-gray-500'}`}>{s.charges > 0 ? '就绪' : '已用'}</span>
+                      )}
+                      {s.shieldType === 'duration' && (
+                        <span className="text-white font-mono text-sm tabular-nums">{s.duration}回合</span>
+                      )}
+                    </div>
+                    {/* -/+ 按钮（充能型） */}
+                    {shieldEditable && s.shieldType === 'charged' ? (
+                      <>
+                        <div className="flex items-center justify-center py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
+                          <button type="button" onClick={() => handleShieldAdjust(s.id, -1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-white" title="消耗">
+                            <Minus size={10} />
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-center py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
+                          <button type="button" onClick={() => handleShieldAdjust(s.id, 1)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-white" title="恢复">
+                            <Plus size={10} />
+                          </button>
+                        </div>
+                      </>
+                    ) : s.shieldType === 'single_use' && shieldEditable ? (
+                      <>
+                        <div className="flex items-center justify-center py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
+                          <button type="button" onClick={() => updateShield(s.id, { charges: 0, active: false })} className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-white text-[10px]" title="使用">
+                            用
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-center py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
+                          <button type="button" onClick={() => updateShield(s.id, { charges: 1 })} className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-white text-[10px]" title="重置">
+                            恢
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex items-center justify-center py-0.5 border border-gray-600 border-r-0 bg-gray-800/80">
+                        <span className="text-[9px] text-gray-500">—</span>
+                      </div>
+                    )}
+                    {/* 删除 */}
+                    <div className="flex items-center justify-center py-0.5 rounded-r border border-gray-600 bg-gray-800/80">
+                      {shieldEditable && (
+                        <button type="button" onClick={() => removeShield(s.id)} className="w-5 h-5 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red" title="移除">
+                          <Trash2 size={10} />
+                        </button>
+                      )}
+                    </div>
+                  </React.Fragment>
+                )
+              })}
+            </div>
+          )}
+
+          {shieldList.length === 0 && !showShieldEditor && (
+            <span className="text-gray-500 text-xs">无护盾</span>
+          )}
+
+          {/* 新建护盾编辑器 */}
+          {showShieldEditor && shieldEditable && (
+            <div className="rounded border border-dnd-gold/30 bg-gray-900/60 p-2 space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <input
+                  value={shieldDraft.name}
+                  onChange={(e) => setShieldDraft({ ...shieldDraft, name: e.target.value })}
+                  placeholder="护盾名称"
+                  className={inputClass + ' h-7 text-sm flex-1 min-w-[100px]'}
+                />
+                <select value={shieldDraft.shieldType} onChange={(e) => setShieldDraft({ ...shieldDraft, shieldType: e.target.value })} className={inputClass + ' h-7 text-sm'}>
+                  {SHIELD_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                <select value={shieldDraft.activationMode} onChange={(e) => setShieldDraft({ ...shieldDraft, activationMode: e.target.value })} className={inputClass + ' h-7 text-sm'}>
+                  {SHIELD_ACTIVATION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              {/* 参数行 */}
+              <div className="flex items-center gap-2 flex-wrap text-xs">
+                {shieldDraft.shieldType === 'charged' && (
+                  <label className="flex items-center gap-1">
+                    <span className="text-gray-400">最大充能</span>
+                    <input type="number" min={1} max={99} value={shieldDraft.maxCharges} onChange={(e) => setShieldDraft({ ...shieldDraft, maxCharges: Number(e.target.value) || 1 })} className={inputClass + ' w-14 h-6 text-sm'} />
+                  </label>
+                )}
+                {shieldDraft.shieldType === 'duration' && (
+                  <label className="flex items-center gap-1">
+                    <span className="text-gray-400">持续回合</span>
+                    <input type="number" min={1} max={999} value={shieldDraft.maxDuration} onChange={(e) => setShieldDraft({ ...shieldDraft, maxDuration: Number(e.target.value) || 10 })} className={inputClass + ' w-14 h-6 text-sm'} />
+                  </label>
+                )}
+                <label className="flex items-center gap-1">
+                  <span className="text-gray-400">恢复</span>
+                  <select value={shieldDraft.recovery} onChange={(e) => setShieldDraft({ ...shieldDraft, recovery: e.target.value })} className={inputClass + ' h-6 text-xs'}>
+                    {SHIELD_RECOVERY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </label>
+              </div>
+              {/* 效果列表 */}
+              <div className="space-y-1">
+                <span className="text-xs text-gray-400">效果</span>
+                {shieldDraft.effects.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {shieldDraft.effects.map((eff, idx) => {
+                      const catKey = Object.keys(BUFF_TYPES).find((k) => BUFF_TYPES[k].effects?.some((e) => e.key === eff.effectType))
+                      const effDef = catKey ? BUFF_TYPES[catKey].effects.find((e) => e.key === eff.effectType) : null
+                      return (
+                        <span key={idx} className="inline-flex items-center gap-0.5 text-[11px] bg-gray-700/80 text-gray-200 rounded px-1.5 py-0.5">
+                          {effDef?.label || eff.effectType}
+                          {typeof eff.value === 'number' ? ` ${eff.value >= 0 ? '+' : ''}${eff.value}` : ''}
+                          <button type="button" onClick={() => removeEffectFromShieldDraft(idx)} className="text-gray-400 hover:text-red-400 ml-0.5">×</button>
+                        </span>
+                      )
+                    })}
+                  </div>
+                )}
+                {/* 添加效果 */}
+                <div className="flex items-center gap-1 flex-wrap">
+                  <select value={shieldEffectDraft.effectType} onChange={(e) => setShieldEffectDraft({ ...shieldEffectDraft, effectType: e.target.value })} className={inputClass + ' h-6 text-xs max-w-[140px]'}>
+                    {Object.entries(BUFF_TYPES).map(([catKey, cat]) => (
+                      <optgroup key={catKey} label={cat.label}>
+                        {cat.effects?.filter((e) => !e.hidden && ['number', 'boolean'].includes(e.dataType)).map((e) => (
+                          <option key={e.key} value={e.key}>{e.label}</option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                  {!['boolean'].includes(
+                    (() => {
+                      const catKey = Object.keys(BUFF_TYPES).find((k) => BUFF_TYPES[k].effects?.some((e) => e.key === shieldEffectDraft.effectType))
+                      const def = catKey ? BUFF_TYPES[catKey].effects.find((e) => e.key === shieldEffectDraft.effectType) : null
+                      return def?.dataType || 'number'
+                    })()
+                  ) ? (
+                    <input
+                      type="number"
+                      value={shieldEffectDraft.value}
+                      onChange={(e) => setShieldEffectDraft({ ...shieldEffectDraft, value: e.target.value })}
+                      placeholder="数值"
+                      className={inputClass + ' w-16 h-6 text-xs'}
+                    />
+                  ) : null}
+                  <button type="button" onClick={addEffectToShieldDraft} className="text-[11px] text-dnd-gold-light hover:text-white px-1.5 py-0.5 rounded border border-dnd-gold/30 hover:border-dnd-gold/60 bg-dnd-gold/5">
+                    添加
+                  </button>
+                </div>
+              </div>
+              {/* 确认/取消 */}
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={addShield} className="text-xs px-2 py-1 rounded bg-cyan-700/80 hover:bg-cyan-600 text-white border border-cyan-500/40">
+                  创建
+                </button>
+                <button type="button" onClick={() => { setShowShieldEditor(false); setShieldDraft({ name: '', shieldType: 'charged', activationMode: 'active', maxCharges: 1, maxDuration: 10, recovery: 'long', effects: [] }); setShieldEffectDraft({ effectType: 'ac_bonus', value: '' }) }} className="text-xs px-2 py-1 rounded bg-gray-700/80 hover:bg-gray-600 text-gray-300">
+                  取消
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {formState && (
         <>
