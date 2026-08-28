@@ -4,19 +4,27 @@
  * 将充能数、回能方式、消耗效果整合到一个 effect 模块中。
  *
  * value: {
- *   charges: number,               // 充能数
- *   recovery: {
- *     method: 'short_rest' | 'long_rest' | 'dawn' | 'none' | 'absorb_energy',
+ *   resourceType: 'charges' | 'lucky_points' | ...  // 消耗资源类型
+ *   charges: number,               // 充能数（仅当 resourceType === 'charges' 时有效）
+ *   actionCost: 'action' | 'bonus' | 'reaction' | 'none' | 'movement',
+ *   movementFeet: number,          // 移动距离消耗（仅当 actionCost === 'movement' 时有效）
+ *   recovery: {                    // 回能配置
+ *     method: 'short_rest' | 'long_rest' | 'dawn' | 'none' | 'absorb_energy' | 'reaction_absorb',
  *     kind: 'full' | 'fixed' | 'dice',
  *     fixed: number,
  *     diceCount: number,
  *     diceSides: number,
+ *     diceBonus: number,
  *   },
- *   effects: [
+ *   effects: [                     // 子效果数组，支持多种类型同时生效
  *     { id: string, type: 'spell',      value: containedSpellSub },
- *     { id: string, type: 'ability',    value: { text: string, uses: number } },
+ *     { id: string, type: 'ability',    value: { text: string, uses: number, ... } },
  *     { id: string, type: 'shield',     value: { amount: number } },
  *     { id: string, type: 'temp_buff',  value: { buffName: string, modules: [] } },
+ *     { id: string, type: 'creature_transform', value: { creatureId: string, ... } },
+ *     { id: string, type: 'restore_spell_slots', value: { ringLevel: number, ... } },
+ *     { id: string, type: 'summon',     value: { preset: string, creatureId: string, ... } },
+ *     { id: string, type: 'custom_logic', value: { title: string, description: string, triggerCondition: string } },
  *   ]
  * }
  */
@@ -62,6 +70,7 @@ export const RESOURCE_TYPE_OPTIONS = [
   { value: 'paladin_channel_divinity', label: '圣武士引导神力' },
   { value: 'sneak_attack_dice', label: '诡诈打击骰' },
   { value: 'lucky_strike', label: '幸运一击' },
+  { value: 'lucky_points', label: '幸运点' },
   { value: 'sorcery_points', label: '术法点' },
   { value: 'arcane_recovery', label: '奥术回想' },
   { value: 'invocations', label: '魔能祈唤' },
@@ -130,6 +139,9 @@ export function createChargeEffectEntry(type, overrides = {}) {
   if (type === 'summon') {
     return { id, type, value: { preset: '', creatureId: '', sourceType: 'library', costType: '', costAmount: 0, costDice: '', note: '', scalingEnabled: false, scalingPerUnit: { creatureCount: 0 } }, ...overrides }
   }
+  if (type === 'custom_logic') {
+    return { id, type, value: { title: '', description: '', triggerCondition: 'on_use' }, ...overrides }
+  }
   return { id, type, value: {}, ...overrides }
 }
 
@@ -166,7 +178,7 @@ export function normalizeChargeItemValue(value) {
   const rawEffects = Array.isArray(value.effects) ? value.effects : []
   const effects = rawEffects.map((e) => {
     if (!e || typeof e !== 'object') return createChargeEffectEntry('spell')
-    const type = ['spell', 'ability', 'shield', 'temp_buff', 'creature_transform', 'restore_spell_slots', 'summon'].includes(e.type) ? e.type : 'spell'
+    const type = ['spell', 'ability', 'shield', 'temp_buff', 'creature_transform', 'restore_spell_slots', 'summon', 'custom_logic'].includes(e.type) ? e.type : 'spell'
     const id = e.id || genId()
     if (type === 'spell') {
       const rawSpellVal = e.value && typeof e.value === 'object' ? e.value : {}
@@ -252,6 +264,14 @@ export function normalizeChargeItemValue(value) {
         costAmount: Math.max(0, Number(sv.costAmount) || 0),
         costDice: typeof sv.costDice === 'string' ? sv.costDice : '',
         note: typeof sv.note === 'string' ? sv.note : '',
+      } }
+    }
+    if (type === 'custom_logic') {
+      const clv = e.value && typeof e.value === 'object' ? e.value : {}
+      return { id, type, value: {
+        title: typeof clv.title === 'string' ? clv.title : '',
+        description: typeof clv.description === 'string' ? clv.description : '',
+        triggerCondition: ['on_use', 'on_turn_start', 'on_damage_taken', 'on_save_failed'].includes(clv.triggerCondition) ? clv.triggerCondition : 'on_use',
       } }
     }
     return { id, type, value: {} }
@@ -360,6 +380,14 @@ export const ALL_MOD_OPTIONS = [
 export const RESULT_TYPE_OPTIONS = [
   { value: 'heal', label: '回血' },
   { value: 'damage', label: '伤害' },
+]
+
+/** 自定义逻辑触发条件选项 */
+export const CUSTOM_LOGIC_TRIGGER_OPTIONS = [
+  { value: 'on_use', label: '使用时触发' },
+  { value: 'on_turn_start', label: '回合开始时' },
+  { value: 'on_damage_taken', label: '受到伤害时' },
+  { value: 'on_save_failed', label: '豁免失败时' },
 ]
 
 /**

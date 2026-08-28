@@ -19,6 +19,17 @@ export const DURATION_OPTIONS = [
   { value: 'custom', label: '自定义', desc: '自由描述持续时间' },
 ]
 
+/** 预设时长快捷选项（用于 temp_buff 等需要快速选择的场景） */
+export const PRESET_DURATION_OPTIONS = [
+  { value: '1_round', label: '1 回合' },
+  { value: '3_rounds', label: '3 回合' },
+  { value: '1_minute', label: '1 分钟' },
+  { value: '10_minutes', label: '10 分钟' },
+  { value: '1_hour', label: '1 小时' },
+  { value: '8_hours', label: '8 小时' },
+  { value: '24_hours', label: '24 小时' },
+]
+
 /** 需要数值输入的持续时间类型 */
 const TIMED_TYPES = new Set(['rounds', 'minutes', 'hours', 'days'])
 
