@@ -44,7 +44,7 @@ export default function ActionPanel({ char, onExecute, moduleId }) {
       if (groups[key]) sorted[key] = groups[key]
     }
     return sorted
-  }, [char])
+  }, [char, moduleId])
 
   if (!grouped || Object.keys(grouped).length === 0) return null
 

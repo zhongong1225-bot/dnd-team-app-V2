@@ -142,7 +142,7 @@ export const HARDCODED_FEAT_BUFFS = {
   slasher: cond('重击时目标速度 -10 尺且攻击检定 -1（持续至你下回合结束）'),
 
   speedy: [
-    { effectType: 'base_speed_increment', category: 'mobility_casting', scope: 'global', scopeDetail: [], value: { walk: 10 } },
+    { effectType: 'base_speed_increment', category: 'ability', scope: 'global', scopeDetail: [], value: { walk: 10 } },
   ],
 
   spell_sniper: cond('法术射程翻倍；无视半/四分之三掩护；学习一道需攻击检定的戏法'),
@@ -244,7 +244,7 @@ export const HARDCODED_FEAT_BUFFS = {
   epic_boon_recovery: cond('自选属性 +1（上限 30）；强力恢复能力'),
   epic_boon_skill: cond('所有技能熟练；自选 1 项获专精'),
   epic_boon_speed: [
-    { effectType: 'base_speed_increment', category: 'mobility_casting', scope: 'global', scopeDetail: [], value: { walk: 30 } },
+    { effectType: 'base_speed_increment', category: 'ability', scope: 'global', scopeDetail: [], value: { walk: 30 } },
   ],
   epic_boon_spell_recall: cond('智力/感知/魅力 +1（上限 30）；法术溯回能力'),
   epic_boon_night_spirit: cond('自选属性 +1（上限 30）；暗夜精魂之力'),

@@ -57,7 +57,6 @@ import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
 import { rollDice, rollCombatDicePool, parseCombatDiceExpression } from '../data/weaponDatabase'
 import { buildQuickRollAnimation } from '../lib/quickRollAnimation'
 import ActiveAbilityQuickBar from './combat/ActiveAbilityQuickBar'
-import ActionPanel from './combat/ActionPanel'
 import { executeAbility, canUseAbility } from '../lib/activeAbilityEngine'
 import { isNewContainedSpellValue, normalizeContainedSpellValue, extractContainedSpellValueFromEntry } from '../lib/containedSpellModel'
 import { getFlatEffectEntries } from '../lib/effects/effectMapping'
@@ -2541,9 +2540,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           + 添加施法能力
         </button>
       ) : null}
-
-      {/* 主动技能面板 */}
-      <ActionPanel char={char} onExecute={handleExecuteAbility} moduleId={moduleId} />
 
       <div className="flex flex-col gap-2 mt-2">
         <div className="min-w-0 w-full flex flex-col gap-2">

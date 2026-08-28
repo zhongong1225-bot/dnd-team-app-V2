@@ -10,7 +10,7 @@
  */
 
 import { getBuffsFromClassFeatures, getBuffsFromSelectedFeats } from './effects/effectMapping.js'
-import { getCharacterClasses } from '../data/classDatabase.js'
+import { getCharacterClasses, getMaxSpellSlotsByRing } from '../data/classDatabase.js'
 
 /* ─────────────────────────────────────────────────────────
  * 查询
@@ -206,6 +206,40 @@ export function executeAbility(ability, char, options = {}) {
     }
   }
 
+  // ── 特殊效果处理：法术位恢复 v2 ──
+  for (const result of effectResults) {
+    if (result.type === 'restore_spell_slots_v2') {
+      const maxSlots = getMaxSpellSlotsByRing(char)
+      const currentSlots = { ...(char.spellSlots || {}) }
+      const newSlots = { ...currentSlots }
+
+      if (result.mode === 'single') {
+        // 单资源恢复：从 ringLevel 向下找第一个有空位的环位，恢复 1 个
+        for (let ring = result.ringLevel; ring >= 1; ring--) {
+          const max = maxSlots[ring] || 0
+          const current = currentSlots[ring] || 0
+          if (max > 0 && current < max) {
+            newSlots[ring] = current + 1
+            break
+          }
+        }
+      } else if (result.mode === 'multi') {
+        // 多资源恢复：恢复 1 到 maxRing 所有环位到最大值
+        for (let ring = 1; ring <= result.maxRing; ring++) {
+          const max = maxSlots[ring] || 0
+          if (max > 0) {
+            newSlots[ring] = max
+          }
+        }
+      }
+
+      // 只有实际改变了才写入 patch
+      if (JSON.stringify(newSlots) !== JSON.stringify(currentSlots)) {
+        patch.spellSlots = newSlots
+      }
+    }
+  }
+
   return {
     success: true,
     abilityId: ability.id,
@@ -305,6 +339,15 @@ function computeEffect(effect, ctx, options) {
       return { type: 'restore_star_points', description: effect.description }
     case 'restore_spell_slots':
       return { type: 'restore_spell_slots', description: effect.description, ringLevel: options.ringLevel || 3 }
+    case 'restore_spell_slots_v2':
+      return {
+        type: 'restore_spell_slots_v2',
+        description: effect.description,
+        mode: effect.mode || 'single',
+        ringLevel: effect.ringLevel || 1,
+        maxRing: effect.maxRing || 3,
+        cost: effect.cost || 1,
+      }
     case 'summon':
       return { type: 'summon', description: effect.description, duration: effect.duration || '1分钟' }
     default:

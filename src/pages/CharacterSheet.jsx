@@ -1316,6 +1316,23 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
       } else if (eff.type === 'shield') {
         const scaledAmount = scaled.amount ?? (ev.amount || 1)
         resultLines.push(`🛡️ 护盾: ${scaledAmount}`)
+      } else if (eff.type === 'temp_buff') {
+        const buffName = (ev.buffName || '临时BUFF').trim()
+        const modules = Array.isArray(ev.modules) ? ev.modules : []
+        if (modules.length > 0) {
+          const newBuff = {
+            id: String(Date.now()) + '_' + Math.random().toString(36).slice(2, 7),
+            source: buffName,
+            effects: modules.map((m) => ({ ...m })),
+            enabled: true,
+            sourceKind: 'temporary',
+          }
+          const currentBuffs = Array.isArray(char.buffs) ? char.buffs : []
+          patch.buffs = [...currentBuffs, newBuff]
+          resultLines.push(`✨ 安装临时BUFF: ${buffName}（${modules.length}个效果）`)
+        } else {
+          resultLines.push(`⚠️ ${buffName}：无效果模块`)
+        }
       }
     }
 
@@ -3357,8 +3374,6 @@ export default function CharacterSheet() {
               referenceData={referenceData}
               baseReferenceData={baseReferenceData}
               formulaContext={buffFormulaContext}
-              shields={char.shields ?? []}
-              onShieldsChange={canEdit ? (next) => persist({ shields: next }) : undefined}
             />
           </section>
           )}
@@ -3372,7 +3387,7 @@ export default function CharacterSheet() {
               level={level}
               canEdit={canEdit}
               onSave={persist}
-              moduleId={moduleId}
+              moduleId={sheetModuleId}
             />
           </section>
           )}

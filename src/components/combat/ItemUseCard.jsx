@@ -173,7 +173,7 @@ function FocusItemCard({ itemMeanOpt, currentCharge, chargeMax, spellRange, hitT
                 const idx = Number(e.target.value)
                 const sub = spells[idx]
                 if (sub) {
-                  setFocusSpellMap((prev) => ({ ...prev, [itemMeanOpt.index]: sub }))
+                  setFocusSpellMap((prev) => ({ ...prev, [itemMeanOpt.index]: { ...sub, _idx: idx } }))
                 }
               }}
               className={inputClass + ' !text-xs h-6 py-0 px-1 min-w-0 flex-1 max-w-[140px] bg-gray-800'}
@@ -189,7 +189,7 @@ function FocusItemCard({ itemMeanOpt, currentCharge, chargeMax, spellRange, hitT
         )}
         {hasSpells && spells.length === 1 && (
           <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>
-            {spells[0].spellName?.trim() || '内含法术'} · {spells[0].level || 0}环
+            {selectedSub?.spellName?.trim() || spells[0].spellName?.trim() || '内含法术'} · {selectedSub?.level ?? spells[0].level ?? 0}环
           </span>
         )}
         <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
@@ -310,14 +310,36 @@ export default function ItemUseCard({ displayMean, itemMeanOpt, ctx }) {
   const chargeMaxRaw = itemMeanOpt.chargeMax || currentEntry?.chargeMax || cs?.totalCharges || 0
   const chargeMax = chargeMaxRaw > 0 ? chargeMaxRaw : (currentCharge > 0 ? currentCharge : 0)
   const hasSpells = cs.spells.length > 0
-  const selectedSub = hasSpells
-    ? (cs.spells.find((s) => {
-        const sel = focusSpellMap[cm.itemInventoryIndex]
-        if (!sel) return false
-        return (sel.spellId && sel.spellId === s.spellId && sel.spellName === s.spellName) ||
-          (!sel.spellId && sel.spellName === s.spellName)
-      }) || cs.spells.find((s) => (s.cost || 1) <= currentCharge) || cs.spells[0])
-    : null
+
+  /* ── 选中法术匹配：focusSpellMap → 名字 → 下标 → 默认最高花费 ── */
+  const _sel = focusSpellMap[cm.itemInventoryIndex]
+  let selectedSub = null
+  if (hasSpells) {
+    if (_sel) {
+      // 1) spellId + spellName 精确匹配
+      selectedSub = cs.spells.find((s) =>
+        _sel.spellId ? (_sel.spellId === s.spellId && _sel.spellName === s.spellName) : false
+      )
+      // 2) 仅 spellName 匹配（spellId 为空或精确匹配失败时回退）
+      if (!selectedSub && _sel.spellName) {
+        selectedSub = cs.spells.find((s) => (s.spellName?.trim() || '') === (_sel.spellName?.trim() || ''))
+      }
+      // 3) 按 stored index 匹配（spellName 也匹配不上时）
+      if (!selectedSub && typeof _sel._idx === 'number') {
+        const byIdx = cs.spells[_sel._idx]
+        if (byIdx) selectedSub = byIdx
+      }
+    }
+    // 4) 无显式选择：默认选花费最高的法术（最可能是主力法术）
+    if (!selectedSub) {
+      const affordable = cs.spells.filter((s) => (s.cost || 1) <= Math.max(currentCharge, 1))
+      if (affordable.length > 0) {
+        selectedSub = affordable.reduce((best, s) => ((s.cost || 1) > (best.cost || 1) ? s : best), affordable[0])
+      } else {
+        selectedSub = cs.spells[0]
+      }
+    }
+  }
   const level = Math.max(0, Math.min(9, Number(selectedSub?.level) ?? 0))
   const itemProto = currentEntry?.itemId ? getItemById(currentEntry.itemId) : null
   const useWandScrollTable = !!(itemProto && (/魔杖|卷轴/.test(itemProto.类别 || '') || itemProto.子类型 === '卷轴'))

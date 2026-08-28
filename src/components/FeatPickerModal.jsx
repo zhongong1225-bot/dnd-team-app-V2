@@ -234,7 +234,8 @@ export default function FeatPickerModal({
 
   const selectedFeat = selectedFeatId ? featById.get(selectedFeatId) : null
   const schema = selectedFeatId ? getFeatBuffSchema(selectedFeatId) : null
-  const canConfirm = selectedFeatId && validateChoiceState(schema, choiceState)
+  const isAlreadySelected = selectedFeat?.alreadySelected ?? false
+  const canConfirm = selectedFeatId && !isAlreadySelected && validateChoiceState(schema, choiceState)
 
   const handleConfirm = () => {
     if (!selectedFeatId) return
@@ -323,13 +324,12 @@ export default function FeatPickerModal({
                     <button
                       key={feat.id}
                       type="button"
-                      onClick={() => !isAlreadySelected && setSelectedFeatId(feat.id)}
-                      disabled={isAlreadySelected}
+                      onClick={() => setSelectedFeatId(feat.id)}
                       className={`w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center justify-between gap-2 ${
                         active
                           ? 'bg-dnd-gold/15 border border-dnd-gold/40'
                           : isAlreadySelected
-                            ? 'bg-gray-800/20 border border-transparent opacity-60 cursor-not-allowed'
+                            ? 'bg-gray-800/20 border border-transparent hover:bg-gray-800/50'
                             : 'bg-gray-800/30 border border-transparent hover:bg-gray-800/60'
                       }`}
                     >

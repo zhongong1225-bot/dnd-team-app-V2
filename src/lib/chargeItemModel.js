@@ -13,14 +13,23 @@
  *     diceSides: number,
  *   },
  *   effects: [
- *     { id: string, type: 'spell',   value: containedSpellSub },
- *     { id: string, type: 'ability', value: { text: string, uses: number } },
- *     { id: string, type: 'shield',  value: { amount: number } },
+ *     { id: string, type: 'spell',      value: containedSpellSub },
+ *     { id: string, type: 'ability',    value: { text: string, uses: number } },
+ *     { id: string, type: 'shield',     value: { amount: number } },
+ *     { id: string, type: 'temp_buff',  value: { buffName: string, modules: [] } },
  *   ]
  * }
  */
 
 import { createEmptyContainedSpellSub } from './containedSpellModel'
+
+export const ACTION_COST_OPTIONS = [
+  { value: 'action', label: '动作' },
+  { value: 'bonus', label: '附赠' },
+  { value: 'reaction', label: '反应' },
+  { value: 'none', label: '无' },
+  { value: 'movement', label: '移速' },
+]
 
 export const RECOVERY_METHODS = [
   { value: 'short_rest', label: '短休恢复' },
@@ -76,6 +85,8 @@ export function createEmptyChargeItemValue(overrides = {}) {
   return {
     resourceType: 'charges',
     charges: 1,
+    actionCost: 'action',
+    movementFeet: 0,
     recovery: { method: 'long_rest', kind: 'full', fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0 },
     effects: [],
     ...overrides,
@@ -98,6 +109,9 @@ export function createChargeEffectEntry(type, overrides = {}) {
   if (type === 'shield') {
     return { id, type, value: { amount: 1, scalingEnabled: false, scalingPerUnit: { amount: 0 } }, ...overrides }
   }
+  if (type === 'temp_buff') {
+    return { id, type, value: { buffName: '', modules: [] }, ...overrides }
+  }
   return { id, type, value: {}, ...overrides }
 }
 
@@ -112,6 +126,10 @@ export function normalizeChargeItemValue(value) {
   const charges = typeof value.charges === 'number'
     ? Math.max(0, value.charges)
     : (parseInt(value.charges, 10) || 0)
+  // actionCost
+  const validActionCosts = ACTION_COST_OPTIONS.map((o) => o.value)
+  const actionCost = validActionCosts.includes(value.actionCost) ? value.actionCost : 'action'
+  const movementFeet = Math.max(0, Number(value.movementFeet) || 0)
   // recovery
   const rec = value.recovery && typeof value.recovery === 'object' ? value.recovery : {}
   const validMethods = RECOVERY_METHODS.map((m) => m.value)
@@ -130,7 +148,7 @@ export function normalizeChargeItemValue(value) {
   const rawEffects = Array.isArray(value.effects) ? value.effects : []
   const effects = rawEffects.map((e) => {
     if (!e || typeof e !== 'object') return createChargeEffectEntry('spell')
-    const type = ['spell', 'ability', 'shield'].includes(e.type) ? e.type : 'spell'
+    const type = ['spell', 'ability', 'shield', 'temp_buff'].includes(e.type) ? e.type : 'spell'
     const id = e.id || genId()
     if (type === 'spell') {
       const rawSpellVal = e.value && typeof e.value === 'object' ? e.value : {}
@@ -169,9 +187,16 @@ export function normalizeChargeItemValue(value) {
         },
       } }
     }
+    if (type === 'temp_buff') {
+      const tv = e.value && typeof e.value === 'object' ? e.value : {}
+      return { id, type, value: {
+        buffName: typeof tv.buffName === 'string' ? tv.buffName : '',
+        modules: Array.isArray(tv.modules) ? tv.modules.map((m) => ({ ...m })) : [],
+      } }
+    }
     return { id, type, value: {} }
   })
-  return { resourceType, charges, recovery, effects }
+  return { resourceType, charges, actionCost, movementFeet, recovery, effects }
 }
 
 /** 回能方式是否支持自定义回能数量 */
@@ -215,21 +240,26 @@ export function formatChargeItemBrief(value) {
     parts.push(`消耗：${resLabel}`)
   }
   if (norm.effects.length > 0) {
-    const effectLabels = norm.effects.map((e) => {
-      if (e.type === 'spell') {
-        const name = (e.value?.spellName || '').trim() || (e.value?.spellId ? '(法术)' : '(法术)')
-        const cost = e.value?.cost ?? 1
-        return `${name} ${cost}充能`
-      }
-      if (e.type === 'ability') {
+    const effectLabels = []
+    const spellCount = norm.effects.filter((e) => e.type === 'spell').length
+    const abilityCount = norm.effects.filter((e) => e.type === 'ability').length
+    const shieldCount = norm.effects.filter((e) => e.type === 'shield').length
+    if (spellCount > 0) effectLabels.push(`内含${spellCount}个法术`)
+    if (abilityCount > 0) {
+      norm.effects.filter((e) => e.type === 'ability').forEach((e) => {
         const text = (e.value?.text || '').trim() || '(奇能)'
-        return `${text} ×${e.value?.uses ?? 1}`
-      }
-      if (e.type === 'shield') {
-        return `护盾 ×${e.value?.amount ?? 1}`
-      }
-      return ''
-    }).filter(Boolean)
+        effectLabels.push(`${text} ×${e.value?.uses ?? 1}`)
+      })
+    }
+    const tempBuffCount = norm.effects.filter((e) => e.type === 'temp_buff').length
+    if (tempBuffCount > 0) {
+      norm.effects.filter((e) => e.type === 'temp_buff').forEach((e) => {
+        const name = (e.value?.buffName || '').trim() || '(临时BUFF)'
+        const modCount = e.value?.modules?.length ?? 0
+        effectLabels.push(`${name}（${modCount}个效果）`)
+      })
+    }
+    if (shieldCount > 0) effectLabels.push(`护盾 ×${norm.effects.find((e) => e.type === 'shield').value?.amount ?? 1}`)
     if (effectLabels.length) parts.push(effectLabels.join('；'))
   }
   return parts.join(' | ')

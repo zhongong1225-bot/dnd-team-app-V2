@@ -343,26 +343,28 @@ export function formatDamagePiercingTraitsValue(value) {
  * 第一级：大类 (category)
  * 第二级：具体效果 (key, label, dataType, subSelect, hidden)
  */
-const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'active_release', 'container', 'proficiency', 'transformation', 'choice', 'custom']
+const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'active_release', 'container', 'proficiency', 'choice', 'custom']
 
 export const BUFF_TYPES = {
   ability: {
-    // 合并「属性基础修正」+「技能与检定专精」
-    label: '属性/技能',
+    // 合并「属性基础修正」+「移动与机动」
+    label: '属性/移动',
     color: 'gold',
     effects: [
       { key: 'ability_score', label: '属性熟练调整', dataType: 'object', subSelect: 'abilityProficiency' },
       { key: 'ability_override', label: '属性值上限', dataType: 'object', subSelect: 'abilityScores' },
       { key: 'ability_score_uncapped', label: '属性增加', dataType: 'object', subSelect: 'abilityScores' },
       { key: 'extra_attunement_slots', label: '额外同调位', dataType: 'number' },
-      // 技能增强：数值加值+优势配置，这里沿用原有技能加值结构
-      { key: 'skill_bonus', label: '技能增强', dataType: 'object', subSelect: 'skillsAndAdvantage' },
-      { key: 'adv_skill', label: '技能检定优势', dataType: 'boolean', hidden: true },
       // 豁免检定增强：数值加值+优势配置
       { key: 'save_bonus', label: '豁免检定增强', dataType: 'object', subSelect: 'abilityScoresAndAdvantage' },
       { key: 'adv_save', label: '豁免检定优势', dataType: 'boolean', hidden: true },
       // 先攻：固定加值 + 可选「先攻获得熟练加值」（按角色等级 PB）
       { key: 'initiative_buff', label: '先攻', dataType: 'object', subSelect: 'initBonusAndProficiency' },
+      // 移动相关（从 mobility_casting 迁入）
+      { key: 'base_speed_increment', label: '速度增加', dataType: 'object', subSelect: 'baseSpeedIncrement' },
+      { key: 'terrain_ignore', label: '地形无视', dataType: 'boolean' },
+      { key: 'speed_bonus', label: '移动速度', dataType: 'number', hidden: true },
+      { key: 'flight_speed', label: '飞行速度', dataType: 'object', subSelect: 'flightSpeed', hidden: true },
     ],
   },
   offense: {
@@ -441,32 +443,19 @@ export const BUFF_TYPES = {
       { key: 'death_ward', label: '防死', dataType: 'boolean' },
     ],
   },
-  // 合并「移动与机动天赋」+「专注与施法优化」
+  // 施法优化
   mobility_casting: {
-    label: '移动/施法',
+    label: '施法',
     color: 'purple',
     effects: [
-      // 表格：速度增加。典型来源：木精灵、野蛮人快速移动、武僧无甲移动。
-      // 互动调整方式：分别输入步行/飞行/游泳/攀爬速度增量（尺）。
-      { key: 'base_speed_increment', label: '速度增加', dataType: 'object', subSelect: 'baseSpeedIncrement' },
-      // 表格：地形无视。典型来源：陆地行者、飘忽步。
-      // 互动调整方式：开关启用，忽略困难地形。规则逻辑：全局被动。
-      { key: 'terrain_ignore', label: '地形无视', dataType: 'boolean' },
-      // 表格：专注增强。典型来源：战法师、某些物品。
-      // 互动调整方式：数字输入 + 下拉（普通/优势/劣势）。规则逻辑：受伤害进行专注检定时应用加值与优势。
       { key: 'concentration_save_enhance', label: '专注增强', dataType: 'object', subSelect: 'numberAndAdvantage' },
-      // 表格：施法距离延伸。典型来源：法术延展专长。
-      // 互动调整方式：倍率/数值 — 选择 x2 或输入固定增量。规则逻辑：仅影响法术射程。
       { key: 'spell_range_extension', label: '施法距离延伸', dataType: 'text' },
-      // 表格：法术攻击加值。仅数值。（已通过 scope 机制替代，隐藏）
-      { key: 'spell_attack_bonus', label: '法术攻击加值', dataType: 'number', hidden: true },
-      // 表格：法术豁免 DC 加值。仅数值。（已通过 scope 机制替代，隐藏）
-      { key: 'save_dc_bonus', label: 'DC', dataType: 'number', hidden: true },
-      // 表格：施法增伤。伤害类型 / 伤害骰下限 / 每骰 +X / 追加骰 / 公式固定加值（已通过 scope 机制替代，隐藏）
-      { key: 'spell_damage_bonus', label: '施法增伤', dataType: 'object', subSelect: 'spellDamageBonus', hidden: true },
+      { key: 'spell_attack_bonus', label: '法术攻击加值', dataType: 'number' },
+      { key: 'save_dc_bonus', label: 'DC', dataType: 'number' },
+      { key: 'spell_damage_bonus', label: '施法增伤', dataType: 'object', subSelect: 'spellDamageBonus' },
+      { key: 'damage_dice_bonus', label: '每伤害骰+1', dataType: 'number' },
+      { key: 'min_dice_value', label: '最低骰子数', dataType: 'number' },
       // 以下保留旧 key，供已有数据与计算器解析
-      { key: 'speed_bonus', label: '移动速度', dataType: 'number', hidden: true },
-      { key: 'flight_speed', label: '飞行速度', dataType: 'object', subSelect: 'flightSpeed', hidden: true },
       { key: 'init_bonus', label: '先攻', dataType: 'number', hidden: true },
       { key: 'concentration', label: '专注', dataType: 'object', subSelect: 'numberAndAdvantage', hidden: true },
       { key: 'charge', label: '充能数', dataType: 'number', hidden: true },
@@ -479,6 +468,10 @@ export const BUFF_TYPES = {
     effects: [
       // 统一充能物品编辑器：充能数 + 回能方式 + 消耗效果（内含法术/奇能/护盾）
       { key: 'charge_item', label: '释放效果', dataType: 'object', subSelect: 'chargeItem' },
+      // 变身：引用生物库中的生物，主动激活
+      { key: 'creature_transform', label: '变身', dataType: 'object', subSelect: 'creatureTransform' },
+      // 法术位恢复：单环恢复 / 多环恢复
+      { key: 'restore_spell_slots_v2', label: '法术位恢复', dataType: 'object', subSelect: 'restoreSpellSlots' },
       // ── 以下旧 key 保留供已有数据兼容，不在新增下拉中显示 ──
       { key: 'contained_spell', label: '内含法术', dataType: 'object', subSelect: 'containedSpell', hidden: true },
       { key: 'ac_cap_stone_layer', label: '瓦石层', dataType: 'number', hidden: true },
@@ -493,11 +486,13 @@ export const BUFF_TYPES = {
     color: 'emerald',
     effects: [{ key: 'item_storage', label: '容量', dataType: 'number' }],
   },
-  /** 熟练：记录角色获得的各种熟练（不参与数值计算，仅元数据记录） */
+  /** 技能与熟练：技能增强 + 各种熟练 */
   proficiency: {
-    label: '熟练',
+    label: '技能/熟练',
     color: 'teal',
     effects: [
+      { key: 'skill_bonus', label: '技能增强', dataType: 'object', subSelect: 'skillsAndAdvantage' },
+      { key: 'adv_skill', label: '技能检定优势', dataType: 'boolean', hidden: true },
       { key: 'specific_tool_proficiency', label: '工具/乐器熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'toolAndInstrument' },
       { key: 'instrument_proficiency', label: '乐器熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'instrument', hidden: true },
       { key: 'armor_proficiency', label: '护甲熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'armor' },
@@ -505,28 +500,6 @@ export const BUFF_TYPES = {
       { key: 'language_proficiency', label: '语言熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'language' },
       { key: 'vehicle_proficiency', label: '各类载具熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'vehicle' },
       { key: 'weapon_mastery', label: '精通武器', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'weaponMastery' },
-    ],
-  },
-  /** 变身效果：将角色大部分数据替换为生物库中的生物（临时BUFF） */
-  transformation: {
-    label: '变身',
-    color: 'pink',
-    effects: [
-      /**
-       * 变身：引用生物库中的生物ID
-       * value: {
-       *   creatureId: string,
-       *   acMode: 'replace' | 'add' | 'max_formula',
-       *   acFormulaBase: number (max_formula 时基础值，如 13),
-       *   acFormulaAbility: '' | 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha' (max_formula 时加的调整值),
-       *   hpMode: 'replace' | 'add' | 'keep_plus_temp',
-       *   hpFormula: { ref, className?, ability?, mult, add } | null (keep_plus_temp 时临时HP公式),
-       *   keepAbilities: ('int' | 'wis' | 'cha')[] (保留原角色的属性),
-       *   resourceCostType: '' | 'wild_shape_uses' | 'spell_slot' | 'charges',
-       *   resourceCostValue: number,
-       * }
-       */
-      { key: 'creature_transform', label: '变身', dataType: 'object', subSelect: 'creatureTransform' },
     ],
   },
   /** 与防御/攻击等大类同级：自由描述类状态，不参与数值计算 */
@@ -659,6 +632,7 @@ const OLD_CATEGORY_TO_NEW = {
   condition: 'defense',
   mobility: 'mobility_casting',
   casting: 'mobility_casting',
+  transformation: 'active_release',
 }
 
 /**
