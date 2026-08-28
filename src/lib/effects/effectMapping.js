@@ -17,6 +17,7 @@ import { HARDCODED_CLASS_FEATURE_BUFFS } from '../../data/classFeatureDefaultBuf
 import { DEFAULT_CLASS_FEATURE_ABILITIES, DEFAULT_FEAT_ABILITIES } from '../../data/defaultActiveAbilities'
 import { getChoiceEffects, CLASS_FEATURE_CHOICE_REGISTRY, CHOICE_ID_ALIASES } from '../../data/classFeatureChoiceRegistry'
 import { findShieldSlot } from '../equipmentLayers'
+import { getMergedBuffsViaCards } from '../cardAdapter'
 
 const FEAT_BY_ID = new Map(FEATS.map((x) => [x.id, x]))
 const INVOCATION_BY_ID = new Map(ELDRITCH_INVOCATIONS.map((x) => [x.id, x]))
@@ -482,15 +483,8 @@ export function getBuffsFromClassFeatures(character, moduleId) {
  * 凡调用 useBuffCalculator 且需与栏内数值一致处，应使用此列表。
  */
 export function getMergedBuffsForCalculator(character, moduleId) {
-  if (!character) return []
-  const manual = (character.buffs ?? []).filter((b) => !b.fromClassFeature)
-  const fromFeats = getBuffsFromSelectedFeats(character, moduleId)
-  const fromInvocations = getBuffsFromSelectedInvocations(character, moduleId)
-  const fromFightingStyles = getBuffsFromSelectedFightingStyles(character, moduleId)
-  const fromItems = getBuffsFromEquipmentAndInventory(character)
-  const fromClassFeatures = getBuffsFromClassFeatures(character, moduleId)
-  // 计算顺序：装备附魔 → 专长/祈唤/战斗风格/职业特性（职业/专长） → 手动 Buff（冒险/临时）
-  return [...fromItems, ...fromFeats, ...fromInvocations, ...fromFightingStyles, ...fromClassFeatures, ...manual]
+  // Phase 1: 通过卡适配器统一数据源，确保 BUFF 栏与面板数据一致
+  return getMergedBuffsViaCards(character, moduleId)
 }
 
 /**

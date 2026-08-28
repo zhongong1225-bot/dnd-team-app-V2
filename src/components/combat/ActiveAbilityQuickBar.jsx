@@ -62,6 +62,11 @@ export default function ActiveAbilityQuickBar({ char, quickBar, onUpdateQuickBar
     setSelectingSlot(null)
   }, [selectingSlot, quickBar, onUpdateQuickBar])
 
+  const handleUninstall = useCallback((abilityId) => {
+    const next = (quickBar || []).filter(id => id !== abilityId)
+    onUpdateQuickBar(next)
+  }, [quickBar, onUpdateQuickBar])
+
   const closeModal = useCallback(() => setSelectingSlot(null), [])
 
   // 已安装的技能数量
@@ -178,11 +183,11 @@ export default function ActiveAbilityQuickBar({ char, quickBar, onUpdateQuickBar
                       key={ability.id}
                       type="button"
                       disabled={alreadyInstalled}
-                      onClick={() => handleSelectAbility(ability.id)}
+                      onClick={() => !alreadyInstalled && handleSelectAbility(ability.id)}
                       className={`
                         flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-all border
                         ${alreadyInstalled
-                          ? 'border-gray-700/30 bg-gray-800/30 text-gray-600 cursor-not-allowed'
+                          ? 'border-gray-700/30 bg-gray-800/30 text-gray-500 cursor-default'
                           : 'border-dnd-gold/20 bg-dnd-gold/5 text-white hover:bg-dnd-gold/15 hover:border-dnd-gold/40 active:scale-[0.99]'
                         }
                       `}
@@ -197,8 +202,17 @@ export default function ActiveAbilityQuickBar({ char, quickBar, onUpdateQuickBar
                           <div className="text-[10px] text-gray-500 truncate mt-0.5">{ability.description}</div>
                         )}
                       </div>
-                      {alreadyInstalled && (
-                        <span className="text-[10px] text-gray-600 shrink-0">已安装</span>
+                      {alreadyInstalled ? (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); handleUninstall(ability.id) }}
+                          className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md bg-red-500/20 text-red-400 hover:bg-red-500/40 hover:text-red-300 transition-all active:scale-90"
+                          title="取消安装"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-dnd-gold/50 shrink-0">点击安装</span>
                       )}
                     </button>
                   )

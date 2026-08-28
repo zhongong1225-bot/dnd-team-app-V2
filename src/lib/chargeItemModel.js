@@ -46,7 +46,7 @@ export const RECOVERY_AMOUNT_OPTIONS = [
   { value: 'dice', label: '掷骰' },
 ]
 
-/** 消耗资源类型选项：充能数 + 职业资源 */
+/** 消耗资源类型选项：充能数 + 职业资源 + 法术位 */
 export const RESOURCE_TYPE_OPTIONS = [
   { value: 'charges', label: '充能数' },
   { value: 'rage', label: '狂暴次数' },
@@ -74,6 +74,15 @@ export const RESOURCE_TYPE_OPTIONS = [
   { value: 'martial_rage', label: '天诛之剑怒气' },
   { value: 'shadow_summon', label: '召影' },
   { value: 'star_points', label: '星辰点' },
+  { value: 'spell_slot_1', label: '一环法术位' },
+  { value: 'spell_slot_2', label: '二环法术位' },
+  { value: 'spell_slot_3', label: '三环法术位' },
+  { value: 'spell_slot_4', label: '四环法术位' },
+  { value: 'spell_slot_5', label: '五环法术位' },
+  { value: 'spell_slot_6', label: '六环法术位' },
+  { value: 'spell_slot_7', label: '七环法术位' },
+  { value: 'spell_slot_8', label: '八环法术位' },
+  { value: 'spell_slot_9', label: '九环法术位' },
 ]
 
 /** 不需要回能数量设置的方式 */
@@ -116,7 +125,10 @@ export function createChargeEffectEntry(type, overrides = {}) {
     return { id, type, value: { creatureId: '', acMode: 'replace', acFormulaBase: 13, acFormulaAbility: '', hpMode: 'replace', hpFormula: null, keepAbilities: [], resourceCostType: '', resourceCostValue: 1, wildShapeMode: false, wildShapeSubclass: 'regular' }, ...overrides }
   }
   if (type === 'restore_spell_slots') {
-    return { id, type, value: { mode: 'single', ringLevel: 1, costPerSlot: 1, slots: [{ ringLevel: 1, cost: 1 }] }, ...overrides }
+    return { id, type, value: { mode: 'single', ringLevel: 1, costPerSlot: 1, slots: [{ ringLevel: 1, cost: 1 }], scalingEnabled: false, scalingPerUnit: { slotsCount: 0 } }, ...overrides }
+  }
+  if (type === 'summon') {
+    return { id, type, value: { preset: '', creatureId: '', sourceType: 'library', costType: '', costAmount: 0, costDice: '', note: '', scalingEnabled: false, scalingPerUnit: { creatureCount: 0 } }, ...overrides }
   }
   return { id, type, value: {}, ...overrides }
 }
@@ -154,7 +166,7 @@ export function normalizeChargeItemValue(value) {
   const rawEffects = Array.isArray(value.effects) ? value.effects : []
   const effects = rawEffects.map((e) => {
     if (!e || typeof e !== 'object') return createChargeEffectEntry('spell')
-    const type = ['spell', 'ability', 'shield', 'temp_buff', 'creature_transform', 'restore_spell_slots'].includes(e.type) ? e.type : 'spell'
+    const type = ['spell', 'ability', 'shield', 'temp_buff', 'creature_transform', 'restore_spell_slots', 'summon'].includes(e.type) ? e.type : 'spell'
     const id = e.id || genId()
     if (type === 'spell') {
       const rawSpellVal = e.value && typeof e.value === 'object' ? e.value : {}
@@ -222,10 +234,24 @@ export function normalizeChargeItemValue(value) {
         mode: rv.mode === 'multi' ? 'multi' : 'single',
         ringLevel: Math.max(1, Math.min(9, Number(rv.ringLevel) || 1)),
         costPerSlot: Math.max(1, Number(rv.costPerSlot) || 1),
+        maxRing: Math.max(1, Math.min(9, Number(rv.maxRing) || 3)),
+        cost: Math.max(1, Number(rv.cost) || 1),
         slots: Array.isArray(rv.slots) ? rv.slots.map((s) => ({
           ringLevel: Math.max(1, Math.min(9, Number(s?.ringLevel) || 1)),
           cost: Math.max(1, Number(s?.cost) || 1),
         })) : [{ ringLevel: 1, cost: 1 }],
+      } }
+    }
+    if (type === 'summon') {
+      const sv = e.value && typeof e.value === 'object' ? e.value : {}
+      return { id, type, value: {
+        preset: sv.preset === 'stellar_double' ? 'stellar_double' : '',
+        creatureId: String(sv.creatureId || ''),
+        sourceType: sv.sourceType === 'attached_card' ? 'attached_card' : 'library',
+        costType: ['', 'gold', 'hp'].includes(sv.costType) ? sv.costType : '',
+        costAmount: Math.max(0, Number(sv.costAmount) || 0),
+        costDice: typeof sv.costDice === 'string' ? sv.costDice : '',
+        note: typeof sv.note === 'string' ? sv.note : '',
       } }
     }
     return { id, type, value: {} }
@@ -406,6 +432,22 @@ export function computeScaledEffect(effectValue, amount) {
       amount: baseAmount + perUnitAmount * extra,
     }
   }
+  // restore_spell_slots
+  if (effectValue && 'ringLevel' in effectValue && 'costPerSlot' in effectValue) {
+    const baseSlots = 1
+    const perUnitSlots = Math.max(0, Number(scaling.slotsCount) || 0)
+    return {
+      slotsCount: baseSlots + perUnitSlots * extra,
+    }
+  }
+  // summon
+  if (effectValue && 'creatureId' in effectValue && 'sourceType' in effectValue) {
+    const baseCount = 1
+    const perUnitCount = Math.max(0, Number(scaling.creatureCount) || 0)
+    return {
+      creatureCount: baseCount + perUnitCount * extra,
+    }
+  }
   return {}
 }
 
@@ -419,6 +461,11 @@ export function getMaxSpendableAmount(norm, char) {
   if (!norm || !char) return 1
   if (norm.resourceType === 'charges') {
     return Math.max(1, Math.floor(Number(norm.charges) || 1))
+  }
+  // 法术位资源
+  if (/^spell_slot_[1-9]$/.test(norm.resourceType)) {
+    const ring = parseInt(norm.resourceType.replace('spell_slot_', ''), 10)
+    return Math.max(1, Math.floor(Number(char.spellSlots?.[ring]) || 0))
   }
   const res = (char.classResources || []).find((r) => r.resourceKey === norm.resourceType)
   return res ? Math.max(1, Math.floor(Number(res.current) || 0)) : 1

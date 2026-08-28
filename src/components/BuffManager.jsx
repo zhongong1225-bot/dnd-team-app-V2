@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
-import { Plus, Pencil, Trash2, ArrowDownToLine, Library, Search, ChevronDown, Minus } from 'lucide-react'
+import React, { useState, useCallback, useMemo, useRef, useEffect, useLayoutEffect } from 'react'
+import { Plus, Pencil, Trash2, ArrowDownToLine, Library, Search, ChevronDown, Minus, Maximize2, Minimize2 } from 'lucide-react'
 import { getBuffSummaryLine } from './BuffListItem'
 import BuffForm from './BuffForm'
 import BuffColumnBoard from './BuffColumnBoard'
@@ -11,6 +11,7 @@ import {
   BUFF_SOURCE_KIND_OPTIONS,
 } from '../lib/buffSourceKind'
 import { dataTransferHasType } from '../lib/dndTransferTypes'
+import { formatDurationBrief } from '../lib/durationModel'
 import { computeSuppressedEffects } from '../hooks/useBuffCalculator'
 import { useModule } from '../contexts/ModuleContext'
 import { inputClass } from '../lib/inputStyles'
@@ -36,9 +37,13 @@ export default function BuffManager({
   baseReferenceData,
   formulaContext = {},
   sourceNameOptions = [],
+  subordinates = [],
 }) {
   const { moduleLibrary } = useModule()
   const [formState, setFormState] = useState(null)
+  /** 编辑器内 主动/被动 模式切换 */
+  const [editorMode, setEditorMode] = useState('passive')
+  const [editorFullscreen, setEditorFullscreen] = useState(false)
   const [showModuleLibrary, setShowModuleLibrary] = useState(false)
   const [importSearch, setImportSearch] = useState('')
   /** null | { template, isDuplicate } */
@@ -48,6 +53,27 @@ export default function BuffManager({
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
   const [expandedIds, setExpandedIds] = useState(new Set())
 
+  // ── 下拉面板基于 BUFF 面板定位 ──
+  const panelRef = useRef(null)
+  const [editorPos, setEditorPos] = useState({ top: 0, left: 0, width: 0, maxHeight: 400 })
+
+  useLayoutEffect(() => {
+    if (!formState || !panelRef.current) return
+    const rect = panelRef.current.getBoundingClientRect()
+    const vh = window.innerHeight
+    const spaceAbove = rect.top - 16
+    const spaceBelow = vh - rect.bottom - 16
+    // 优先在面板右侧，空间不够则左侧
+    const panelW = Math.min(448, rect.width * 1.2) // 28rem ≈ 448px
+    const preferRight = rect.right + panelW + 24 < window.innerWidth
+    setEditorPos({
+      top: Math.max(16, rect.top),
+      left: preferRight ? rect.right + 12 : rect.left - panelW - 12,
+      width: panelW,
+      maxHeight: Math.max(300, Math.max(spaceAbove, spaceBelow)),
+    })
+  }, [formState])
+
   const list = Array.isArray(buffs) ? buffs : []
   const stash = Array.isArray(stashBuffs) ? stashBuffs : []
   const stashEditable = typeof onStashChange === 'function' && typeof onApplyStashTemplate === 'function'
@@ -55,6 +81,7 @@ export default function BuffManager({
 
 
   const handleAddActive = () => {
+    setEditorMode('active')
     setFormState({ mode: 'active', id: null })
   }
 
@@ -79,7 +106,11 @@ export default function BuffManager({
   const handleEdit = (id) => {
     const b = list.find((x) => x.id === id)
     if (b?.fromItem) return
-    if (b) setFormState({ mode: 'active', id })
+    if (b) {
+      const hasChargeItem = b.effects?.some((e) => e.effectType === 'charge_item')
+      setEditorMode(hasChargeItem ? 'active' : 'passive')
+      setFormState({ mode: 'active', id })
+    }
   }
 
   const handleDelete = (id) => {
@@ -261,8 +292,8 @@ export default function BuffManager({
       const isTemporary = normalizeBuffSourceKindKey(t.sourceKind ?? 'temporary') === 'temporary'
       const source = String(t.source ?? '').trim() || '未命名 Buff'
       const duration =
-        t.duration != null && String(t.duration).trim() !== ''
-          ? String(t.duration).trim()
+        t.duration != null && (typeof t.duration === 'string' ? t.duration.trim() !== '' : t.duration.type)
+          ? t.duration
           : undefined
       const effects = Array.isArray(t.effects) ? t.effects.map((e) => ({ ...e })) : []
       if (isTemporary) {
@@ -309,23 +340,27 @@ export default function BuffManager({
   )
 
   return (
+    <>
     <div
+      ref={panelRef}
       className={`rounded-xl border border-white/[0.11] bg-gradient-to-b from-[#2c384c] via-[#242f42] to-[#1b2433] p-2 ${BUFF_PANEL_OUTER_SHADOW}`}
     >
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wide shrink-0">BUFF</h3>
         {canEdit && (
-          <button
-            type="button"
-            onClick={() => {
-              setImportSearch('')
-              setShowModuleLibrary(true)
-            }}
-            className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-dnd-gold text-dnd-gold-light hover:bg-dnd-gold/20 text-xs font-medium transition-colors shrink-0"
-          >
-            <Library className="w-3.5 h-3.5" />
-            从库中导入
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                setImportSearch('')
+                setShowModuleLibrary(true)
+              }}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-dnd-gold text-dnd-gold-light hover:bg-dnd-gold/20 text-xs font-medium transition-colors shrink-0"
+            >
+              <Library className="w-3.5 h-3.5" />
+              从库中导入
+            </button>
+          </div>
         )}
       </div>
 
@@ -421,37 +456,87 @@ export default function BuffManager({
       <p className="text-gray-600 text-[10px] mt-1.5 leading-snug">
         ※ DC 与法术攻击加值不累加，只取最高值生效；被覆盖的词条显示为灰色删除线。
       </p>
+    </div>
 
-
-      {formState && (
-        <>
-          <div
-            className="fixed inset-0 z-[200] bg-black/50"
-            onClick={() => setFormState(null)}
-            aria-hidden
-          />
-          <div
-            className="fixed inset-0 z-[201] flex items-center justify-center p-4 sm:p-8 overflow-auto"
-            onClick={() => setFormState(null)}
-          >
-            <div
-              className="w-full max-w-3xl max-h-[90vh] overflow-auto"
-              onClick={(e) => e.stopPropagation()}
+    {/* ── 悬浮 BUFF 编辑器按钮 + 下拉面板 ── */}
+    {canEdit && formState && (
+      <>
+        {/* 点击外部关闭 */}
+        <div className="fixed inset-0 z-[295]" onClick={() => setFormState(null)} aria-hidden />
+            {/* 下拉面板（基于 BUFF 面板定位） */}
+            <div className={`fixed z-[300] border border-dnd-gold/30 bg-gradient-to-b from-[#2c384c] via-[#242f42] to-[#1b2433] shadow-[0_12px_40px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col transition-all ${
+              editorFullscreen
+                ? 'inset-0'
+                : 'rounded-xl'
+            }`}
+            style={!editorFullscreen ? {
+              top: editorPos.top,
+              left: editorPos.left,
+              width: editorPos.width || 'auto',
+              maxHeight: editorPos.maxHeight,
+            } : undefined}
             >
-              <BuffForm
-                key={`${formState.mode}-${formState.id ?? 'new'}`}
-                initial={formInitial}
-                defaultSourceKind={formState.mode === 'stash' ? 'temporary' : 'adventure'}
-                onSave={formOnSave}
-                onCancel={() => setFormState(null)}
-                referenceData={referenceData}
-                baseReferenceData={baseReferenceData}
-                sourceNameOptions={sourceNameOptions}
-              />
+              <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 shrink-0">
+                <div className="flex items-center gap-1 p-0.5 bg-gray-900/50 rounded-lg border border-white/[0.06]">
+                  <button
+                    type="button"
+                    onClick={() => setEditorMode('active')}
+                    className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                      editorMode === 'active'
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-300 border border-transparent'
+                    }`}
+                  >
+                    ⚔️ 主动
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditorMode('passive')}
+                    className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                      editorMode === 'passive'
+                        ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-300 border border-transparent'
+                    }`}
+                  >
+                    🛡️ 被动
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditorFullscreen((v) => !v)}
+                    className="p-1 rounded-md text-gray-500 hover:text-gray-300 hover:bg-white/5 transition-colors"
+                    title={editorFullscreen ? '退出全屏' : '全屏'}
+                  >
+                    {editorFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setFormState(null); setEditorFullscreen(false) }}
+                    className="text-gray-500 hover:text-gray-300 text-xs transition-colors"
+                  >
+                    关闭
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-auto min-h-0 p-3">
+                <BuffForm
+                  key={`${formState.mode}-${formState.id ?? 'new'}`}
+                  initial={formInitial}
+                  defaultSourceKind={formState.mode === 'stash' ? 'temporary' : 'adventure'}
+                  onSave={formOnSave}
+                  onCancel={() => { setFormState(null); setEditorFullscreen(false) }}
+                  referenceData={referenceData}
+                  baseReferenceData={baseReferenceData}
+                  sourceNameOptions={sourceNameOptions}
+                  buffMode={editorMode}
+                  onBuffModeChange={setEditorMode}
+                  subordinates={subordinates}
+                />
+              </div>
             </div>
-          </div>
-        </>
-      )}
+      </>
+    )}
 
       {showModuleLibrary && (
         <>
@@ -566,7 +651,7 @@ export default function BuffManager({
                                   </div>
                                   {expanded && (
                                     <div className="px-2 pb-1.5 pl-7 text-[10px] text-gray-500 space-y-0.5">
-                                      {t.duration ? <div>持续 {t.duration}</div> : null}
+                                      {t.duration ? <div>持续 {formatDurationBrief(t.duration)}</div> : null}
                                       <div>
                                         {effectCount} 个效果 · 分类 {sourceKindLabel}
                                       </div>
@@ -637,6 +722,6 @@ export default function BuffManager({
           </div>
         </>
       )}
-    </div>
+    </>
   )
 }

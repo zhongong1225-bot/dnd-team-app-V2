@@ -61,31 +61,6 @@ export function getAbilitiesForCharacter(char, moduleId) {
   return results
 }
 
-/**
- * 查找某个职业特性下所有可用的主动技能（按等级+子职过滤）
- * 用于专注点等一个 featureId 对应多个技能的场景
- */
-export function findAllActiveAbilitiesForFeature(sourceClass, featureId, char, moduleId) {
-  if (!char) return []
-  const classes = getCharacterClasses(char)
-  const cls = classes.find((c) => c.name === sourceClass)
-  if (!cls) return []
-  const classLevel = cls.level
-  const subclass = cls.subclass
-
-  const cfBuffs = getBuffsFromClassFeatures(char, moduleId)
-  const abilities = []
-  for (const buff of cfBuffs) {
-    if (buff.sourceClass !== sourceClass || buff.featureId !== featureId) continue
-    if (!Array.isArray(buff.activeAbilities)) continue
-    for (const ab of buff.activeAbilities) {
-      if (ab.minLevel && classLevel < ab.minLevel) continue
-      if (ab.subclassFilter && ab.subclassFilter !== subclass) continue
-      abilities.push(ab)
-    }
-  }
-  return abilities
-}
 
 /* ─────────────────────────────────────────────────────────
  * 条件检查

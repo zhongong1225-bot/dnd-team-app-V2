@@ -5,6 +5,7 @@ import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { formatContainedSpellBrief } from '../lib/containedSpellBrief'
 import { normalizeChargeRecoveryValue } from '../lib/chargeRecovery'
 import { formatChargeItemBrief } from '../lib/chargeItemModel'
+import { formatDurationBrief } from '../lib/durationModel'
 import { isFormulaValue, formatFormulaLabel, evaluateBuffValue } from '../lib/formulas'
 
 /** 公式标签 + 求值后数字，例如「等级×2（+4）」、「感知调整值（+3）」 */
@@ -731,8 +732,8 @@ export default function BuffListItem({
 
       {/* 持续时间（可选，小字） */}
       <div className="shrink-0">
-        <span className="text-gray-500 text-xs whitespace-nowrap" title={buff.duration || '—'}>
-          {buff.duration || '—'}
+        <span className="text-gray-500 text-xs whitespace-nowrap" title={formatDurationBrief(buff.duration) || '—'}>
+          {formatDurationBrief(buff.duration) || '—'}
         </span>
       </div>
 

@@ -663,6 +663,8 @@ export const SCOPE_KIND = {
   creature_type: 'creature_type',
   damage_type: 'damage_type',
   weapon_category: 'weapon_category',
+  weapon_property: 'weapon_property',
+  specific_target: 'specific_target',
   druid_cantrip: 'druid_cantrip',
   weapon_or_beast: 'weapon_or_beast',
   aura: 'aura',
@@ -671,17 +673,19 @@ export const SCOPE_KIND = {
 
 /** 范围 kind 下拉选项（用于 BuffForm） */
 export const SCOPE_KIND_OPTIONS = [
-  { value: SCOPE_KIND.global, label: '全局', tooltip: '对所有战斗手段生效' },
-  { value: SCOPE_KIND.self_weapon, label: '本武器', tooltip: '仅对该物品自身的攻击生效' },
-  { value: SCOPE_KIND.physical_attack, label: '物理攻击', tooltip: '对所有物理武器攻击生效' },
-  { value: SCOPE_KIND.melee_attack, label: '近战攻击', tooltip: '仅对近战武器攻击生效' },
-  { value: SCOPE_KIND.ranged_attack, label: '远射攻击', tooltip: '仅对远程武器攻击生效' },
-  { value: SCOPE_KIND.natural_weapon, label: '天生武器', tooltip: '仅对天生武器（爪、啮咬等）生效' },
-  { value: SCOPE_KIND.creature_type, label: '某类生物', tooltip: '仅对指定类型的目标生效' },
-  { value: SCOPE_KIND.damage_type, label: '某类伤害类型', tooltip: '仅对指定类型的伤害生效' },
-  { value: SCOPE_KIND.weapon_category, label: '某类武器', tooltip: '仅对指定类别的武器生效' },
-  { value: SCOPE_KIND.aura, label: '灵光', tooltip: '灵光范围内的友方目标生效' },
-  { value: SCOPE_KIND.custom, label: '自定义', tooltip: '自定义条件，由 DM 描述生效范围' },
+  { value: SCOPE_KIND.global, label: '全局', tooltip: '对所有战斗手段生效', autoActive: true },
+  { value: SCOPE_KIND.self_weapon, label: '本武器', tooltip: '仅对该物品自身的攻击生效', autoActive: true },
+  { value: SCOPE_KIND.physical_attack, label: '物理攻击', tooltip: '对所有物理武器攻击生效', autoActive: true },
+  { value: SCOPE_KIND.melee_attack, label: '近战攻击', tooltip: '仅对近战武器攻击生效', autoActive: true },
+  { value: SCOPE_KIND.ranged_attack, label: '远射攻击', tooltip: '仅对远程武器攻击生效', autoActive: true },
+  { value: SCOPE_KIND.natural_weapon, label: '天生武器', tooltip: '仅对天生武器（爪、啮咬等）生效', autoActive: true },
+  { value: SCOPE_KIND.weapon_category, label: '某类武器', tooltip: '仅对指定类别的武器生效（简易/军用/近战/远程等）', autoActive: true },
+  { value: SCOPE_KIND.weapon_property, label: '武器属性', tooltip: '按武器属性（灵巧/轻型/重型/投掷等）自动生效', autoActive: true },
+  { value: SCOPE_KIND.damage_type, label: '某类伤害', tooltip: '仅对指定类型的伤害生效', autoActive: true },
+  { value: SCOPE_KIND.creature_type, label: '某类生物', tooltip: '仅对指定类型的目标生效', autoActive: false },
+  { value: SCOPE_KIND.specific_target, label: '特定目标', tooltip: '指定生物名或物品名，手动计算', autoActive: false },
+  { value: SCOPE_KIND.aura, label: '灵光', tooltip: '灵光范围内的友方目标生效', autoActive: true },
+  { value: SCOPE_KIND.custom, label: '自定义', tooltip: '自定义条件，由 DM 描述生效范围', autoActive: false },
 ]
 
 /** 生物类型选项（D&D 5e 常见生物类型） */
@@ -710,6 +714,21 @@ export const WEAPON_SCOPE_CATEGORY_OPTIONS = [
   { value: '远程武器', label: '远程武器' },
   { value: '触及武器', label: '触及武器' },
   { value: '枪械', label: '枪械' },
+]
+
+/** 武器属性选项（用于 weapon_property 范围） */
+export const WEAPON_PROPERTY_OPTIONS = [
+  { value: 'finesse', label: '灵巧' },
+  { value: 'light', label: '轻型' },
+  { value: 'heavy', label: '重型' },
+  { value: 'two_handed', label: '双手' },
+  { value: 'versatile', label: '多用' },
+  { value: 'thrown', label: '投掷' },
+  { value: 'reach', label: '触及' },
+  { value: 'loading', label: '装填' },
+  { value: 'ammunition', label: '弹药' },
+  { value: 'firearm', label: '枪械' },
+  { value: 'special', label: '特殊' },
 ]
 
 /** 已知简易武器类别（2014 规则常用；可扩展） */
@@ -783,6 +802,29 @@ function isNaturalWeaponProto(proto) {
     return true
   }
   return false
+}
+
+/** 武器属性英文 key → 中文标签映射 */
+const WEAPON_PROPERTY_ZH_MAP = {
+  finesse: '灵巧',
+  light: '轻型',
+  heavy: '重型',
+  two_handed: '双手',
+  versatile: '多用',
+  thrown: '投掷',
+  reach: '触及',
+  loading: '装填',
+  ammunition: '弹药',
+  firearm: '枪械',
+  special: '特殊',
+}
+
+/** 武器是否拥有指定属性（prop 为英文 key，如 'finesse'） */
+export function weaponHasProperty(proto, prop) {
+  if (!proto || !prop) return false
+  const props = Array.isArray(proto.properties) ? proto.properties : []
+  const zhLabel = WEAPON_PROPERTY_ZH_MAP[prop] || prop
+  return props.some((p) => String(p).trim() === zhLabel)
 }
 
 /**
@@ -870,6 +912,13 @@ export function scopeMatchesCombatMean(effect, ctx = {}) {
       return protoMatchesWeaponBuffKey(ctx.weaponProto, k)
     })
   }
+  // 武器属性：按武器属性（灵巧/轻型/重型等）匹配
+  if (scope === SCOPE_KIND.weapon_property) {
+    if (!ctx.weaponProto) return false
+    return details.some((prop) => weaponHasProperty(ctx.weaponProto, prop))
+  }
+  // 特定目标：手动计算，系统不自动匹配
+  if (scope === SCOPE_KIND.specific_target) return false
   // 自定义范围：未提供明确匹配规则，默认不匹配战斗手段上下文（仅作展示）
   if (scope === SCOPE_KIND.custom) return false
   return false
