@@ -25,6 +25,7 @@ import {
   getPrimarySpellcastingAbility,
   getCharacterClasses,
   getClassData,
+  getMaxSpellSlotsByRing,
 } from '../data/classDatabase'
 import { useRuleTextOverridesMap } from '../hooks/useRuleTextOverridesMap'
 import {
@@ -69,6 +70,7 @@ import { getBuffsFromClassFeatures, getBuffsFromSelectedFeats } from '../lib/eff
 import { executeAbility, canUseAbility, findAllActiveAbilitiesForFeature } from '../lib/activeAbilityEngine'
 import { formatRecoveryBrief, buildAbilityDiceExpr, RESOURCE_TYPE_OPTIONS, normalizeChargeItemValue, computeScaledEffect, getMaxSpendableAmount, resolveAbilityMod } from '../lib/chargeItemModel'
 import { rollDice } from '../data/weaponDatabase'
+import { getCreatureById } from '../data/creatureLibrary'
 import InfoTooltip from '../components/InfoTooltip'
 import { ClassFeatureTooltipContent, FeatTooltipContent } from '../lib/infoTooltipContent'
 import { APP_VERSION_LABEL } from '../config/version'
@@ -1333,6 +1335,44 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
         } else {
           resultLines.push(`⚠️ ${buffName}：无效果模块`)
         }
+      } else if (eff.type === 'creature_transform') {
+        const creature = ev.creatureId ? getCreatureById(ev.creatureId) : null
+        const creatureName = creature?.name || '(未选择生物)'
+        resultLines.push(`🐾 变身: ${creatureName}`)
+      } else if (eff.type === 'restore_spell_slots') {
+        const maxSlots = getMaxSpellSlotsByRing(char)
+        const currentSlots = { ...(char.spellSlots || {}) }
+        const newSlots = { ...currentSlots }
+
+        if (ev.mode === 'multi') {
+          const maxRing = ev.maxRing || 3
+          for (let ring = 1; ring <= maxRing; ring++) {
+            const max = maxSlots[ring] || 0
+            if (max > 0) newSlots[ring] = max
+          }
+        } else {
+          const targetRing = ev.ringLevel || 1
+          for (let ring = targetRing; ring >= 1; ring--) {
+            const max = maxSlots[ring] || 0
+            const current = currentSlots[ring] || 0
+            if (max > 0 && current < max) {
+              newSlots[ring] = current + 1
+              break
+            }
+          }
+        }
+
+        if (JSON.stringify(newSlots) !== JSON.stringify(currentSlots)) {
+          patch.spellSlots = newSlots
+          const restored = []
+          for (let r = 1; r <= 9; r++) {
+            const diff = (newSlots[r] || 0) - (currentSlots[r] || 0)
+            if (diff > 0) restored.push(`${r}环+${diff}`)
+          }
+          resultLines.push(`🔮 恢复法术位: ${restored.join(', ')}`)
+        } else {
+          resultLines.push(`🔮 法术位已满，无需恢复`)
+        }
       }
     }
 
@@ -1524,6 +1564,26 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
                             {hasScaling && amt > 1 && ev.scalingEnabled && (
                               <span className="text-[9px] text-amber-400/60">×{amt}</span>
                             )}
+                          </div>
+                        )
+                      }
+                      if (eff.type === 'creature_transform') {
+                        const creature = ev.creatureId ? getCreatureById(ev.creatureId) : null
+                        return (
+                          <div key={i} className="text-xs text-gray-300 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-400/60 shrink-0" />
+                            <span className="text-rose-300">变身: {creature?.name || '(未选择生物)'}</span>
+                          </div>
+                        )
+                      }
+                      if (eff.type === 'restore_spell_slots') {
+                        const label = ev.mode === 'multi'
+                          ? `恢复 ${ev.maxRing || 3} 环及以下法术位`
+                          : `恢复 ${ev.ringLevel || 1} 环法术位`
+                        return (
+                          <div key={i} className="text-xs text-gray-300 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-sky-400/60 shrink-0" />
+                            <span className="text-sky-300">{label}</span>
                           </div>
                         )
                       }

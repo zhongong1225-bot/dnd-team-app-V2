@@ -1216,27 +1216,20 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
 
   return (
     <div className="rounded-md bg-[#161e2b]/40 p-2 flex flex-col gap-y-1.5 w-full text-xs">
-      {/* ── 消耗资源 ── */}
-      <div className="flex items-center gap-x-1.5">
+      {/* ── 消耗资源 + 总充能（同行） ── */}
+      <div className="flex items-center gap-x-1.5 flex-wrap">
         <span className={labelCls}>消耗资源</span>
         <select
           value={data.resourceType}
           onChange={(e) => patchData({ resourceType: e.target.value })}
-          className={selectCls + ' !w-[8rem] shrink-0'}
+          className={selectCls + ' !w-[6rem] shrink-0'}
         >
           {RESOURCE_TYPE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
-        {!isChargesMode && (
-          <span className="text-gray-500 text-[10px]">次数与恢复由职业资源管理</span>
-        )}
-      </div>
-
-      {/* ── 充能数 + 回能方式（仅充能数模式） ─ */}
-      {isChargesMode && (
-        <div className="flex flex-col gap-y-1.5 rounded-md bg-[#0d1520]/40 p-2">
-          <div className="flex items-center gap-x-1.5">
+        {isChargesMode && (
+          <>
             <span className={labelCls}>总充能</span>
             <NumberStepper
               value={data.charges}
@@ -1247,81 +1240,85 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
               narrow
               className="!h-7"
             />
-          </div>
-          <div className="flex items-center gap-x-1.5 flex-wrap">
-            <span className={labelCls}>回能方式</span>
-            <select
-              value={rec.method}
-              onChange={(e) => setRecoveryMethod(e.target.value)}
-              className={selectCls + ' !w-[6rem] shrink-0'}
-            >
-              {RECOVERY_METHODS.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
-            {recoverySupportsAmount(rec.method) && (
-              <>
-                {!recoveryIsDiceOnly(rec.method) && (
-                  <select
-                    value={rec.kind}
-                    onChange={(e) => updateRecovery({ kind: e.target.value })}
-                    className={selectCls + ' !w-[4rem] shrink-0'}
-                  >
-                    <option value="full">回满</option>
-                    <option value="fixed">固定</option>
-                    <option value="dice">掷骰</option>
-                  </select>
-                )}
-                {rec.kind === 'fixed' && (
+          </>
+        )}
+        {!isChargesMode && (
+          <span className="text-gray-500 text-[10px]">次数与恢复由职业资源管理</span>
+        )}
+      </div>
+
+      {/* ── 回能方式（仅充能数模式） ── */}
+      {isChargesMode && (
+        <div className="flex items-center gap-x-1.5 flex-wrap">
+          <span className={labelCls}>回能方式</span>
+          <select
+            value={rec.method}
+            onChange={(e) => setRecoveryMethod(e.target.value)}
+            className={selectCls + ' !w-[5rem] shrink-0'}
+          >
+            {RECOVERY_METHODS.map((m) => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+          {recoverySupportsAmount(rec.method) && (
+            <div className="flex items-center gap-x-0.5 min-w-[10rem]">
+              {!recoveryIsDiceOnly(rec.method) && (
+                <select
+                  value={rec.kind}
+                  onChange={(e) => updateRecovery({ kind: e.target.value })}
+                  className={selectCls + ' !w-[3.5rem] shrink-0'}
+                >
+                  <option value="full">回满</option>
+                  <option value="fixed">固定</option>
+                  <option value="dice">掷骰</option>
+                </select>
+              )}
+              {rec.kind === 'fixed' && (
+                <NumberStepper
+                  value={rec.fixed}
+                  onChange={(v) => updateRecovery({ fixed: Math.max(0, v) })}
+                  min={0}
+                  max={999}
+                  compact
+                  narrow
+                  className="!h-7"
+                />
+              )}
+              {(rec.kind === 'dice' || recoveryIsDiceOnly(rec.method)) && (
+                <div className="flex items-center gap-x-0.5">
                   <NumberStepper
-                    value={rec.fixed}
-                    onChange={(v) => updateRecovery({ fixed: Math.max(0, v) })}
-                    min={0}
-                    max={999}
+                    value={rec.diceCount}
+                    onChange={(v) => updateRecovery({ diceCount: Math.max(1, v) })}
+                    min={1}
+                    max={99}
                     compact
                     narrow
-                    className="!h-7"
+                    className="!h-7 !w-10"
                   />
-                )}
-                {(rec.kind === 'dice' || recoveryIsDiceOnly(rec.method)) && (
-                  <div className="flex items-center gap-x-0.5">
-                    <NumberStepper
-                      value={rec.diceCount}
-                      onChange={(v) => updateRecovery({ diceCount: Math.max(1, v) })}
-                      min={1}
-                      max={99}
-                      compact
-                      narrow
-                      className="!h-7 !w-10"
-                    />
-                    <span className="text-gray-300 text-xs font-medium">d</span>
-                    <NumberStepper
-                      value={rec.diceSides}
-                      onChange={(v) => updateRecovery({ diceSides: Math.max(1, v) })}
-                      min={1}
-                      max={100}
-                      compact
-                      narrow
-                      className="!h-7 !w-10"
-                    />
-                    <span className="text-gray-300 text-xs font-medium">+</span>
-                    <NumberStepper
-                      value={rec.diceBonus || 0}
-                      onChange={(v) => updateRecovery({ diceBonus: Math.max(0, v) })}
-                      min={0}
-                      max={99}
-                      compact
-                      narrow
-                      className="!h-7 !w-10"
-                    />
-                  </div>
-                )}
-              </>
-            )}
-            {rec.method === 'none' && (
-              <span className="text-gray-500 text-[10px]">充能耗尽后无法恢复</span>
-            )}
-          </div>
+                  <span className="text-gray-300 text-xs font-medium">d</span>
+                  <NumberStepper
+                    value={rec.diceSides}
+                    onChange={(v) => updateRecovery({ diceSides: Math.max(1, v) })}
+                    min={1}
+                    max={100}
+                    compact
+                    narrow
+                    className="!h-7 !w-10"
+                  />
+                  <span className="text-gray-300 text-xs font-medium">+</span>
+                  <NumberStepper
+                    value={rec.diceBonus || 0}
+                    onChange={(v) => updateRecovery({ diceBonus: Math.max(0, v) })}
+                    min={0}
+                    max={99}
+                    compact
+                    narrow
+                    className="!h-7 !w-10"
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -1357,10 +1354,12 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
       <div className="flex flex-col gap-y-1 pt-1.5 border-t border-white/[0.06]">
         <div className="flex items-center justify-between">
           <span className={labelCls}>消耗效果</span>
-          <div className="flex items-center gap-x-1">
+          <div className="flex items-center gap-x-1 flex-wrap">
             <button type="button" onClick={() => addEffect('spell')} className="px-1.5 py-0.5 rounded border border-cyan-600/70 bg-cyan-900/20 text-cyan-300 hover:bg-cyan-800/40 hover:border-cyan-500/80 text-[10px] font-medium transition-colors" title="添加内含法术">+ 法术</button>
             <button type="button" onClick={() => addEffect('temp_buff')} className="px-1.5 py-0.5 rounded border border-violet-600/70 bg-violet-900/20 text-violet-300 hover:bg-violet-800/40 hover:border-violet-500/80 text-[10px] font-medium transition-colors" title="添加临时BUFF">+ 临时BUFF</button>
             <button type="button" onClick={() => addEffect('shield')} className="px-1.5 py-0.5 rounded border border-emerald-600/70 bg-emerald-900/20 text-emerald-300 hover:bg-emerald-800/40 hover:border-emerald-500/80 text-[10px] font-medium transition-colors" title="添加内含护盾">+ 护盾</button>
+            <button type="button" onClick={() => addEffect('creature_transform')} className="px-1.5 py-0.5 rounded border border-rose-600/70 bg-rose-900/20 text-rose-300 hover:bg-rose-800/40 hover:border-rose-500/80 text-[10px] font-medium transition-colors" title="添加变身效果">+ 变身</button>
+            <button type="button" onClick={() => addEffect('restore_spell_slots')} className="px-1.5 py-0.5 rounded border border-sky-600/70 bg-sky-900/20 text-sky-300 hover:bg-sky-800/40 hover:border-sky-500/80 text-[10px] font-medium transition-colors" title="添加法术位恢复">+ 法术位恢复</button>
           </div>
         </div>
 
@@ -1599,6 +1598,41 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                     </>
                   )}
                 </div>
+              </div>
+            )
+          }
+
+          if (eff.type === 'creature_transform') {
+            return (
+              <div key={eff.id} className="rounded-md border border-rose-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                <div className="flex items-center gap-x-1.5 mb-1">
+                  <span className="text-rose-400 text-[10px] shrink-0 font-medium">变身</span>
+                  <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <CreatureTransformEditor
+                  value={eff.value}
+                  onChange={(newValue) => updateEffect(idx, { value: newValue })}
+                />
+              </div>
+            )
+          }
+
+          if (eff.type === 'restore_spell_slots') {
+            const syntheticModule = { value: eff.value || {} }
+            return (
+              <div key={eff.id} className="rounded-md border border-sky-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                <div className="flex items-center gap-x-1.5 mb-1">
+                  <span className="text-sky-400 text-[10px] shrink-0 font-medium">法术位恢复</span>
+                  <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <RestoreSpellSlotsEditor
+                  module={syntheticModule}
+                  onChange={(newModule) => updateEffect(idx, { value: newModule.value })}
+                />
               </div>
             )
           }

@@ -468,10 +468,10 @@ export const BUFF_TYPES = {
     effects: [
       // 统一充能物品编辑器：充能数 + 回能方式 + 消耗效果（内含法术/奇能/护盾）
       { key: 'charge_item', label: '释放效果', dataType: 'object', subSelect: 'chargeItem' },
-      // 变身：引用生物库中的生物，主动激活
-      { key: 'creature_transform', label: '变身', dataType: 'object', subSelect: 'creatureTransform' },
-      // 法术位恢复：单环恢复 / 多环恢复
-      { key: 'restore_spell_slots_v2', label: '法术位恢复', dataType: 'object', subSelect: 'restoreSpellSlots' },
+      // 变身：引用生物库中的生物，主动激活（已迁入 charge_item 子效果）
+      { key: 'creature_transform', label: '变身', dataType: 'object', subSelect: 'creatureTransform', hidden: true },
+      // 法术位恢复：单环恢复 / 多环恢复（已迁入 charge_item 子效果）
+      { key: 'restore_spell_slots_v2', label: '法术位恢复', dataType: 'object', subSelect: 'restoreSpellSlots', hidden: true },
       // ── 以下旧 key 保留供已有数据兼容，不在新增下拉中显示 ──
       { key: 'contained_spell', label: '内含法术', dataType: 'object', subSelect: 'containedSpell', hidden: true },
       { key: 'ac_cap_stone_layer', label: '瓦石层', dataType: 'number', hidden: true },

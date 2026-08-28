@@ -112,6 +112,12 @@ export function createChargeEffectEntry(type, overrides = {}) {
   if (type === 'temp_buff') {
     return { id, type, value: { buffName: '', modules: [] }, ...overrides }
   }
+  if (type === 'creature_transform') {
+    return { id, type, value: { creatureId: '', acMode: 'replace', acFormulaBase: 13, acFormulaAbility: '', hpMode: 'replace', hpFormula: null, keepAbilities: [], resourceCostType: '', resourceCostValue: 1, wildShapeMode: false, wildShapeSubclass: 'regular' }, ...overrides }
+  }
+  if (type === 'restore_spell_slots') {
+    return { id, type, value: { mode: 'single', ringLevel: 1, costPerSlot: 1, slots: [{ ringLevel: 1, cost: 1 }] }, ...overrides }
+  }
   return { id, type, value: {}, ...overrides }
 }
 
@@ -148,7 +154,7 @@ export function normalizeChargeItemValue(value) {
   const rawEffects = Array.isArray(value.effects) ? value.effects : []
   const effects = rawEffects.map((e) => {
     if (!e || typeof e !== 'object') return createChargeEffectEntry('spell')
-    const type = ['spell', 'ability', 'shield', 'temp_buff'].includes(e.type) ? e.type : 'spell'
+    const type = ['spell', 'ability', 'shield', 'temp_buff', 'creature_transform', 'restore_spell_slots'].includes(e.type) ? e.type : 'spell'
     const id = e.id || genId()
     if (type === 'spell') {
       const rawSpellVal = e.value && typeof e.value === 'object' ? e.value : {}
@@ -192,6 +198,34 @@ export function normalizeChargeItemValue(value) {
       return { id, type, value: {
         buffName: typeof tv.buffName === 'string' ? tv.buffName : '',
         modules: Array.isArray(tv.modules) ? tv.modules.map((m) => ({ ...m })) : [],
+      } }
+    }
+    if (type === 'creature_transform') {
+      const cv = e.value && typeof e.value === 'object' ? e.value : {}
+      return { id, type, value: {
+        creatureId: String(cv.creatureId || ''),
+        acMode: ['replace', 'add', 'max_formula'].includes(cv.acMode) ? cv.acMode : 'replace',
+        acFormulaBase: Number(cv.acFormulaBase) || 13,
+        acFormulaAbility: ['dex', 'wis', 'con', 'str', 'int', 'cha'].includes(cv.acFormulaAbility) ? cv.acFormulaAbility : '',
+        hpMode: ['replace', 'add', 'keep_plus_temp'].includes(cv.hpMode) ? cv.hpMode : 'replace',
+        hpFormula: cv.hpFormula && typeof cv.hpFormula === 'object' ? cv.hpFormula : null,
+        keepAbilities: Array.isArray(cv.keepAbilities) ? cv.keepAbilities.filter((k) => ['int', 'wis', 'cha'].includes(k)) : [],
+        resourceCostType: ['', 'wild_shape_uses', 'spell_slot', 'charges'].includes(cv.resourceCostType) ? cv.resourceCostType : '',
+        resourceCostValue: Number(cv.resourceCostValue) || 1,
+        wildShapeMode: !!cv.wildShapeMode,
+        wildShapeSubclass: cv.wildShapeSubclass === 'moon' ? 'moon' : 'regular',
+      } }
+    }
+    if (type === 'restore_spell_slots') {
+      const rv = e.value && typeof e.value === 'object' ? e.value : {}
+      return { id, type, value: {
+        mode: rv.mode === 'multi' ? 'multi' : 'single',
+        ringLevel: Math.max(1, Math.min(9, Number(rv.ringLevel) || 1)),
+        costPerSlot: Math.max(1, Number(rv.costPerSlot) || 1),
+        slots: Array.isArray(rv.slots) ? rv.slots.map((s) => ({
+          ringLevel: Math.max(1, Math.min(9, Number(s?.ringLevel) || 1)),
+          cost: Math.max(1, Number(s?.cost) || 1),
+        })) : [{ ringLevel: 1, cost: 1 }],
       } }
     }
     return { id, type, value: {} }
@@ -260,6 +294,10 @@ export function formatChargeItemBrief(value) {
       })
     }
     if (shieldCount > 0) effectLabels.push(`护盾 ×${norm.effects.find((e) => e.type === 'shield').value?.amount ?? 1}`)
+    const ctCount = norm.effects.filter((e) => e.type === 'creature_transform').length
+    if (ctCount > 0) effectLabels.push(`变身 ×${ctCount}`)
+    const rssCount = norm.effects.filter((e) => e.type === 'restore_spell_slots').length
+    if (rssCount > 0) effectLabels.push(`法术位恢复 ×${rssCount}`)
     if (effectLabels.length) parts.push(effectLabels.join('；'))
   }
   return parts.join(' | ')
