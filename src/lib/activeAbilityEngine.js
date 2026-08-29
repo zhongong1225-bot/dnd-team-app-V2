@@ -11,6 +11,7 @@
 
 import { getBuffsFromClassFeatures, getBuffsFromSelectedFeats } from './effects/effectMapping.js'
 import { getCharacterClasses, getMaxSpellSlotsByRing } from '../data/classDatabase.js'
+import { buildCardsFromCharacter } from './cardAdapter.js'
 
 /* ─────────────────────────────────────────────────────────
  * 查询
@@ -30,8 +31,9 @@ export function getAbilitiesForCharacter(char, moduleId) {
     classLevelMap[c.name] = Math.max(classLevelMap[c.name] || 0, c.level)
   }
   const results = []
+  const seenIds = new Set()
 
-  // 从职业特性 BUFF 条目提取主动技能
+  // 从职业特性 BUFF 条目提取主动技能（旧 activeAbilities 格式，向后兼容）
   const cfBuffs = getBuffsFromClassFeatures(char, moduleId)
   for (const buff of cfBuffs) {
     if (!Array.isArray(buff.activeAbilities)) continue
@@ -46,7 +48,7 @@ export function getAbilitiesForCharacter(char, moduleId) {
     }
   }
 
-  // 从专长 BUFF 条目提取主动技能
+  // 从专长 BUFF 条目提取主动技能（旧 activeAbilities 格式，向后兼容）
   const featBuffs = getBuffsFromSelectedFeats(char, moduleId)
   for (const buff of featBuffs) {
     if (!Array.isArray(buff.activeAbilities)) continue
@@ -58,7 +60,62 @@ export function getAbilitiesForCharacter(char, moduleId) {
     }
   }
 
+  // ── 从 charge_item 卡数据提取主动技能（当前主要数据源） ──
+  const allCards = buildCardsFromCharacter(char, moduleId)
+  for (const card of allCards) {
+    const ability = buildAbilityFromCard(card)
+    if (!ability) continue
+    if (seenIds.has(ability.id)) continue // 去重：旧格式已添加的跳过
+    seenIds.add(ability.id)
+    results.push({
+      ability,
+      context: buildContext(char, char.level || 1),
+    })
+  }
+
   return results
+}
+
+/**
+ * 从卡数据构造主动技能对象（与 CharacterSheet.findActiveAbilityFromCard 逻辑一致）
+ */
+function buildAbilityFromCard(card) {
+  if (!card || !card.sourceKey) return null
+
+  // 从 charge_item 效果提取
+  const chargeEffect = Array.isArray(card.buffEffects)
+    ? card.buffEffects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
+    : null
+
+  if (!chargeEffect && card.activeAbility) return card.activeAbility
+  if (!chargeEffect) return null
+
+  const chargeValue = chargeEffect.value
+  const mainEffect = Array.isArray(chargeValue.effects) && chargeValue.effects.length > 0
+    ? chargeValue.effects[0]
+    : null
+
+  if (!mainEffect) return null
+
+  return {
+    id: `${card.sourceKey}_active`,
+    name: card.name || '主动技能',
+    actionType: chargeValue.actionCost || 'action',
+    cost: chargeValue.resourceType === 'none'
+      ? { type: 'none' }
+      : { type: 'class_resource', resourceKey: chargeValue.resourceType || 'charges', amount: chargeValue.charges || 1 },
+    cooldown: chargeValue.recovery?.method === 'long_rest' ? 'long_rest'
+              : chargeValue.recovery?.method === 'short_rest' ? 'short_rest'
+              : 'none',
+    description: card.description || '',
+    needsInteraction: 'confirm',
+    isStance: !!chargeValue.isStance,
+    effects: [{
+      type: mainEffect.type,
+      value: mainEffect.value,
+      description: mainEffect.value?.description || mainEffect.text || '',
+    }],
+  }
 }
 
 
@@ -246,7 +303,7 @@ export function resetAbilityCooldowns(char, restType, moduleId) {
   const state = char.activeAbilityState
   if (!state) return null
 
-  // 从 BUFF 条目构建 abilityId → cooldown 映射
+  // 从 BUFF 条目构建 abilityId → cooldown 映射（旧格式，向后兼容）
   const abilityCooldownMap = {}
   const cfBuffs = getBuffsFromClassFeatures(char, moduleId)
   for (const buff of cfBuffs) {
@@ -259,6 +316,20 @@ export function resetAbilityCooldowns(char, restType, moduleId) {
     for (const ab of (buff.activeAbilities || [])) {
       abilityCooldownMap[ab.id] = ab.cooldown
     }
+  }
+
+  // 从 charge_item 卡数据补充 cooldown 映射
+  const allCards = buildCardsFromCharacter(char, moduleId)
+  for (const card of allCards) {
+    const chargeEffect = Array.isArray(card.buffEffects)
+      ? card.buffEffects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
+      : null
+    if (!chargeEffect) continue
+    const cv = chargeEffect.value
+    const cooldown = cv.recovery?.method === 'long_rest' ? 'long_rest'
+                 : cv.recovery?.method === 'short_rest' ? 'short_rest'
+                 : 'none'
+    abilityCooldownMap[`${card.sourceKey}_active`] = cooldown
   }
 
   const cooldownForRest = restType === 'long' ? ['short_rest', 'long_rest'] : ['short_rest']
