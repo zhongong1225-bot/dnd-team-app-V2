@@ -9,7 +9,7 @@ export const BUFF_SOURCE_KIND_OPTIONS = [
   { key: 'temporary', label: '临时' },
   { key: 'stance', label: '架势' },
   { key: 'class', label: '职业' },
-  { key: 'race', label: '种族' },
+  { key: 'race', label: '种族&背景' },
   { key: 'adventure', label: '冒险' },
 ]
 
