@@ -200,7 +200,7 @@ export default function BuffColumnBoard({
             </div>
             <div
               className={
-                'flex-1 min-w-0 p-1.5 flex flex-col gap-1 content-start bg-[#1a2430]/35'
+                'flex-1 min-w-0 p-1.5 grid grid-cols-2 gap-1 content-start bg-[#1a2430]/35'
               }
               onDragOver={(e) => onRowBodyDragOver(e, colKey)}
               onDrop={(e) => onRowBodyDrop(e, colKey)}
