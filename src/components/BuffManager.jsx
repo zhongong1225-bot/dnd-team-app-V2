@@ -81,7 +81,6 @@ export default function BuffManager({
 
 
   const handleAddActive = () => {
-    setEditorMode('active')
     setFormState({ mode: 'active', id: null })
   }
 
@@ -98,7 +97,7 @@ export default function BuffManager({
     }
     const next = isEdit
       ? list.map((b) => (b.id === formState.id ? { ...buff, id: b.id } : b))
-      : [...list, { ...buff, id: String(Date.now()) }]
+      : [...list, { ...buff, id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}` }]
     onSave(next)
     setFormState(null)
   }
@@ -115,8 +114,6 @@ export default function BuffManager({
       return
     }
     if (b) {
-      const hasChargeItem = b.effects?.some((e) => e.effectType === 'charge_item')
-      setEditorMode(hasChargeItem ? 'active' : 'passive')
       setFormState({ mode: 'active', id })
     }
   }
@@ -146,7 +143,7 @@ export default function BuffManager({
     }
     const next = formState?.id
       ? stash.map((b) => (b.id === formState.id ? { ...clean, id: b.id } : b))
-      : [...stash, { ...clean, id: String(Date.now()) }]
+      : [...stash, { ...clean, id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}` }]
     onStashChange(next)
     setFormState(null)
   }
@@ -223,6 +220,7 @@ export default function BuffManager({
   const buffBuckets = useMemo(() => {
     const m = { feat: [], adventure: [], class: [], race: [], equipment: [], temporary: [] }
     for (const b of list) {
+      if (b.sourceKind === 'stance') continue // 架势不在状态栏显示
       const k = getColumnKeyForBuff(b)
       if (!m[k]) m[k] = []
       m[k].push(b)

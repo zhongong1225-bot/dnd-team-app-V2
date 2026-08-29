@@ -291,9 +291,15 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   const mergedBuffs = useMemo(() => getMergedBuffsForCalculator(character, moduleId), [
     character?.buffs,
     character?.selectedFeats,
+    character?.selectedInvocations,
+    character?.selectedFightingStyles,
+    character?.classFeatureChoices,
     character?.inventory,
     character?.equippedHeld,
     character?.equippedWorn,
+    character?.raceCard,
+    character?.backgroundCard,
+    character?.shields,
     moduleId,
   ])
   const buffStats = useBuffCalculator(character, mergedBuffs)

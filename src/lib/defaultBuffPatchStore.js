@@ -179,7 +179,8 @@ export function saveDefaultBuffPatch(moduleId, kind, id, patch) {
   const effects = patch && Array.isArray(patch.effects) ? patch.effects : []
   const duration = patch?.duration != null ? String(patch.duration).trim() : ''
   const enabled = patch?.enabled !== false
-  if (effects.length === 0 && !duration && enabled && !patch?.cardName && !patch?.cardDescription) {
+  if (effects.length === 0 && !duration && enabled && !patch?.cardName && !patch?.cardDescription
+    && !(patch?.cardScope && typeof patch.cardScope === 'object' && patch.cardScope.type && patch.cardScope.type !== 'global')) {
     delete map[key]
   } else {
     map[key] = {

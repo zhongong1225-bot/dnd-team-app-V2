@@ -43,6 +43,7 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   crit_range_expand: 'metadata',
   crit_range_override: 'metadata',
   crit_range_increment: 'metadata',
+  crit_range_reduction: 'metadata',
   crit_extra_dice: 'metadata',
   extra_damage_dice: 'metadata',
   infinite_ammo: 'metadata',

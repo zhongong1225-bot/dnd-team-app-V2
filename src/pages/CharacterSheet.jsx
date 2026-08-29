@@ -2418,7 +2418,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
   const totalFeats = filledSlots + freeRows.length
 
   // 构建一次卡数组，供所有专长查找主动技能复用（使用 sheetModuleId 与 allCards 保持一致）
-  const featCards = useMemo(() => buildCardsFromCharacter(char, sheetModuleId), [char, sheetModuleId])
+  const featCards = useMemo(() => buildCardsFromCharacter(char, sheetModuleId), [char, sheetModuleId, buffPatchRev])
 
   const FeatTypeTag = ({ category }) => {
     if (!category) return null
@@ -3373,6 +3373,9 @@ export default function CharacterSheet() {
       char?.inventory,
       char?.equippedHeld,
       char?.equippedWorn,
+      char?.raceCard,
+      char?.backgroundCard,
+      char?.shields,
       sheetModuleId,
       buffPatchRev, // eslint-disable-line react-hooks/exhaustive-deps
     ],

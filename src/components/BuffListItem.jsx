@@ -13,7 +13,8 @@ function formatFormulaLabelWithEval(value, context = {}) {
   if (!isFormulaValue(value)) return String(value ?? '')
   const label = formatFormulaLabel(value)
   const num = evaluateBuffValue(value, context)
-  const sign = typeof num === 'number' && num >= 0 ? '+' : ''
+  if (Number.isNaN(num)) return `${label}（?）`
+  const sign = num >= 0 ? '+' : ''
   return `${label}（${sign}${num}）`
 }
 
@@ -21,6 +22,7 @@ function formatFormulaLabelWithEval(value, context = {}) {
 function formatSignedEntryVal(val, context = {}) {
   if (isFormulaValue(val)) return formatFormulaLabelWithEval(val, context)
   const num = evaluateBuffValue(val, context)
+  if (Number.isNaN(num)) return '?'
   const sign = num >= 0 ? '+' : ''
   return `${sign}${num}`
 }

@@ -206,7 +206,7 @@ export function executeAbility(ability, char, options = {}) {
   if (ability.cost.type === 'class_resource') {
     newClassResources = (char.classResources || []).map((r) => {
       if (r.resourceKey !== ability.cost.resourceKey) return r
-      return { ...r, current: Math.max(0, r.current - ability.cost.amount) }
+      return { ...r, current: Math.max(0, r.current - (options.customCostAmount || ability.cost.amount)) }
     })
     resourcePatchNeeded = true
   }

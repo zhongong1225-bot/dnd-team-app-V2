@@ -1260,7 +1260,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
   }
 
   return (
-    <div className="rounded-md bg-[#161e2b]/40 p-2 flex flex-col gap-y-1.5 w-full text-xs">
+    <div className="rounded-md bg-[#161e2b]/40 p-1.5 flex flex-col gap-y-1 w-full text-xs">
       {/* ── 消耗资源 + 总充能（同行） ── */}
       <div className="flex items-center gap-x-1.5 flex-wrap">
         <span className={labelCls}>消耗资源</span>
@@ -1283,7 +1283,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
               max={999}
               compact
               narrow
-              className="!h-7"
+              className="!h-6"
               referenceData={referenceData}
             />
           </>
@@ -1336,7 +1336,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                   max={999}
                   compact
                   narrow
-                  className="!h-7"
+                  className="!h-6"
                 />
               )}
               {(rec.kind === 'dice' || recoveryIsDiceOnly(rec.method)) && (
@@ -1348,7 +1348,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                     max={99}
                     compact
                     narrow
-                    className="!h-7 !w-10"
+                    className="!h-6 !w-10"
                   />
                   <span className="text-gray-300 text-xs font-medium">d</span>
                   <NumberStepper
@@ -1358,7 +1358,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                     max={100}
                     compact
                     narrow
-                    className="!h-7 !w-10"
+                    className="!h-6 !w-10"
                   />
                   <span className="text-gray-300 text-xs font-medium">+</span>
                   <NumberStepper
@@ -1368,7 +1368,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                     max={99}
                     compact
                     narrow
-                    className="!h-7 !w-10"
+                    className="!h-6 !w-10"
                   />
                 </div>
               )}
@@ -1398,7 +1398,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
               max={999}
               compact
               narrow
-              className="!h-7 !w-14"
+              className="!h-6 !w-14"
             />
             <span className="text-gray-400 text-[10px]">尺</span>
           </div>
@@ -1406,7 +1406,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
       </div>
 
       {/* ── 消耗效果 ── */}
-      <div className="flex flex-col gap-y-1 pt-1.5 border-t border-white/[0.06]">
+      <div className="flex flex-col gap-y-1 pt-1 border-t border-white/[0.06]">
         <div className="flex items-center justify-between">
           <span className={labelCls}>消耗效果</span>
           <div className="flex items-center gap-x-1 flex-wrap">
