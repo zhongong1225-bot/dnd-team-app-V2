@@ -1829,6 +1829,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                   <ContainedSpellUseButton
                                     entry={entry}
                                     onChargeChange={(v) => setCharge(i, v)}
+                                    compact
                                   />
                                 )}
                                 {(() => {
@@ -2030,6 +2031,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                     <ContainedSpellUseButton
                                       entry={entry}
                                       onChargeChange={(v) => setCharge(i, v)}
+                                      compact
                                     />
                                   )
                                 }
@@ -2287,6 +2289,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                                 )
                                                 onSave({ inventory: inv.map((e, idx) => idx === i ? { ...e, nestedInventory: nextNested } : e) })
                                               }}
+                                              compact
                                             />
                                           )
                                         }

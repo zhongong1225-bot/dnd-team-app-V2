@@ -488,12 +488,9 @@ function hasRaceBaseInfo(info) {
 }
 
 /** 整合到外观区的种族/背景选择器 + 基础信息 + BUFF 编辑器 */
-function RaceBackgroundInline({ char, canEdit, onSave }) {
+function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRaceBuffEditorOpen, backgroundBuffEditorOpen, setBackgroundBuffEditorOpen }) {
   const raceCard = char?.raceCard || {}
   const backgroundCard = char?.backgroundCard || {}
-
-  const [raceBuffEditor, setRaceBuffEditor] = useState(false)
-  const [backgroundBuffEditor, setBackgroundBuffEditor] = useState(false)
 
   const raceBaseInfo = raceCard.raceBaseInfo || {}
   const updateRaceBaseInfo = (patch) => {
@@ -520,31 +517,39 @@ function RaceBackgroundInline({ char, canEdit, onSave }) {
   const handleSubraceChange = (subraceId) => onSave({ raceCard: { ...raceCard, subraceId } })
   const handleBackgroundChange = (backgroundId) => onSave({ backgroundCard: { ...backgroundCard, backgroundId } })
 
+  // 背景编辑器中的名称/描述编辑状态
+  const [bgEditName, setBgEditName] = useState('')
+  const [bgEditDesc, setBgEditDesc] = useState('')
+
   const handleRaceBuffSave = (buff) => {
     const next = { ...raceCard }
     if (buff.effects.length > 0) next.raceBuffPatch = { effects: buff.effects, enabled: buff.enabled }
     else delete next.raceBuffPatch
     onSave({ raceCard: next })
-    setRaceBuffEditor(false)
+    setRaceBuffEditorOpen(false)
   }
   const handleRaceBuffClear = () => {
     const next = { ...raceCard }
     delete next.raceBuffPatch
     onSave({ raceCard: next })
-    setRaceBuffEditor(false)
+    setRaceBuffEditorOpen(false)
   }
   const handleBackgroundBuffSave = (buff) => {
     const next = { ...backgroundCard }
+    if (bgEditName.trim()) next.customName = bgEditName.trim()
+    else delete next.customName
+    if (bgEditDesc.trim()) next.customDescription = bgEditDesc.trim()
+    else delete next.customDescription
     if (buff.effects.length > 0) next.backgroundBuffPatch = { effects: buff.effects, enabled: buff.enabled }
     else delete next.backgroundBuffPatch
     onSave({ backgroundCard: next })
-    setBackgroundBuffEditor(false)
+    setBackgroundBuffEditorOpen(false)
   }
   const handleBackgroundBuffClear = () => {
     const next = { ...backgroundCard }
     delete next.backgroundBuffPatch
     onSave({ backgroundCard: next })
-    setBackgroundBuffEditor(false)
+    setBackgroundBuffEditorOpen(false)
   }
 
   const selCls = 'flex-1 min-w-0 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50'
@@ -606,6 +611,19 @@ function RaceBackgroundInline({ char, canEdit, onSave }) {
           </select>
         )}
 
+        {/* 背景编辑齿轮 */}
+        {canEdit && backgroundCard.backgroundId && (
+          <button type="button" onClick={() => {
+            const bgName = backgroundCard.customName || selectedBackground?.name || ''
+            const bgDesc = backgroundCard.customDescription || selectedBackground?.description || ''
+            setBgEditName(bgName)
+            setBgEditDesc(bgDesc)
+            setBackgroundBuffEditorOpen(true)
+          }} className="shrink-0 w-5 h-5 flex items-center justify-center text-gray-500 hover:text-gray-300 transition-colors" title="编辑背景">
+            <Settings className="w-3.5 h-3.5" />
+          </button>
+        )}
+
         {/* BUFF 编辑入口在下方"种族&背景增强"区域 */}
       </div>
 
@@ -645,10 +663,10 @@ function RaceBackgroundInline({ char, canEdit, onSave }) {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-gray-400">属性提高</span>
-            {Object.entries(asi).map(([key, val]) => (
+            {['str', 'dex', 'con', 'int', 'wis', 'cha'].map((key) => (
               <label key={key} className="flex items-center gap-1 text-xs text-gray-400">
-                <span className="w-4 text-center text-[11px]">{ASI_LABELS[key] || key}</span>
-                <input type="text" inputMode="numeric" value={val || 0}
+                <span className="w-4 text-center text-[11px]">{ASI_LABELS[key]}</span>
+                <input type="text" inputMode="numeric" value={asi[key] || 0}
                   onChange={(e) => updateRaceBaseInfo({ abilityScoreIncrease: { ...asi, [key]: Number(e.target.value) || 0 } })}
                   className={txtCls} />
               </label>
@@ -660,71 +678,19 @@ function RaceBackgroundInline({ char, canEdit, onSave }) {
         </div>
       )}
 
-      {/* 种族&背景增强 */}
-      {(raceCard.raceId || backgroundCard.backgroundId) && (
-        <div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-gray-400">种族&背景增强</span>
-            {canEdit && (
-              <div className="flex items-center gap-1">
-                {raceCard.raceId && (
-                  <button type="button" onClick={() => setRaceBuffEditor(true)}
-                    className="text-[11px] px-2 py-0.5 rounded bg-dnd-gold/15 text-dnd-gold-light border border-dnd-gold/20 hover:bg-dnd-gold/25 transition-colors">
-                    + 种族效果
-                  </button>
-                )}
-                {backgroundCard.backgroundId && (
-                  <button type="button" onClick={() => setBackgroundBuffEditor(true)}
-                    className="text-[11px] px-2 py-0.5 rounded bg-dnd-gold/15 text-dnd-gold-light border border-dnd-gold/20 hover:bg-dnd-gold/25 transition-colors">
-                    + 背景效果
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-          {allBuffEffects.length > 0 ? (
-            <div className="mt-1 space-y-1 h-[72px] overflow-y-auto pr-1">
-              {allBuffEffects.map((e, i) => {
-                const effType = e.effectType || e.type || ''
-                const effLabel = effectTypeLabelMap[effType] || effType
-                // 优先用 description，其次 text，最后用类型名+值摘要
-                let desc = e.value?.description || e.text || e.value?.text || ''
-                if (!desc) {
-                  // 对 visual_effect 等特殊类型给出友好提示
-                  if (effType === 'visual_effect') desc = '视觉效果（未配置）'
-                  else if (effType === 'spell_range_extension') desc = '施法距离延伸（未配置）'
-                  else desc = effLabel
-                }
-                const sourceLabel = e._source === 'race'
-                  ? (raceCard.raceId === 'custom' ? (raceCard.customName || '自定义种族') : (selectedRace?.name || '种族'))
-                  : (backgroundCard.backgroundId === 'custom' ? (backgroundCard.customName || '自定义背景') : (selectedBackground?.name || '背景'))
-                return (
-                  <div key={i} className="flex items-start gap-1.5 px-2 py-1 rounded bg-gray-800/30 border border-gray-700/20">
-                    <span className="text-[10px] text-dnd-gold/70 shrink-0 mt-0.5 font-medium">{sourceLabel}</span>
-                    <span className="text-xs text-gray-300 leading-snug">{desc}</span>
-                  </div>
-                )
-              })}
-            </div>
-          ) : (
-            <p className="text-[11px] text-gray-600 mt-1">暂无增强效果，点击上方按钮添加</p>
-          )}
-        </div>
-      )}
-
       {/* 种族 BUFF 编辑器弹窗 */}
-      {raceBuffEditor && (() => {
+      {raceBuffEditorOpen && (() => {
         const raceName = raceCard.raceId === 'custom' && raceCard.customName ? raceCard.customName : selectedRace?.name || '种族'
         const initialEffects = Array.isArray(raceCard.raceBuffPatch?.effects) && raceCard.raceBuffPatch.effects.length ? raceCard.raceBuffPatch.effects : []
         return (
           <>
-            <div className="fixed inset-0 z-[300] bg-black/60" onClick={() => setRaceBuffEditor(false)} aria-hidden />
-            <div className="fixed inset-0 z-[301] flex items-center justify-center p-4 sm:p-8 overflow-auto" onClick={() => setRaceBuffEditor(false)}>
+            <div className="fixed inset-0 z-[300] bg-black/60" onClick={() => setRaceBuffEditorOpen(false)} aria-hidden />
+            <div className="fixed inset-0 z-[301] flex items-center justify-center p-4 sm:p-8 overflow-auto" onClick={() => setRaceBuffEditorOpen(false)}>
               <div className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl" onClick={(e) => e.stopPropagation()}>
                 <div className="p-4 border-b border-white/10">
                   <div className="flex items-center justify-between">
                     <h3 className="text-base font-semibold text-dnd-gold-light/90">编辑种族效果：{raceName}</h3>
-                    <button type="button" onClick={() => setRaceBuffEditor(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"><X className="w-5 h-5" /></button>
+                    <button type="button" onClick={() => setRaceBuffEditorOpen(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"><X className="w-5 h-5" /></button>
                   </div>
                   <p className="text-xs text-dnd-text-muted mt-1">自定义该种族的 BUFF 效果，保存后立即生效。</p>
                 </div>
@@ -732,7 +698,7 @@ function RaceBackgroundInline({ char, canEdit, onSave }) {
                   <BuffForm key={`race-buff-${raceCard.raceId}`} compact hideDuration
                     charResources={char?.classResources} spellSlots={char?.spellSlots}
                     initial={{ source: raceCard.raceId === 'custom' ? (raceCard.customName || 'custom-race') : `race-${raceCard.raceId}`, effects: initialEffects, enabled: raceCard.raceBuffPatch?.enabled !== false }}
-                    onSave={handleRaceBuffSave} onClear={handleRaceBuffClear} onCancel={() => setRaceBuffEditor(false)} />
+                    onSave={handleRaceBuffSave} onClear={handleRaceBuffClear} onCancel={() => setRaceBuffEditorOpen(false)} />
                 </div>
               </div>
             </div>
@@ -741,26 +707,37 @@ function RaceBackgroundInline({ char, canEdit, onSave }) {
       })()}
 
       {/* 背景 BUFF 编辑器弹窗 */}
-      {backgroundBuffEditor && (() => {
+      {backgroundBuffEditorOpen && (() => {
         const backgroundName = backgroundCard.backgroundId === 'custom' && backgroundCard.customName ? backgroundCard.customName : selectedBackground?.name || '背景'
         const initialEffects = Array.isArray(backgroundCard.backgroundBuffPatch?.effects) && backgroundCard.backgroundBuffPatch.effects.length ? backgroundCard.backgroundBuffPatch.effects : []
         return (
           <>
-            <div className="fixed inset-0 z-[300] bg-black/60" onClick={() => setBackgroundBuffEditor(false)} aria-hidden />
-            <div className="fixed inset-0 z-[301] flex items-center justify-center p-4 sm:p-8 overflow-auto" onClick={() => setBackgroundBuffEditor(false)}>
+            <div className="fixed inset-0 z-[300] bg-black/60" onClick={() => setBackgroundBuffEditorOpen(false)} aria-hidden />
+            <div className="fixed inset-0 z-[301] flex items-center justify-center p-4 sm:p-8 overflow-auto" onClick={() => setBackgroundBuffEditorOpen(false)}>
               <div className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl" onClick={(e) => e.stopPropagation()}>
-                <div className="p-4 border-b border-white/10">
+                <div className="p-4 border-b border-white/10 space-y-2">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-base font-semibold text-dnd-gold-light/90">编辑背景效果：{backgroundName}</h3>
-                    <button type="button" onClick={() => setBackgroundBuffEditor(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"><X className="w-5 h-5" /></button>
+                    <h3 className="text-base font-semibold text-dnd-gold-light/90">编辑背景</h3>
+                    <button type="button" onClick={() => setBackgroundBuffEditorOpen(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"><X className="w-5 h-5" /></button>
                   </div>
-                  <p className="text-xs text-dnd-text-muted mt-1">自定义该背景的 BUFF 效果，保存后立即生效。</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400 shrink-0">名称</span>
+                    <input type="text" value={bgEditName} onChange={(e) => setBgEditName(e.target.value)}
+                      className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50"
+                      placeholder="背景名称" />
+                  </div>
+                  <div>
+                    <textarea value={bgEditDesc} onChange={(e) => setBgEditDesc(e.target.value)} rows={2}
+                      className="w-full px-2 py-1.5 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold/50"
+                      placeholder="背景描述" />
+                  </div>
+                  <p className="text-xs text-dnd-text-muted">背景效果</p>
                 </div>
                 <div className="p-4">
                   <BuffForm key={`background-buff-${backgroundCard.backgroundId}`} compact hideDuration
                     charResources={char?.classResources} spellSlots={char?.spellSlots}
                     initial={{ source: backgroundCard.backgroundId === 'custom' ? (backgroundCard.customName || 'custom-background') : `background-${backgroundCard.backgroundId}`, effects: initialEffects, enabled: backgroundCard.backgroundBuffPatch?.enabled !== false }}
-                    onSave={handleBackgroundBuffSave} onClear={handleBackgroundBuffClear} onCancel={() => setBackgroundBuffEditor(false)} />
+                    onSave={handleBackgroundBuffSave} onClear={handleBackgroundBuffClear} onCancel={() => setBackgroundBuffEditorOpen(false)} />
                 </div>
               </div>
             </div>
@@ -3349,6 +3326,9 @@ export default function CharacterSheet() {
     window.addEventListener(DEFAULT_BUFF_PATCHES_EVENT, handler)
     return () => window.removeEventListener(DEFAULT_BUFF_PATCHES_EVENT, handler)
   }, [])
+  // 种族/背景 BUFF 编辑器状态（从 RaceBackgroundInline 提升）
+  const [raceBuffEditorOpen, setRaceBuffEditorOpen] = useState(false)
+  const [backgroundBuffEditorOpen, setBackgroundBuffEditorOpen] = useState(false)
   const mergedBuffs = useMemo(
     () => getMergedBuffsForCalculator(char, sheetModuleId),
     [
@@ -3726,62 +3706,69 @@ export default function CharacterSheet() {
             {isCreatureTemplate ? (
               <CreatureSimpleBlock char={char} canEdit={canEdit} onSave={persist} />
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] min-h-[280px] lg:gap-[2ch]">
-                <div className="min-w-0 flex flex-col gap-2 lg:gap-1.5 min-h-[420px]">
-                  <div className="form-group-compact">
-                    <label className="form-label">代号（可选）</label>
-                    {canEdit ? (
-                      <input
-                        type="text"
-                        value={editingCodename !== null ? editingCodename : (char.codename ?? '')}
-                        onChange={(e) => setEditingCodename(e.target.value)}
-                        onFocus={() => { if (editingCodename === null) setEditingCodename(char.codename ?? '') }}
-                        onBlur={() => {
-                          const value = (editingCodename !== null ? editingCodename : char.codename ?? '').trim() || undefined
-                          persist({ codename: value })
-                          setEditingCodename(null)
-                        }}
-                        placeholder="区分同名角色"
-                        className="input-thin w-full text-[var(--text-muted)] text-lg"
-                      />
-                    ) : (
-                      <p className="text-[var(--text-muted)] text-lg break-words">{char.codename || '—'}</p>
-                    )}
+              <>
+                {/* 代号 & 角色名（全宽，在网格上方） */}
+                <div className="form-group-compact">
+                  <label className="form-label">代号（可选）</label>
+                  {canEdit ? (
+                    <input
+                      type="text"
+                      value={editingCodename !== null ? editingCodename : (char.codename ?? '')}
+                      onChange={(e) => setEditingCodename(e.target.value)}
+                      onFocus={() => { if (editingCodename === null) setEditingCodename(char.codename ?? '') }}
+                      onBlur={() => {
+                        const value = (editingCodename !== null ? editingCodename : char.codename ?? '').trim() || undefined
+                        persist({ codename: value })
+                        setEditingCodename(null)
+                      }}
+                      placeholder="区分同名角色"
+                      className="input-thin w-full text-[var(--text-muted)] text-lg"
+                    />
+                  ) : (
+                    <p className="text-[var(--text-muted)] text-lg break-words">{char.codename || '—'}</p>
+                  )}
+                </div>
+                <div className="form-group-compact">
+                  <label className="form-label">角色名</label>
+                  {canEdit ? (
+                    <NameInput
+                      ref={nameInputRef}
+                      value={editingName !== null ? editingName : (char.name ?? '')}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      onFocus={() => { if (editingName === null) setEditingName(char.name ?? '') }}
+                      onBlur={() => {
+                        const value = (editingName ?? char.name ?? '').trim() || '未命名'
+                        persist({ name: value })
+                        setEditingName(null)
+                      }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur() } }}
+                      className="input-thin w-full font-bold text-2xl sm:text-3xl text-[var(--text-main)] py-1 break-words leading-tight"
+                    />
+                  ) : (
+                    <p className="text-2xl sm:text-3xl font-bold text-[var(--text-main)] break-words leading-tight" style={{ fontWeight: 700 }}>{char.name || '未命名'}</p>
+                  )}
+                </div>
+                {/* 左：外观/基础 + 种族背景 | 右：头像（四边对齐） */}
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] lg:gap-[2ch]">
+                  <div className="min-w-0 flex flex-col gap-2 lg:gap-1.5">
+                    <h3 className="profile-section-title mt-0.5 mb-0.5">外观 / 基础</h3>
+                    <AppearanceGrid char={char} canEdit={canEdit} onSave={persist} noBorder compact />
+                    <RaceBackgroundInline char={char} canEdit={canEdit} onSave={persist}
+                      raceBuffEditorOpen={raceBuffEditorOpen} setRaceBuffEditorOpen={setRaceBuffEditorOpen}
+                      backgroundBuffEditorOpen={backgroundBuffEditorOpen} setBackgroundBuffEditorOpen={setBackgroundBuffEditorOpen} />
                   </div>
-                  <div className="form-group-compact">
-                    <label className="form-label">角色名</label>
-                    {canEdit ? (
-                      <NameInput
-                        ref={nameInputRef}
-                        value={editingName !== null ? editingName : (char.name ?? '')}
-                        onChange={(e) => setEditingName(e.target.value)}
-                        onFocus={() => { if (editingName === null) setEditingName(char.name ?? '') }}
-                        onBlur={() => {
-                          const value = (editingName ?? char.name ?? '').trim() || '未命名'
-                          persist({ name: value })
-                          setEditingName(null)
-                        }}
-                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur() } }}
-                        className="input-thin w-full font-bold text-2xl sm:text-3xl text-[var(--text-main)] py-1 break-words leading-tight"
-                      />
-                    ) : (
-                      <p className="text-2xl sm:text-3xl font-bold text-[var(--text-main)] break-words leading-tight" style={{ fontWeight: 700 }}>{char.name || '未命名'}</p>
-                    )}
-                  </div>
-                  <h3 className="profile-section-title mt-0.5 mb-0.5">外观 / 基础</h3>
-                  <AppearanceGrid char={char} canEdit={canEdit} onSave={persist} noBorder compact />
-                  <RaceBackgroundInline char={char} canEdit={canEdit} onSave={persist} />
-                  <h3 className="profile-section-title mt-2 mb-1 shrink-0">人物背景故事</h3>
-                  <div className="flex-1 min-h-0 flex flex-col">
-                    <BackstoryBlock char={char} canEdit={canEdit} onSave={persist} fillHeight />
+                  <div className="min-w-0 flex flex-col">
+                    <AvatarFrame char={char} canEdit={canEdit} onSave={persist} large />
                   </div>
                 </div>
-                <div
-                  className="character-sheet-profile-avatar-sticky min-w-0 flex flex-col min-h-[200px] lg:min-h-0 lg:w-full"
-                >
-                  <AvatarFrame char={char} canEdit={canEdit} onSave={persist} large />
+                {/* 人物背景故事（全宽固定高度） */}
+                <div className="mt-3">
+                  <h3 className="profile-section-title mt-0 mb-1">人物背景故事</h3>
+                  <div className="h-[120px]">
+                    <BackstoryBlock char={char} canEdit={canEdit} onSave={persist} />
+                  </div>
                 </div>
-              </div>
+              </>
             )}
           </section>
           {!isCreatureTemplate && (
@@ -3847,6 +3834,8 @@ export default function CharacterSheet() {
               referenceData={referenceData}
               baseReferenceData={baseReferenceData}
               formulaContext={buffFormulaContext}
+              onEditRace={() => setRaceBuffEditorOpen(true)}
+              onEditBackground={() => setBackgroundBuffEditorOpen(true)}
             />
           </section>
           )}

@@ -387,6 +387,10 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
   if (buff.effectType === 'extra_action_resource') {
     return `额外动作资源+${evaluateBuffValue(v, baseContext) || 0}`
   }
+  // 属性类效果值异常（非对象）时不拼接原始值，避免显示"属性增加0"
+  if ((buff.effectType === 'ability_override' || buff.effectType === 'ability_score_uncapped') && !isPlainAbilityObject(v)) {
+    return ''
+  }
   return v != null ? `${effectLabel}${String(v)}` : effectLabel
 }
 

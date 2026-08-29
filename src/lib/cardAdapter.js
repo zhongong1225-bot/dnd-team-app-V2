@@ -253,7 +253,7 @@ export function buildCardsFromCharacter(character, moduleId) {
   // 5.6 背景 → buff 卡
   const backgroundCard = character.backgroundCard
   if (backgroundCard?.backgroundId && Array.isArray(backgroundCard.backgroundBuffPatch?.effects) && backgroundCard.backgroundBuffPatch.effects.length > 0) {
-    const backgroundName = backgroundCard.backgroundId === 'custom' ? (backgroundCard.customName || 'custom-background') : backgroundCard.backgroundId
+    const backgroundName = backgroundCard.customName || (backgroundCard.backgroundId === 'custom' ? 'custom-background' : backgroundCard.backgroundId)
     cards.push(normalizeCard(createCard(SLOT_KIND.buff, {
       id: `background-${backgroundCard.backgroundId}`,
       name: backgroundName,
@@ -348,6 +348,12 @@ export function cardsToBuffEntries(cards) {
     } else if (st === 'item') {
       entry.fromItem = true
       entry.itemInventoryId = card.sourceKey || ''
+    } else if (st === 'race') {
+      entry.fromRace = true
+      entry.raceId = card.sourceKey || ''
+    } else if (st === 'background') {
+      entry.fromBackground = true
+      entry.backgroundId = card.sourceKey || ''
     }
     // sourceType === 'shield' 或 'manual' 不设特殊标记
 

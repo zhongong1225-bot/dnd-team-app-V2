@@ -38,6 +38,8 @@ export default function BuffManager({
   formulaContext = {},
   sourceNameOptions = [],
   subordinates = [],
+  onEditRace,
+  onEditBackground,
 }) {
   const { moduleLibrary } = useModule()
   const [formState, setFormState] = useState(null)
@@ -104,6 +106,14 @@ export default function BuffManager({
   const handleEdit = (id) => {
     const b = list.find((x) => x.id === id)
     if (b?.fromItem) return
+    if (b?.fromRace) {
+      onEditRace?.()
+      return
+    }
+    if (b?.fromBackground) {
+      onEditBackground?.()
+      return
+    }
     if (b) {
       const hasChargeItem = b.effects?.some((e) => e.effectType === 'charge_item')
       setEditorMode(hasChargeItem ? 'active' : 'passive')
@@ -113,7 +123,7 @@ export default function BuffManager({
 
   const handleDelete = (id) => {
     const b = list.find((x) => x.id === id)
-    if (b?.fromItem || b?.fromFeat || b?.fromInvocation || b?.fromFightingStyle || b?.fromClassFeature) return
+    if (b?.fromItem || b?.fromFeat || b?.fromInvocation || b?.fromFightingStyle || b?.fromClassFeature || b?.fromRace || b?.fromBackground) return
     const next = list.filter((x) => x.id !== id)
     onSave(next)
   }

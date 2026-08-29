@@ -2874,6 +2874,7 @@ export default function Warehouse() {
                                 <ContainedSpellUseButton
                                   entry={entry}
                                   onChargeChange={(v) => setCharge(i, v)}
+                                  compact
                                 />
                               )}
                             </div>

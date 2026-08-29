@@ -673,17 +673,18 @@ export function BagModuleSection({
                           <div className={inventoryItemNameTitleGroupClass}>
                             <span className={inventoryItemNameTextClass}>{invDisplayName(entry)}</span>
                             <span className={inventoryItemNameExtrasClass}>{renderNameExtras(entry)}</span>
-                            {hasContainedSpellEffect(entry) && (
-                              <ContainedSpellUseButton
-                                entry={entry}
-                                onChargeChange={(v) => patchBag(i, { charge: v })}
-                              />
-                            )}
                           </div>
+                          {hasContainedSpellEffect(entry) && (
+                            <ContainedSpellUseButton
+                              entry={entry}
+                              onChargeChange={(v) => patchBag(i, { charge: v })}
+                              compact
+                            />
+                          )}
                         </div>
                         {showChargeCol ? (
                           <span
-                            className={`${inventoryItemChargeCellClass} self-stretch`}
+                            className={`${inventoryItemChargeCellClass} flex items-center`}
                             onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => e.stopPropagation()}
                             role="presentation"

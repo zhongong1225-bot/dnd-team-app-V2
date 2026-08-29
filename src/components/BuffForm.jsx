@@ -1401,7 +1401,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
           <span className={labelCls}>消耗效果</span>
           <div className="flex items-center gap-x-1 flex-wrap">
             <div className="relative" ref={energyDropdownRef}>
-              <button type="button" onClick={() => setEnergyDropdownOpen(!energyDropdownOpen)} className="px-1.5 py-0.5 rounded border border-amber-600/70 bg-amber-900/20 text-amber-300 hover:bg-amber-800/40 hover:border-amber-500/80 text-[10px] font-medium transition-colors" title="造成能量">⚡ 造成能量 ▾</button>
+              <button type="button" onClick={() => setEnergyDropdownOpen(!energyDropdownOpen)} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]" title="造成能量">⚡ 造成能量 </button>
               {energyDropdownOpen && (
                 <div className="absolute left-0 top-[calc(100%+4px)] min-w-[100px] bg-[#1e2836] border border-white/10 rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.4)] z-[100] overflow-hidden">
                   <button type="button" onClick={() => { addEffect('damage'); setEnergyDropdownOpen(false) }} className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/[0.06] w-full text-left transition-colors">
@@ -1785,6 +1785,12 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                     <input type="checkbox" checked={!!dv.addWeaponDamage} onChange={(e) => updateEffect(idx, { value: { ...dv, addWeaponDamage: e.target.checked } })} className="accent-amber-500 w-3 h-3" />
                     附加手持武器伤害
                   </label>
+                  {/^spell_slot_[1-9]$/.test(data.resourceType) && (
+                    <label className="flex items-center gap-1 text-[10px] text-purple-400 cursor-pointer select-none">
+                      <input type="checkbox" checked={!!dv.scaleWithSlot} onChange={(e) => updateEffect(idx, { value: { ...dv, scaleWithSlot: e.target.checked } })} className="accent-purple-500 w-3 h-3" />
+                      按环位缩放
+                    </label>
+                  )}
                 </div>
               </div>
             )
@@ -1819,6 +1825,12 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                 )}
                 {isMaxMode && (
                   <span className="text-[10px] text-gray-500">恢复骰子最大值</span>
+                )}
+                {/^spell_slot_[1-9]$/.test(data.resourceType) && (
+                  <label className="flex items-center gap-1 text-[10px] text-purple-400 cursor-pointer select-none mt-1">
+                    <input type="checkbox" checked={!!hv.scaleWithSlot} onChange={(e) => updateEffect(idx, { value: { ...hv, scaleWithSlot: e.target.checked } })} className="accent-purple-500 w-3 h-3" />
+                    按环位缩放
+                  </label>
                 )}
               </div>
             )
@@ -2151,6 +2163,12 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
                   <input type="checkbox" checked={!!dv.addWeaponDamage} onChange={(e) => updateEffect(idx, { value: { ...dv, addWeaponDamage: e.target.checked } })} className="accent-amber-500 w-3 h-3" />
                   附加手持武器伤害
                 </label>
+                {/^spell_slot_[1-9]$/.test(data.resourceType) && (
+                  <label className="flex items-center gap-1 text-[10px] text-purple-400 cursor-pointer select-none">
+                    <input type="checkbox" checked={!!dv.scaleWithSlot} onChange={(e) => updateEffect(idx, { value: { ...dv, scaleWithSlot: e.target.checked } })} className="accent-purple-500 w-3 h-3" />
+                    按环位缩放
+                  </label>
+                )}
               </div>
             </div>
           )
@@ -2185,6 +2203,12 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
               )}
               {isMaxMode && (
                 <span className="text-[10px] text-gray-500">恢复骰子最大值</span>
+              )}
+              {/^spell_slot_[1-9]$/.test(data.resourceType) && (
+                <label className="flex items-center gap-1 text-[10px] text-purple-400 cursor-pointer select-none mt-1">
+                  <input type="checkbox" checked={!!hv.scaleWithSlot} onChange={(e) => updateEffect(idx, { value: { ...hv, scaleWithSlot: e.target.checked } })} className="accent-purple-500 w-3 h-3" />
+                  按环位缩放
+                </label>
               )}
             </div>
           )
@@ -4964,7 +4988,7 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
                 <span className="text-gray-400 text-[10px]">释放效果</span>
                 <div className="flex items-center gap-1 flex-wrap">
                   <div className="relative" ref={energyDropdownARef}>
-                    <button type="button" onClick={() => setEnergyDropdownAOpen(!energyDropdownAOpen)} className="px-1.5 py-0.5 rounded border border-amber-600/70 bg-amber-900/20 text-amber-300 hover:bg-amber-800/40 hover:border-amber-500/80 text-[10px] font-medium transition-colors" title="造成能量">⚡ 造成能量 ▾</button>
+                    <button type="button" onClick={() => setEnergyDropdownAOpen(!energyDropdownAOpen)} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]" title="造成能量">⚡ 造成能量 ▾</button>
                     {energyDropdownAOpen && (
                       <div className="absolute left-0 top-[calc(100%+4px)] min-w-[100px] bg-[#1e2836] border border-white/10 rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.4)] z-[100] overflow-hidden">
                         <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('damage')] })); setEnergyDropdownAOpen(false) }} className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/[0.06] w-full text-left transition-colors">

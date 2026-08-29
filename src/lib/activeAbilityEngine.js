@@ -162,8 +162,14 @@ export function executeAbility(ability, char, options = {}) {
     }
   }
 
+  // ── 按环位缩放：从 resourceKey 提取环位 ──
+  const mergedOptions = { ...options }
+  if (/^spell_slot_[1-9]$/.test(ability.cost?.resourceKey)) {
+    mergedOptions.slotLevel = parseInt(ability.cost.resourceKey.replace('spell_slot_', ''), 10)
+  }
+
   // ── 计算效果 ──
-  const effectResults = ability.effects.map((eff) => computeEffect(eff, ctx, options))
+  const effectResults = ability.effects.map((eff) => computeEffect(eff, ctx, mergedOptions))
 
   // ── 特殊效果处理：恢复星辰点 ──
   for (const result of effectResults) {
@@ -296,13 +302,15 @@ function computeEffect(effect, ctx, options) {
   switch (effect.type) {
     case 'damage': {
       const v = effect.value || {}
-      const dice = `${v.diceCount || 1}d${v.diceSides || 6}`
+      const diceCount = (v.scaleWithSlot && options?.slotLevel) ? options.slotLevel : (v.diceCount || 1)
+      const dice = `${diceCount}d${v.diceSides || 6}`
       const bonus = v.diceBonus ? `+${v.diceBonus}` : ''
       const typeLabel = v.damageType || 'fire'
       const weaponPart = v.addWeaponDamage ? ' + 武器伤害' : ''
+      const scaleNote = v.scaleWithSlot && options?.slotLevel ? `（${options.slotLevel}环缩放）` : ''
       return {
         type: 'damage',
-        description: effect.description || `${dice}${bonus} ${typeLabel}${weaponPart}`,
+        description: effect.description || `${dice}${bonus} ${typeLabel}${weaponPart}${scaleNote}`,
         diceFormula: `${dice}${bonus}`,
         damageType: v.damageType || 'fire',
         addWeaponDamage: !!v.addWeaponDamage,
@@ -312,11 +320,13 @@ function computeEffect(effect, ctx, options) {
       // 新版充能治疗（有 value.diceCount）
       if (effect.value && typeof effect.value === 'object' && effect.value.diceCount) {
         const v = effect.value
-        const dice = `${v.diceCount}d${v.diceSides || 8}`
+        const diceCount = (v.scaleWithSlot && options?.slotLevel) ? options.slotLevel : v.diceCount
+        const dice = `${diceCount}d${v.diceSides || 8}`
         const bonus = v.diceBonus ? `+${v.diceBonus}` : ''
+        const scaleNote = v.scaleWithSlot && options?.slotLevel ? `（${options.slotLevel}环缩放）` : ''
         return {
           type: 'heal',
-          description: effect.description || (v.mode === 'max' ? `满疗 ${dice}${bonus}` : `治疗 ${dice}${bonus}`),
+          description: effect.description || (v.mode === 'max' ? `满疗 ${dice}${bonus}` : `治疗 ${dice}${bonus}`) + scaleNote,
           diceFormula: `${dice}${bonus}`,
           mode: v.mode || 'dice',
         }

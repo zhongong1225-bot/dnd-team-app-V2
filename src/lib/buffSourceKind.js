@@ -62,6 +62,7 @@ export function getColumnKeyForBuff(buff) {
   if (buff.fromFeat || buff.fromInvocation || buff.fromFightingStyle) return 'feat'
   if (buff.fromClassFeature) return 'class'
   if (buff.fromItem) return 'equipment'
+  if (buff.fromRace || buff.fromBackground) return 'race'
   return normalizeBuffSourceKindKey(buff.sourceKind)
 }
 
@@ -103,6 +104,8 @@ export function getBuffSourceKindLabel(buff) {
   if (buff.fromClassFeature) return '职业特性'
   if (buff.fromFeat) return '专长'
   if (buff.fromItem) return '装备'
+  if (buff.fromRace) return '种族'
+  if (buff.fromBackground) return '背景'
   return LABEL_BY_KEY[normalizeBuffSourceKindKey(buff.sourceKind)] ?? '冒险'
 }
 
@@ -117,6 +120,8 @@ export function getBuffSourceKindTitle(buff) {
   if (buff.fromClassFeature) return '职业特性：来自职业特性默认 BUFF 配置'
   if (buff.fromFeat) return '专长：来自已选专长，数值写入专长补丁'
   if (buff.fromItem) return '装备：来自已装备物品的附魔效果'
+  if (buff.fromRace) return '种族：来自种族特性'
+  if (buff.fromBackground) return '背景：来自背景特性'
   const key = normalizeBuffSourceKindKey(buff.sourceKind)
   const label = LABEL_BY_KEY[key] ?? '冒险'
   const hint = {

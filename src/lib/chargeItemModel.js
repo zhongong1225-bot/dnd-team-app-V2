@@ -378,7 +378,8 @@ export function formatChargeItemBrief(value) {
         const v = e.value || {}
         const dice = `${v.diceCount || 1}d${v.diceSides || 6}${v.diceBonus ? '+' + v.diceBonus : ''}`
         const typeLabel = v.damageType || 'fire'
-        effectLabels.push(`伤害 ${dice} ${typeLabel}`)
+        const scale = v.scaleWithSlot ? '（按环位缩放）' : ''
+        effectLabels.push(`伤害 ${dice} ${typeLabel}${scale}`)
       })
     }
     const healEffects = norm.effects.filter((e) => e.type === 'heal')
@@ -389,7 +390,8 @@ export function formatChargeItemBrief(value) {
           effectLabels.push(`满疗`)
         } else {
           const dice = `${v.diceCount || 1}d${v.diceSides || 8}${v.diceBonus ? '+' + v.diceBonus : ''}`
-          effectLabels.push(`治疗 ${dice}`)
+          const scale = v.scaleWithSlot ? '（按环位缩放）' : ''
+          effectLabels.push(`治疗 ${dice}${scale}`)
         }
       })
     }
