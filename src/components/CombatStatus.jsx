@@ -60,6 +60,8 @@ import { buildQuickRollAnimation } from '../lib/quickRollAnimation'
 import ActiveAbilityQuickBar from './combat/ActiveAbilityQuickBar'
 import SummonedCreaturesPanel from './combat/SummonedCreaturesPanel'
 import { executeAbility, canUseAbility } from '../lib/activeAbilityEngine'
+import { scaleStanceModules } from '../lib/chargeItemModel'
+import { getCreatureById } from '../data/creatureLibrary'
 import { isNewContainedSpellValue, normalizeContainedSpellValue, extractContainedSpellValueFromEntry } from '../lib/containedSpellModel'
 import { getFlatEffectEntries } from '../lib/effects/effectMapping'
 import { recoverShieldPoolsOnRest } from '../lib/shieldPoolUtils'
@@ -669,18 +671,106 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const patches = { ...result.patch }
     if (result.classResources) patches.classResources = result.classResources
 
+    let runningHp = Number(char.hp?.current) || 0
+    const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
+
     // 处理效果结果
     const effectResults = result.effectResults || []
     for (const er of effectResults) {
       if (er.type === 'heal' && er.dicePart) {
-        // 掷骰治疗
         const diceExpr = `${er.dicePart.count}d${er.dicePart.size}`
-        const { total, rolls } = rollDice(diceExpr)
-        const healValue = er.baseValue + total
-        const currentHp = Number(char.hp?.current) || 0
-        const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
-        const newHp = Math.min(maxHp, currentHp + healValue)
+        const { total } = rollDice(diceExpr)
+        const healValue = (er.baseValue || 0) + total
+        const newHp = Math.min(maxHp, runningHp + healValue)
         patches.hp = { ...char.hp, current: newHp }
+        runningHp = newHp
+      } else if (er.type === 'heal' && er.mode === 'max') {
+        const newHp = Math.min(maxHp, runningHp + (er.baseValue || 0))
+        patches.hp = { ...char.hp, current: newHp }
+        runningHp = newHp
+      } else if (er.type === 'damage' && er.diceFormula) {
+        const { total } = rollDice(er.diceFormula)
+        const newHp = Math.max(0, runningHp - total)
+        patches.hp = { ...char.hp, current: newHp }
+        runningHp = newHp
+      } else if (er.type === 'heal_full') {
+        patches.hp = { ...char.hp, current: maxHp }
+        runningHp = maxHp
+      } else if (er.type === 'buff') {
+        // 临时BUFF
+        const ev = er.raw?.value || {}
+        const modules = Array.isArray(ev.modules) ? ev.modules : []
+        if (modules.length > 0) {
+          const newBuff = {
+            id: String(Date.now()) + '_' + Math.random().toString(36).slice(2, 7),
+            source: ev.buffName || '临时BUFF',
+            effects: modules.map((m) => ({ ...m })),
+            enabled: true,
+            sourceKind: 'temporary',
+          }
+          const currentBuffs = Array.isArray(char.buffs) ? char.buffs : []
+          patches.buffs = [...currentBuffs, newBuff]
+        }
+      } else if (er.type === 'creature_transform') {
+        const ev = er.raw?.value || {}
+        const creatureId = ev.creatureId
+        const creature = creatureId ? getCreatureById(creatureId) : null
+        const transformBuff = {
+          id: String(Date.now()) + '_' + Math.random().toString(36).slice(2, 7),
+          source: `变身: ${creature?.name || '未知生物'}`,
+          effects: [{
+            effectType: 'creature_transform',
+            value: {
+              creatureId,
+              acMode: ev.acMode || 'replace',
+              acFormulaBase: ev.acFormulaBase || 13,
+              acFormulaAbility: ev.acFormulaAbility || '',
+              hpMode: ev.hpMode || 'replace',
+              hpFormula: ev.hpFormula || null,
+              keepAbilities: Array.isArray(ev.keepAbilities) ? ev.keepAbilities : [],
+              wildShapeMode: !!ev.wildShapeMode,
+              wildShapeSubclass: ev.wildShapeSubclass || 'regular',
+            },
+          }],
+          enabled: true,
+          sourceKind: 'temporary',
+          duration: ev.duration || { type: 'hours', value: 1 },
+        }
+        const currentBuffs = Array.isArray(char.buffs) ? char.buffs : []
+        patches.buffs = [...currentBuffs, transformBuff]
+      } else if (er.type === 'summon') {
+        const ev = er.raw?.value || {}
+        if (ev.preset === 'stellar_double') {
+          const tempHp = Number(char.hp?.temp) || 0
+          const realCurrentHp = Math.max(0, runningHp - tempHp)
+          const hpCost = Math.floor(realCurrentHp / 2)
+          const cloneHp = Math.floor(maxHp / 2)
+          const newHp = Math.max(0, runningHp - hpCost)
+          patches.hp = { ...char.hp, current: newHp }
+          runningHp = newHp
+          const cloneData = {
+            id: 'stellar_double_' + Date.now(),
+            name: `${char.name}的分身`,
+            type: 'stellar_double',
+            hp: { current: cloneHp, max: cloneHp },
+            createdAt: Date.now(),
+          }
+          const currentSummons = Array.isArray(char.summonedCreatures) ? char.summonedCreatures : []
+          patches.summonedCreatures = [...currentSummons, cloneData]
+        } else if (ev.creatureId) {
+          const creature = getCreatureById(ev.creatureId)
+          if (creature) {
+            const summonData = {
+              id: ev.creatureId + '_' + Date.now(),
+              name: creature.name,
+              type: ev.creatureId,
+              hp: { current: creature.hp || 1, max: creature.hp || 1 },
+              createdAt: Date.now(),
+            }
+            const currentSummons = Array.isArray(char.summonedCreatures) ? char.summonedCreatures : []
+            patches.summonedCreatures = [...currentSummons, summonData]
+          }
+        }
       }
     }
 

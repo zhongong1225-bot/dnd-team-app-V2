@@ -161,6 +161,7 @@ export default function AbilityUseModal({ chargeValue, char, featureName, onConf
     }
 
     // 2. 逐个处理效果
+    let runningHp = Number(char.hp?.current) || 0  // 累积 HP 变化，防止多效果互相覆盖
     for (const eff of (norm.effects || [])) {
       const ev = eff.value || {}
       const scaled = computeScaledEffect(ev, amt)
@@ -206,15 +207,15 @@ export default function AbilityUseModal({ chargeValue, char, featureName, onConf
           const diceStr = rolls.length > 0 ? rolls.join('+') : `${scaledDice}d${sides}`
 
           if (isHeal) {
-            const currentHp = Number(char.hp?.current) || 0
             const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
-            const newHp = Math.min(maxHp, currentHp + total)
+            const newHp = Math.min(maxHp, runningHp + total)
             patch.hp = { ...char.hp, current: newHp }
+            runningHp = newHp
             lines.push(`💚 治疗: ${diceStr}${modLabel} = ${total}`)
           } else {
-            const currentHp = Number(char.hp?.current) || 0
-            const newHp = Math.max(0, currentHp - total)
+            const newHp = Math.max(0, runningHp - total)
             patch.hp = { ...char.hp, current: newHp }
+            runningHp = newHp
             lines.push(`⚔️ 伤害: ${diceStr}${modLabel} = ${total}`)
           }
         } else if (ev.text) {
@@ -341,14 +342,14 @@ export default function AbilityUseModal({ chargeValue, char, featureName, onConf
         }
       } else if (eff.type === 'summon') {
         if (ev.preset === 'stellar_double') {
-          const currentHp = Number(char.hp?.current) || 0
           const tempHp = Number(char.hp?.temp) || 0
-          const realCurrentHp = Math.max(0, currentHp - tempHp)
+          const realCurrentHp = Math.max(0, runningHp - tempHp)
           const hpCost = Math.floor(realCurrentHp / 2)
           const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
           const cloneHp = Math.floor(maxHp / 2)
-          const newHp = Math.max(0, currentHp - hpCost)
+          const newHp = Math.max(0, runningHp - hpCost)
           patch.hp = { ...char.hp, current: newHp }
+          runningHp = newHp
 
           const cloneData = {
             id: 'stellar_double_' + Date.now(),

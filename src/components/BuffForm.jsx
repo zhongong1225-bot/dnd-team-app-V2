@@ -1781,7 +1781,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                       {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
                     <span className="text-[10px] text-gray-500">+</span>
-                    <NumberStepper value={dv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...dv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" />
+                    <NumberStepper value={dv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...dv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
                   </div>
                   <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
                     <Trash2 className="w-3.5 h-3.5" />
@@ -1830,7 +1830,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                       {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
                     <span className="text-[10px] text-gray-500">+</span>
-                    <NumberStepper value={hv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...hv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" />
+                    <NumberStepper value={hv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...hv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
                   </div>
                 )}
                 {isMaxMode && (
@@ -2159,7 +2159,7 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
                     {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                   <span className="text-[10px] text-gray-500">+</span>
-                  <NumberStepper value={dv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...dv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" />
+                  <NumberStepper value={dv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...dv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
                 </div>
                 <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
                   <Trash2 className="w-3.5 h-3.5" />
@@ -2208,7 +2208,7 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
                     {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                   <span className="text-[10px] text-gray-500">+</span>
-                  <NumberStepper value={hv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...hv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" />
+                  <NumberStepper value={hv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...hv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
                 </div>
               )}
               {isMaxMode && (

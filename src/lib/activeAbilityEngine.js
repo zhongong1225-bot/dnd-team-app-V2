@@ -405,7 +405,7 @@ function computeEffect(effect, ctx, options) {
       // 旧版治疗（formula 格式）
       return computeHealEffect(effect, ctx, options)
     case 'creature_transform':
-      return { type: 'creature_transform', description: effect.description }
+      return { type: 'creature_transform', description: effect.description, raw: effect }
     case 'save_redirect':
       return {
         type: 'save_redirect',
