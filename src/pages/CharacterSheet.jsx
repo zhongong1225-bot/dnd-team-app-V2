@@ -710,7 +710,7 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                   </div>
                   {/* 描述 */}
                   <div>
-                    <textarea value={raceEditDesc} onChange={(e) => setRaceEditDesc(e.target.value)} rows={2}
+                    <textarea value={raceEditDesc} onChange={(e) => setRaceEditDesc(e.target.value)} rows={4}
                       className="w-full px-2 py-1.5 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold/50"
                       placeholder="种族描述 / 特性" />
                   </div>
@@ -760,7 +760,7 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                   </div>
                   {/* 描述 */}
                   <div>
-                    <textarea value={bgEditDesc} onChange={(e) => setBgEditDesc(e.target.value)} rows={2}
+                    <textarea value={bgEditDesc} onChange={(e) => setBgEditDesc(e.target.value)} rows={4}
                       className="w-full px-2 py-1.5 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold/50"
                       placeholder="背景描述" />
                   </div>
