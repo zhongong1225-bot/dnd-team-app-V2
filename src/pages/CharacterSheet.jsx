@@ -443,7 +443,6 @@ function AppearanceGrid({ char, canEdit, onSave, noBorder, compact }) {
     { label: '瞳色', value: eyes, set: setEyes },
     { label: '身高', value: height, set: setHeight },
     { label: '肤色', value: skin, set: setSkin },
-    { label: '种族', value: race, set: setRace },
     { label: '体重', value: weight, set: setWeight },
     { label: '发色', value: hair, set: setHair },
   ]
@@ -457,8 +456,8 @@ function AppearanceGrid({ char, canEdit, onSave, noBorder, compact }) {
   return (
     <div className={frameClass}>
       <div
-        className={`grid w-full min-w-0 ${compact ? 'gap-x-2 gap-y-3' : 'gap-x-3 gap-y-3.5'}`}
-        style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}
+        className={`grid w-full min-w-0 ${compact ? 'gap-x-2 gap-y-2' : 'gap-x-3 gap-y-3.5'}`}
+        style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}
       >
         {cells.map(({ label, value, set }) => (
           <AppearanceField
@@ -575,9 +574,9 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
   }
 
   return (
-    <div className="mt-2 space-y-1.5">
+    <div className="mt-1.5 space-y-1">
       {/* 种族 + 背景下拉行 */}
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-1.5 flex-wrap">
         <span className="text-xs text-gray-400 shrink-0">种族</span>
         {raceCard.raceId === 'custom' ? (
           <input type="text" value={raceCard.customName || ''} autoFocus
@@ -630,8 +629,8 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
 
       {/* 基础信息（常驻，无框） */}
       {raceCard.raceId && (
-        <div className="space-y-1">
-          <div className="flex items-center gap-4 flex-wrap">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-3 flex-wrap">
             <label className="flex items-center gap-1 text-xs text-gray-400">
               移速
               <input type="text" inputMode="numeric" value={raceBaseInfo.speed ?? 30}
@@ -662,7 +661,7 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
               </label>
             )}
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-xs text-gray-400">属性提高</span>
             {['str', 'dex', 'con', 'int', 'wis', 'cha'].map((key) => (
               <label key={key} className="flex items-center gap-1 text-xs text-gray-400">
@@ -3750,9 +3749,9 @@ export default function CharacterSheet() {
                   )}
                 </div>
                 {/* 左：外观/基础 + 种族背景 | 右：头像（四边对齐） */}
-                <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] lg:gap-[2ch]">
-                  <div className="min-w-0 flex flex-col gap-2 lg:gap-1.5">
-                    <h3 className="profile-section-title mt-0.5 mb-0.5">外观 / 基础</h3>
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] lg:gap-[2ch]">
+                  <div className="min-w-0 flex flex-col gap-1.5">
+                    <h3 className="profile-section-title mt-0 mb-0.5">外观 / 基础</h3>
                     <AppearanceGrid char={char} canEdit={canEdit} onSave={persist} noBorder compact />
                     <RaceBackgroundInline char={char} canEdit={canEdit} onSave={persist}
                       raceBuffEditorOpen={raceBuffEditorOpen} setRaceBuffEditorOpen={setRaceBuffEditorOpen}
