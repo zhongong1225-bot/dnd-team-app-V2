@@ -103,30 +103,32 @@ function findActiveAbilityFromCard(sourceKey, cards, slotKind = null) {
   
   if (!card) return null
   
-  // 从 charge_item 效果提取主动释放配置
-  const chargeEffect = Array.isArray(card.buffEffects) 
-    ? card.buffEffects.find(e => e.type === 'charge_item' && e.value && typeof e.value === 'object')
+  // 从 charge_item 效果提取主动释放配置（BUFF 编辑器用 effectType）
+  const chargeEffect = Array.isArray(card.buffEffects)
+    ? card.buffEffects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
     : null
-  
+
+  // 优先从 buffEffects 构造，其次用 buffEntryToCard 已构建的 activeAbility
+  if (!chargeEffect && card.activeAbility) return card.activeAbility
   if (!chargeEffect) return null
-  
+
   const chargeValue = chargeEffect.value
   // 从 effects 中提取第一个子效果作为主效果
-  const mainEffect = Array.isArray(chargeValue.effects) && chargeValue.effects.length > 0 
+  const mainEffect = Array.isArray(chargeValue.effects) && chargeValue.effects.length > 0
     ? chargeValue.effects[0]
     : null
-  
+
   if (!mainEffect) return null
-  
+
   // 构造主动技能对象（与 activeAbilityEngine 兼容）
   return {
     id: `${sourceKey}_active`,
     name: card.name || '主动技能',
     actionType: chargeValue.actionCost || 'action',
-    cost: chargeValue.resourceType === 'none' 
+    cost: chargeValue.resourceType === 'none'
       ? { type: 'none' }
       : { type: 'class_resource', resourceKey: chargeValue.resourceType || 'charges', amount: chargeValue.charges || 1 },
-    cooldown: chargeValue.recovery?.method === 'long_rest' ? 'long_rest' 
+    cooldown: chargeValue.recovery?.method === 'long_rest' ? 'long_rest'
               : chargeValue.recovery?.method === 'short_rest' ? 'short_rest'
               : 'none',
     description: card.description || '',
