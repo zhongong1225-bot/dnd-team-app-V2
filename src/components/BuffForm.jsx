@@ -1284,6 +1284,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
               compact
               narrow
               className="!h-7"
+              referenceData={referenceData}
             />
           </>
         )}
