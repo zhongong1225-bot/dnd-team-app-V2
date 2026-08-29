@@ -1541,6 +1541,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                     placeholder="BUFF名称"
                     className={inputCls + ' min-w-[6rem]'}
                   />
+                  <DurationEditor value={tv.duration} onChange={(newDur) => updateEffect(idx, { value: { ...tv, duration: newDur } })} compact showPresets={false} />
                   <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -1867,6 +1868,7 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
               <div className="flex items-center gap-x-1.5 flex-wrap">
                 <span className="text-violet-400 text-[10px] shrink-0 font-medium">临时BUFF</span>
                 <input type="text" value={tv.buffName ?? ''} onChange={(e) => updateEffect(idx, { value: { ...tv, buffName: e.target.value } })} placeholder="BUFF名称" className={inputCls + ' min-w-[6rem]'} />
+                <DurationEditor value={tv.duration} onChange={(newDur) => updateEffect(idx, { value: { ...tv, duration: newDur } })} compact showPresets={false} />
                 <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
               {modules.length > 0 && (
@@ -4463,8 +4465,9 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
   
   /** 模式选择弹窗显示状态：空卡首次配置时显示 */
   const [showModeSelection, setShowModeSelection] = useState(() => {
-    // 如果没有任何 effects，显示模式选择
-    return !initial?.effects || initial.effects.length === 0
+    // 如果没有任何 effects 且没有 modeSelected 标记，显示模式选择
+    // modeSelected 用于区分"从未配置"和"已清空所有效果"
+    return (!initial?.effects || initial.effects.length === 0) && !initial?.modeSelected
   })
   
   const sourceListId = useMemo(() => 'buff-source-options-' + Math.random().toString(36).slice(2, 9), [])
@@ -4476,8 +4479,9 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
     useWandScrollTable,
   }), [referenceData, spellDC, spellAttackBonus, useWandScrollTable])
   // custom_text 纯描述性效果无实际功能，过滤掉避免显示在编辑器中
+  // charge_item 属于主动释放效果，不应出现在被动模式中（由 activeChargeData 管理）
   const filteredInitial = initial?.effects
-    ? { ...initial, effects: initial.effects.filter(e => e.effectType !== 'custom_text') }
+    ? { ...initial, effects: initial.effects.filter(e => e.effectType !== 'custom_text' && e.effectType !== 'charge_item') }
     : initial
   
   const [effectModules, setEffectModules] = useState(() => normalizeInitialEffects(filteredInitial))
@@ -4552,13 +4556,19 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
     const activeEffects = (activeChargeData.effects?.length > 0)
       ? [{ category: 'active_release', effectType: 'charge_item', scope: 'global', scopeDetail: [], value: { ...activeChargeData } }]
       : []
-    const effects = [...passiveEffects, ...activeEffects]
+    // 去重：如果主动模式有 charge_item，则从被动效果中移除所有 charge_item（避免重复）
+    const passiveEffectsFiltered = activeEffects.length > 0
+      ? passiveEffects.filter(ef => ef.effectType !== 'charge_item')
+      : passiveEffects
+    const effects = [...passiveEffectsFiltered, ...activeEffects]
     const payload = {
       ...initial,
       source: source.trim(),
       duration: duration?.type ? duration : (duration || undefined),
       effects,
       enabled: initial?.enabled !== false,
+      // 标记已完成模式选择，避免下次打开再次弹窗
+      modeSelected: effects.length > 0 ? true : (initial?.modeSelected || false),
     }
     if (!initial?.fromFeat && !initial?.fromItem) {
       payload.sourceKind = normalizeBuffSourceKindKey(sourceKind)

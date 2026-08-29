@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo, forwardRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ChevronUp, ChevronDown, Trash2, Star, Upload, X, Plus, Settings, Zap, RefreshCw } from 'lucide-react'
+import { ChevronUp, ChevronDown, Trash2, Star, Upload, X, Plus, Settings, Zap, RefreshCw, Pencil } from 'lucide-react'
 
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
@@ -65,13 +65,13 @@ import AvatarCropModal from '../components/AvatarCropModal'
 import CharacterSheetTopBar from '../components/CharacterSheetTopBar'
 import FeatPickerModal from '../components/FeatPickerModal'
 import BuffForm from '../components/BuffForm'
-import { loadDefaultBuffPatch, saveDefaultBuffPatch, buildClassFeatureBuffKey } from '../lib/defaultBuffPatchStore'
+import { loadDefaultBuffPatch, saveDefaultBuffPatch, clearDefaultBuffPatch, buildClassFeatureBuffKey } from '../lib/defaultBuffPatchStore'
 import { CLASS_FEATURE_CHOICE_REGISTRY, CHOICE_ID_ALIASES } from '../data/classFeatureChoiceRegistry'
 import { executeAbility, canUseAbility } from '../lib/activeAbilityEngine'
 import { buildCardsFromCharacter, findActiveAbilityInCards, findAllActiveAbilitiesInCards } from '../lib/cardAdapter'
-import { formatRecoveryBrief, buildAbilityDiceExpr, RESOURCE_TYPE_OPTIONS, normalizeChargeItemValue, computeScaledEffect, getMaxSpendableAmount, resolveAbilityMod } from '../lib/chargeItemModel'
-import { rollDice } from '../data/weaponDatabase'
-import { getCreatureById } from '../data/creatureLibrary'
+import { formatRecoveryBrief, RESOURCE_TYPE_OPTIONS } from '../lib/chargeItemModel'
+import AbilityUseModal from '../components/AbilityUseModal'
+import { SCOPE_TYPE_OPTIONS } from '../lib/cardModel'
 import InfoTooltip from '../components/InfoTooltip'
 import { ClassFeatureTooltipContent, FeatTooltipContent } from '../lib/infoTooltipContent'
 import { APP_VERSION_LABEL } from '../config/version'
@@ -82,16 +82,63 @@ function buildClassFeatureOptionBuffKey(sourceClass, sourceSubclass, featureId, 
 }
 
 /** 从 BUFF 条目查找专长对应的第一个主动技能（仅当有主动释放效果时） */
-function findActiveAbilityForFeat(featId, cards) {
-  if (!Array.isArray(cards) || !featId) return null
-  const card = cards.find(c => c.slotKind === 'feat' && c.sourceKey === featId)
+/**
+ * 从任意卡的 charge_item 效果构造主动技能对象
+ * @param {string} sourceKey - 卡的 sourceKey（featId / itemInventoryId / classFeature key）
+ * @param {Array} cards - 所有卡数组
+ * @param {string} slotKind - 可选，限定卡类型 ('feat' | 'equipment' | 'class')
+ * @returns {object|null} 主动技能对象或 null
+ */
+function findActiveAbilityFromCard(sourceKey, cards, slotKind = null) {
+  if (!Array.isArray(cards) || !sourceKey) return null
+  
+  const card = cards.find(c => {
+    if (c.sourceKey !== sourceKey) return false
+    if (slotKind && c.slotKind !== slotKind) return false
+    return true
+  })
+  
   if (!card) return null
-  // 检查是否有 charge_item 效果（主动释放）
-  const hasChargeItem = Array.isArray(card.buffEffects) && card.buffEffects.some(e => e.type === 'charge_item')
-  if (!hasChargeItem) return null
-  // 有主动释放才返回主动技能
-  return card.activeAbility || null
+  
+  // 从 charge_item 效果提取主动释放配置
+  const chargeEffect = Array.isArray(card.buffEffects) 
+    ? card.buffEffects.find(e => e.type === 'charge_item' && e.value && typeof e.value === 'object')
+    : null
+  
+  if (!chargeEffect) return null
+  
+  const chargeValue = chargeEffect.value
+  // 从 effects 中提取第一个子效果作为主效果
+  const mainEffect = Array.isArray(chargeValue.effects) && chargeValue.effects.length > 0 
+    ? chargeValue.effects[0]
+    : null
+  
+  if (!mainEffect) return null
+  
+  // 构造主动技能对象（与 activeAbilityEngine 兼容）
+  return {
+    id: `${sourceKey}_active`,
+    name: card.name || '主动技能',
+    actionType: chargeValue.actionCost || 'action',
+    cost: chargeValue.resourceType === 'none' 
+      ? { type: 'none' }
+      : { type: 'class_resource', resourceKey: chargeValue.resourceType || 'charges', amount: chargeValue.charges || 1 },
+    cooldown: chargeValue.recovery?.method === 'long_rest' ? 'long_rest' 
+              : chargeValue.recovery?.method === 'short_rest' ? 'short_rest'
+              : 'none',
+    description: card.description || '',
+    needsInteraction: 'confirm',
+    effects: [{
+      type: mainEffect.type,
+      value: mainEffect.value,
+      // custom_logic 的描述在 value.description，其他类型可能在 text
+      description: mainEffect.value?.description || mainEffect.text || '',
+    }],
+  }
 }
+
+// 向后兼容别名
+const findActiveAbilityForFeat = (featId, cards) => findActiveAbilityFromCard(featId, cards, 'feat')
 
 
 import { inputClass } from '../lib/inputStyles'
@@ -1158,9 +1205,7 @@ function FightingStylesBlock({ char, feature, canEdit, onSave, moduleId }) {
 /** 职业特性动作按钮：根据 BUFF 配置渲染充能使用等按钮（含确认弹窗 + 效果处理） */
 function ClassFeatureActions({ feature, moduleId, char, onSave }) {
   const [lastResult, setLastResult] = useState(null)
-  const [confirmingIdx, setConfirmingIdx] = useState(null)
-  const [customAmount, setCustomAmount] = useState(1)
-  const [maxAmount, setMaxAmount] = useState(1)
+  const [useChargeValue, setUseChargeValue] = useState(null)
 
   const buffKey = buildClassFeatureBuffKey(feature.sourceClass, feature.sourceSubclass, feature.id)
   const defaultPatch = loadDefaultBuffPatch(moduleId, 'classFeature', buffKey)
@@ -1200,241 +1245,8 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
     return () => clearTimeout(timer)
   }, [lastResult])
 
-  /* ── 辅助：计算法术 DC（简化版，不含 buffStats） ── */
-  const computeSpellDC = useCallback(() => {
-    if (!char) return null
-    const totalLevel = getCharacterClasses(char).reduce((s, c) => s + (c.level || 0), 0) || 1
-    const L = Math.max(1, Math.min(20, Math.floor(totalLevel)))
-    const prof = proficiencyBonus(L)
-    const spellAbility = getPrimarySpellcastingAbility(char)
-    if (!spellAbility) return null
-    const mod = abilityModifier(char.abilities?.[spellAbility] ?? 10)
-    return 8 + prof + mod
-  }, [char])
-
-  const computeSpellAttack = useCallback(() => {
-    if (!char) return null
-    const totalLevel = getCharacterClasses(char).reduce((s, c) => s + (c.level || 0), 0) || 1
-    const L = Math.max(1, Math.min(20, Math.floor(totalLevel)))
-    const prof = proficiencyBonus(L)
-    const spellAbility = getPrimarySpellcastingAbility(char)
-    if (!spellAbility) return null
-    const mod = abilityModifier(char.abilities?.[spellAbility] ?? 10)
-    return prof + mod
-  }, [char])
-
   const getResourceLabel = (resourceType) => {
     return RESOURCE_TYPE_OPTIONS.find((o) => o.value === resourceType)?.label ?? resourceType
-  }
-
-  /* ── 打开确认弹窗 ── */
-  const openConfirm = (idx, chargeValue) => {
-    const norm = normalizeChargeItemValue(chargeValue)
-    const maxSpend = getMaxSpendableAmount(norm, char)
-    setMaxAmount(maxSpend)
-    setCustomAmount(1)
-    setConfirmingIdx(idx)
-  }
-
-  /* ── 确认使用：执行效果 + 扣除资源 ── */
-  const handleConfirmUse = () => {
-    if (confirmingIdx === null || !char || !onSave) return
-    const chargeValue = chargeEffects[confirmingIdx]?.value
-    if (!chargeValue) return
-    const norm = normalizeChargeItemValue(chargeValue)
-    const amt = customAmount
-    const patch = {}
-    const resultLines = []
-
-    /* 1. 资源消耗（按选择数量扣除） */
-    const isSpellSlot = /^spell_slot_[1-9]$/.test(norm.resourceType)
-    const isClassResource = norm.resourceType !== 'charges' && !isSpellSlot
-    if (isSpellSlot) {
-      const ring = parseInt(norm.resourceType.replace('spell_slot_', ''), 10)
-      const currentSlots = { ...(char.spellSlots || {}) }
-      const current = currentSlots[ring] || 0
-      const newCurrent = Math.max(0, current - amt)
-      if (newCurrent !== current) {
-        currentSlots[ring] = newCurrent
-        patch.spellSlots = currentSlots
-      }
-      resultLines.push(`消耗 ${amt} 个${ring}环法术位（剩余 ${newCurrent}）`)
-    } else if (isClassResource) {
-      const res = (char.classResources || []).find((r) => r.resourceKey === norm.resourceType)
-      if (res) {
-        const newResources = (char.classResources || []).map((r) => {
-          if (r.resourceKey !== norm.resourceType) return r
-          return { ...r, current: Math.max(0, r.current - amt) }
-        })
-        patch.classResources = newResources
-      }
-      resultLines.push(`消耗 ${amt} ${getResourceLabel(norm.resourceType)}`)
-    } else {
-      resultLines.push(`消耗 ${amt} 充能（共 ${norm.charges}）`)
-    }
-
-    /* 2. 逐个处理效果（使用缩放后的数值） */
-    for (const eff of (norm.effects || [])) {
-      const ev = eff.value || {}
-      const scaled = computeScaledEffect(ev, amt)
-
-      if (eff.type === 'spell') {
-        const spellName = ev.spellName || '(未命名法术)'
-        const scaledDice = scaled.damageDiceCount ?? (ev.damageDiceCount || 0)
-
-        if (ev.hitResolution === 'spell_attack') {
-          const atkBonus = computeSpellAttack()
-          const d20 = rollDice('1d20')
-          resultLines.push(
-            `${spellName} 攻击: d20=${d20.total}${atkBonus != null ? `${atkBonus >= 0 ? '+' : ''}${atkBonus}` : ''} = ${d20.total + (atkBonus || 0)}`,
-          )
-        } else if (ev.hitResolution && ev.hitResolution !== 'none') {
-          const dc = computeSpellDC()
-          const saveLabel = ev.hitResolution.replace('_save', '')
-          resultLines.push(`${spellName} 豁免DC ${dc ?? '?'} (${saveLabel})`)
-        } else {
-          resultLines.push(`${spellName}`)
-        }
-
-        if (scaledDice > 0) {
-          const diceExpr = `${scaledDice}d${ev.damageDiceSides || 6}`
-          const { total, rolls } = rollDice(diceExpr)
-          const damageType = ev.damageType || ''
-          resultLines.push(`  伤害: ${rolls.join('+')} = ${total}${damageType ? ` ${damageType}` : ''}`)
-        }
-      } else if (eff.type === 'ability') {
-        const scaledDice = scaled.diceCount ?? (ev.diceCount || 0)
-        const scaledFlat = scaled.flatBonus ?? 0
-        const sides = ev.diceSides || 10
-        const mod = resolveAbilityMod(ev.abilityMod, char)
-        const totalMod = mod + scaledFlat
-
-        if (scaledDice > 0) {
-          let diceExpr = `${scaledDice}d${sides}`
-          if (totalMod > 0) diceExpr += `+${totalMod}`
-          else if (totalMod < 0) diceExpr += `${totalMod}`
-          const { total, rolls } = rollDice(diceExpr)
-          const isHeal = ev.resultType !== 'damage'
-          const modLabel = totalMod !== 0 ? (totalMod > 0 ? `+${totalMod}` : `${totalMod}`) : ''
-          const diceStr = rolls.length > 0 ? rolls.join('+') : `${scaledDice}d${sides}`
-
-          if (isHeal) {
-            const currentHp = Number(char.hp?.current) || 0
-            const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
-            const newHp = Math.min(maxHp, currentHp + total)
-            patch.hp = { ...char.hp, current: newHp }
-            resultLines.push(`💚 治疗: ${diceStr}${modLabel} = ${total}`)
-          } else {
-            const currentHp = Number(char.hp?.current) || 0
-            const newHp = Math.max(0, currentHp - total)
-            patch.hp = { ...char.hp, current: newHp }
-            resultLines.push(`⚔️ 伤害: ${diceStr}${modLabel} = ${total}`)
-          }
-        } else if (ev.text) {
-          resultLines.push(ev.text)
-        }
-      } else if (eff.type === 'shield') {
-        const scaledAmount = scaled.amount ?? (ev.amount || 1)
-        resultLines.push(`🛡️ 护盾: ${scaledAmount}`)
-      } else if (eff.type === 'temp_buff') {
-        const buffName = (ev.buffName || '临时BUFF').trim()
-        const modules = Array.isArray(ev.modules) ? ev.modules : []
-        if (modules.length > 0) {
-          const newBuff = {
-            id: String(Date.now()) + '_' + Math.random().toString(36).slice(2, 7),
-            source: buffName,
-            effects: modules.map((m) => ({ ...m })),
-            enabled: true,
-            sourceKind: 'temporary',
-          }
-          const currentBuffs = Array.isArray(char.buffs) ? char.buffs : []
-          patch.buffs = [...currentBuffs, newBuff]
-          resultLines.push(`✨ 安装临时BUFF: ${buffName}（${modules.length}个效果）`)
-        } else {
-          resultLines.push(`⚠️ ${buffName}：无效果模块`)
-        }
-      } else if (eff.type === 'creature_transform') {
-        const creature = ev.creatureId ? getCreatureById(ev.creatureId) : null
-        const creatureName = creature?.name || '(未选择生物)'
-        resultLines.push(`🐾 变身: ${creatureName}`)
-      } else if (eff.type === 'restore_spell_slots') {
-        const maxSlots = getMaxSpellSlotsByRing(char)
-        const currentSlots = { ...(char.spellSlots || {}) }
-        const newSlots = { ...currentSlots }
-        const scaledSlots = scaled.slotsCount || 1
-
-        if (ev.mode === 'multi') {
-          const maxRing = ev.maxRing || 3
-          for (let ring = 1; ring <= maxRing; ring++) {
-            const max = maxSlots[ring] || 0
-            if (max > 0) newSlots[ring] = max
-          }
-        } else {
-          const targetRing = ev.ringLevel || 1
-          let slotsToRestore = scaledSlots
-          for (let ring = targetRing; ring >= 1 && slotsToRestore > 0; ring--) {
-            const max = maxSlots[ring] || 0
-            const current = currentSlots[ring] || 0
-            const canRestore = Math.min(slotsToRestore, max - current)
-            if (canRestore > 0) {
-              newSlots[ring] = current + canRestore
-              slotsToRestore -= canRestore
-            }
-          }
-        }
-
-        if (JSON.stringify(newSlots) !== JSON.stringify(currentSlots)) {
-          patch.spellSlots = newSlots
-          const restored = []
-          for (let r = 1; r <= 9; r++) {
-            const diff = (newSlots[r] || 0) - (currentSlots[r] || 0)
-            if (diff > 0) restored.push(`${r}环+${diff}`)
-          }
-          resultLines.push(`🔮 恢复法术位: ${restored.join(', ')}`)
-        } else {
-          resultLines.push(`🔮 法术位已满，无需恢复`)
-        }
-      } else if (eff.type === 'summon') {
-        if (ev.preset === 'stellar_double') {
-          // 星辰替身：消耗当前生命值的一半（不含临时生命），创建分身
-          const currentHp = Number(char.hp?.current) || 0
-          const tempHp = Number(char.hp?.temp) || 0
-          const realCurrentHp = Math.max(0, currentHp - tempHp) // 不含临时生命
-          const hpCost = Math.floor(realCurrentHp / 2)
-          const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
-          const cloneHp = Math.floor(maxHp / 2)
-
-          // 扣除生命值
-          const newHp = Math.max(0, currentHp - hpCost)
-          patch.hp = { ...char.hp, current: newHp }
-
-          // 创建分身数据
-          const cloneData = {
-            id: 'stellar_double_' + Date.now(),
-            name: `${char.name}的分身`,
-            type: 'stellar_double',
-            hp: { current: cloneHp, max: cloneHp },
-            createdAt: Date.now(),
-          }
-
-          // 添加到召唤生物列表
-          const currentSummons = Array.isArray(char.summonedCreatures) ? char.summonedCreatures : []
-          patch.summonedCreatures = [...currentSummons, cloneData]
-
-          resultLines.push(`⭐ 星辰替身：消耗 ${hpCost} 点生命值，创建分身（${cloneHp}/${cloneHp} HP）`)
-        } else {
-          // 普通召唤
-          const creatureName = ev.creatureId || '未命名生物'
-          resultLines.push(`📦 召唤: ${creatureName}`)
-        }
-      }
-    }
-
-    if (resultLines.length === 0) resultLines.push('(未配置效果)')
-
-    onSave(patch)
-    setLastResult({ lines: resultLines })
-    setConfirmingIdx(null)
   }
 
   if (abilityChecks.length === 0 && chargeEffects.length === 0) return null
@@ -1484,7 +1296,7 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
               <button
                 key={idx}
                 type="button"
-                onClick={() => openConfirm(idx, cv)}
+                onClick={() => setUseChargeValue(cv)}
                 className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors"
                 title={resourceType === 'charges' ? `${charges} 充能 | ${recoveryLabel}` : `消耗: ${resLabel}`}
               >
@@ -1506,172 +1318,19 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
         </div>
       )}
 
-      {/* ── 确认弹窗 ── */}
-      {confirmingIdx !== null && chargeEffects[confirmingIdx] && (() => {
-        const cv = chargeEffects[confirmingIdx].value
-        const norm = normalizeChargeItemValue(cv)
-        const isSpellSlot = /^spell_slot_[1-9]$/.test(norm.resourceType)
-        const isClassResource = norm.resourceType !== 'charges' && !isSpellSlot
-        const resLabel = getResourceLabel(norm.resourceType)
-        const amt = customAmount
-        const hasScaling = norm.effects.some((e) => e.value?.scalingEnabled)
-
-        return (
-          <>
-            <div className="fixed inset-0 z-[400] bg-black/60" onClick={() => setConfirmingIdx(null)} aria-hidden />
-            <div className="fixed inset-0 z-[401] flex items-center justify-center p-4" onClick={() => setConfirmingIdx(null)}>
-              <div
-                className="bg-[#1a1f2e] border border-dnd-gold/30 rounded-lg p-4 max-w-sm w-full shadow-xl"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-bold text-dnd-gold-light">使用 {feature.name}</h3>
-                  <button type="button" onClick={() => setConfirmingIdx(null)} className="text-gray-400 hover:text-white">
-                    <X size={14} />
-                  </button>
-                </div>
-
-                {/* 消耗数量选择 */}
-                <div className="flex items-center gap-x-2 mb-3">
-                  <span className="text-xs text-gray-300">消耗数量</span>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setCustomAmount(Math.max(1, amt - 1))}
-                      className="w-6 h-6 rounded bg-gray-700/60 text-gray-300 hover:bg-gray-600/80 flex items-center justify-center text-sm font-bold transition-colors"
-                    >−</button>
-                    <span className="w-8 text-center text-sm font-bold text-dnd-gold-light tabular-nums">{amt}</span>
-                    <button
-                      type="button"
-                      onClick={() => setCustomAmount(Math.min(maxAmount, amt + 1))}
-                      className="w-6 h-6 rounded bg-gray-700/60 text-gray-300 hover:bg-gray-600/80 flex items-center justify-center text-sm font-bold transition-colors"
-                    >+</button>
-                  </div>
-                  <span className="text-[10px] text-gray-500">
-                    {isSpellSlot
-                      ? `${resLabel}（剩余 ${(() => { const ring = parseInt(norm.resourceType.replace('spell_slot_', ''), 10); return char.spellSlots?.[ring] ?? 0 })()}）`
-                      : isClassResource
-                      ? `${resLabel}（剩余 ${(() => { const res = (char.classResources || []).find((r) => r.resourceKey === norm.resourceType); return res ? `${res.current}/${res.max}` : '?' })()}）`
-                      : `充能（总 ${norm.charges}）`
-                    }
-                  </span>
-                </div>
-
-                {/* 效果列表（显示缩放后的数值） */}
-                {(norm.effects || []).length > 0 && (
-                  <div className="space-y-1.5 mb-4">
-                    <div className="text-[10px] text-gray-500 uppercase tracking-wide">效果</div>
-                    {norm.effects.map((eff, i) => {
-                      const ev = eff.value || {}
-                      const scaled = computeScaledEffect(ev, amt)
-                      if (eff.type === 'spell') {
-                        const scaledDice = scaled.damageDiceCount ?? (ev.damageDiceCount || 0)
-                        const diceExpr = scaledDice > 0 ? `${scaledDice}d${ev.damageDiceSides || 6}` : ''
-                        return (
-                          <div key={i} className="text-xs text-gray-300 flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400/60 shrink-0" />
-                            <span className="text-cyan-300">{ev.spellName || '(未命名法术)'}</span>
-                            {ev.hitResolution && ev.hitResolution !== 'none' && (
-                              <span className="text-[10px] text-gray-500">
-                                {ev.hitResolution === 'spell_attack' ? '法术攻击' : `${ev.hitResolution.replace('_save', '')}豁免`}
-                              </span>
-                            )}
-                            {diceExpr && (
-                              <span className="text-[10px] text-red-400/80">{diceExpr}{ev.damageType ? ` ${ev.damageType}` : ''}</span>
-                            )}
-                            {hasScaling && amt > 1 && ev.scalingEnabled && (
-                              <span className="text-[9px] text-amber-400/60">×{amt}</span>
-                            )}
-                          </div>
-                        )
-                      }
-                      if (eff.type === 'ability') {
-                        const scaledDice = scaled.diceCount ?? (ev.diceCount || 0)
-                        const scaledFlat = scaled.flatBonus ?? 0
-                        const sides = ev.diceSides || 10
-                        const mod = resolveAbilityMod(ev.abilityMod, char)
-                        const totalMod = mod + scaledFlat
-                        let expr = ''
-                        if (scaledDice > 0) {
-                          expr = `${scaledDice}d${sides}`
-                          if (totalMod > 0) expr += `+${totalMod}`
-                          else if (totalMod < 0) expr += `${totalMod}`
-                        }
-                        return (
-                          <div key={i} className="text-xs text-gray-300 flex items-center gap-1.5">
-                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${ev.resultType === 'damage' ? 'bg-red-400/60' : 'bg-green-400/60'}`} />
-                            <span>{ev.text || '(能力)'}</span>
-                            {expr && (
-                              <span className={`text-[10px] ${ev.resultType === 'damage' ? 'text-red-400/80' : 'text-green-400/80'}`}>
-                                {expr} {ev.resultType === 'damage' ? '伤害' : '治疗'}
-                              </span>
-                            )}
-                            {hasScaling && amt > 1 && ev.scalingEnabled && (
-                              <span className="text-[9px] text-amber-400/60">×{amt}</span>
-                            )}
-                          </div>
-                        )
-                      }
-                      if (eff.type === 'shield') {
-                        const scaledAmount = scaled.amount ?? (ev.amount || 1)
-                        return (
-                          <div key={i} className="text-xs text-gray-300 flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-blue-400/60 shrink-0" />
-                            <span>护盾 {scaledAmount}</span>
-                            {hasScaling && amt > 1 && ev.scalingEnabled && (
-                              <span className="text-[9px] text-amber-400/60">×{amt}</span>
-                            )}
-                          </div>
-                        )
-                      }
-                      if (eff.type === 'creature_transform') {
-                        const creature = ev.creatureId ? getCreatureById(ev.creatureId) : null
-                        return (
-                          <div key={i} className="text-xs text-gray-300 flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-rose-400/60 shrink-0" />
-                            <span className="text-rose-300">变身: {creature?.name || '(未选择生物)'}</span>
-                          </div>
-                        )
-                      }
-                      if (eff.type === 'restore_spell_slots') {
-                        const label = ev.mode === 'multi'
-                          ? `恢复 ${ev.maxRing || 3} 环及以下法术位`
-                          : `恢复 ${ev.ringLevel || 1} 环法术位`
-                        return (
-                          <div key={i} className="text-xs text-gray-300 flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-sky-400/60 shrink-0" />
-                            <span className="text-sky-300">{label}</span>
-                          </div>
-                        )
-                      }
-                      return null
-                    })}
-                  </div>
-                )}
-
-                {/* 确认 / 取消 */}
-                <div className="flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setConfirmingIdx(null)}
-                    className="px-3 py-1.5 rounded-md text-xs bg-gray-700/50 text-gray-300 border border-gray-600/50 hover:bg-gray-600/50 transition-colors"
-                  >
-                    取消
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleConfirmUse}
-                    disabled={amt < 1 || amt > maxAmount}
-                    className="px-3 py-1.5 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/40 hover:bg-dnd-gold/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    确认使用{amt > 1 ? ` (${amt})` : ''}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </>
-        )
-      })()}
+      {/* ── 使用确认弹窗（AbilityUseModal） ── */}
+      {useChargeValue && (
+        <AbilityUseModal
+          chargeValue={useChargeValue}
+          char={char}
+          featureName={feature.name}
+          onConfirm={(patch, lines) => {
+            if (patch && Object.keys(patch).length > 0) onSave(patch)
+            setLastResult({ lines })
+          }}
+          onClose={() => setUseChargeValue(null)}
+        />
+      )}
     </div>
   )
 }
@@ -1806,8 +1465,32 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
   const overridesMap = useRuleTextOverridesMap(moduleId)
   const [expandedFeatureIds, setExpandedFeatureIds] = useState(new Set())
   const [buffEditorFeature, setBuffEditorFeature] = useState(null)
+  const [editCardName, setEditCardName] = useState('')
+  const [editCardDesc, setEditCardDesc] = useState('')
+  const [descEditing, setDescEditing] = useState(false)
   const [buffEditorOption, setBuffEditorOption] = useState(null) // { feature, optionId, optionLabel }
+  const [editOptionCardName, setEditOptionCardName] = useState('')
+  const [editOptionCardDesc, setEditOptionCardDesc] = useState('')
+  const [optionDescEditing, setOptionDescEditing] = useState(false)
   const [choiceModalFeature, setChoiceModalFeature] = useState(null)
+  // 卡名称/描述编辑初始化
+  useEffect(() => {
+    if (!buffEditorFeature) { setEditCardName(''); setEditCardDesc(''); setDescEditing(false); return }
+    const bk = buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id)
+    const patch = loadDefaultBuffPatch(moduleId, 'classFeature', bk)
+    setEditCardName(patch?.cardName || buffEditorFeature.name)
+    setEditCardDesc(patch?.cardDescription || buffEditorFeature.description || '')
+  }, [buffEditorFeature?.id, moduleId])
+  // 选项卡名称/描述编辑初始化
+  useEffect(() => {
+    if (!buffEditorOption) { setEditOptionCardName(''); setEditOptionCardDesc(''); setOptionDescEditing(false); return }
+    const { feature, optionId } = buffEditorOption
+    const bk = buildClassFeatureBuffKey(feature.sourceClass, feature.sourceSubclass, feature.id)
+    const optBk = `${bk}:${optionId}`
+    const patch = loadDefaultBuffPatch(moduleId, 'classFeature', optBk)
+    setEditOptionCardName(patch?.cardName || buffEditorOption.optionLabel || feature.name)
+    setEditOptionCardDesc(patch?.cardDescription || '')
+  }, [buffEditorOption?.optionId, moduleId])
   const toggleFeatureExpand = (key) => {
     setExpandedFeatureIds((prev) => {
       const next = new Set(prev)
@@ -1843,6 +1526,10 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
             f.description,
           )
           const isChoiceType = !!CLASS_FEATURE_CHOICE_REGISTRY[buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)]
+          const cfScope = loadDefaultBuffPatch(moduleId, 'classFeature', buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id))?.cardScope
+          const cfScopeLabel = cfScope?.type && cfScope.type !== 'global'
+            ? (SCOPE_TYPE_OPTIONS.find(o => o.value === cfScope.type)?.label || cfScope.type)
+            : null
           return (
             <li key={key}>
               <CardView
@@ -1876,21 +1563,26 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                   </InfoTooltip>
                 }
                 headerRight={
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      if (isChoiceType) {
-                        setChoiceModalFeature(f)
-                      } else {
-                        setBuffEditorFeature(f)
-                      }
-                    }}
-                    className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
-                    title={isChoiceType ? '选择特性选项' : '配置 BUFF 效果'}
-                  >
-                    <Settings className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {cfScopeLabel && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/15 text-indigo-300 border border-indigo-500/20">{cfScopeLabel}</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (isChoiceType) {
+                          setChoiceModalFeature(f)
+                        } else {
+                          setBuffEditorFeature(f)
+                        }
+                      }}
+                      className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
+                      title={isChoiceType ? '选择特性选项' : '配置 BUFF 效果'}
+                    >
+                      <Settings className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 }
                 footer={<ClassFeatureActions feature={f} moduleId={moduleId} char={char} onSave={onSave} />}
               >
@@ -1932,14 +1624,18 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="p-4 border-b border-white/10">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-base font-semibold text-dnd-gold-light/90">
-                    配置 BUFF：{buffEditorFeature.name}
-                  </h3>
+                <div className="flex items-center justify-between gap-3">
+                  <input
+                    type="text"
+                    value={editCardName}
+                    onChange={(e) => setEditCardName(e.target.value)}
+                    className="flex-1 text-base font-semibold text-dnd-gold-light/90 bg-transparent border-b border-transparent hover:border-white/20 focus:border-dnd-gold-light/50 focus:outline-none px-1 py-0.5"
+                    placeholder="卡名称"
+                  />
                   <button
                     type="button"
                     onClick={() => setBuffEditorFeature(null)}
-                    className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"
+                    className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white shrink-0"
                   >
                     <X className="w-5 h-5" />
                   </button>
@@ -1949,14 +1645,28 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                     ? 'DM 配置默认 BUFF 效果，玩家选择该特性时自动获得。'
                     : '查看该职业特性的 BUFF 效果（只读）。'}
                 </p>
-                {buffEditorFeature.description && (
-                  <div className="mt-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 leading-relaxed whitespace-pre-line">
-                    {resolveRuleText(
-                      overridesMap,
-                      buffEditorFeature.sourceSubclass
-                        ? buildSubclassFeatureKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id)
-                        : buildClassFeatureKey(buffEditorFeature.sourceClass, buffEditorFeature.id),
-                      buffEditorFeature.description,
+                {descEditing ? (
+                  <textarea
+                    value={editCardDesc}
+                    onChange={(e) => setEditCardDesc(e.target.value)}
+                    rows={3}
+                    className="mt-2 w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold-light/40"
+                    placeholder="卡描述…"
+                  />
+                ) : (
+                  <div className="mt-2 flex items-start gap-2">
+                    <p className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 leading-relaxed whitespace-pre-line min-h-[2.5rem]">
+                      {editCardDesc || '暂无描述'}
+                    </p>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setDescEditing(true)}
+                        className="shrink-0 mt-0.5 p-1 rounded text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all"
+                        title="编辑描述"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
                     )}
                   </div>
                 )}
@@ -1967,8 +1677,12 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                   compact
                   readOnly={!isAdmin}
                   hideDuration
+                  charResources={char?.classResources}
+                  spellSlots={char?.spellSlots}
                   initial={{
                     source: `${buffEditorFeature.sourceClass}-${buffEditorFeature.name}`,
+                    cardName: editCardName,
+                    cardDescription: editCardDesc,
                     effects: (() => {
                       const patch = loadDefaultBuffPatch(
                         moduleId,
@@ -1987,6 +1701,14 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                       )
                       return patch?.enabled !== false
                     })(),
+                    cardScope: (() => {
+                      const patch = loadDefaultBuffPatch(
+                        moduleId,
+                        'classFeature',
+                        buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
+                      )
+                      return patch?.cardScope || undefined
+                    })(),
                   }}
                   onSave={(buff) => {
                     saveDefaultBuffPatch(
@@ -1997,7 +1719,18 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                         effects: buff.effects,
                         enabled: buff.enabled,
                         sourceName: `${buffEditorFeature.sourceClass}-${buffEditorFeature.name}`,
+                        cardScope: buff.cardScope,
+                        cardName: editCardName || undefined,
+                        cardDescription: editCardDesc || undefined,
                       },
+                    )
+                    setBuffEditorFeature(null)
+                  }}
+                  onClear={() => {
+                    clearDefaultBuffPatch(
+                      moduleId,
+                      'classFeature',
+                      buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
                     )
                     setBuffEditorFeature(null)
                   }}
@@ -2040,10 +1773,14 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="p-4 border-b border-white/10">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-base font-semibold text-dnd-gold-light/90">
-                    配置 BUFF：{buffEditorOption.feature.name} — {buffEditorOption.optionLabel}
-                  </h3>
+                <div className="flex items-center justify-between gap-3">
+                  <input
+                    type="text"
+                    value={editOptionCardName}
+                    onChange={(e) => setEditOptionCardName(e.target.value)}
+                    className="flex-1 text-base font-semibold text-dnd-gold-light/90 bg-transparent border-b border-transparent hover:border-white/20 focus:border-dnd-gold-light/50 focus:outline-none px-1 py-0.5"
+                    placeholder="卡名称"
+                  />
                   <button
                     type="button"
                     onClick={() => setBuffEditorOption(null)}
@@ -2052,11 +1789,31 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                     <X className="w-5 h-5" />
                   </button>
                 </div>
-                <p className="text-xs text-dnd-text-muted mt-1">
-                  {isAdmin
-                    ? 'DM 配置该选项的默认 BUFF 效果，玩家选择该选项时自动获得。'
-                    : '查看该选项的 BUFF 效果（只读）。'}
-                </p>
+                {optionDescEditing ? (
+                  <textarea
+                    value={editOptionCardDesc}
+                    onChange={(e) => setEditOptionCardDesc(e.target.value)}
+                    rows={3}
+                    className="mt-2 w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold-light/40"
+                    placeholder="卡描述…"
+                  />
+                ) : (
+                  <div className="mt-2 flex items-start gap-2">
+                    <p className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 leading-relaxed whitespace-pre-line min-h-[2.5rem]">
+                      {editOptionCardDesc || '暂无描述'}
+                    </p>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setOptionDescEditing(true)}
+                        className="shrink-0 mt-0.5 p-1 rounded text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all"
+                        title="编辑描述"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="p-4">
                 <BuffForm
@@ -2064,8 +1821,12 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                   compact
                   readOnly={!isAdmin}
                   hideDuration
+                  charResources={char?.classResources}
+                  spellSlots={char?.spellSlots}
                   initial={{
                     source: `${buffEditorOption.feature.sourceClass}-${buffEditorOption.feature.name}（${buffEditorOption.optionLabel}）`,
+                    cardName: editOptionCardName,
+                    cardDescription: editOptionCardDesc,
                     effects: (() => {
                       const optBuffKey = buildClassFeatureOptionBuffKey(
                         buffEditorOption.feature.sourceClass,
@@ -2117,6 +1878,8 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                         effects: buff.effects,
                         enabled: buff.enabled,
                         sourceName: `${buffEditorOption.feature.sourceClass}-${buffEditorOption.feature.name}（${buffEditorOption.optionLabel}）`,
+                        cardName: editOptionCardName || undefined,
+                        cardDescription: editOptionCardDesc || undefined,
                       },
                     )
                     setBuffEditorOption(null)
@@ -2148,7 +1911,7 @@ function formatFeatAcquisitionSentence(sourceClass, level, category) {
 }
 
 /** 专长：按自动计算的槽位展示，每个槽位从指定分类中选取；额外传奇专长可自由添加 */
-function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
+function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModuleId }) {
   const { currentModuleId } = useModule()
   const moduleId = currentModuleId || 'default'
   const overridesMap = useRuleTextOverridesMap(moduleId)
@@ -2274,8 +2037,8 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
   const filledSlots = slotRows.filter(({ row }) => row?.featId).length
   const totalFeats = filledSlots + freeRows.length
 
-  // 构建一次卡数组，供所有专长查找主动技能复用
-  const featCards = useMemo(() => buildCardsFromCharacter(char, moduleId), [char, moduleId])
+  // 构建一次卡数组，供所有专长查找主动技能复用（使用 sheetModuleId 与 allCards 保持一致）
+  const featCards = useMemo(() => buildCardsFromCharacter(char, sheetModuleId), [char, sheetModuleId])
 
   const FeatTypeTag = ({ category }) => {
     if (!category) return null
@@ -2322,7 +2085,10 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
             const category = feat?.category || (legacyStyle ? '旧版战斗风格' : slot.category)
             const isExpanded = expandedFeatIds.has(row?.featId)
             const hasDescription = Boolean(feat?.description)
-            const hasActiveAbility = row?.featId ? !!findActiveAbilityForFeat(row.featId, featCards) : false
+            const hasActiveAbility = row?.featId ? (() => {
+              const ability = findActiveAbilityForFeat(row.featId, featCards)
+              return !!ability
+            })() : false
 
             // 副标题文本
             const subtitleText = row?.featId ? (() => {
@@ -2391,8 +2157,16 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
                     <span className="text-sm text-gray-500">{slot.level || 1}级，{slot.category || '专长'}</span>
                   )}
                   headerRight={
-                    canEdit && row?.featId ? (
+                    canEdit && row?.featId ? (() => {
+                      const fScope = row.featBuffPatch?.cardScope
+                      const fScopeLabel = fScope?.type && fScope.type !== 'global'
+                        ? (SCOPE_TYPE_OPTIONS.find(o => o.value === fScope.type)?.label || fScope.type)
+                        : null
+                      return (
                       <div className="flex items-center gap-1.5 shrink-0">
+                        {fScopeLabel && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/15 text-indigo-300 border border-indigo-500/20">{fScopeLabel}</span>
+                        )}
                         <button
                           type="button"
                           onClick={() => setFeatBuffEditor({ row, slot })}
@@ -2418,7 +2192,8 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
-                    ) : canEdit && !row?.featId ? (
+                      )
+                    })() : canEdit && !row?.featId ? (
                       <button
                         type="button"
                         onClick={() => openPickerForSlot(slot)}
@@ -2648,10 +2423,13 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
                     key={`feat-buff-${editFeatId}`}
                     compact
                     hideDuration
+                    charResources={char?.classResources}
+                    spellSlots={char?.spellSlots}
                     initial={{
                       source: `feat-${editFeatId}`,
                       effects: initialEffects,
                       enabled: editRow?.featBuffPatch?.enabled !== false,
+                      cardScope: editRow?.featBuffPatch?.cardScope || defaultPatch?.cardScope || undefined,
                     }}
                     onSave={(buff) => {
                       const raw = char?.selectedFeats ?? []
@@ -2659,10 +2437,21 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext }) {
                         if (f?.slotId !== editRow.slotId && f?.featId !== editFeatId) return f
                         const next = { ...f }
                         if (buff.effects.length > 0) {
-                          next.featBuffPatch = { effects: buff.effects, enabled: buff.enabled }
+                          next.featBuffPatch = { effects: buff.effects, enabled: buff.enabled, cardScope: buff.cardScope }
                         } else {
                           delete next.featBuffPatch
                         }
+                        return next
+                      })
+                      onSave({ selectedFeats: updated })
+                      setFeatBuffEditor(null)
+                    }}
+                    onClear={() => {
+                      const raw = char?.selectedFeats ?? []
+                      const updated = raw.map((f) => {
+                        if (f?.slotId !== editRow.slotId && f?.featId !== editFeatId) return f
+                        const next = { ...f }
+                        delete next.featBuffPatch
                         return next
                       })
                       onSave({ selectedFeats: updated })
@@ -2716,6 +2505,17 @@ function ClassSection({ char, level, canEdit, onSave, moduleId }) {
   // 子职特性 BUFF 编辑器
   const [subclassFeatureEditor, setSubclassFeatureEditor] = useState(null) // { feature }
   const [subclassBuffEditor, setSubclassBuffEditor] = useState(null) // { feature } for BUFF editor modal
+  const [editSubclassCardName, setEditSubclassCardName] = useState('')
+  const [editSubclassCardDesc, setEditSubclassCardDesc] = useState('')
+  // 子职卡名称/描述初始化
+  useEffect(() => {
+    if (!subclassBuffEditor) { setEditSubclassCardName(''); setEditSubclassCardDesc(''); return }
+    const { feature, className: scCls, subclassName: scSub } = subclassBuffEditor
+    const bk = buildClassFeatureBuffKey(scCls, scSub, feature.id)
+    const patch = loadDefaultBuffPatch(moduleId, 'classFeature', bk)
+    setEditSubclassCardName(patch?.cardName || feature.name)
+    setEditSubclassCardDesc(patch?.cardDescription || feature.description || '')
+  }, [subclassBuffEditor?.feature?.id, moduleId])
 
   const persistClass = (patch) => {
     onSave({
@@ -3028,20 +2828,25 @@ function ClassSection({ char, level, canEdit, onSave, moduleId }) {
             <div className="fixed inset-0 z-[401] flex items-center justify-center p-4 sm:p-8 overflow-auto" onClick={() => setSubclassBuffEditor(null)}>
               <div className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl" onClick={(e) => e.stopPropagation()}>
                 <div className="p-4 border-b border-white/10">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-base font-semibold text-dnd-gold-light/90">
-                      配置 BUFF：{feature.name}
-                    </h3>
+                  <div className="flex items-center justify-between gap-3">
+                    <input
+                      type="text"
+                      value={editSubclassCardName}
+                      onChange={(e) => setEditSubclassCardName(e.target.value)}
+                      className="flex-1 text-base font-semibold text-dnd-gold-light/90 bg-transparent border-b border-transparent hover:border-white/20 focus:border-dnd-gold-light/50 focus:outline-none px-1 py-0.5"
+                      placeholder="卡名称"
+                    />
                     <button type="button" onClick={() => setSubclassBuffEditor(null)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white">
                       <X className="w-5 h-5" />
                     </button>
                   </div>
-                  <p className="text-xs text-dnd-text-muted mt-1">配置该子职特性的默认 BUFF 效果，角色选择该子职时自动获得。</p>
-                  {feature.description && (
-                    <div className="mt-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 leading-relaxed whitespace-pre-line">
-                      {feature.description}
-                    </div>
-                  )}
+                  <textarea
+                    value={editSubclassCardDesc}
+                    onChange={(e) => setEditSubclassCardDesc(e.target.value)}
+                    rows={3}
+                    className="mt-2 w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold-light/40"
+                    placeholder="卡描述…"
+                  />
                 </div>
                 <div className="p-4">
                   <BuffForm
@@ -3049,8 +2854,12 @@ function ClassSection({ char, level, canEdit, onSave, moduleId }) {
                     compact
                     readOnly={!canEdit}
                     hideDuration
+                    charResources={char?.classResources}
+                    spellSlots={char?.spellSlots}
                     initial={{
                       source: `${scClassName}-${feature.name}`,
+                      cardName: editSubclassCardName,
+                      cardDescription: editSubclassCardDesc,
                       effects: (() => {
                         const patch = loadDefaultBuffPatch(moduleId, 'classFeature', buffKey)
                         if (patch && Array.isArray(patch.effects) && patch.effects.length) return patch.effects
@@ -3066,6 +2875,8 @@ function ClassSection({ char, level, canEdit, onSave, moduleId }) {
                         effects: buff.effects,
                         enabled: buff.enabled,
                         sourceName: `${scClassName}-${feature.name}`,
+                        cardName: editSubclassCardName || undefined,
+                        cardDescription: editSubclassCardDesc || undefined,
                       })
                       setSubclassBuffEditor(null)
                     }}
@@ -3134,6 +2945,9 @@ export default function CharacterSheet() {
     ],
   )
   const buffStats = useBuffCalculator(char, mergedBuffs)
+
+  // 构建统一的 Card 数组，用于所有主动技能检测
+  const allCards = useMemo(() => buildCardsFromCharacter(char, sheetModuleId), [char, sheetModuleId])
 
   // 自动同步 BUFF 中的工具/乐器熟练项到 char.proficiencies.tools
   useEffect(() => {
@@ -3638,6 +3452,10 @@ export default function CharacterSheet() {
               onSave={persist}
               onWalletSuccess={noop}
               activityActor={user?.name}
+              activeAbilities={allCards.filter(c => c.slotKind === 'equipment').map(itemCard => {
+                const ability = findActiveAbilityFromCard(itemCard.sourceKey, allCards, 'equipment')
+                return ability ? { inventoryId: itemCard.sourceKey, ability } : null
+              }).filter(Boolean)}
             />
           </section>
           )}
@@ -3660,7 +3478,7 @@ export default function CharacterSheet() {
                 </div>
                 <div className="min-w-0">
                   <h3 className="section-title">专长</h3>
-                  <FeatsSection char={char} level={level} canEdit={canEdit} onSave={persist} formulaContext={buffFormulaContext} />
+                  <FeatsSection char={char} level={level} canEdit={canEdit} onSave={persist} formulaContext={buffFormulaContext} sheetModuleId={sheetModuleId} />
                 </div>
               </div>
             </section>

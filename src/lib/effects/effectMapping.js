@@ -13,8 +13,6 @@ import { loadRuleTextOverrides, resolveRuleText, buildFeatNameKey } from '../rul
 import { loadDefaultBuffPatch, mergeWithDefaultPatch, buildClassFeatureBuffKey } from '../defaultBuffPatchStore'
 import { getAvailableFeatures } from '../../data/classDatabase'
 import { HARDCODED_FEAT_BUFFS } from '../../data/featDefaultBuffs'
-import { HARDCODED_CLASS_FEATURE_BUFFS } from '../../data/classFeatureDefaultBuffs'
-import { DEFAULT_CLASS_FEATURE_ABILITIES, DEFAULT_FEAT_ABILITIES } from '../../data/defaultActiveAbilities'
 import { getChoiceEffects, CLASS_FEATURE_CHOICE_REGISTRY, CHOICE_ID_ALIASES } from '../../data/classFeatureChoiceRegistry'
 import { findShieldSlot } from '../equipmentLayers'
 import { getMergedBuffsViaCards } from '../cardAdapter'
@@ -188,11 +186,18 @@ export function getBuffsFromSelectedFeats(character, moduleId) {
     let effects = Array.isArray(patch?.effects) && patch.effects.length ? patch.effects : []
     // 无自定义且无模组库默认时，回退到硬编码专长效果
     if (effects.length === 0 && !patch && HARDCODED_FEAT_BUFFS[item.featId]) {
-      effects = HARDCODED_FEAT_BUFFS[item.featId]
+      const hardcoded = HARDCODED_FEAT_BUFFS[item.featId]
+      effects = Array.isArray(hardcoded.effects) ? hardcoded.effects : []
     }
     const duration = patch?.duration
     const enabled = patch?.enabled !== false
     const defaultAbilities = DEFAULT_FEAT_ABILITIES[item.featId] || []
+    // 检查是否有主动技能配置（从 featBuffPatch 的 charge_item 效果提取）
+    const hasActiveAbilityFromPatch = Array.isArray(patch?.effects) && patch.effects.some(e => 
+      e.effectType === 'charge_item' && e.value && typeof e.value === 'object'
+    )
+    // 只有拥有功能卡的专长才出现在 BUFF 栏（有被动效果、默认主动技能、或编辑器配置的主动技能）
+    if (effects.length === 0 && defaultAbilities.length === 0 && !hasActiveAbilityFromPatch) return
     out.push({
       id: `feat_${item.featId}`,
       source: name,
@@ -453,14 +458,12 @@ export function getBuffsFromClassFeatures(character, moduleId) {
         const choiceResult = getChoiceEffects(buffKey, classFeatureChoices)
         if (choiceResult) effects = choiceResult.effects
       }
-      if (effects.length === 0 && !registryEntry && HARDCODED_CLASS_FEATURE_BUFFS[buffKey]) {
-        effects = HARDCODED_CLASS_FEATURE_BUFFS[buffKey]
-      }
       // 注入默认主动技能（即使无被动效果也保留条目）
       // 优先级：DM 补丁配置 > 硬编码默认
       const patchAbilities = Array.isArray(defaultPatch?.activeAbilities) ? defaultPatch.activeAbilities : null
       const defaultAbilities = patchAbilities || DEFAULT_CLASS_FEATURE_ABILITIES[buffKey] || []
-      if (effects.length === 0 && defaultAbilities.length === 0) return null
+      // 只有拥有功能卡的特性才出现在 BUFF 栏
+      if (defaultAbilities.length === 0) return null
       return {
         id: `classfeature_${f.sourceClass}_${f.sourceSubclass || ''}_${f.id}${optionId ? `_${optionId}` : ''}`,
         source: sourceLabel,

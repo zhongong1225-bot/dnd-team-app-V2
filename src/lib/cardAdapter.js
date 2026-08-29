@@ -71,6 +71,45 @@ function buffEntryToCard(buffEntry) {
   const slotKind = inferSlotKind(buffEntry)
   const sourceType = inferSourceType(buffEntry)
   const sourceKey = inferSourceKey(buffEntry)
+  const effects = Array.isArray(buffEntry.effects) ? buffEntry.effects : []
+  
+  // 从 effects 中提取 charge_item 效果作为主动技能（新系统）
+  const chargeEffect = effects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
+  let activeAbility = null
+  
+  if (chargeEffect) {
+    const chargeValue = chargeEffect.value
+    const mainEffect = Array.isArray(chargeValue.effects) && chargeValue.effects.length > 0 
+      ? chargeValue.effects[0]
+      : null
+    
+    if (mainEffect) {
+      activeAbility = {
+        id: `${sourceKey}_active`,
+        name: buffEntry.source || '主动技能',
+        actionType: chargeValue.actionCost || 'action',
+        cost: chargeValue.resourceType === 'none' 
+          ? { type: 'none' }
+          : { type: 'class_resource', resourceKey: chargeValue.resourceType || 'charges', amount: chargeValue.charges || 1 },
+        cooldown: chargeValue.recovery?.method === 'long_rest' ? 'long_rest' 
+                  : chargeValue.recovery?.method === 'short_rest' ? 'short_rest'
+                  : 'none',
+        description: '',
+        needsInteraction: 'confirm',
+        effects: [{
+          type: mainEffect.type,
+          value: mainEffect.value,
+          // custom_logic 的描述在 value.description，其他类型可能在 text
+          description: mainEffect.value?.description || mainEffect.text || '',
+        }],
+      }
+    }
+  }
+  
+  // 优先使用编辑器配置的主动技能，其次使用旧的 activeAbilities 字段
+  const finalActiveAbility = activeAbility || (Array.isArray(buffEntry.activeAbilities) && buffEntry.activeAbilities.length
+    ? buffEntry.activeAbilities[0]
+    : null)
 
   return normalizeCard(createCard(slotKind, {
     id: buffEntry.id,
@@ -78,7 +117,7 @@ function buffEntryToCard(buffEntry) {
     slotKind,
     sourceType,
     sourceKey,
-    buffEffects: Array.isArray(buffEntry.effects) ? buffEntry.effects : [],
+    buffEffects: effects,
     enabled: buffEntry.enabled !== false,
     // 职业特性附加字段
     ...(buffEntry.fromClassFeature ? {
@@ -86,9 +125,7 @@ function buffEntryToCard(buffEntry) {
       subclass: buffEntry.sourceSubclass || undefined,
     } : {}),
     // 主动技能
-    ...(Array.isArray(buffEntry.activeAbilities) && buffEntry.activeAbilities.length
-      ? { activeAbility: buffEntry.activeAbilities[0] }
-      : {}),
+    ...(finalActiveAbility ? { activeAbility: finalActiveAbility } : {}),
   }))
 }
 

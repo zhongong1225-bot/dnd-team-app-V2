@@ -395,6 +395,18 @@ export const RESOURCE_RULES = [
     note: '总等级每5级1点，长休恢复',
     group: '星辰',
   },
+
+  /* ── 专长资源 ─────────────────────────────────────────── */
+  {
+    resourceKey: 'lucky_points',
+    name: '幸运点',
+    classKey: '_feat',
+    featId: 'lucky',
+    fixedMax: 3,
+    recovery: 'long',
+    note: '幸运专长，固定3点，长休恢复',
+    group: '专长',
+  },
 ]
 
 /* ── 查询函数 ─────────────────────────────────────────────── */
@@ -448,6 +460,11 @@ export function computeResourceMax(rule, { classLevel = 1, totalLevel = 1, abili
   const abilityMod = (key) => {
     if (!key || !abilities[key]) return 0
     return Math.floor((Number(abilities[key]) - 10) / 2)
+  }
+
+  // 0. 固定值
+  if (rule.fixedMax != null) {
+    return rule.fixedMax
   }
 
   // 1. 等级表

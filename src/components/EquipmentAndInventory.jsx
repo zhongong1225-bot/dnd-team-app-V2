@@ -28,6 +28,7 @@ import {
   Eye,
   Layers,
 } from 'lucide-react'
+import { executeAbility, canUseAbility } from '../lib/activeAbilityEngine'
 import DragHandleIcon from './DragHandleIcon'
 import { getItemById, getItemDisplayName, itemRequiresAttunement } from '../data/itemDatabase'
 import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
@@ -262,7 +263,7 @@ const BAG_PANEL_ICON_BTN =
   'inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-lg border border-gray-500/70 bg-gray-800/90 text-gray-300 hover:bg-gray-700 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed'
 const BAG_PANEL_REMOVE_BTN =
   'inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-lg border border-dnd-red/60 bg-gray-800/90 text-dnd-red hover:bg-dnd-red/20 hover:border-dnd-red/80 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-gray-800/90 disabled:hover:border-dnd-red/60'
-export default function EquipmentAndInventory({ character, canEdit, onSave, onWalletSuccess, activityActor }) {
+export default function EquipmentAndInventory({ character, canEdit, onSave, onWalletSuccess, activityActor, activeAbilities = [] }) {
   const { currentModuleId } = useModule()
   const moduleId = currentModuleId || 'default'
   const reconcileResult = useMemo(() => reconcileBagModuleAnchors(character), [character])
@@ -1751,6 +1752,53 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                       onChargeChange={(v) => setCharge(i, v)}
                                     />
                                   )}
+                                  {(() => {
+                                    const activeEntry = activeAbilities.find(a => a.inventoryId === entry.id)
+                                    if (!activeEntry) return null
+                                    const { ability } = activeEntry
+                                    return (
+                                      <button
+                                        type="button"
+                                        onClick={async (e) => {
+                                          e.stopPropagation()
+                                          // 检查是否可用
+                                          if (!canUseAbility(character, ability.id)) {
+                                            alert('该技能当前不可用（可能资源不足或处于冷却中）')
+                                            return
+                                          }
+                                          // 执行主动技能
+                                          try {
+                                            const result = await executeAbility(character, ability.id)
+                                            if (result.success) {
+                                              // 应用资源消耗和状态更新
+                                              if (result.classResources) {
+                                                onSave({
+                                                  ...character,
+                                                  classResources: result.classResources,
+                                                })
+                                              }
+                                              if (result.patch) {
+                                                onSave({
+                                                  ...character,
+                                                  ...result.patch,
+                                                })
+                                              }
+                                              alert(`✅ ${ability.name} 执行成功！`)
+                                            } else {
+                                              alert('❌ 技能执行失败')
+                                            }
+                                          } catch (err) {
+                                            console.error('[Equipment] 执行装备主动技能失败', err)
+                                            alert('执行失败，请查看控制台')
+                                          }
+                                        }}
+                                        className="inline-flex items-center justify-center h-6 w-6 shrink-0 rounded border border-cyan-600/70 bg-cyan-900/20 text-cyan-300 hover:bg-cyan-800/40 transition-colors"
+                                        title={`使用主动技能: ${ability.name}`}
+                                      >
+                                        <Sparkles className="w-3.5 h-3.5" />
+                                      </button>
+                                    )
+                                  })()}
                                 </div>
                               </div>
                             ) : (

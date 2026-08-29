@@ -41,8 +41,6 @@ export default function BuffManager({
 }) {
   const { moduleLibrary } = useModule()
   const [formState, setFormState] = useState(null)
-  /** 编辑器内 主动/被动 模式切换 */
-  const [editorMode, setEditorMode] = useState('passive')
   const [editorFullscreen, setEditorFullscreen] = useState(false)
   const [showModuleLibrary, setShowModuleLibrary] = useState(false)
   const [importSearch, setImportSearch] = useState('')
@@ -477,30 +475,6 @@ export default function BuffManager({
             } : undefined}
             >
               <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 shrink-0">
-                <div className="flex items-center gap-1 p-0.5 bg-gray-900/50 rounded-lg border border-white/[0.06]">
-                  <button
-                    type="button"
-                    onClick={() => setEditorMode('active')}
-                    className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
-                      editorMode === 'active'
-                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
-                        : 'text-gray-500 hover:text-gray-300 border border-transparent'
-                    }`}
-                  >
-                    ⚔️ 主动
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditorMode('passive')}
-                    className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
-                      editorMode === 'passive'
-                        ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow-sm'
-                        : 'text-gray-500 hover:text-gray-300 border border-transparent'
-                    }`}
-                  >
-                    🛡️ 被动
-                  </button>
-                </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -529,8 +503,6 @@ export default function BuffManager({
                   referenceData={referenceData}
                   baseReferenceData={baseReferenceData}
                   sourceNameOptions={sourceNameOptions}
-                  buffMode={editorMode}
-                  onBuffModeChange={setEditorMode}
                   subordinates={subordinates}
                 />
               </div>

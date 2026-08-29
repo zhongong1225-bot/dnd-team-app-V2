@@ -770,6 +770,26 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       }
     }
 
+    // 专长资源：根据角色拥有的专长自动填充
+    const selectedFeatIds = new Set((char?.selectedFeats || []).map((f) => f?.featId).filter(Boolean))
+    const featRules = RESOURCE_RULES.filter((r) => r.classKey === '_feat' && r.recovery !== 'none')
+    for (const rule of featRules) {
+      if (!selectedFeatIds.has(rule.featId)) continue
+      const ctx = { classLevel: totalLevel, totalLevel, abilities: ab }
+      const newMax = computeResourceMax(rule, ctx)
+      const existing = next.find((r) => r.resourceKey === rule.resourceKey)
+      if (existing) {
+        if (existing.max !== newMax) {
+          existing.max = newMax
+          if (existing.current > newMax) existing.current = newMax
+          changed = true
+        }
+      } else if (newMax > 0) {
+        next.push(createResourceEntry(rule, ctx))
+        changed = true
+      }
+    }
+
     if (changed) {
       setClassResources(next)
       onSave({ classResources: next.map((r) => ({
@@ -779,7 +799,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         ...(r.diceType ? { diceType: r.diceType } : {}),
       })) })
     }
-  }, [char?.id, char?.['class'], char?.classLevel, char?.multiclass, char?.prestige, buffStats?.abilities])
+  }, [char?.id, char?.['class'], char?.classLevel, char?.multiclass, char?.prestige, char?.selectedFeats, buffStats?.abilities])
 
   useEffect(() => {
     const arr = Array.isArray(char?.combatMeans) ? char.combatMeans : []

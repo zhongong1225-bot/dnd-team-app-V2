@@ -126,6 +126,9 @@ export function loadDefaultBuffPatch(moduleId, kind, id) {
       ? { duration: String(patch.duration).trim() }
       : {}),
     ...(patch.enabled === false ? { enabled: false } : {}),
+    ...(patch.cardScope && typeof patch.cardScope === 'object' ? { cardScope: patch.cardScope } : {}),
+    ...(patch.cardName ? { cardName: patch.cardName } : {}),
+    ...(patch.cardDescription ? { cardDescription: patch.cardDescription } : {}),
   }
 }
 
@@ -176,13 +179,18 @@ export function saveDefaultBuffPatch(moduleId, kind, id, patch) {
   const effects = patch && Array.isArray(patch.effects) ? patch.effects : []
   const duration = patch?.duration != null ? String(patch.duration).trim() : ''
   const enabled = patch?.enabled !== false
-  if (effects.length === 0 && !duration && enabled) {
+  if (effects.length === 0 && !duration && enabled && !patch?.cardName && !patch?.cardDescription) {
     delete map[key]
   } else {
     map[key] = {
       effects: effects.map((e) => ({ ...e })),
       ...(duration ? { duration } : {}),
       ...(enabled ? {} : { enabled: false }),
+      ...(patch?.cardScope && typeof patch.cardScope === 'object' && patch.cardScope.type && patch.cardScope.type !== 'global'
+        ? { cardScope: { ...patch.cardScope } }
+        : {}),
+      ...(patch?.cardName ? { cardName: patch.cardName } : {}),
+      ...(patch?.cardDescription ? { cardDescription: patch.cardDescription } : {}),
     }
   }
   saveRaw(moduleId, map)
