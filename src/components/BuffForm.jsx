@@ -4623,13 +4623,13 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
     setEditingModuleId(newMod.id)
   }
   /** 主动释放区域显示开关 */
+  const _initEffects = Array.isArray(initial?.effects) ? initial.effects : []
   const [showActiveRelease, setShowActiveRelease] = useState(() => {
-    const hasChargeItem = initial?.effects?.some((e) => e.effectType === 'charge_item')
-    return hasChargeItem
+    return _initEffects.some((e) => e.effectType === 'charge_item')
   })
   /** 主动模式的充能物品数据 */
   const [activeChargeData, setActiveChargeData] = useState(() => {
-    const chargeEffect = initial?.effects?.find((e) => e.effectType === 'charge_item')
+    const chargeEffect = _initEffects.find((e) => e.effectType === 'charge_item')
     if (chargeEffect?.value && typeof chargeEffect.value === 'object') {
       return normalizeChargeItemValue(chargeEffect.value)
     }
@@ -4639,7 +4639,7 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
   /** Tab模式：'passive' | 'active' */
   const [editMode, setEditMode] = useState(() => {
     // 如果已有charge_item效果，默认进入主动模式；否则进入被动模式
-    return initial?.effects?.some((e) => e.effectType === 'charge_item') ? 'active' : 'passive'
+    return _initEffects.some((e) => e.effectType === 'charge_item') ? 'active' : 'passive'
   })
 
   const handleSubmit = (e) => {
@@ -4915,7 +4915,7 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
               const displayLabel = summary && summary !== rawLabel && summary !== '未选择效果' ? summary : rawLabel
               const isEditing = editingModuleId === mod.id
               // 判断是否为新建效果（刚添加，尚未保存过）
-              const isNewEffect = !initial?.effects?.some((e) => e.effectType === mod.effectType && JSON.stringify(e.value) === JSON.stringify(mod.value))
+              const isNewEffect = !_initEffects.some((e) => e.effectType === mod.effectType && JSON.stringify(e.value) === JSON.stringify(mod.value))
               // 判断效果是否配置完整（有 value 且不为默认值）
               const isIncomplete = !mod.value || (typeof mod.value === 'number' && mod.value === 0) || (typeof mod.value === 'object' && Object.keys(mod.value).length === 0)
               

@@ -7,21 +7,20 @@
  * 生成新物品条目，由调用方写入背包或仓库
  */
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { Trash2, Plus, Pencil } from 'lucide-react'
+import { Pencil, X } from 'lucide-react'
 import { getItemListGrouped, getItemById, getItemDisplayName, parseWeaponNoteToTraits, buildWeaponNoteFromTraits, WEAPON_TRAIT_OPTIONS, WEAPON_MASTERY_OPTIONS, itemRequiresAttunement, addCustomItem, getOfficialNonMagicalItemTemplates } from '../data/itemDatabase'
 import { inputClass, textareaClass } from '../lib/inputStyles'
 import { useModule } from '../contexts/ModuleContext'
 import { BUFF_TYPES, getCategories, normalizeEffectCategory, parseDamageString, formatDamageForAttack, ITEM_STORAGE_DEFAULT_ITEM_IDS } from '../data/buffTypes'
-import { DamageDiceInlineRow, NumberStepper, EffectModuleModal } from './BuffForm'
+import { DamageDiceInlineRow, NumberStepper } from './BuffForm'
+import BuffForm from './BuffForm'
 import { getEffectSummaryShort } from './BuffListItem'
 import { evaluateBuffValue, isFormulaValue } from '../lib/formulas'
 import {
   normalizeContainedSpellValue,
   mergeContainedSpellEffects,
-  isNewContainedSpellValue,
   getContainedSpellTotalCharges,
 } from '../lib/containedSpellModel'
-import { formatContainedSpellLines } from '../lib/containedSpellBrief'
 
 /** 从护甲/衣服附注解析为可编辑字段（先匹配护甲基础再匹配盾牌，与 formulas 一致） */
 function parseArmorNoteToFields(note) {
@@ -281,8 +280,6 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
   const [intro, setIntro] = useState('')
   const [qty, setQty] = useState(1)
   const [effectModules, setEffectModules] = useState(() => [])
-  const [editingModuleId, setEditingModuleId] = useState(null)
-  const editingModule = useMemo(() => effectModules.find((m) => m.id === editingModuleId) || null, [effectModules, editingModuleId])
   const [armorFields, setArmorFields] = useState(() => ({ isShield: false, armorSubtype: '', baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '', stoneLayer: null }))
   const [weaponDamage, setWeaponDamage] = useState(() => ({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' }))
   const [weaponVersatileDamage, setWeaponVersatileDamage] = useState(() => ({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' }))
@@ -294,10 +291,12 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
   const [explosiveRadius, setExplosiveRadius] = useState(() => 0)
   const [explosiveDamage, setExplosiveDamage] = useState(() => ({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' }))
   const introRef = useRef(null)
-  const newModuleIdRef = useRef(null)
   const isTemplateLoadRef = useRef(false)
   const [moduleTemplateId, setModuleTemplateId] = useState('')
   const [officialTemplateId, setOfficialTemplateId] = useState('')
+  /** 编辑卡弹窗：替代旧的逐条效果编辑 */
+  const [buffFormOpen, setBuffFormOpen] = useState(false)
+  const [buffFormInitial, setBuffFormInitial] = useState(null)
 
   const itemTemplates = moduleLibrary?.itemTemplates ?? []
   const officialTemplates = useMemo(() => getOfficialNonMagicalItemTemplates(), [])
@@ -489,39 +488,33 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     autoResizeIntro()
   }, [open, intro])
 
-  const updateModule = (id, next) => {
-    setEffectModules((prev) => prev.map((m) => (m.id === id ? (typeof next === 'function' ? next(m) : { ...m, ...next }) : m)))
+  /** 打开编辑卡弹窗：将当前 effectModules 转为 BuffForm 格式 */
+  const openBuffFormEditor = () => {
+    const effectsForForm = effectModules.map((m) => ({
+      category: m.category,
+      effectType: m.effectType,
+      value: m.value,
+      customText: m.customText ?? '',
+      ...(m.break20 && typeof m.break20 === 'object' && Object.keys(m.break20).length ? { break20: m.break20 } : {}),
+    }))
+    setBuffFormInitial({ source: name?.trim() || editEntry?.name || 'item', effects: effectsForForm, modeSelected: true })
+    setBuffFormOpen(true)
   }
 
-  const removeModule = (id) => {
-    setEffectModules((prev) => prev.filter((m) => m.id !== id))
-  }
-
-  const handleAddModule = () => {
-    const m = createEmptyModule()
-    newModuleIdRef.current = m.id
-    setEffectModules((prev) => [...prev, m])
-    setEditingModuleId(m.id)
-  }
-
-  const handleEditModule = (id) => {
-    newModuleIdRef.current = null
-    setEditingModuleId(id)
-  }
-
-  const handleSaveModule = (draft) => {
-    if (!editingModuleId) return
-    updateModule(editingModuleId, draft)
-    newModuleIdRef.current = null
-    setEditingModuleId(null)
-  }
-
-  const handleCancelModule = () => {
-    if (editingModuleId && editingModuleId === newModuleIdRef.current) {
-      removeModule(editingModuleId)
-    }
-    newModuleIdRef.current = null
-    setEditingModuleId(null)
+  /** 编辑卡保存：将 BuffForm 输出转回 effectModules 格式 */
+  const handleBuffFormSave = (buffPayload) => {
+    const newModules = (buffPayload.effects || []).map((eff) => ({
+      id: 'm_' + Math.random().toString(36).slice(2),
+      category: eff.category,
+      effectType: eff.effectType,
+      value: eff.value,
+      break20: eff.break20 && typeof eff.break20 === 'object' ? eff.break20 : {},
+      customText: typeof eff.value === 'string' ? eff.value : (eff.customText ?? ''),
+      collapsed: false,
+    }))
+    setEffectModules(newModules)
+    setBuffFormOpen(false)
+    setBuffFormInitial(null)
   }
 
   const handleSubmit = async (e) => {
@@ -721,80 +714,43 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     onClose()
   }
 
-  const renderEffectModulesSection = (title = '附魔效果（可多条）', wrapperClassName = '') => (
+  const renderEffectCardSection = (title = '附魔效果', wrapperClassName = '') => (
     <div className={`${wrapperClassName}`}>
       <div className="flex items-center justify-between mb-0.5">
         <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">{title}</label>
         <button
           type="button"
-          onClick={handleAddModule}
+          onClick={openBuffFormEditor}
           className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-dnd-gold text-dnd-gold-light hover:bg-dnd-gold/20 text-[10px] font-medium"
         >
-          <Plus className="w-3 h-3" />
-          添加效果
+          <Pencil className="w-3 h-3" />
+          编辑效果卡
         </button>
       </div>
-      <div className="space-y-1">
-        {effectModules.length === 0 ? (
-          <p className="text-gray-500 text-xs text-center py-2">暂无附魔效果</p>
-        ) : (
-          effectModules.map((mod) => {
+      {effectModules.length === 0 ? (
+        <p className="text-gray-500 text-xs text-center py-2">暂无附魔效果</p>
+      ) : (
+        <div className="flex flex-wrap gap-1">
+          {effectModules.map((mod) => {
             const catData = BUFF_TYPES[mod.category]
             const currentEffect = catData?.effects?.find((e) => e.key === mod.effectType)
             const label = currentEffect ? (currentEffect.label ?? mod.effectType) : '—'
-            const isContainedSpell = mod.effectType === 'contained_spell' && mod.value && typeof mod.value === 'object' && !Array.isArray(mod.value)
-            let summaryNode
-            let summaryTitle
-            if (isContainedSpell) {
-              const { totalText, lines } = formatContainedSpellLines(mod.value, effectSummaryContext)
-              summaryTitle = [totalText, ...lines].filter(Boolean).join(' · ')
-              summaryNode = (
-                <span className="text-gray-200 text-sm block leading-snug">
-                  {totalText && <span className="text-dnd-text-muted text-xs block">{totalText}</span>}
-                  {lines.map((line, i) => (
-                    <span key={i} className="block">{line}</span>
-                  ))}
-                </span>
-              )
-            } else {
-              const summary = currentEffect
-                ? getEffectSummaryShort({ effectType: mod.effectType, value: mod.value, customText: mod.customText }, effectSummaryContext)
-                : '未选择效果'
-              summaryTitle = summary
-              summaryNode = <span className="text-gray-200 text-sm truncate" title={summary}>{summary}</span>
-            }
+            const summary = currentEffect
+              ? getEffectSummaryShort({ effectType: mod.effectType, value: mod.value, customText: mod.customText }, effectSummaryContext)
+              : ''
             return (
-              <div
+              <span
                 key={mod.id}
-                className="rounded border border-white/[0.08] bg-[#1a2333]/60 px-2 py-1.5 flex items-start justify-between gap-2"
+                className="inline-flex items-center rounded bg-[#1a2333]/60 border border-white/[0.08] px-1.5 py-0.5 text-xs text-gray-300"
+                title={summary}
               >
-                <div className="min-w-0 flex-1 flex items-start gap-2">
-                  <span className="text-dnd-gold-light/90 text-xs font-medium shrink-0 pt-0.5" title={summaryTitle}>{label}</span>
-                  {summaryNode}
-                </div>
-                <div className="flex items-center gap-0.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => handleEditModule(mod.id)}
-                    className="p-1 rounded text-gray-400 hover:bg-gray-700 hover:text-dnd-gold transition-colors"
-                    title="编辑"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => removeModule(mod.id)}
-                    className="p-1 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors"
-                    title="删除"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
+                <span className="text-dnd-gold-light/80 mr-1">{label}</span>
+                {summary && <span className="text-gray-400 truncate max-w-[120px]">{summary}</span>}
+              </span>
             )
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
     </div>
   )
 
@@ -1124,7 +1080,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                   })}
                 </div>
               </div>
-              {renderEffectModulesSection('附魔效果（可多条）', 'w-full pt-1.5 border-t border-gray-600/80')}
+              {renderEffectCardSection('附魔效果（可多条）', 'w-full pt-1.5 border-t border-gray-600/80')}
             </div>
           ) : null}
 
@@ -1236,7 +1192,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                 )}
               </div>
               <div className="rounded border border-gray-600 bg-gray-700/30 px-2 py-1.5 space-y-1.5">
-                {renderEffectModulesSection()}
+                {renderEffectCardSection()}
               </div>
             </>
           )}
@@ -1244,7 +1200,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
           {/* 非武器且非盔甲/衣服：仅附魔效果 */}
           {!isWeapon && !isArmor && (
             <div className="w-full rounded border border-gray-600 bg-gray-700/30 px-2 py-1.5 space-y-1.5">
-              {renderEffectModulesSection()}
+              {renderEffectCardSection()}
             </div>
           )}
 
@@ -1275,22 +1231,34 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
         </form>
       </div>
 
-      {editingModule && (
+      {buffFormOpen && buffFormInitial && (
         <>
-          <div className="fixed inset-0 z-[202] bg-black/50" onClick={handleCancelModule} aria-hidden />
-          <div className="fixed inset-0 z-[203] flex items-center justify-center p-4 sm:p-8 overflow-auto" onClick={handleCancelModule}>
-            <div className="w-full max-w-2xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-              <EffectModuleModal
-                module={editingModule}
-                isNew={editingModuleId === newModuleIdRef.current}
-                onSave={handleSaveModule}
-                onCancel={handleCancelModule}
-                referenceData={referenceData}
-                baseReferenceData={referenceData}
-                spellDC={spellDC}
-                spellAttackBonus={spellAttackBonus}
-                useWandScrollTable={useWandScrollTable}
-              />
+          <div className="fixed inset-0 z-[300] bg-black/60" onClick={() => setBuffFormOpen(false)} aria-hidden />
+          <div className="fixed inset-0 z-[301] flex items-center justify-center p-4 sm:p-8 overflow-auto" onClick={() => setBuffFormOpen(false)}>
+            <div className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl" onClick={(e) => e.stopPropagation()}>
+              <div className="p-4 border-b border-white/10">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-semibold text-dnd-gold-light/90">编辑物品效果</h3>
+                  <button type="button" onClick={() => setBuffFormOpen(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+              <div className="p-4">
+                <BuffForm
+                  key="item-buff-form"
+                  compact
+                  hideDuration
+                  initial={buffFormInitial}
+                  onSave={handleBuffFormSave}
+                  onCancel={() => setBuffFormOpen(false)}
+                  referenceData={referenceData}
+                  baseReferenceData={referenceData}
+                  spellDC={spellDC}
+                  spellAttackBonus={spellAttackBonus}
+                  useWandScrollTable={useWandScrollTable}
+                />
+              </div>
             </div>
           </div>
         </>

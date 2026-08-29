@@ -1760,32 +1760,32 @@ export default function Warehouse() {
                           <span className="block text-[10px] text-dnd-text-muted leading-tight">钱币</span>
                           <span className="text-dnd-gold-light/95 font-medium text-sm truncate block">{label}</span>
                         </div>
-                      </div>
-                      <div className={`${inventoryItemChargeCellClass} justify-center`}>
-                        <span className="text-dnd-text-muted text-xs tabular-nums">—</span>
-                      </div>
-                      <div className={inventoryItemQtyWeightCellClass}>
-                        <div
-                          className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
-                          onMouseDown={(e) => e.stopPropagation()}
-                          role="presentation"
-                        >
-                          <span className="shrink-0 leading-none">数量</span>
-                          <div className="w-[5.125rem] shrink-0 max-w-full h-6 flex items-center justify-end">
-                            <span className="text-dnd-text-body text-xs font-semibold tabular-nums inline-block text-right w-full pr-0.5">
-                              {nEntry.walletCurrencyId === 'gem_lb' ? formatDisplayGemLbQty(cq) : cq.toLocaleString('en-US')}
-                            </span>
+                        <span className={`${inventoryItemChargeCellClass} justify-center`}>
+                          <span className="text-dnd-text-muted text-xs tabular-nums">—</span>
+                        </span>
+                        <span className={inventoryItemQtyWeightCellClass}>
+                          <div
+                            className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            role="presentation"
+                          >
+                            <span className="shrink-0 leading-none">数量</span>
+                            <div className="w-[5.125rem] shrink-0 max-w-full h-6 flex items-center justify-end">
+                              <span className="text-dnd-text-body text-xs font-semibold tabular-nums inline-block text-right w-full pr-0.5">
+                                {nEntry.walletCurrencyId === 'gem_lb' ? formatDisplayGemLbQty(cq) : cq.toLocaleString('en-US')}
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                        <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
-                          {stackLb > 0 ? (
-                            <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
-                          ) : (
-                            <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
-                              —
-                            </span>
-                          )}
-                        </div>
+                          <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                            {stackLb > 0 ? (
+                              <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
+                            ) : (
+                              <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
+                                —
+                              </span>
+                            )}
+                          </div>
+                        </span>
                       </div>
                       <div className={inventoryItemActionsCellClass}>
                         <button
@@ -1863,50 +1863,50 @@ export default function Warehouse() {
                     <div className={inventoryItemNameTitleGroupClass}>
                       <span className={inventoryItemNameTextClass}>{displayName(nEntry)}</span>
                     </div>
-                  </div>
-                  <div
-                    className={inventoryItemChargeCellClass}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    role="presentation"
-                  >
-                    <span className="shrink-0 leading-none">可见</span>
-                    <div className="min-w-0 max-w-[5.5rem] shrink-0 w-full flex justify-end">
-                      <span className="text-dnd-text-muted text-xs">—</span>
-                    </div>
-                  </div>
-                  <div className={inventoryItemQtyWeightCellClass}>
-                    <div
-                      className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
+                    <span
+                      className={inventoryItemChargeCellClass}
                       onMouseDown={(e) => e.stopPropagation()}
                       role="presentation"
                     >
-                      <span className="shrink-0 leading-none">袋</span>
-                      <div className="w-[5.125rem] shrink-0 max-w-full">
-                        <NumberStepper
-                          value={nBagQty}
-                          onChange={(v) => {
-                            const n = Math.max(0, Math.min(MAX_BAG_OF_HOLDING_TOTAL, Math.floor(Number(v) || 0)))
-                            Promise.resolve(patchWarehouseNestedItem(currentModuleId, topBagIndex, path, { qty: n })).then(refreshList)
-                          }}
-                          min={0}
-                          max={MAX_BAG_OF_HOLDING_TOTAL}
-                          compact
-                          pill
-                          subtle
-                        />
+                      <span className="shrink-0 leading-none">可见</span>
+                      <div className="min-w-0 max-w-[5.5rem] shrink-0 w-full flex justify-end">
+                        <span className="text-dnd-text-muted text-xs">—</span>
                       </div>
-                    </div>
-                    <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
-                      {nestedSelfLb > 0 ? (
-                        <span className="text-dnd-text-body" title="仅子袋自重">
-                          {formatDisplayWeightLb(nestedSelfLb)} lb
-                        </span>
-                      ) : (
-                        <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
-                          —
-                        </span>
-                      )}
-                    </div>
+                    </span>
+                    <span className={inventoryItemQtyWeightCellClass}>
+                      <div
+                        className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        role="presentation"
+                      >
+                        <span className="shrink-0 leading-none">袋</span>
+                        <div className="w-[5.125rem] shrink-0 max-w-full">
+                          <NumberStepper
+                            value={nBagQty}
+                            onChange={(v) => {
+                              const n = Math.max(0, Math.min(MAX_BAG_OF_HOLDING_TOTAL, Math.floor(Number(v) || 0)))
+                              Promise.resolve(patchWarehouseNestedItem(currentModuleId, topBagIndex, path, { qty: n })).then(refreshList)
+                            }}
+                            min={0}
+                            max={MAX_BAG_OF_HOLDING_TOTAL}
+                            compact
+                            pill
+                            subtle
+                          />
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                        {nestedSelfLb > 0 ? (
+                          <span className="text-dnd-text-body" title="仅子袋自重">
+                            {formatDisplayWeightLb(nestedSelfLb)} lb
+                          </span>
+                        ) : (
+                          <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
+                            —
+                          </span>
+                        )}
+                      </div>
+                    </span>
                   </div>
                   <div className={inventoryItemActionsCellClass}>
                     <button
@@ -2007,64 +2007,64 @@ export default function Warehouse() {
                         <span className={inventoryItemNameTextClass}>{displayName(nEntry)}</span>
                         <span className={inventoryItemNameExtrasClass}>{nameExtra}</span>
                       </div>
-                    </div>
-                    {showCharge ? (
-                      <div
-                        className={inventoryItemChargeCellClass}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        role="presentation"
-                      >
-                        <span className="shrink-0 leading-none">充能</span>
-                        <div className="w-[5.125rem] shrink-0 max-w-full">
-                          <NumberStepper
-                            value={Number(nEntry.charge) || 0}
-                            onChange={(v) => {
-                              Promise.resolve(
-                                patchWarehouseNestedItem(currentModuleId, topBagIndex, path, { charge: Math.max(0, parseInt(v, 10) || 0) }),
-                              ).then(refreshList)
-                            }}
-                            min={0}
-                            compact
-                            pill
-                            subtle
-                          />
+                      {showCharge ? (
+                        <span
+                          className={inventoryItemChargeCellClass}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          role="presentation"
+                        >
+                          <span className="shrink-0 leading-none">充能</span>
+                          <div className="w-[5.125rem] shrink-0 max-w-full">
+                            <NumberStepper
+                              value={Number(nEntry.charge) || 0}
+                              onChange={(v) => {
+                                Promise.resolve(
+                                  patchWarehouseNestedItem(currentModuleId, topBagIndex, path, { charge: Math.max(0, parseInt(v, 10) || 0) }),
+                                ).then(refreshList)
+                              }}
+                              min={0}
+                              compact
+                              pill
+                              subtle
+                            />
+                          </div>
+                        </span>
+                      ) : (
+                        <span className={inventoryItemChargeCellClass} aria-hidden>
+                          <span className="opacity-0 select-none">—</span>
+                        </span>
+                      )}
+                      <span className={inventoryItemQtyWeightCellClass}>
+                        <div
+                          className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
+                          onMouseDown={(e) => e.stopPropagation()}
+                          role="presentation"
+                        >
+                          <span className="shrink-0 leading-none">数量</span>
+                          <div className="w-[5.125rem] shrink-0 max-w-full">
+                            <NumberStepper
+                              value={nQty}
+                              onChange={(v) => {
+                                const n = Math.max(1, parseInt(v, 10) || 1)
+                                Promise.resolve(patchWarehouseNestedItem(currentModuleId, topBagIndex, path, { qty: n })).then(refreshList)
+                              }}
+                              min={1}
+                              compact
+                              pill
+                              subtle
+                            />
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <div className={inventoryItemChargeCellClass} aria-hidden>
-                        <span className="opacity-0 select-none">—</span>
-                      </div>
-                    )}
-                    <div className={inventoryItemQtyWeightCellClass}>
-                      <div
-                        className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
-                        onMouseDown={(e) => e.stopPropagation()}
-                        role="presentation"
-                      >
-                        <span className="shrink-0 leading-none">数量</span>
-                        <div className="w-[5.125rem] shrink-0 max-w-full">
-                          <NumberStepper
-                            value={nQty}
-                            onChange={(v) => {
-                              const n = Math.max(1, parseInt(v, 10) || 1)
-                              Promise.resolve(patchWarehouseNestedItem(currentModuleId, topBagIndex, path, { qty: n })).then(refreshList)
-                            }}
-                            min={1}
-                            compact
-                            pill
-                            subtle
-                          />
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
-                        {stackLb > 0 ? (
-                          <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
-                        ) : (
-                          <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
-                            —
+                        <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                          {stackLb > 0 ? (
+                            <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
+                          ) : (
+                            <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
+                              —
                           </span>
                         )}
                       </div>
+                    </span>
                     </div>
                     <div className={inventoryItemActionsCellClass}>
                       <button
@@ -2271,32 +2271,32 @@ export default function Warehouse() {
                                           <span className="block text-[10px] text-dnd-text-muted leading-tight">钱币</span>
                                           <span className="text-dnd-gold-light/95 font-medium text-sm truncate block">{label}</span>
                                         </div>
-                                      </div>
-                                      <div className={`${inventoryItemChargeCellClass} justify-center`}>
-                                        <span className="text-dnd-text-muted text-xs">—</span>
-                                      </div>
-                                      <div className={inventoryItemQtyWeightCellClass}>
-                                        <div
-                                          className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
-                                          onMouseDown={(e) => e.stopPropagation()}
-                                          role="presentation"
-                                        >
-                                          <span className="shrink-0 leading-none">数量</span>
-                                          <div className="w-[5.125rem] shrink-0 max-w-full h-6 flex items-center justify-end">
-                                            <span className="text-dnd-text-body text-xs font-semibold tabular-nums text-right block w-full pr-0.5">
-                                              {entry.walletCurrencyId === 'gem_lb' ? formatDisplayGemLbQty(cq) : cq.toLocaleString('en-US')}
-                                            </span>
+                                        <span className={`${inventoryItemChargeCellClass} justify-center`}>
+                                          <span className="text-dnd-text-muted text-xs">—</span>
+                                        </span>
+                                        <span className={inventoryItemQtyWeightCellClass}>
+                                          <div
+                                            className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
+                                            onMouseDown={(e) => e.stopPropagation()}
+                                            role="presentation"
+                                          >
+                                            <span className="shrink-0 leading-none">数量</span>
+                                            <div className="w-[5.125rem] shrink-0 max-w-full h-6 flex items-center justify-end">
+                                              <span className="text-dnd-text-body text-xs font-semibold tabular-nums text-right block w-full pr-0.5">
+                                                {entry.walletCurrencyId === 'gem_lb' ? formatDisplayGemLbQty(cq) : cq.toLocaleString('en-US')}
+                                              </span>
+                                            </div>
                                           </div>
-                                        </div>
-                                        <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
-                                          {stackLb > 0 ? (
-                                            <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
-                                          ) : (
-                                            <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
-                                              —
-                                            </span>
-                                          )}
-                                        </div>
+                                          <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                                            {stackLb > 0 ? (
+                                              <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
+                                            ) : (
+                                              <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
+                                                —
+                                              </span>
+                                            )}
+                                          </div>
+                                        </span>
                                       </div>
                                       <div
                                         className={inventoryItemActionsCellClass}
@@ -2368,57 +2368,57 @@ export default function Warehouse() {
                                         <span className={inventoryItemNameTextClass}>{displayName(entry)}</span>
                                         <span className={inventoryItemNameExtrasClass}>{nameExtra}</span>
                                       </div>
-                                    </div>
-                                    {showCharge ? (
-                                      <div
-                                        className={inventoryItemChargeCellClass}
-                                        onMouseDown={(e) => e.stopPropagation()}
-                                        role="presentation"
-                                      >
-                                        <span className="shrink-0 leading-none">充能</span>
-                                        <div className="w-[5.125rem] shrink-0 max-w-full">
-                                          <NumberStepper
-                                            value={Number(entry.charge) || 0}
-                                            onChange={(v) => patchPublicBagInventoryItem(c.id, invIdx, { charge: v })}
-                                            min={0}
-                                            compact
-                                            pill
-                                            subtle
-                                          />
+                                      {showCharge ? (
+                                        <span
+                                          className={inventoryItemChargeCellClass}
+                                          onMouseDown={(e) => e.stopPropagation()}
+                                          role="presentation"
+                                        >
+                                          <span className="shrink-0 leading-none">充能</span>
+                                          <div className="w-[5.125rem] shrink-0 max-w-full">
+                                            <NumberStepper
+                                              value={Number(entry.charge) || 0}
+                                              onChange={(v) => patchPublicBagInventoryItem(c.id, invIdx, { charge: v })}
+                                              min={0}
+                                              compact
+                                              pill
+                                              subtle
+                                            />
+                                          </div>
+                                        </span>
+                                      ) : (
+                                        <span className={inventoryItemChargeCellClass} aria-hidden>
+                                          <span className="opacity-0 select-none">—</span>
+                                        </span>
+                                      )}
+                                      <span className={inventoryItemQtyWeightCellClass}>
+                                        <div
+                                          className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
+                                          onMouseDown={(e) => e.stopPropagation()}
+                                          role="presentation"
+                                        >
+                                          <span className="shrink-0 leading-none">数量</span>
+                                          <div className="w-[5.125rem] shrink-0 max-w-full">
+                                            <NumberStepper
+                                              value={qty}
+                                              onChange={(v) => patchPublicBagInventoryItem(c.id, invIdx, { qty: v })}
+                                              min={1}
+                                              compact
+                                              pill
+                                              subtle
+                                            />
+                                          </div>
                                         </div>
-                                      </div>
-                                    ) : (
-                                      <div className={inventoryItemChargeCellClass} aria-hidden>
-                                        <span className="opacity-0 select-none">—</span>
-                                      </div>
-                                    )}
-                                    <div className={inventoryItemQtyWeightCellClass}>
-                                      <div
-                                        className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
-                                        onMouseDown={(e) => e.stopPropagation()}
-                                        role="presentation"
-                                      >
-                                        <span className="shrink-0 leading-none">数量</span>
-                                        <div className="w-[5.125rem] shrink-0 max-w-full">
-                                          <NumberStepper
-                                            value={qty}
-                                            onChange={(v) => patchPublicBagInventoryItem(c.id, invIdx, { qty: v })}
-                                            min={1}
-                                            compact
-                                            pill
-                                            subtle
-                                          />
+                                        <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                                          {stackLb > 0 ? (
+                                            <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
+                                          ) : (
+                                            <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
+                                              —
+                                            </span>
+                                          )}
                                         </div>
-                                      </div>
-                                      <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
-                                        {stackLb > 0 ? (
-                                          <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
-                                        ) : (
-                                          <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
-                                            —
-                                          </span>
-                                        )}
-                                      </div>
+                                      </span>
                                     </div>
                                     <div
                                       className={inventoryItemActionsCellClass}
@@ -2579,37 +2579,37 @@ export default function Warehouse() {
                                     <span className="block text-[10px] text-dnd-text-muted leading-tight">钱币</span>
                                     <span className="text-dnd-gold-light/95 font-medium text-sm truncate block">{displayName(entry)}</span>
                                   </div>
-                                </div>
-                                <div className={`${inventoryItemChargeCellClass} justify-center`}>
-                                  <span className="text-dnd-text-muted text-xs">—</span>
-                                </div>
-                                <div className={inventoryItemQtyWeightCellClass}>
-                                  <div
-                                    className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    role="presentation"
-                                  >
-                                    <span className="shrink-0 leading-none">数量</span>
-                                    <div className="w-[5.125rem] shrink-0 max-w-full">
-                                      <NumberStepper
-                                        value={qty}
-                                        onChange={(v) => setQty(i, v)}
-                                        min={0}
-                                        compact
-                                        pill
-                                        subtle
-                                      />
+                                  <span className={`${inventoryItemChargeCellClass} justify-center`}>
+                                    <span className="text-dnd-text-muted text-xs">—</span>
+                                  </span>
+                                  <span className={inventoryItemQtyWeightCellClass}>
+                                    <div
+                                      className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
+                                      onMouseDown={(e) => e.stopPropagation()}
+                                      role="presentation"
+                                    >
+                                      <span className="shrink-0 leading-none">数量</span>
+                                      <div className="w-[5.125rem] shrink-0 max-w-full">
+                                        <NumberStepper
+                                          value={qty}
+                                          onChange={(v) => setQty(i, v)}
+                                          min={0}
+                                          compact
+                                          pill
+                                          subtle
+                                        />
+                                      </div>
                                     </div>
-                                  </div>
-                                  <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
-                                    {stackLb > 0 ? (
-                                      <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
-                                    ) : (
-                                      <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
-                                        —
-                                      </span>
-                                    )}
-                                  </div>
+                                    <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                                      {stackLb > 0 ? (
+                                        <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
+                                      ) : (
+                                        <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
+                                          —
+                                        </span>
+                                      )}
+                                    </div>
+                                  </span>
                                 </div>
                                 <div
                                   className={inventoryItemActionsCellClass}
@@ -2704,40 +2704,40 @@ export default function Warehouse() {
                                   <div className={inventoryItemNameTitleGroupClass}>
                                     <span className={inventoryItemNameTextClass}>{displayName(entry)}</span>
                                   </div>
-                                </div>
-                                <div className={inventoryItemChargeCellClass} aria-hidden>
-                                  <span className="opacity-0 select-none">—</span>
-                                </div>
-                                <div className={inventoryItemQtyWeightCellClass}>
-                                  <div
-                                    className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    role="presentation"
-                                  >
-                                    <span className="shrink-0 leading-none">袋</span>
-                                    <div className="w-[5.125rem] shrink-0 max-w-full">
-                                      <NumberStepper
-                                        value={bagQty}
-                                        onChange={(v) => setQty(i, v)}
-                                        min={0}
-                                        max={MAX_BAG_OF_HOLDING_TOTAL}
-                                        compact
-                                        pill
-                                        subtle
-                                      />
+                                  <span className={inventoryItemChargeCellClass} aria-hidden>
+                                    <span className="opacity-0 select-none">—</span>
+                                  </span>
+                                  <span className={inventoryItemQtyWeightCellClass}>
+                                    <div
+                                      className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
+                                      onMouseDown={(e) => e.stopPropagation()}
+                                      role="presentation"
+                                    >
+                                      <span className="shrink-0 leading-none">袋</span>
+                                      <div className="w-[5.125rem] shrink-0 max-w-full">
+                                        <NumberStepper
+                                          value={bagQty}
+                                          onChange={(v) => setQty(i, v)}
+                                          min={0}
+                                          max={MAX_BAG_OF_HOLDING_TOTAL}
+                                          compact
+                                          pill
+                                          subtle
+                                        />
+                                      </div>
                                     </div>
-                                  </div>
-                                  <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
-                                    {selfLb > 0 ? (
-                                      <span className="text-dnd-text-body" title="仅次元袋自重；袋内重量不计入此行">
-                                        {formatDisplayWeightLb(selfLb)} lb
-                                      </span>
-                                    ) : (
-                                      <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
-                                        —
-                                      </span>
-                                    )}
-                                  </div>
+                                    <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                                      {selfLb > 0 ? (
+                                        <span className="text-dnd-text-body" title="仅次元袋自重；袋内重量不计入此行">
+                                          {formatDisplayWeightLb(selfLb)} lb
+                                        </span>
+                                      ) : (
+                                        <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
+                                          —
+                                        </span>
+                                      )}
+                                    </div>
+                                  </span>
                                 </div>
                                 <div
                                   className={inventoryItemActionsCellClass}
@@ -2877,43 +2877,43 @@ export default function Warehouse() {
                                 />
                               )}
                             </div>
-                          </div>
-                          {showCharge ? (
-                            <div
-                              className={inventoryItemChargeCellClass}
-                              onMouseDown={(e) => e.stopPropagation()}
-                              role="presentation"
-                            >
-                              <span className="shrink-0 leading-none">充能</span>
-                              <div className="w-[5.125rem] shrink-0 max-w-full">
-                                <NumberStepper value={Number(entry.charge) || 0} onChange={(v) => setCharge(i, v)} min={0} compact pill subtle />
+                            {showCharge ? (
+                              <span
+                                className={inventoryItemChargeCellClass}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                role="presentation"
+                              >
+                                <span className="shrink-0 leading-none">充能</span>
+                                <div className="w-[5.125rem] shrink-0 max-w-full">
+                                  <NumberStepper value={Number(entry.charge) || 0} onChange={(v) => setCharge(i, v)} min={0} compact pill subtle />
+                                </div>
+                              </span>
+                            ) : (
+                              <span className={inventoryItemChargeCellClass} aria-hidden>
+                                <span className="opacity-0 select-none">—</span>
+                              </span>
+                            )}
+                            <span className={inventoryItemQtyWeightCellClass}>
+                              <div
+                                className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
+                                onMouseDown={(e) => e.stopPropagation()}
+                                role="presentation"
+                              >
+                                <span className="shrink-0 leading-none">数量</span>
+                                <div className="w-[5.125rem] shrink-0 max-w-full">
+                                  <NumberStepper value={qty} onChange={(v) => setQty(i, v)} min={1} compact pill subtle />
+                                </div>
                               </div>
-                            </div>
-                          ) : (
-                            <div className={inventoryItemChargeCellClass} aria-hidden>
-                              <span className="opacity-0 select-none">—</span>
-                            </div>
-                          )}
-                          <div className={inventoryItemQtyWeightCellClass}>
-                            <div
-                              className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
-                              onMouseDown={(e) => e.stopPropagation()}
-                              role="presentation"
-                            >
-                              <span className="shrink-0 leading-none">数量</span>
-                              <div className="w-[5.125rem] shrink-0 max-w-full">
-                                <NumberStepper value={qty} onChange={(v) => setQty(i, v)} min={1} compact pill subtle />
+                              <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                                {stackLb > 0 ? (
+                                  <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
+                                ) : (
+                                  <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
+                                    —
+                                  </span>
+                                )}
                               </div>
-                            </div>
-                            <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
-                              {stackLb > 0 ? (
-                                <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
-                              ) : (
-                                <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
-                                  —
-                                </span>
-                              )}
-                            </div>
+                            </span>
                           </div>
                           <div
                             className={inventoryItemActionsCellClass}

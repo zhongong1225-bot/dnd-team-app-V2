@@ -607,34 +607,21 @@ export function BagModuleSection({
                               <span className="text-[10px] text-dnd-text-muted">钱币</span>
                               <span className="text-dnd-gold-light/95 font-medium text-sm truncate block">{label}</span>
                             </div>
-                          </div>
-                          <div className={`${inventoryItemChargeCellClass} justify-center`} aria-hidden="true">
-                            <span className="text-[10px] text-dnd-text-muted tabular-nums">—</span>
-                          </div>
-                          <div className={inventoryItemQtyWeightCellClass}>
-                            <div
-                              className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
+                            <span
+                              className={inventoryItemQtyWeightCellClass}
                               onMouseDown={(e) => e.stopPropagation()}
                               role="presentation"
                             >
                               <span className="shrink-0 leading-none">数量</span>
-                              <div className="w-[5.125rem] shrink-0 max-w-full h-6 flex items-center justify-end">
-                                <span className="text-dnd-text-body text-xs font-semibold tabular-nums inline-block text-right w-full pr-0.5">
-                                  {entry.walletCurrencyId === 'gem_lb'
-                                    ? formatDisplayGemLbQty(walletQtyDisplay)
-                                    : walletQtyDisplay}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                              <span className="text-dnd-text-body text-xs font-semibold tabular-nums">
+                                {entry.walletCurrencyId === 'gem_lb'
+                                  ? formatDisplayGemLbQty(walletQtyDisplay)
+                                  : walletQtyDisplay}
+                              </span>
                               {stackLb > 0 ? (
                                 <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
-                              ) : (
-                                <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
-                                  —
-                                </span>
-                              )}
-                            </div>
+                              ) : null}
+                            </span>
                           </div>
                           {canEdit && (
                             <div
@@ -700,15 +687,13 @@ export function BagModuleSection({
                               />
                             )}
                           </div>
-                        </div>
-                        {showChargeCol ? (
-                          <div
-                            className={inventoryItemChargeCellClass}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            role="presentation"
-                          >
-                            <span className="shrink-0 leading-none">充能</span>
-                            <div className="w-[5.125rem] shrink-0 max-w-full">
+                          {showChargeCol ? (
+                            <span
+                              className={inventoryItemChargeCellClass}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              role="presentation"
+                            >
+                              <span className="shrink-0 leading-none">充能</span>
                               {canEdit && patchBag ? (
                                 <NumberStepper
                                   value={Number(entry.charge) || 0}
@@ -719,42 +704,32 @@ export function BagModuleSection({
                                   subtle
                                 />
                               ) : (
-                                <span className="text-dnd-text-body text-xs tabular-nums inline-block text-right w-full pr-0.5">{entry.charge}</span>
+                                <span className="text-dnd-text-body text-xs tabular-nums">{entry.charge}</span>
                               )}
-                            </div>
-                          </div>
-                        ) : null}
-                        <div className={inventoryItemQtyWeightCellClass}>
-                          <div
-                            className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
+                            </span>
+                          ) : null}
+                          <span
+                            className={inventoryItemQtyWeightCellClass}
                             onMouseDown={(e) => e.stopPropagation()}
                             role="presentation"
                           >
                             <span className="shrink-0 leading-none">数量</span>
-                            <div className="w-[5.125rem] shrink-0 max-w-full h-6 flex items-center justify-end">
-                              {canEdit && patchBag ? (
-                                <NumberStepper
-                                  value={qty}
-                                  onChange={(v) => patchBag(i, { qty: v })}
-                                  min={1}
-                                  compact
-                                  pill
-                                  subtle
-                                />
-                              ) : (
-                                <span className="text-dnd-text-body text-xs tabular-nums inline-block text-right w-full pr-0.5">{qty}</span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                            {canEdit && patchBag ? (
+                              <NumberStepper
+                                value={qty}
+                                onChange={(v) => patchBag(i, { qty: v })}
+                                min={1}
+                                compact
+                                pill
+                                subtle
+                              />
+                            ) : (
+                              <span className="text-dnd-text-body text-xs tabular-nums">{qty}</span>
+                            )}
                             {stackLb > 0 ? (
                               <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
-                            ) : (
-                              <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
-                                —
-                              </span>
-                            )}
-                          </div>
+                            ) : null}
+                          </span>
                         </div>
                         {canEdit && (
                           <div

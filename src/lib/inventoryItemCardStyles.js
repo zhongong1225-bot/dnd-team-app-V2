@@ -20,37 +20,37 @@ export const inventoryItemCardShellClass =
 export const inventoryItemCardListGapClass = 'gap-[0.6rem]'
 
 /**
- * 充能 / 数量+重量 / 操作：固定列宽，列表内上下对齐。
- * 注意：下列 grid-cols 须写死完整字面量，勿用模板插值拼接 —— Tailwind JIT 扫描不到运行时字符串，会漏生成 CSS，导致只剩 `display:grid` 而无列定义，子项会纵向堆叠。
+ * 充能 / 数量+重量：已合并到名称行内联显示，不再作为独立 grid 列。
+ * 保留常量供旧引用兼容。
  */
 export const INV_COL_CHARGE = '6.5rem'
 export const INV_COL_QTY_WEIGHT = '8.5rem'
 /** 编辑列：按 4 个图标（存仓·编辑·锁·删）预留宽度，仅 3 个时也占满本列，各行右缘对齐 */
 export const INV_COL_ACTIONS = '6rem'
 
-/** 有拖柄 + 充能列（充能>0 或钱币占位「—」等需占一格时）；数量与重量同一列内横向并排 */
+/** 有拖柄 + 充能列（充能>0 或钱币占位）；充能/数量已内联到名称行 */
 export const inventoryItemRowGridEditableWithCharge =
-  'grid grid-cols-[auto_minmax(0,1fr)_6.5rem_8.5rem_6rem] gap-x-2.5 gap-y-0 items-center min-w-0 shrink-0'
+  'grid grid-cols-[auto_minmax(0,1fr)_6rem] gap-x-2.5 gap-y-0 items-center min-w-0 shrink-0'
 
 /** 有拖柄、无充能列 */
 export const inventoryItemRowGridEditableNoCharge =
-  'grid grid-cols-[auto_minmax(0,1fr)_8.5rem_6rem] gap-x-2.5 gap-y-0 items-center min-w-0 shrink-0'
+  'grid grid-cols-[auto_minmax(0,1fr)_6rem] gap-x-2.5 gap-y-0 items-center min-w-0 shrink-0'
 
 /** 只读、无拖柄：有充能列 */
 export const inventoryItemRowGridReadWithCharge =
-  'grid grid-cols-[minmax(0,1fr)_6.5rem_8.5rem] gap-x-2.5 gap-y-0 items-center min-w-0 shrink-0'
+  'grid grid-cols-[minmax(0,1fr)_6rem] gap-x-2.5 gap-y-0 items-center min-w-0 shrink-0'
 
 /** 只读、无拖柄：无充能列 */
 export const inventoryItemRowGridReadNoCharge =
-  'grid grid-cols-[minmax(0,1fr)_8.5rem] gap-x-2.5 gap-y-0 items-center min-w-0 shrink-0'
+  'grid grid-cols-[minmax(0,1fr)_6rem] gap-x-2.5 gap-y-0 items-center min-w-0 shrink-0'
 
-/** 数量+重量列：同一行内横向排列（数量步进器 + 重量），略留水平余量 */
+/** 数量+重量列（内联在名称行内）：紧凑横排 */
 export const inventoryItemQtyWeightCellClass =
-  'min-w-0 w-full flex flex-row flex-nowrap items-center justify-end gap-x-2 min-h-7 px-0.5'
+  'inline-flex flex-nowrap items-center gap-x-1.5 shrink-0 text-[10px] text-dnd-text-muted whitespace-nowrap'
 
-/** 充能列：占满栅格单元，内容右对齐，略留水平余量 */
+/** 充能列（内联在名称行内）：紧凑横排 */
 export const inventoryItemChargeCellClass =
-  'min-w-0 w-full flex min-h-7 items-center justify-end gap-1 px-0.5 text-[10px] text-dnd-text-muted'
+  'inline-flex flex-nowrap items-center gap-1 shrink-0 text-[10px] text-dnd-text-muted whitespace-nowrap'
 
 /** 操作列：与栅格列宽一致，右对齐；图标间距略增便于 3/4 颗混排 */
 export const inventoryItemActionsCellClass =
