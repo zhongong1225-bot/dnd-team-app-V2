@@ -517,12 +517,18 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
   const handleSubraceChange = (subraceId) => onSave({ raceCard: { ...raceCard, subraceId } })
   const handleBackgroundChange = (backgroundId) => onSave({ backgroundCard: { ...backgroundCard, backgroundId } })
 
-  // 背景编辑器中的名称/描述编辑状态
+  // 种族/背景编辑器中的名称/描述编辑状态
+  const [raceEditName, setRaceEditName] = useState('')
+  const [raceEditDesc, setRaceEditDesc] = useState('')
   const [bgEditName, setBgEditName] = useState('')
   const [bgEditDesc, setBgEditDesc] = useState('')
 
   const handleRaceBuffSave = (buff) => {
     const next = { ...raceCard }
+    if (raceEditName.trim()) next.customName = raceEditName.trim()
+    else delete next.customName
+    if (raceEditDesc.trim()) next.customDescription = raceEditDesc.trim()
+    else delete next.customDescription
     if (buff.effects.length > 0) next.raceBuffPatch = { effects: buff.effects, enabled: buff.enabled }
     else delete next.raceBuffPatch
     onSave({ raceCard: next })
@@ -531,6 +537,8 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
   const handleRaceBuffClear = () => {
     const next = { ...raceCard }
     delete next.raceBuffPatch
+    delete next.customName
+    delete next.customDescription
     onSave({ raceCard: next })
     setRaceBuffEditorOpen(false)
   }
@@ -575,21 +583,19 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
 
   return (
     <div className="mt-1.5 space-y-1">
-      {/* 种族 + 背景下拉行 */}
+      {/* 种族 + 背景按钮行 */}
       <div className="flex items-center gap-1.5 flex-wrap">
-        <span className="text-xs text-gray-400 shrink-0">种族</span>
-        {raceCard.raceId === 'custom' ? (
-          <input type="text" value={raceCard.customName || ''} autoFocus
-            onChange={(e) => onSave({ raceCard: { ...raceCard, customName: e.target.value } })}
-            onBlur={() => { if (!raceCard.customName?.trim()) onSave({ raceCard: { ...raceCard, raceId: '' } }) }}
-            placeholder="输入种族名称" className="flex-1 min-w-0 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50" />
-        ) : (
-          <select value={raceCard.raceId || ''} onChange={(e) => handleRaceChange(e.target.value)} className={selCls}>
-            <option value="">— 选择种族 —</option>
-            {RACES.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            <option value="custom">自定义...</option>
-          </select>
-        )}
+        {/* 种族按钮 */}
+        <button type="button" onClick={() => {
+          const rName = raceCard.customName || selectedRace?.name || ''
+          const rDesc = raceCard.customDescription || selectedRace?.traits || ''
+          setRaceEditName(rName)
+          setRaceEditDesc(rDesc)
+          setRaceBuffEditorOpen(true)
+        }} className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 hover:border-dnd-gold/50 transition-colors min-w-0">
+          <span className="text-gray-400 shrink-0">种族</span>
+          <span className="truncate max-w-[120px]">{raceCard.customName || selectedRace?.name || '— 选择种族 —'}</span>
+        </button>
         {selectedRace && selectedRace.subraces.length > 0 && (
           <select value={raceCard.subraceId || ''} onChange={(e) => handleSubraceChange(e.target.value)} className={selCls}>
             <option value="">— 亚种 —</option>
@@ -597,34 +603,17 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
           </select>
         )}
 
-        <span className="text-xs text-gray-400 shrink-0 ml-1">背景</span>
-        {backgroundCard.backgroundId === 'custom' ? (
-          <input type="text" value={backgroundCard.customName || ''} autoFocus
-            onChange={(e) => onSave({ backgroundCard: { ...backgroundCard, customName: e.target.value } })}
-            onBlur={() => { if (!backgroundCard.customName?.trim()) onSave({ backgroundCard: { ...backgroundCard, backgroundId: '' } }) }}
-            placeholder="输入背景名称" className="flex-1 min-w-0 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50" />
-        ) : (
-          <select value={backgroundCard.backgroundId || ''} onChange={(e) => handleBackgroundChange(e.target.value)} className={selCls}>
-            <option value="">— 选择背景 —</option>
-            {BACKGROUNDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            <option value="custom">自定义...</option>
-          </select>
-        )}
-
-        {/* 背景编辑齿轮 */}
-        {canEdit && backgroundCard.backgroundId && (
-          <button type="button" onClick={() => {
-            const bgName = backgroundCard.customName || selectedBackground?.name || ''
-            const bgDesc = backgroundCard.customDescription || selectedBackground?.description || ''
-            setBgEditName(bgName)
-            setBgEditDesc(bgDesc)
-            setBackgroundBuffEditorOpen(true)
-          }} className="shrink-0 w-5 h-5 flex items-center justify-center text-gray-500 hover:text-gray-300 transition-colors" title="编辑背景">
-            <Settings className="w-3.5 h-3.5" />
-          </button>
-        )}
-
-        {/* BUFF 编辑入口在下方"种族&背景增强"区域 */}
+        {/* 背景按钮 */}
+        <button type="button" onClick={() => {
+          const bgName = backgroundCard.customName || selectedBackground?.name || ''
+          const bgDesc = backgroundCard.customDescription || selectedBackground?.description || ''
+          setBgEditName(bgName)
+          setBgEditDesc(bgDesc)
+          setBackgroundBuffEditorOpen(true)
+        }} className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 hover:border-dnd-gold/50 transition-colors min-w-0">
+          <span className="text-gray-400 shrink-0">背景</span>
+          <span className="truncate max-w-[120px]">{backgroundCard.customName || selectedBackground?.name || '— 选择背景 —'}</span>
+        </button>
       </div>
 
       {/* 基础信息（常驻，无框） */}
@@ -678,26 +667,59 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
         </div>
       )}
 
-      {/* 种族 BUFF 编辑器弹窗 */}
+      {/* 种族编辑器弹窗 */}
       {raceBuffEditorOpen && (() => {
-        const raceName = raceCard.raceId === 'custom' && raceCard.customName ? raceCard.customName : selectedRace?.name || '种族'
         const initialEffects = Array.isArray(raceCard.raceBuffPatch?.effects) && raceCard.raceBuffPatch.effects.length ? raceCard.raceBuffPatch.effects : []
         return (
           <>
             <div className="fixed inset-0 z-[300] bg-black/60" onClick={() => setRaceBuffEditorOpen(false)} aria-hidden />
             <div className="fixed inset-0 z-[301] flex items-center justify-center p-4 sm:p-8 overflow-auto" onClick={() => setRaceBuffEditorOpen(false)}>
               <div className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl" onClick={(e) => e.stopPropagation()}>
-                <div className="p-4 border-b border-white/10">
+                <div className="p-4 border-b border-white/10 space-y-2">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-base font-semibold text-dnd-gold-light/90">编辑种族效果：{raceName}</h3>
+                    <h3 className="text-base font-semibold text-dnd-gold-light/90">{raceCard.raceId ? '编辑种族' : '创建种族'}</h3>
                     <button type="button" onClick={() => setRaceBuffEditorOpen(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"><X className="w-5 h-5" /></button>
                   </div>
-                  <p className="text-xs text-dnd-text-muted mt-1">自定义该种族的 BUFF 效果，保存后立即生效。</p>
+                  {/* 种族选择 */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400 shrink-0">种族</span>
+                    <select value={raceCard.raceId || ''} onChange={(e) => handleRaceChange(e.target.value)}
+                      className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+                      <option value="">— 选择种族 —</option>
+                      {RACES.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                      <option value="custom">自定义种族...</option>
+                    </select>
+                  </div>
+                  {/* 亚种选择 */}
+                  {selectedRace && selectedRace.subraces.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-400 shrink-0">亚种</span>
+                      <select value={raceCard.subraceId || ''} onChange={(e) => handleSubraceChange(e.target.value)}
+                        className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+                        <option value="">— 亚种 —</option>
+                        {selectedRace.subraces.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  {/* 名称 */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400 shrink-0">名称</span>
+                    <input type="text" value={raceEditName} onChange={(e) => setRaceEditName(e.target.value)}
+                      className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50"
+                      placeholder={selectedRace?.name || '种族名称'} />
+                  </div>
+                  {/* 描述 */}
+                  <div>
+                    <textarea value={raceEditDesc} onChange={(e) => setRaceEditDesc(e.target.value)} rows={2}
+                      className="w-full px-2 py-1.5 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold/50"
+                      placeholder="种族描述 / 特性" />
+                  </div>
+                  <p className="text-xs text-dnd-text-muted">种族效果</p>
                 </div>
                 <div className="p-4">
-                  <BuffForm key={`race-buff-${raceCard.raceId}`} compact hideDuration
+                  <BuffForm key={`race-buff-${raceCard.raceId || 'custom'}`} compact hideDuration
                     charResources={char?.classResources} spellSlots={char?.spellSlots}
-                    initial={{ source: raceCard.raceId === 'custom' ? (raceCard.customName || 'custom-race') : `race-${raceCard.raceId}`, effects: initialEffects, enabled: raceCard.raceBuffPatch?.enabled !== false }}
+                    initial={{ source: raceCard.raceId === 'custom' ? (raceEditName || 'custom-race') : `race-${raceCard.raceId}`, effects: initialEffects, enabled: raceCard.raceBuffPatch?.enabled !== false }}
                     onSave={handleRaceBuffSave} onClear={handleRaceBuffClear} onCancel={() => setRaceBuffEditorOpen(false)} />
                 </div>
               </div>
@@ -706,9 +728,8 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
         )
       })()}
 
-      {/* 背景 BUFF 编辑器弹窗 */}
+      {/* 背景编辑器弹窗 */}
       {backgroundBuffEditorOpen && (() => {
-        const backgroundName = backgroundCard.backgroundId === 'custom' && backgroundCard.customName ? backgroundCard.customName : selectedBackground?.name || '背景'
         const initialEffects = Array.isArray(backgroundCard.backgroundBuffPatch?.effects) && backgroundCard.backgroundBuffPatch.effects.length ? backgroundCard.backgroundBuffPatch.effects : []
         return (
           <>
@@ -717,15 +738,27 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
               <div className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl" onClick={(e) => e.stopPropagation()}>
                 <div className="p-4 border-b border-white/10 space-y-2">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-base font-semibold text-dnd-gold-light/90">编辑背景</h3>
+                    <h3 className="text-base font-semibold text-dnd-gold-light/90">{backgroundCard.backgroundId ? '编辑背景' : '创建背景'}</h3>
                     <button type="button" onClick={() => setBackgroundBuffEditorOpen(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"><X className="w-5 h-5" /></button>
                   </div>
+                  {/* 背景选择 */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400 shrink-0">背景</span>
+                    <select value={backgroundCard.backgroundId || ''} onChange={(e) => handleBackgroundChange(e.target.value)}
+                      className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+                      <option value="">— 选择背景 —</option>
+                      {BACKGROUNDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      <option value="custom">自定义背景...</option>
+                    </select>
+                  </div>
+                  {/* 名称 */}
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-gray-400 shrink-0">名称</span>
                     <input type="text" value={bgEditName} onChange={(e) => setBgEditName(e.target.value)}
                       className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50"
-                      placeholder="背景名称" />
+                      placeholder={selectedBackground?.name || '背景名称'} />
                   </div>
+                  {/* 描述 */}
                   <div>
                     <textarea value={bgEditDesc} onChange={(e) => setBgEditDesc(e.target.value)} rows={2}
                       className="w-full px-2 py-1.5 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold/50"
@@ -734,9 +767,9 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                   <p className="text-xs text-dnd-text-muted">背景效果</p>
                 </div>
                 <div className="p-4">
-                  <BuffForm key={`background-buff-${backgroundCard.backgroundId}`} compact hideDuration
+                  <BuffForm key={`background-buff-${backgroundCard.backgroundId || 'custom'}`} compact hideDuration
                     charResources={char?.classResources} spellSlots={char?.spellSlots}
-                    initial={{ source: backgroundCard.backgroundId === 'custom' ? (backgroundCard.customName || 'custom-background') : `background-${backgroundCard.backgroundId}`, effects: initialEffects, enabled: backgroundCard.backgroundBuffPatch?.enabled !== false }}
+                    initial={{ source: backgroundCard.backgroundId === 'custom' ? (bgEditName || 'custom-background') : `background-${backgroundCard.backgroundId}`, effects: initialEffects, enabled: backgroundCard.backgroundBuffPatch?.enabled !== false }}
                     onSave={handleBackgroundBuffSave} onClear={handleBackgroundBuffClear} onCancel={() => setBackgroundBuffEditorOpen(false)} />
                 </div>
               </div>

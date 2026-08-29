@@ -238,7 +238,7 @@ export function buildCardsFromCharacter(character, moduleId) {
     const allEffects = [...autoEffects, ...manualEffects]
 
     if (allEffects.length > 0) {
-      const raceName = raceCard.raceId === 'custom' ? (raceCard.customName || 'custom-race') : raceCard.raceId
+      const raceName = raceCard.customName || (raceCard.raceId === 'custom' ? 'custom-race' : raceCard.raceId)
       cards.push(normalizeCard(createCard(SLOT_KIND.race, {
         id: `race-${raceCard.raceId}`,
         name: raceName,
