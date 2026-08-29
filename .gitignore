@@ -35,3 +35,4 @@ dist-ssr
 
 .vercel
 .env*
+*committed_charsheet*
