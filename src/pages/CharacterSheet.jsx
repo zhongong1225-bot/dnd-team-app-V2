@@ -3749,7 +3749,7 @@ export default function CharacterSheet() {
                   )}
                 </div>
                 {/* 左：外观/基础 + 种族背景 | 右：头像（四边对齐） */}
-                <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] lg:gap-[2ch]">
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_460px] lg:gap-[2ch]">
                   <div className="min-w-0 flex flex-col gap-1.5">
                     <h3 className="profile-section-title mt-0 mb-0.5">外观 / 基础</h3>
                     <AppearanceGrid char={char} canEdit={canEdit} onSave={persist} noBorder compact />
@@ -3757,7 +3757,7 @@ export default function CharacterSheet() {
                       raceBuffEditorOpen={raceBuffEditorOpen} setRaceBuffEditorOpen={setRaceBuffEditorOpen}
                       backgroundBuffEditorOpen={backgroundBuffEditorOpen} setBackgroundBuffEditorOpen={setBackgroundBuffEditorOpen} />
                   </div>
-                  <div className="min-w-0 flex flex-col">
+                  <div className="min-w-0 flex flex-col min-h-[340px]">
                     <AvatarFrame char={char} canEdit={canEdit} onSave={persist} large />
                   </div>
                 </div>
