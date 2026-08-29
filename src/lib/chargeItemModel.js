@@ -108,6 +108,7 @@ export function createEmptyChargeItemValue(overrides = {}) {
     movementFeet: 0,
     recovery: { method: 'long_rest', kind: 'full', fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0 },
     effects: [],
+    isStance: false,
     ...overrides,
   }
 }
@@ -302,7 +303,7 @@ export function normalizeChargeItemValue(value) {
     }
     return { id, type, value: {} }
   })
-  return { resourceType, charges, actionCost, movementFeet, recovery, effects }
+  return { resourceType, charges, actionCost, movementFeet, recovery, effects, isStance: !!value.isStance }
 }
 
 /** 回能方式是否支持自定义回能数量 */
@@ -338,6 +339,7 @@ export function formatRecoveryBrief(recovery) {
 export function formatChargeItemBrief(value) {
   const norm = normalizeChargeItemValue(value)
   const parts = []
+  if (norm.isStance) parts.push('【架势】')
   if (norm.resourceType === 'none') {
     // 无消耗，不显示充能信息
   } else if (norm.resourceType === 'charges') {
@@ -553,4 +555,28 @@ export function getMaxSpendableAmount(norm, char) {
   }
   const res = (char.classResources || []).find((r) => r.resourceKey === norm.resourceType)
   return res ? Math.max(1, Math.floor(Number(res.current) || 0)) : 1
+}
+
+/**
+ * 架势效果缩放：将 BUFF 模块中的数值按倍率放大
+ * @param {Array} modules - temp_buff 的模块数组
+ * @param {number} factor - 缩放倍率（环位或消耗数量）
+ * @returns {Array} 缩放后的模块副本
+ */
+export function scaleStanceModules(modules, factor) {
+  if (!Array.isArray(modules) || factor <= 1) return Array.isArray(modules) ? modules.map(m => ({ ...m })) : []
+  return modules.map((mod) => {
+    const effects = Array.isArray(mod.effects)
+      ? mod.effects.map((eff) => {
+          const v = eff.value && typeof eff.value === 'object' ? { ...eff.value } : {}
+          for (const key of Object.keys(v)) {
+            if (typeof v[key] === 'number' && key !== 'diceSides') {
+              v[key] = v[key] * factor
+            }
+          }
+          return { ...eff, value: v }
+        })
+      : mod.effects
+    return { ...mod, effects }
+  })
 }

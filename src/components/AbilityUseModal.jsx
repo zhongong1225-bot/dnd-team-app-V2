@@ -13,6 +13,7 @@ import {
   getMaxSpendableAmount,
   resolveAbilityMod,
   RESOURCE_TYPE_OPTIONS,
+  scaleStanceModules,
 } from '../lib/chargeItemModel'
 import { rollDice } from '../data/weaponDatabase'
 import { proficiencyBonus, abilityModifier, calcMaxHP, getHPBuffSum } from '../lib/formulas'
@@ -226,16 +227,36 @@ export default function AbilityUseModal({ chargeValue, char, featureName, onConf
         const buffName = (ev.buffName || '临时BUFF').trim()
         const modules = Array.isArray(ev.modules) ? ev.modules : []
         if (modules.length > 0) {
-          const newBuff = {
-            id: String(Date.now()) + '_' + Math.random().toString(36).slice(2, 7),
-            source: buffName,
-            effects: modules.map((m) => ({ ...m })),
-            enabled: true,
-            sourceKind: 'temporary',
+          if (norm.isStance) {
+            // ── 架势模式：替换旧架势，缩放模块 ──
+            const stanceFactor = isSpellSlot
+              ? parseInt(norm.resourceType.replace('spell_slot_', ''), 10)
+              : amt
+            const scaledModules = scaleStanceModules(modules, stanceFactor)
+            const buffId = 'stance_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
+            const newBuff = {
+              id: buffId,
+              source: buffName,
+              effects: scaledModules.map((m) => ({ ...m })),
+              enabled: true,
+              sourceKind: 'stance',
+            }
+            const currentBuffs = Array.isArray(char.buffs) ? char.buffs : []
+            patch.buffs = [...currentBuffs, newBuff]
+            patch.activeStance = { buffId, name: buffName, slotLevel: stanceFactor }
+            lines.push(`🏋️ 架势激活: ${buffName}（${scaledModules.length}个效果，×${stanceFactor}缩放）`)
+          } else {
+            const newBuff = {
+              id: String(Date.now()) + '_' + Math.random().toString(36).slice(2, 7),
+              source: buffName,
+              effects: modules.map((m) => ({ ...m })),
+              enabled: true,
+              sourceKind: 'temporary',
+            }
+            const currentBuffs = Array.isArray(char.buffs) ? char.buffs : []
+            patch.buffs = [...currentBuffs, newBuff]
+            lines.push(`✨ 安装临时BUFF: ${buffName}（${modules.length}个效果）`)
           }
-          const currentBuffs = Array.isArray(char.buffs) ? char.buffs : []
-          patch.buffs = [...currentBuffs, newBuff]
-          lines.push(`✨ 安装临时BUFF: ${buffName}（${modules.length}个效果）`)
         } else {
           lines.push(`⚠️ ${buffName}：无效果模块`)
         }
@@ -368,6 +389,12 @@ export default function AbilityUseModal({ chargeValue, char, featureName, onConf
           lines.push(`📦 召唤: ${creature.name}（${summonHp}/${summonHp} HP, AC ${creature.ac || 10}）`)
         }
       }
+    }
+
+    // 3. 架势互斥：清除旧架势BUFF
+    if (norm.isStance && char.activeStance?.buffId) {
+      const buffs = Array.isArray(patch.buffs) ? patch.buffs : (Array.isArray(char.buffs) ? char.buffs : [])
+      patch.buffs = buffs.filter((b) => b.id !== char.activeStance.buffId)
     }
 
     if (lines.length === 0) lines.push('(未配置效果)')

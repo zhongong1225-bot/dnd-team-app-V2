@@ -647,6 +647,16 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     onSave({ activeAbilityQuickBar: next })
   }, [onSave])
 
+  // 结束架势
+  const handleEndStance = useCallback(() => {
+    if (!char?.activeStance?.buffId || !onSave) return
+    const currentBuffs = Array.isArray(char.buffs) ? char.buffs : []
+    onSave({
+      buffs: currentBuffs.filter((b) => b.id !== char.activeStance.buffId),
+      activeStance: null,
+    })
+  }, [char, onSave])
+
   const handleExecuteAbility = useCallback((ability, context) => {
     if (!ability || !char || !onSave) return
     const check = canUseAbility(ability, char)
@@ -2977,6 +2987,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         onExecute={handleExecuteAbility}
         canEdit={canEdit}
         moduleId={moduleId}
+        onEndStance={handleEndStance}
       />
       
       {/* 召唤物管理面板 */}

@@ -7,7 +7,7 @@
 import { useState, useMemo, useCallback } from 'react'
 import { getAbilitiesForCharacter, canUseAbility } from '../../lib/activeAbilityEngine'
 import * as Icons from 'lucide-react'
-import { Plus, X } from 'lucide-react'
+import { Plus, X, Swords } from 'lucide-react'
 
 const ICON_SIZE = 16
 const SLOT_COUNT = 5
@@ -20,8 +20,11 @@ const SLOT_COUNT = 5
  * @param {Function} props.onExecute - 执行技能回调 (ability, context) => void
  * @param {boolean} props.canEdit - 是否可编辑
  */
-export default function ActiveAbilityQuickBar({ char, quickBar, onUpdateQuickBar, onExecute, canEdit, moduleId }) {
+export default function ActiveAbilityQuickBar({ char, quickBar, onUpdateQuickBar, onExecute, canEdit, moduleId, onEndStance }) {
   const [selectingSlot, setSelectingSlot] = useState(null)
+
+  // 当前架势
+  const activeStance = char?.activeStance || null
 
   // 获取角色可用的所有主动技能
   const availableAbilities = useMemo(() => {
@@ -152,6 +155,24 @@ export default function ActiveAbilityQuickBar({ char, quickBar, onUpdateQuickBar
             </button>
           )
         })}
+
+        {/* ── 架势槽 ── */}
+        {activeStance && (
+          <div className="flex items-center gap-1.5 ml-auto px-2 py-1 rounded-md border border-amber-500/40 bg-amber-500/10">
+            <Swords size={14} className="text-amber-400 shrink-0" />
+            <span className="text-[11px] text-amber-300 font-medium truncate max-w-[6rem]">{activeStance.name}</span>
+            {onEndStance && (
+              <button
+                type="button"
+                onClick={onEndStance}
+                className="w-4 h-4 flex items-center justify-center rounded text-amber-500/60 hover:text-red-400 hover:bg-red-500/10 transition-all active:scale-90"
+                title="结束架势"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 选择技能 Modal */}

@@ -1290,6 +1290,15 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
         {!isChargesMode && (
           <span className="text-gray-500 text-[10px]">次数与恢复由职业资源管理</span>
         )}
+        <label className="flex items-center gap-1 text-[10px] text-amber-400 cursor-pointer select-none ml-auto">
+          <input
+            type="checkbox"
+            checked={!!data.isStance}
+            onChange={(e) => patchData({ isStance: e.target.checked })}
+            className="accent-amber-500 w-3 h-3"
+          />
+          架势
+        </label>
       </div>
 
       {/* ── 回能方式（仅充能数模式） ── */}

@@ -136,6 +136,7 @@ function findActiveAbilityFromCard(sourceKey, cards, slotKind = null) {
               : 'none',
     description: card.description || '',
     needsInteraction: 'confirm',
+    isStance: !!chargeValue.isStance,
     effects: [{
       type: mainEffect.type,
       value: mainEffect.value,
