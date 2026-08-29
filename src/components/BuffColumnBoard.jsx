@@ -184,14 +184,14 @@ export default function BuffColumnBoard({
               onDragOver={onColumnStripDragOver}
               onDrop={(e) => onRowHeaderDrop(e, colKey)}
               className={
-                'buff-dnd-draggable-source shrink-0 w-[3.35rem] sm:w-14 flex flex-row items-center justify-center border-r border-gray-600/50 bg-gray-800/45 py-1 px-0.5 sm:px-1 select-none ' +
+                'buff-dnd-draggable-source shrink-0 w-14 sm:w-16 flex flex-row items-center justify-center border-r border-gray-600/50 bg-gray-800/45 py-1 px-0.5 sm:px-1 select-none ' +
                 (canEdit ? 'cursor-grab active:cursor-grabbing hover:bg-gray-800/65' : '')
               }
               title={canEdit ? '拖动调整分类顺序（释放在另一行左侧标题上）' : label}
             >
               <span
                 className={
-                  'text-dnd-gold-light text-[10px] sm:text-[11px] font-bold leading-snug min-w-0 text-center [overflow-wrap:anywhere] ' +
+                  'text-dnd-gold-light text-[10px] sm:text-[11px] font-bold leading-snug min-w-0 text-center whitespace-nowrap ' +
                   (canEdit ? 'flex-1' : '')
                 }
               >
