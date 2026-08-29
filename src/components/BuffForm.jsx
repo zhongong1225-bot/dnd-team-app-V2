@@ -27,6 +27,7 @@ import {
   LANGUAGE_PROFICIENCY_OPTIONS,
   WEAPON_MASTERY_OPTIONS,
   SPECIAL_SENSES_OPTIONS,
+  VISUAL_EFFECT_OPTIONS,
   DAMAGE_RELATION_OPTIONS,
   WEAPON_PROPERTY_OPTIONS,
   migrateProficiencyTextToArray,
@@ -311,6 +312,25 @@ function normalizeValueForSave(module, currentEffect) {
     }
     return { senses: [], range: 60 }
   }
+  if (needsSubSelect === 'visualEffect') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return {
+        type: value.type ? String(value.type).trim() : '',
+        description: typeof value.description === 'string' ? value.description : '',
+      }
+    }
+    return { type: '', description: '' }
+  }
+  if (needsSubSelect === 'shieldPool') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return {
+        max: Number(value.max) || 10,
+        threshold: Number(value.threshold) || 0,
+        recoverOn: ['short', 'long', 'dawn', 'manual', 'none'].includes(value.recoverOn) ? value.recoverOn : 'manual',
+      }
+    }
+    return { max: 10, threshold: 0, recoverOn: 'manual' }
+  }
   if (currentEffect.key === 'recharge_long_rest' || currentEffect.key === 'recharge_dawn') {
     return normalizeChargeRecoveryValue(value)
   }
@@ -391,6 +411,8 @@ function isComplexValueType(currentEffect) {
     needsSubSelect === 'damageTypeRelation' ||
     needsSubSelect === 'damageReductionTyped' ||
     needsSubSelect === 'specialSenses' ||
+    needsSubSelect === 'visualEffect' ||
+    needsSubSelect === 'shieldPool' ||
     needsSubSelect === 'restoreSpellSlots'
   )
 }
@@ -4266,6 +4288,96 @@ function EffectValueEditor({
             </div>
           )
         })()
+      ) : needsSubSelect === 'visualEffect' ? (
+        (() => {
+          const sv = value && typeof value === 'object' ? value : {}
+          const selectedType = sv.type || ''
+          const description = typeof sv.description === 'string' ? sv.description : ''
+          return (
+            <div className="space-y-2">
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">视觉类型</label>
+                <select
+                  value={selectedType}
+                  onChange={(e) => onChange({ ...module, value: { ...sv, type: e.target.value } })}
+                  className={inputClass + ' !py-1.5 text-xs w-full'}
+                >
+                  <option value="">请选择</option>
+                  {VISUAL_EFFECT_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              {selectedType === 'custom' || description ? (
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">描述</label>
+                  <textarea
+                    value={description}
+                    onChange={(e) => onChange({ ...module, value: { ...sv, description: e.target.value } })}
+                    placeholder="描述视觉效果..."
+                    className={inputClass + ' !py-1.5 text-xs w-full'}
+                    rows={2}
+                  />
+                </div>
+              ) : null}
+            </div>
+          )
+        })()
+      ) : needsSubSelect === 'shieldPool' ? (
+        (() => {
+          const sv = value && typeof value === 'object' ? value : {}
+          const max = sv.max != null ? Number(sv.max) || 10 : 10
+          const threshold = sv.threshold != null ? Number(sv.threshold) || 0 : 0
+          const recoverOn = sv.recoverOn || 'manual'
+          return (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-400 w-16">上限</span>
+                <input
+                  type="number"
+                  value={max}
+                  onChange={(e) => onChange({ ...module, value: { ...sv, max: Number(e.target.value) || 10 } })}
+                  className={inputClass + ' !py-1 !w-20 text-xs'}
+                  min={1}
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-400 w-16">阈值</span>
+                <input
+                  type="number"
+                  value={threshold}
+                  onChange={(e) => onChange({ ...module, value: { ...sv, threshold: Number(e.target.value) || 0 } })}
+                  className={inputClass + ' !py-1 !w-20 text-xs'}
+                  min={0}
+                />
+                <span className="text-[10px] text-gray-500">低于此值时效果关闭</span>
+              </div>
+              <div>
+                <span className="text-xs text-gray-400 block mb-1">恢复条件</span>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { value: 'short', label: '短休' },
+                    { value: 'long', label: '长休' },
+                    { value: 'dawn', label: '黎明' },
+                    { value: 'manual', label: '仅手动' },
+                    { value: 'none', label: '不可恢复' },
+                  ].map((o) => (
+                    <label key={o.value} className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="shieldPoolRecover"
+                        checked={recoverOn === o.value}
+                        onChange={() => onChange({ ...module, value: { ...sv, recoverOn: o.value } })}
+                        className="border-gray-600 bg-gray-800 text-dnd-gold"
+                      />
+                      <span className="text-xs text-gray-300">{o.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )
+        })()
       ) : null}
     </div>
   )
@@ -4480,7 +4592,7 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
   }), [referenceData, spellDC, spellAttackBonus, useWandScrollTable])
   // custom_text 纯描述性效果无实际功能，过滤掉避免显示在编辑器中
   // charge_item 属于主动释放效果，不应出现在被动模式中（由 activeChargeData 管理）
-  const filteredInitial = initial?.effects
+  const filteredInitial = Array.isArray(initial?.effects)
     ? { ...initial, effects: initial.effects.filter(e => e.effectType !== 'custom_text' && e.effectType !== 'charge_item') }
     : initial
   
@@ -4605,10 +4717,10 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 p-3 bg-gray-800 rounded-xl border border-gray-600">
+    <form onSubmit={handleSubmit} className="space-y-2 p-2 bg-gray-800 rounded-lg border border-gray-700">
       {!compact && (
       <div>
-        <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-1">来源名称 *</label>
+        <label className="block text-gray-300 text-xs mb-1">来源名称 *</label>
         <input
           type="text"
           list={sourceListId}
@@ -4634,28 +4746,28 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
       )}
 
       {/* ── 模式切换 Tab ─ */}
-      <div className="flex items-center gap-2 mb-3 border-b border-gray-700 pb-2">
+      <div className="flex items-center gap-1 mb-2 border-b border-gray-700 pb-1">
         <button
           type="button"
           onClick={() => setEditMode('passive')}
-          className={`px-3 py-1.5 rounded-t text-xs font-bold uppercase tracking-wider transition-colors ${
+          className={`px-2 py-1 text-xs transition-colors ${
             editMode === 'passive'
-              ? 'bg-dnd-bg text-dnd-gold-light border-b-2 border-dnd-gold-light'
-              : 'text-gray-400 hover:text-gray-300'
+              ? 'text-white border-b-2 border-white'
+              : 'text-gray-500 hover:text-gray-400'
           }`}
         >
-          被动效果（持续生效）
+          被动效果
         </button>
         <button
           type="button"
           onClick={() => setEditMode('active')}
-          className={`px-3 py-1.5 rounded-t text-xs font-bold uppercase tracking-wider transition-colors ${
+          className={`px-2 py-1 text-xs transition-colors ${
             editMode === 'active'
-              ? 'bg-dnd-bg text-cyan-400 border-b-2 border-cyan-400'
-              : 'text-gray-400 hover:text-gray-300'
+              ? 'text-white border-b-2 border-white'
+              : 'text-gray-500 hover:text-gray-400'
           }`}
         >
-          主动释放（消耗资源）
+          主动释放
         </button>
       </div>
 
@@ -4672,16 +4784,16 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
           charResources={charResources}
           spellSlots={spellSlots}
           renderEffects={() => (
-            <div className="rounded-lg border border-cyan-500/20 bg-cyan-900/5 p-2.5 space-y-1.5">
+            <div className="space-y-1">
               <div className="flex items-center justify-between">
-                <span className="text-cyan-400 text-[10px] font-bold uppercase tracking-wider">释放效果</span>
+                <span className="text-gray-400 text-[10px]">释放效果</span>
                 <div className="flex items-center gap-1 flex-wrap">
-                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('spell')] })) }} className="px-1.5 py-0.5 rounded border border-cyan-600/70 bg-cyan-900/20 text-cyan-300 hover:bg-cyan-800/40 text-[10px] font-medium">+ 法术</button>
-                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('temp_buff')] })) }} className="px-1.5 py-0.5 rounded border border-violet-600/70 bg-violet-900/20 text-violet-300 hover:bg-violet-800/40 text-[10px] font-medium">+ 增益</button>
-                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('shield')] })) }} className="px-1.5 py-0.5 rounded border border-emerald-600/70 bg-emerald-900/20 text-emerald-300 hover:bg-emerald-800/40 text-[10px] font-medium">+ 护盾</button>
-                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('creature_transform')] })) }} className="px-1.5 py-0.5 rounded border border-rose-600/70 bg-rose-900/20 text-rose-300 hover:bg-rose-800/40 text-[10px] font-medium">+ 变身</button>
-                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('restore_spell_slots')] })) }} className="px-1.5 py-0.5 rounded border border-sky-600/70 bg-sky-900/20 text-sky-300 hover:bg-sky-800/40 text-[10px] font-medium">+ 环位恢复</button>
-                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('summon')] })) }} className="px-1.5 py-0.5 rounded border border-indigo-600/70 bg-indigo-900/20 text-indigo-300 hover:bg-indigo-800/40 text-[10px] font-medium">+ 召唤</button>
+                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('spell')] })) }} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]">+ 法术</button>
+                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('temp_buff')] })) }} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]">+ 增益</button>
+                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('shield')] })) }} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]">+ 护盾</button>
+                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('creature_transform')] })) }} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]">+ 变身</button>
+                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('restore_spell_slots')] })) }} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]">+ 环位恢复</button>
+                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('summon')] })) }} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]">+ 召唤</button>
                 </div>
               </div>
               {(activeChargeData.effects || []).length === 0 && (
@@ -4707,7 +4819,7 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
       <>
       {!compact && (
       <div>
-        <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-1">来源归类</label>
+        <label className="block text-gray-300 text-xs mb-1">来源归类</label>
         {sourceKindLocked ? (
           <div
             className={
@@ -4737,15 +4849,15 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
       )}
       <div>
         <div className="flex items-center justify-between mb-1">
-          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">效果（可多条）</label>
+          <label className="block text-gray-300 text-[10px]">效果（可多条）</label>
           {!readOnly && (
           <button
             type="button"
             onClick={addModule}
-            className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium transition-colors ${
+            className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] transition-colors ${
               showEffectPicker
-                ? 'border-amber-400 bg-amber-500/30 text-amber-300'
-                : 'border-amber-500 text-amber-400 hover:bg-amber-500/20'
+                ? 'border-gray-600 bg-gray-700 text-gray-300'
+                : 'border-gray-600 text-gray-400 hover:bg-gray-700'
             }`}
           >
             <Plus className="w-3 h-3" />
@@ -4760,7 +4872,7 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
             <select
               value={pickerCategory}
               onChange={(e) => setPickerCategory(e.target.value)}
-              className="h-7 px-1.5 rounded border border-amber-500/30 bg-dnd-bg text-amber-300 text-[10px] cursor-pointer shrink-0"
+              className="h-7 px-1.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-[10px] cursor-pointer shrink-0"
             >
               {Object.entries(BUFF_TYPES)
                 .filter(([k]) => k !== 'active_release')
@@ -4776,7 +4888,7 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
                 }
               }}
               defaultValue=""
-              className="h-7 px-1.5 rounded border border-amber-500/30 bg-dnd-bg text-amber-300 text-[10px] cursor-pointer flex-1 min-w-0"
+              className="h-7 px-1.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-[10px] cursor-pointer flex-1 min-w-0"
             >
               <option value="" disabled>选择效果类型…</option>
               {(BUFF_TYPES[pickerCategory]?.effects || [])
@@ -4812,25 +4924,22 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
                   <div
                     className={`rounded-lg border px-2 py-1.5 flex items-center justify-between gap-2 ${
                       isEditing
-                        ? 'border-amber-500/50 bg-amber-500/10'
+                        ? 'border-gray-600 bg-gray-700/50'
                         : isCustomText
                           ? 'border-dashed border-gray-600/50 bg-gray-800/30'
                           : isIncomplete && !readOnly
                             ? 'border-dashed border-yellow-500/40 bg-yellow-500/5'
-                            : 'border-white/[0.08] bg-[#1a2333]/60'
+                            : 'border-gray-700 bg-gray-800/50'
                     }`}
                   >
                     <div className="min-w-0 flex-1 flex items-center gap-1.5">
                       {isCustomText && (
-                        <span className="text-[9px] text-gray-500 bg-gray-700/50 px-1 py-0.5 rounded shrink-0 font-medium">文案</span>
+                        <span className="text-[9px] text-gray-500 bg-gray-700/50 px-1 py-0.5 rounded shrink-0">文案</span>
                       )}
                       {isIncomplete && !readOnly && !isEditing && (
-                        <span className="text-[9px] text-yellow-400 bg-yellow-500/10 px-1 py-0.5 rounded shrink-0 font-medium">⚠ 待配置</span>
+                        <span className="text-[9px] text-yellow-400 bg-yellow-500/10 px-1 py-0.5 rounded shrink-0">待配置</span>
                       )}
-                      <span className={`text-xs ${isCustomText ? 'text-gray-400' : 'text-dnd-gold-light/90'} font-medium`}>{displayLabel}</span>
-                      {editMode === 'passive' && (
-                        <span className="text-[9px] text-emerald-400 bg-emerald-500/10 px-1 py-0.5 rounded shrink-0 font-medium">♾️ 常驻</span>
-                      )}
+                      <span className={`text-xs ${isCustomText ? 'text-gray-400' : 'text-gray-300'} font-medium`}>{displayLabel}</span>
                     </div>
                     <div className="flex items-center gap-0.5 shrink-0">
                       {!readOnly && (
@@ -4838,7 +4947,7 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
                       <button
                         type="button"
                         onClick={() => handleToggleEdit(mod.id)}
-                        className={`p-1 rounded transition-colors ${isEditing ? 'text-amber-400 bg-amber-500/20' : 'text-gray-400 hover:bg-gray-700 hover:text-dnd-gold'}`}
+                        className={`p-1 rounded transition-colors ${isEditing ? 'text-gray-300 bg-gray-700' : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'}`}
                         title={isEditing ? '收起编辑' : '编辑'}
                       >
                         <Pencil className="w-3.5 h-3.5" />
@@ -4856,11 +4965,11 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
                     </div>
                   </div>
                   {isEditing && !readOnly && (
-                    <div className="mt-1 p-2 rounded-lg border border-amber-500/30 bg-[#1a2333]/80 space-y-1.5">
+                    <div className="mt-1 p-2 rounded-lg border border-gray-600 bg-gray-800 space-y-1.5">
                       {/* 状态标签 */}
-                      <div className="flex items-center justify-between gap-2 pb-1 border-b border-amber-500/20">
-                        <span className="text-[10px] text-amber-400 font-medium">
-                          {isNewEffect ? '✨ 新建效果' : '✏️ 编辑现有效果'}
+                      <div className="flex items-center justify-between gap-2 pb-1 border-b border-gray-700">
+                        <span className="text-[10px] text-gray-400 font-medium">
+                          {isNewEffect ? '新建效果' : '编辑效果'}
                         </span>
                         <button
                           type="button"
@@ -4879,7 +4988,7 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
                             const newEffects = BUFF_TYPES[e.target.value]?.effects ?? []
                             updateModule(mod.id, { category: e.target.value, effectType: newEffects[0]?.key ?? '' })
                           }}
-                          className="h-7 px-1.5 rounded border border-amber-500/30 bg-dnd-bg text-amber-300 text-[10px] cursor-pointer shrink-0"
+                          className="h-7 px-1.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-[10px] cursor-pointer shrink-0"
                         >
                           {Object.entries(BUFF_TYPES)
                             .filter(([k]) => k !== 'active_release')
@@ -4900,7 +5009,7 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
                             if (e.target.value === 'choice') patch.value = { choiceOptions: [{ name: '选项 A', effects: [] }, { name: '选项 B', effects: [] }], choiceSelected: 0 }
                             updateModule(mod.id, patch)
                           }}
-                          className="h-7 px-1.5 rounded border border-amber-500/30 bg-dnd-bg text-amber-300 text-[10px] cursor-pointer flex-1 min-w-0"
+                          className="h-7 px-1.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-[10px] cursor-pointer flex-1 min-w-0"
                         >
                           <option value="" disabled>选择效果类型…</option>
                           {(BUFF_TYPES[mod.category]?.effects || [])
@@ -4968,11 +5077,11 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
           取消
         </button>
         {onClear && (
-          <button type="button" onClick={onClear} className={`${compact ? 'px-2.5 py-1 text-[11px]' : 'px-4 py-2'} rounded-lg border border-red-800/50 text-red-400 hover:bg-red-900/30`}>
+          <button type="button" onClick={onClear} className={`${compact ? 'px-2.5 py-1 text-[11px]' : 'px-4 py-2'} rounded-lg border border-gray-600 text-gray-400 hover:bg-gray-700`}>
             清除
           </button>
         )}
-        <button type="submit" className={`${compact ? 'px-2.5 py-1 text-[11px]' : 'px-4 py-2'} rounded-lg bg-dnd-red/70 hover:bg-dnd-red text-white font-medium`}>
+        <button type="submit" className={`${compact ? 'px-2.5 py-1 text-[11px]' : 'px-4 py-2'} rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-medium`}>
           保存
         </button>
       </div>

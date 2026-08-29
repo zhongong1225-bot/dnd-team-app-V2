@@ -283,7 +283,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
   const [effectModules, setEffectModules] = useState(() => [])
   const [editingModuleId, setEditingModuleId] = useState(null)
   const editingModule = useMemo(() => effectModules.find((m) => m.id === editingModuleId) || null, [effectModules, editingModuleId])
-  const [armorFields, setArmorFields] = useState(() => ({ isShield: false, baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' }))
+  const [armorFields, setArmorFields] = useState(() => ({ isShield: false, armorSubtype: '', baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '', stoneLayer: null }))
   const [weaponDamage, setWeaponDamage] = useState(() => ({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' }))
   const [weaponVersatileDamage, setWeaponVersatileDamage] = useState(() => ({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' }))
   const [weaponTraits, setWeaponTraits] = useState(() => [])
@@ -352,7 +352,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     setIntro('')
     setQty(1)
     setEffectModules([])
-    setArmorFields({ isShield: false, baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' })
+    setArmorFields({ isShield: false, armorSubtype: '', baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '', stoneLayer: null })
     setWeaponDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
     setWeaponVersatileDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
     setWeaponTraits([])
@@ -384,9 +384,11 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     const note = (entry?.附注 != null && entry.附注 !== '') ? String(entry.附注) : (proto?.附注 ?? '')
     if (proto && proto.类型 === '盔甲') {
       let f = parseArmorNoteToFields(note)
-      setArmorFields(f)
+      const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
+      const stoneVal = stoneEffect ? (Number(stoneEffect.value) || 0) : null
+      setArmorFields({ ...f, armorSubtype: proto.子类型 || '', stoneLayer: stoneVal })
     } else {
-      setArmorFields({ isShield: false, baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' })
+      setArmorFields({ isShield: false, armorSubtype: '', baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '', stoneLayer: null })
     }
     if (proto && (proto.类型 === '近战武器' || proto.类型 === '远程武器' || proto.类型 === '枪械')) {
       const { base, versa } = splitVersatileDamage(entry?.攻击 ?? proto?.攻击 ?? '')
@@ -450,7 +452,9 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     }
     if (proto && proto.类型 === '盔甲') {
       let f = parseArmorNoteToFields(proto.附注 ?? '')
-      setArmorFields(f)
+      const stoneEffect = Array.isArray(proto?.effects) ? proto.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
+      const stoneVal = stoneEffect ? (Number(stoneEffect.value) || 0) : null
+      setArmorFields({ ...f, armorSubtype: proto.子类型 || '', stoneLayer: stoneVal })
     }
     if (proto && (proto.类型 === '近战武器' || proto.类型 === '远程武器' || proto.类型 === '枪械')) {
       const { base, versa } = splitVersatileDamage(proto.攻击 ?? '')
@@ -599,11 +603,24 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       if (!isArmorOrClothing && parts.附注Part) 附注 = (附注 ? 附注 + '；' : '') + parts.附注Part
       if (parts.magicBonus != null) magicBonus = parts.magicBonus
       if (parts.charge != null) charge = parts.charge
+      // charge_item 效果：从 value.charges 提取充能数
+      if (currentEffect.key === 'charge_item' && mod.value && typeof mod.value === 'object') {
+        charge = Number(mod.value.charges) || 0
+      }
       if (parts.spellDC != null) spellDC = parts.spellDC
       if (parts.spellAttackBonus != null) itemSpellAttackBonus = parts.spellAttackBonus
       if (parts.攻击距离 !== undefined) 攻击距离 = parts.攻击距离 || undefined
       if (parts.攻击范围 !== undefined) 攻击范围 = parts.攻击范围 || undefined
     })
+    // 瓦石层效果：若 armorFields.stoneLayer 有值，写入或更新 ac_cap_stone_layer 效果
+    if (armorFields.stoneLayer !== null) {
+      const existingStoneIdx = effectsForSave.findIndex((e) => e.effectType === 'ac_cap_stone_layer')
+      if (existingStoneIdx >= 0) {
+        effectsForSave[existingStoneIdx] = { ...effectsForSave[existingStoneIdx], value: armorFields.stoneLayer }
+      } else {
+        effectsForSave.push({ category: 'defense', effectType: 'ac_cap_stone_layer', value: armorFields.stoneLayer, customText: '' })
+      }
+    }
     // 默认储物物品强制写入 item_storage 效果
     if (isDefaultStorageItem(itemId || editEntry) && !effectsForSave.some((e) => e.effectType === 'item_storage')) {
       effectsForSave.push({ category: 'container', effectType: 'item_storage', value: true, customText: '' })
@@ -640,7 +657,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       // 新建模式：把修改后的数据保存为新的自定义基础物品，再生成一条干净的库存引用条目
       const baseItem = {
         类型: proto?.类型 || type || '近战武器',
-        子类型: proto?.子类型 || '',
+        子类型: isArmor ? (armorFields.armorSubtype || proto?.子类型 || '') : (proto?.子类型 || ''),
         类别: proto?.类别 || '自定义',
         名称: name?.trim() || '',
         攻击: 攻击 || '',
@@ -1117,17 +1134,31 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
               <div className="rounded border border-gray-600 bg-gray-700/30 px-2 py-1.5 space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">{isShield ? '盾牌基本属性' : '盔甲基本属性'}</span>
-                  {!selectedPrototype && isArmor && (
-                    <label className="inline-flex items-center gap-1 text-xs text-gray-300 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={armorFields.isShield}
-                        onChange={(e) => setArmorFields((f) => ({ ...f, isShield: e.target.checked }))}
-                        className="rounded border-gray-600 bg-gray-800 text-dnd-red"
-                      />
-                      盾牌
-                    </label>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {!isShield && (
+                      <select
+                        value={armorFields.armorSubtype}
+                        onChange={(e) => setArmorFields((f) => ({ ...f, armorSubtype: e.target.value }))}
+                        className={inputClass + ' h-7 text-xs w-20'}
+                      >
+                        <option value="">—</option>
+                        <option value="轻甲">轻甲</option>
+                        <option value="中甲">中甲</option>
+                        <option value="重甲">重甲</option>
+                      </select>
+                    )}
+                    {!selectedPrototype && isArmor && (
+                      <label className="inline-flex items-center gap-1 text-xs text-gray-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={armorFields.isShield}
+                          onChange={(e) => setArmorFields((f) => ({ ...f, isShield: e.target.checked }))}
+                          className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                        />
+                        盾牌
+                      </label>
+                    )}
+                  </div>
                 </div>
                 {isShield ? (
                   <div className="flex items-center gap-2">
@@ -1189,6 +1220,18 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                         <option value="劣势">劣势</option>
                       </select>
                     </div>
+                  </div>
+                )}
+                {armorFields.stoneLayer !== null && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-dnd-text-muted text-xs">瓦石层</span>
+                    <NumberStepper
+                      value={armorFields.stoneLayer}
+                      onChange={(v) => setArmorFields((f) => ({ ...f, stoneLayer: Math.max(0, v) }))}
+                      min={0}
+                      max={99}
+                      compact
+                    />
                   </div>
                 )}
               </div>

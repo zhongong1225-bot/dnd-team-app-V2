@@ -1,6 +1,6 @@
 import { Trash2, Pencil } from 'lucide-react'
 import { getBuffSourceKindLabel, getBuffSourceKindTitle } from '../lib/buffSourceKind'
-import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue, formatDamageForAttack, formatScopeBrief, normalizeScope, formatSpellDamageBonusValue, ARMOR_PROFICIENCY_OPTIONS, WEAPON_PROFICIENCY_OPTIONS, VEHICLE_PROFICIENCY_OPTIONS, INSTRUMENT_PROFICIENCY_OPTIONS, TOOL_PROFICIENCY_OPTIONS, LANGUAGE_PROFICIENCY_OPTIONS, WEAPON_MASTERY_OPTIONS, SPECIAL_SENSES_OPTIONS } from '../data/buffTypes'
+import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue, formatDamageForAttack, formatScopeBrief, normalizeScope, formatSpellDamageBonusValue, ARMOR_PROFICIENCY_OPTIONS, WEAPON_PROFICIENCY_OPTIONS, VEHICLE_PROFICIENCY_OPTIONS, INSTRUMENT_PROFICIENCY_OPTIONS, TOOL_PROFICIENCY_OPTIONS, LANGUAGE_PROFICIENCY_OPTIONS, WEAPON_MASTERY_OPTIONS, SPECIAL_SENSES_OPTIONS, VISUAL_EFFECT_OPTIONS } from '../data/buffTypes'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { formatContainedSpellBrief } from '../lib/containedSpellBrief'
 import { normalizeChargeRecoveryValue } from '../lib/chargeRecovery'
@@ -73,10 +73,24 @@ function formatAttackDamageBonusSummaryText(effectType, v, context = {}) {
 export function getEffectSummaryShort(buff, context = {}, baseContext = context) {
   const info = getEffectInfo(buff.effectType)
   if (!info) return buff.value != null ? String(buff.value) : ''
-  // 自由填写：优先 value（与保存一致），兼容 customText；空时显示占位便于记录“仅描述”类效果
+  // 自由填写：优先 value（与保存一致），兼容 customText；空时显示占位便于记录”仅描述”类效果
   if (buff.effectType.startsWith('custom_')) {
     const text = (typeof buff.value === 'string' && buff.value !== '' ? buff.value : '') || (typeof buff.customText === 'string' && buff.customText !== '' ? buff.customText : '')
     return text || '（自由填写）'
+  }
+  // 视觉效果：显示视觉类型 + 自定义描述
+  if (buff.effectType === 'visual_effect') {
+    const v = buff.value
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      const typeLabel = VISUAL_EFFECT_OPTIONS.find(o => o.value === v.type)?.label || v.type || ''
+      const desc = typeof v.description === 'string' && v.description.trim() ? v.description.trim() : ''
+      if (typeLabel && desc) return `${typeLabel}：${desc}`
+      if (typeLabel) return typeLabel
+      if (desc) return desc
+    }
+    // 兼容旧文本格式
+    const text = (typeof buff.value === 'string' && buff.value !== '' ? buff.value : '') || (typeof buff.customText === 'string' && buff.customText !== '' ? buff.customText : '')
+    return text || '（视觉描述）'
   }
   const rawLabel = info.effect.label ?? buff.effectType
   const scopePrefix = getScopePrefix(buff.scope, buff.scopeDetail)
@@ -258,6 +272,12 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
     if (buff.effectType === 'charge_item' && v && typeof v === 'object' && !Array.isArray(v)) {
       const brief = formatChargeItemBrief(v)
       return brief || effectLabel
+    }
+    if (buff.effectType === 'shield_pool' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const max = Number(v.max) || 10
+      const threshold = Number(v.threshold) || 0
+      const recoverLabel = { short: '短休恢复', long: '长休恢复', dawn: '黎明恢复', manual: '手动恢复', none: '不恢复' }[v.recoverOn] || '手动恢复'
+      return `上限${max}，≤${threshold}失效，${recoverLabel}`
     }
     if ((buff.effectType === 'recharge_long_rest' || buff.effectType === 'recharge_dawn') && v != null) {
       const norm = normalizeChargeRecoveryValue(v)
@@ -450,6 +470,20 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
     const text = (typeof buff.value === 'string' && buff.value !== '' ? buff.value : '') || (typeof buff.customText === 'string' && buff.customText !== '' ? buff.customText : '')
     return { label: text || '（自由填写）', value: null }
   }
+  // 视觉效果：显示视觉类型 + 自定义描述
+  if (buff.effectType === 'visual_effect') {
+    const v = buff.value
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      const typeLabel = VISUAL_EFFECT_OPTIONS.find(o => o.value === v.type)?.label || v.type || ''
+      const desc = typeof v.description === 'string' && v.description.trim() ? v.description.trim() : ''
+      if (typeLabel && desc) return { label: typeLabel, value: desc }
+      if (typeLabel) return { label: typeLabel, value: null }
+      if (desc) return { label: desc, value: null }
+    }
+    // 兼容旧文本格式
+    const text = (typeof buff.value === 'string' && buff.value !== '' ? buff.value : '') || (typeof buff.customText === 'string' && buff.customText !== '' ? buff.customText : '')
+    return { label: text || '（视觉描述）', value: null }
+  }
   const effectLabel = info.effect.label ?? buff.effectType
 
   if (info.effect.dataType === 'boolean') {
@@ -538,6 +572,12 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
     if (buff.effectType === 'charge_item' && v && typeof v === 'object' && !Array.isArray(v)) {
       const brief = formatChargeItemBrief(v)
       return { label: effectLabel, value: brief || null }
+    }
+    if (buff.effectType === 'shield_pool' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const max = Number(v.max) || 10
+      const threshold = Number(v.threshold) || 0
+      const recoverLabel = { short: '短休恢复', long: '长休恢复', dawn: '黎明恢复', manual: '手动恢复', none: '不恢复' }[v.recoverOn] || '手动恢复'
+      return { label: effectLabel, value: `上限${max}，≤${threshold}失效，${recoverLabel}` }
     }
     if (buff.effectType === 'spell_damage_bonus' && v && typeof v === 'object' && !Array.isArray(v)) {
       const text = formatSpellDamageBonusValue(v)

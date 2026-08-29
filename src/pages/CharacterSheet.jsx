@@ -54,21 +54,23 @@ import {
 import { HARDCODED_CLASS_FEATURE_BUFFS } from '../data/classFeatureDefaultBuffs'
 import { cloneBuffTemplateToManual } from '../lib/buffStash'
 import BuffManager from '../components/BuffManager'
-import CardView, { SlotPanel, AbilityButton } from '../components/CardView'
+import CardView, { SlotPanel, AbilityButton, ShieldPoolCounter } from '../components/CardView'
 import EldritchInvocationPicker from '../components/EldritchInvocationPicker'
 import FightingStylePicker from '../components/FightingStylePicker'
 import CombatStatus from '../components/CombatStatus'
 import EquipmentAndInventory from '../components/EquipmentAndInventory'
 import MartialTechniquesPanel from '../components/MartialTechniquesPanel'
+import SummonedCreaturesPanel from '../components/combat/SummonedCreaturesPanel'
 import AbilityModule from '../components/AbilityModule'
 import AvatarCropModal from '../components/AvatarCropModal'
 import CharacterSheetTopBar from '../components/CharacterSheetTopBar'
 import FeatPickerModal from '../components/FeatPickerModal'
 import BuffForm from '../components/BuffForm'
-import { loadDefaultBuffPatch, saveDefaultBuffPatch, clearDefaultBuffPatch, buildClassFeatureBuffKey } from '../lib/defaultBuffPatchStore'
+import { loadDefaultBuffPatch, saveDefaultBuffPatch, clearDefaultBuffPatch, buildClassFeatureBuffKey, DEFAULT_BUFF_PATCHES_EVENT } from '../lib/defaultBuffPatchStore'
 import { CLASS_FEATURE_CHOICE_REGISTRY, CHOICE_ID_ALIASES } from '../data/classFeatureChoiceRegistry'
 import { executeAbility, canUseAbility } from '../lib/activeAbilityEngine'
 import { buildCardsFromCharacter, findActiveAbilityInCards, findAllActiveAbilitiesInCards } from '../lib/cardAdapter'
+import { getShieldPoolCurrent, decrementShieldPool, resetShieldPool } from '../lib/shieldPoolUtils'
 import { formatRecoveryBrief, RESOURCE_TYPE_OPTIONS } from '../lib/chargeItemModel'
 import AbilityUseModal from '../components/AbilityUseModal'
 import { SCOPE_TYPE_OPTIONS } from '../lib/cardModel'
@@ -1526,9 +1528,19 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
             f.description,
           )
           const isChoiceType = !!CLASS_FEATURE_CHOICE_REGISTRY[buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)]
-          const cfScope = loadDefaultBuffPatch(moduleId, 'classFeature', buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id))?.cardScope
+          const cfBuffKey = buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)
+          const cfPatch = loadDefaultBuffPatch(moduleId, 'classFeature', cfBuffKey)
+          const cfScope = cfPatch?.cardScope
           const cfScopeLabel = cfScope?.type && cfScope.type !== 'global'
             ? (SCOPE_TYPE_OPTIONS.find(o => o.value === cfScope.type)?.label || cfScope.type)
+            : null
+          // 护盾池检测
+          const cfShieldPoolEffect = Array.isArray(cfPatch?.effects)
+            ? cfPatch.effects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
+            : null
+          const cfShieldPoolKey = `classFeature:${cfBuffKey}`
+          const cfShieldCurrent = cfShieldPoolEffect
+            ? getShieldPoolCurrent(char, 'classFeature', cfBuffKey, cfShieldPoolEffect.value.max || 10)
             : null
           return (
             <li key={key}>
@@ -1564,6 +1576,27 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                 }
                 headerRight={
                   <div className="flex items-center gap-1.5 shrink-0">
+                    {cfShieldPoolEffect && (() => {
+                      const spVal = cfShieldPoolEffect.value
+                      const spMax = Number(spVal.max) || 10
+                      const spThreshold = Number(spVal.threshold) || 0
+                      return (
+                        <ShieldPoolCounter
+                          current={cfShieldCurrent}
+                          max={spMax}
+                          threshold={spThreshold}
+                          compact
+                          onDecrement={() => {
+                            const newState = decrementShieldPool(char, 'classFeature', cfBuffKey, 0)
+                            if (newState) onSave({ shieldPoolStates: newState })
+                          }}
+                          onReset={() => {
+                            const newState = resetShieldPool(char, 'classFeature', cfBuffKey, spMax)
+                            onSave({ shieldPoolStates: newState })
+                          }}
+                        />
+                      )
+                    })()}
                     {cfScopeLabel && (
                       <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/15 text-indigo-300 border border-indigo-500/20">{cfScopeLabel}</span>
                     )}
@@ -2116,6 +2149,14 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                 ? '该条目原属于战斗风格专长，现已迁移到「战斗风格」选择器中。'
                 : ''
 
+            // 护盾池检测
+            const featShieldPoolEffect = row?.featId && Array.isArray(row?.featBuffPatch?.effects)
+              ? row.featBuffPatch.effects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
+              : null
+            const featShieldCurrent = featShieldPoolEffect
+              ? getShieldPoolCurrent(char, 'feat', row.featId, featShieldPoolEffect.value.max || 10)
+              : null
+
             return (
               <li key={slot.id}>
                 <CardView
@@ -2164,6 +2205,56 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                         : null
                       return (
                       <div className="flex items-center gap-1.5 shrink-0">
+                        {featShieldPoolEffect && (() => {
+                          const spVal = featShieldPoolEffect.value
+                          const spMax = Number(spVal.max) || 10
+                          const spThreshold = Number(spVal.threshold) || 0
+                          return (
+                            <ShieldPoolCounter
+                              current={featShieldCurrent}
+                              max={spMax}
+                              threshold={spThreshold}
+                              compact
+                              onDecrement={() => {
+                                const newState = decrementShieldPool(char, 'feat', row.featId, 0)
+                                if (newState) onSave({ shieldPoolStates: newState })
+                              }}
+                              onReset={() => {
+                                const newState = resetShieldPool(char, 'feat', row.featId, spMax)
+                                onSave({ shieldPoolStates: newState })
+                              }}
+                            />
+                          )
+                        })()}
+                        {row?.featId && hasActiveAbility && (() => {
+                          const ability = findActiveAbilityForFeat(row.featId, featCards)
+                          if (!ability) return null
+                          const check = canUseAbility(ability, char)
+                          const costText = ability.cost.type === 'class_resource'
+                            ? `${ability.cost.amount}${({ star_points: '星', wild_shape: '变', second_wind: '气', lay_on_hands: '疗' }[ability.cost.resourceKey] || '')}`
+                            : ability.cost.type === 'none' ? '免费' : ''
+                          return (
+                            <button
+                              type="button"
+                              disabled={!check.usable}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                const result = executeAbility(ability, char)
+                                if (result.success) {
+                                  const patches = { ...result.patch }
+                                  if (result.classResources) patches.classResources = result.classResources
+                                  if (Object.keys(patches).length > 0) onSave(patches)
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                              title={check.usable ? `点击使用${ability.name}` : check.reason}
+                            >
+                              <Zap className="w-3 h-3" />
+                              使用 {ability.name}
+                              {costText && <span className="text-[10px] opacity-70">{costText}</span>}
+                            </button>
+                          )
+                        })()}
                         {fScopeLabel && (
                           <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/15 text-indigo-300 border border-indigo-500/20">{fScopeLabel}</span>
                         )}
@@ -2204,30 +2295,6 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                       </button>
                     ) : null
                   }
-                  footer={row?.featId && hasActiveAbility ? (() => {
-                    const ability = findActiveAbilityForFeat(row.featId, featCards)
-                    if (!ability) return null
-                    const check = canUseAbility(ability, char)
-                    const costText = ability.cost.type === 'class_resource'
-                      ? `${ability.cost.amount}${({ star_points: '星', wild_shape: '变', second_wind: '气', lay_on_hands: '疗' }[ability.cost.resourceKey] || '')}`
-                      : ability.cost.type === 'none' ? '免费' : ''
-                    return (
-                      <AbilityButton
-                        name={ability.name}
-                        costText={costText}
-                        usable={check.usable}
-                        disabledReason={check.reason}
-                        onUse={() => {
-                          const result = executeAbility(ability, char)
-                          if (result.success) {
-                            const patches = { ...result.patch }
-                            if (result.classResources) patches.classResources = result.classResources
-                            if (Object.keys(patches).length > 0) onSave(patches)
-                          }
-                        }}
-                      />
-                    )
-                  })() : null}
                 >
                   {/* 获取描述 */}
                   {isExpanded && row?.featId && !legacyStyle && (
@@ -2317,40 +2384,47 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                   }
                   headerRight={
                     canEdit ? (
-                      <button
-                        type="button"
-                        onClick={() => removeFreeFeat(i)}
-                        className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-red-400 hover:bg-red-900/20 transition-all active:scale-95"
-                        title="移除"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {hasActiveAbility && (() => {
+                          const ability = findActiveAbilityForFeat(row.featId, featCards)
+                          if (!ability) return null
+                          const check = canUseAbility(ability, char)
+                          const costText = ability.cost.type === 'class_resource'
+                            ? `${ability.cost.amount}${({ star_points: '星', wild_shape: '变', second_wind: '气', lay_on_hands: '疗' }[ability.cost.resourceKey] || '')}`
+                            : ability.cost.type === 'none' ? '免费' : ''
+                          return (
+                            <button
+                              type="button"
+                              disabled={!check.usable}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                const result = executeAbility(ability, char)
+                                if (result.success) {
+                                  const patches = { ...result.patch }
+                                  if (result.classResources) patches.classResources = result.classResources
+                                  if (Object.keys(patches).length > 0) onSave(patches)
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                              title={check.usable ? `点击使用${ability.name}` : check.reason}
+                            >
+                              <Zap className="w-3 h-3" />
+                              使用 {ability.name}
+                              {costText && <span className="text-[10px] opacity-70">{costText}</span>}
+                            </button>
+                          )
+                        })()}
+                        <button
+                          type="button"
+                          onClick={() => removeFreeFeat(i)}
+                          className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-red-400 hover:bg-red-900/20 transition-all active:scale-95"
+                          title="移除"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     ) : null
                   }
-                  footer={hasActiveAbility ? (() => {
-                    const ability = findActiveAbilityForFeat(row.featId, featCards)
-                    if (!ability) return null
-                    const check = canUseAbility(ability, char)
-                    const costText = ability.cost.type === 'class_resource'
-                      ? `${ability.cost.amount}${({ star_points: '星', wild_shape: '变', second_wind: '气', lay_on_hands: '疗' }[ability.cost.resourceKey] || '')}`
-                      : ability.cost.type === 'none' ? '免费' : ''
-                    return (
-                      <AbilityButton
-                        name={ability.name}
-                        costText={costText}
-                        usable={check.usable}
-                        disabledReason={check.reason}
-                        onUse={() => {
-                          const result = executeAbility(ability, char)
-                          if (result.success) {
-                            const patches = { ...result.patch }
-                            if (result.classResources) patches.classResources = result.classResources
-                            if (Object.keys(patches).length > 0) onSave(patches)
-                          }
-                        }}
-                      />
-                    )
-                  })() : null}
                 >
                   {legacyStyle && (
                     <p className="text-sm text-dnd-red mt-2 pt-2 border-t border-dnd-red/20 leading-relaxed">
@@ -2930,6 +3004,13 @@ export default function CharacterSheet() {
   const level = char ? levelFromXP(char.xp) : 0
   const spellLevel = char ? getSpellcastingLevel(char) : 0
   const combatState = useCombatState(char)
+  // 监听 defaultBuffPatchStore 变更，触发 mergedBuffs 重算
+  const [buffPatchRev, setBuffPatchRev] = useState(0)
+  useEffect(() => {
+    const handler = () => setBuffPatchRev((v) => v + 1)
+    window.addEventListener(DEFAULT_BUFF_PATCHES_EVENT, handler)
+    return () => window.removeEventListener(DEFAULT_BUFF_PATCHES_EVENT, handler)
+  }, [])
   const mergedBuffs = useMemo(
     () => getMergedBuffsForCalculator(char, sheetModuleId),
     [
@@ -2942,12 +3023,13 @@ export default function CharacterSheet() {
       char?.equippedHeld,
       char?.equippedWorn,
       sheetModuleId,
+      buffPatchRev, // eslint-disable-line react-hooks/exhaustive-deps
     ],
   )
   const buffStats = useBuffCalculator(char, mergedBuffs)
 
   // 构建统一的 Card 数组，用于所有主动技能检测
-  const allCards = useMemo(() => buildCardsFromCharacter(char, sheetModuleId), [char, sheetModuleId])
+  const allCards = useMemo(() => buildCardsFromCharacter(char, sheetModuleId), [char, sheetModuleId, buffPatchRev])
 
   // 自动同步 BUFF 中的工具/乐器熟练项到 char.proficiencies.tools
   useEffect(() => {
@@ -3466,6 +3548,17 @@ export default function CharacterSheet() {
               char={char}
               canEdit={canEdit}
               onSave={persist}
+            />
+          </section>
+          )}
+          {!isCreatureTemplate && (
+          <section id="sheet-summons" className="character-sheet-section-anchor mt-6">
+            <SummonedCreaturesPanel
+              char={char}
+              onDelete={(summonId) => {
+                const newSummons = (char.summonedCreatures || []).filter(s => s.id !== summonId)
+                persist({ summonedCreatures: newSummons })
+              }}
             />
           </section>
           )}

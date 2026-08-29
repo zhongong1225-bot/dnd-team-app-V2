@@ -66,6 +66,7 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   healing_bonus: 'calculator',
   death_save_bonus: 'calculator',
   death_ward: 'metadata',
+  shield_pool: 'calculator',
   // mobility_casting（施法）
   concentration_save_enhance: 'calculator',
   spell_range_extension: 'calculator',

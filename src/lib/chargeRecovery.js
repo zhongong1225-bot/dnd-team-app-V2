@@ -54,38 +54,76 @@ export function getEntryChargeMax(entry) {
 
 /**
  * 根据事件类型恢复全部物品充能
+ * 同时支持旧版 recharge_long_rest/recharge_dawn 和新版 charge_item 两种数据模型。
  * @param {Array} inventory
- * @param {'long_rest' | 'dawn'} eventType
+ * @param {'long_rest' | 'short_rest' | 'dawn'} eventType
  * @returns {{ inventory: Array, logs: Array<{ name, from, to, restored, expression }> }}
  */
 export function restoreChargesForEvent(inventory, eventType) {
-  const targetKey = eventType === 'dawn' ? 'recharge_dawn' : 'recharge_long_rest'
+  const targetKey = eventType === 'dawn' ? 'recharge_dawn' : (eventType === 'short_rest' ? 'recharge_short_rest' : 'recharge_long_rest')
   const next = []
   const logs = []
   for (const entry of inventory ?? []) {
     const effects = Array.isArray(entry?.effects) ? entry.effects : []
-    const recoveryEffects = effects.filter((e) => e?.effectType === targetKey)
-    if (recoveryEffects.length === 0) {
+
+    /* ── 旧版：recharge_long_rest / recharge_dawn / recharge_short_rest ── */
+    const legacyRecovery = effects.filter((e) => e?.effectType === targetKey)
+
+    /* ── 新版：charge_item 内 recovery.method 匹配事件 ── */
+    const chargeItemEffect = effects.find((e) => e?.effectType === 'charge_item' && e.value && typeof e.value === 'object')
+    let ciRecovered = false
+    let ciTotal = 0
+    const ciExprParts = []
+    if (chargeItemEffect) {
+      const cv = chargeItemEffect.value
+      const rec = cv.recovery && typeof cv.recovery === 'object' ? cv.recovery : null
+      if (rec && rec.method === eventType) {
+        const maxCharge = typeof cv.charges === 'number' ? cv.charges : (getEntryChargeMax(entry) ?? null)
+        const current = Number(entry.charge) || 0
+        if (rec.kind === 'full') {
+          ciTotal = (maxCharge != null ? maxCharge : current) - current
+          ciExprParts.push(`回满`)
+        } else if (rec.kind === 'dice') {
+          const diceExpr = `${Math.max(1, Number(rec.diceCount) || 1)}d${Math.max(1, Number(rec.diceSides) || 6)}`
+          const { total, rolls } = rollDice(diceExpr)
+          const bonus = Math.max(0, Number(rec.diceBonus) || 0)
+          ciTotal = total + bonus
+          ciExprParts.push(bonus > 0 ? `${diceExpr}+${bonus}` : diceExpr)
+        } else {
+          // fixed
+          ciTotal = Math.max(0, Number(rec.fixed) || 0)
+          ciExprParts.push(String(ciTotal))
+        }
+        ciRecovered = true
+      }
+    }
+
+    if (legacyRecovery.length === 0 && !ciRecovered) {
       next.push(entry)
       continue
     }
-    let total = 0
-    const expressionParts = []
-    for (const e of recoveryEffects) {
+
+    // 计算旧版恢复量
+    let legacyTotal = 0
+    const legacyExprParts = []
+    for (const e of legacyRecovery) {
       const { amount, expression } = computeRecoveryAmount(e.value)
-      total += amount
-      expressionParts.push(expression)
+      legacyTotal += amount
+      legacyExprParts.push(expression)
     }
+
+    const total = legacyTotal + ciTotal
     const chargeMax = getEntryChargeMax(entry)
     const current = Number(entry.charge) || 0
     const nextCharge = chargeMax != null ? Math.min(current + total, chargeMax) : current + total
     next.push({ ...entry, charge: nextCharge })
+    const allExpr = [...legacyExprParts, ...ciExprParts].join('+')
     logs.push({
       name: getEntryDisplayName(entry),
       from: current,
       to: nextCharge,
       restored: nextCharge - current,
-      expression: expressionParts.join('+'),
+      expression: allExpr,
     })
   }
   return { inventory: next, logs }

@@ -23,26 +23,26 @@ export const inventoryItemCardListGapClass = 'gap-[0.6rem]'
  * 充能 / 数量+重量 / 操作：固定列宽，列表内上下对齐。
  * 注意：下列 grid-cols 须写死完整字面量，勿用模板插值拼接 —— Tailwind JIT 扫描不到运行时字符串，会漏生成 CSS，导致只剩 `display:grid` 而无列定义，子项会纵向堆叠。
  */
-export const INV_COL_CHARGE = '5.75rem'
-export const INV_COL_QTY_WEIGHT = '9rem'
+export const INV_COL_CHARGE = '6.5rem'
+export const INV_COL_QTY_WEIGHT = '8.5rem'
 /** 编辑列：按 4 个图标（存仓·编辑·锁·删）预留宽度，仅 3 个时也占满本列，各行右缘对齐 */
-export const INV_COL_ACTIONS = '7rem'
+export const INV_COL_ACTIONS = '6rem'
 
 /** 有拖柄 + 充能列（充能>0 或钱币占位「—」等需占一格时）；数量与重量同一列内横向并排 */
 export const inventoryItemRowGridEditableWithCharge =
-  'grid grid-cols-[auto_minmax(0,1fr)_5.75rem_9rem_7rem] gap-x-3 gap-y-0 items-center min-w-0 shrink-0'
+  'grid grid-cols-[auto_minmax(0,1fr)_6.5rem_8.5rem_6rem] gap-x-2.5 gap-y-0 items-center min-w-0 shrink-0'
 
 /** 有拖柄、无充能列 */
 export const inventoryItemRowGridEditableNoCharge =
-  'grid grid-cols-[auto_minmax(0,1fr)_9rem_7rem] gap-x-3 gap-y-0 items-center min-w-0 shrink-0'
+  'grid grid-cols-[auto_minmax(0,1fr)_8.5rem_6rem] gap-x-2.5 gap-y-0 items-center min-w-0 shrink-0'
 
 /** 只读、无拖柄：有充能列 */
 export const inventoryItemRowGridReadWithCharge =
-  'grid grid-cols-[minmax(0,1fr)_5.75rem_9rem] gap-x-3 gap-y-0 items-center min-w-0 shrink-0'
+  'grid grid-cols-[minmax(0,1fr)_6.5rem_8.5rem] gap-x-2.5 gap-y-0 items-center min-w-0 shrink-0'
 
 /** 只读、无拖柄：无充能列 */
 export const inventoryItemRowGridReadNoCharge =
-  'grid grid-cols-[minmax(0,1fr)_9rem] gap-x-3 gap-y-0 items-center min-w-0 shrink-0'
+  'grid grid-cols-[minmax(0,1fr)_8.5rem] gap-x-2.5 gap-y-0 items-center min-w-0 shrink-0'
 
 /** 数量+重量列：同一行内横向排列（数量步进器 + 重量），略留水平余量 */
 export const inventoryItemQtyWeightCellClass =

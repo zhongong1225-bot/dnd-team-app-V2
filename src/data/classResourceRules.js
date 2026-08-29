@@ -407,6 +407,16 @@ export const RESOURCE_RULES = [
     note: '幸运专长，固定3点，长休恢复',
     group: '专长',
   },
+  {
+    resourceKey: 'healer_kit',
+    name: '医疗包使用次数',
+    classKey: '_feat',
+    featId: 'healer',
+    fixedMax: 1,
+    recovery: 'none',
+    note: '医疗师专长，战地医师能力消耗医疗包一次使用次数',
+    group: '专长',
+  },
 ]
 
 /* ── 查询函数 ─────────────────────────────────────────────── */

@@ -28,6 +28,7 @@ import { CONDITION_OPTIONS, CONDITION_DESCRIPTIONS, EXHAUSTION_DESCRIPTIONS, DAM
 import { inputClass, inputClassInline } from '../lib/inputStyles'
 import { hpBarMainFillClass, HP_BAR_TEMP_FILL_CLASS } from '../lib/hpBarShared'
 import { RESOURCE_RULES, getAutoResources, computeResourceMax, createResourceEntry } from '../data/classResourceRules'
+import { restoreChargesForEvent } from '../lib/chargeRecovery'
 import { recoverShieldsOnRest } from '../lib/shieldEngine'
 import WeaponAttackCard from './combat/WeaponAttackCard'
 import SpellAttackCard from './combat/SpellAttackCard'
@@ -57,9 +58,11 @@ import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
 import { rollDice, rollCombatDicePool, parseCombatDiceExpression } from '../data/weaponDatabase'
 import { buildQuickRollAnimation } from '../lib/quickRollAnimation'
 import ActiveAbilityQuickBar from './combat/ActiveAbilityQuickBar'
+import SummonedCreaturesPanel from './combat/SummonedCreaturesPanel'
 import { executeAbility, canUseAbility } from '../lib/activeAbilityEngine'
 import { isNewContainedSpellValue, normalizeContainedSpellValue, extractContainedSpellValueFromEntry } from '../lib/containedSpellModel'
 import { getFlatEffectEntries } from '../lib/effects/effectMapping'
+import { recoverShieldPoolsOnRest } from '../lib/shieldPoolUtils'
 
 /**
  * 计算条件范围命中/伤害加值（非 global 的 attack_bonus / damage_bonus / attack_damage_bonus）。
@@ -520,7 +523,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       classLevels,
     }
   }, [char, level, abilities, buffStats])
-  const flatBuffEffects = useMemo(() => getFlatEffectEntries(mergedBuffs), [mergedBuffs])
+  const flatBuffEffects = useMemo(() => getFlatEffectEntries(mergedBuffs, char), [mergedBuffs, char])
   const acResult = getAC(char)
   const acTotal = buffStats?.ac != null ? buffStats.ac : (acResult.total + (buffStats?.acBonus ?? 0))
   const acModeOptions = useMemo(() => getACModeOptionsForCharacter(char), [char?.['class'], char?.multiclass, char?.prestige])
@@ -1417,7 +1420,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const wForEdit =
       cm.weaponInventoryIndex != null ? weaponsFromInv.find((x) => x.index === cm.weaponInventoryIndex) : null
     const rawDamageType = cm.damageType || (wForEdit ? parseWeaponAttack(getWeaponAttackStringForParsing(wForEdit, cm.weaponVersatileMode)).type : null)
-    const flatEffects = getFlatEffectEntries(mergedBuffs)
+    const flatEffects = getFlatEffectEntries(mergedBuffs, char)
     const spellAbilityOverride = getSpellAbilityForAttackFromBuffs(flatEffects, {
       weaponProto: wForEdit?.proto,
       damageType: rawDamageType,
@@ -1719,6 +1722,19 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     saveClassResources(next)
     // 护盾短休恢复
     if (shields.length > 0) saveShields(recoverShieldsOnRest(shields, 'short'))
+    // 护盾池短休恢复
+    const spRecoverShort = recoverShieldPoolsOnRest(char, 'short', mergedBuffs)
+    if (spRecoverShort) onSave({ shieldPoolStates: spRecoverShort })
+    // 物品充能短休恢复（仅 recharge_short_rest 类型）
+    const inv = char?.inventory ?? []
+    if (inv.length > 0) {
+      const { inventory: nextInv, logs } = restoreChargesForEvent(inv, 'short_rest')
+      if (logs.length > 0) {
+        onSave({ inventory: nextInv })
+        const summary = logs.map((l) => `${l.name}：${l.from} → ${l.to}`).join('\n')
+        console.log('短休恢复充能：', summary)
+      }
+    }
     // 魔契师短休恢复契约法术位
     const pactLv = getPactLevel(char)
     if (pactLv > 0) {
@@ -1750,6 +1766,19 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     saveClassResources(next)
     // 护盾长休恢复
     if (shields.length > 0) saveShields(recoverShieldsOnRest(shields, 'long'))
+    // 护盾池长休恢复
+    const spRecoverLong = recoverShieldPoolsOnRest(char, 'long', mergedBuffs)
+    if (spRecoverLong) onSave({ shieldPoolStates: spRecoverLong })
+    // 物品充能长休恢复（recharge_long_rest）
+    const inv = char?.inventory ?? []
+    if (inv.length > 0) {
+      const { inventory: nextInv, logs } = restoreChargesForEvent(inv, 'long_rest')
+      if (logs.length > 0) {
+        onSave({ inventory: nextInv })
+        const summary = logs.map((l) => `${l.name}：${l.from} → ${l.to}`).join('\n')
+        console.log('长休恢复充能：', summary)
+      }
+    }
     const ds = getDefaultDeathSaves()
     setDeathSaves(ds)
     onSave({ deathSaves: ds })
@@ -1771,6 +1800,19 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       const merged = { ...(cur ?? {}), ...restored }
       setSpellSlotsCurrentLocal(merged)
       onSave({ spellSlots: merged })
+    }
+  }
+
+  /* ── 黎明恢复：仅恢复黎明恢复类型的物品充能 ── */
+  const handleDawn = () => {
+    const inv = char?.inventory ?? []
+    if (inv.length > 0) {
+      const { inventory: nextInv, logs } = restoreChargesForEvent(inv, 'dawn')
+      if (logs.length > 0) {
+        onSave({ inventory: nextInv })
+        const summary = logs.map((l) => `${l.name}：${l.from} → ${l.to}`).join('\n')
+        console.log('黎明恢复充能：', summary)
+      }
     }
   }
 
@@ -2299,6 +2341,11 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                 {canEdit && classResources.length > 0 && (
                   <button type="button" onClick={handleLongRest} className="px-1.5 py-0.5 rounded bg-indigo-700/60 text-indigo-200 text-[10px] font-medium hover:bg-indigo-700/80" title="长休：恢复所有资源 + 重置死亡豁免">
                     长休
+                  </button>
+                )}
+                {canEdit && (
+                  <button type="button" onClick={handleDawn} className="px-1.5 py-0.5 rounded bg-orange-700/60 text-orange-200 text-[10px] font-medium hover:bg-orange-700/80" title="黎明恢复：恢复黎明恢复类型的物品充能">
+                    黎明
                   </button>
                 )}
                 {canEdit && (
@@ -2930,6 +2977,17 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         onExecute={handleExecuteAbility}
         canEdit={canEdit}
         moduleId={moduleId}
+      />
+      
+      {/* 召唤物管理面板 */}
+      <SummonedCreaturesPanel
+        char={char}
+        onDelete={(summonId) => {
+          if (!onSave) return
+          const currentSummons = Array.isArray(char.summonedCreatures) ? char.summonedCreatures : []
+          const newSummons = currentSummons.filter(s => s.id !== summonId)
+          onSave({ summonedCreatures: newSummons })
+        }}
       />
     </div>
   )

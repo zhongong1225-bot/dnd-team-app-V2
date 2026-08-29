@@ -56,6 +56,7 @@ export const RECOVERY_AMOUNT_OPTIONS = [
 
 /** 消耗资源类型选项：充能数 + 职业资源 + 法术位 */
 export const RESOURCE_TYPE_OPTIONS = [
+  { value: 'none', label: '无消耗' },
   { value: 'charges', label: '充能数' },
   { value: 'rage', label: '狂暴次数' },
   { value: 'bardic_inspiration', label: '吟游诗人激励' },
@@ -312,7 +313,9 @@ export function formatRecoveryBrief(recovery) {
 export function formatChargeItemBrief(value) {
   const norm = normalizeChargeItemValue(value)
   const parts = []
-  if (norm.resourceType === 'charges') {
+  if (norm.resourceType === 'none') {
+    // 无消耗，不显示充能信息
+  } else if (norm.resourceType === 'charges') {
     parts.push(`${norm.charges} 充能`)
     parts.push(formatRecoveryBrief(norm.recovery))
   } else {
@@ -487,6 +490,7 @@ export function computeScaledEffect(effectValue, amount) {
  */
 export function getMaxSpendableAmount(norm, char) {
   if (!norm || !char) return 1
+  if (norm.resourceType === 'none') return 1
   if (norm.resourceType === 'charges') {
     return Math.max(1, Math.floor(Number(norm.charges) || 1))
   }

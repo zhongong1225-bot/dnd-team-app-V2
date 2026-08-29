@@ -216,6 +216,30 @@ export const INSTRUMENT_PROFICIENCY_OPTIONS = [
   { value: 'viol', label: '提琴' },
 ]
 
+/** 视觉效果选项 */
+export const VISUAL_EFFECT_OPTIONS = [
+  { value: 'glow', label: '发光/光晕', desc: '角色或装备发出光芒' },
+  { value: 'invisibility', label: '隐形/半透明', desc: '角色变得透明或完全隐形' },
+  { value: 'color_change', label: '变色', desc: '皮肤/眼睛/头发/装备颜色变化' },
+  { value: 'elemental_aura', label: '元素环绕', desc: '火焰/冰霜/闪电/毒素等元素环绕' },
+  { value: 'shadow', label: '阴影/黑影', desc: '阴影异常或黑影笼罩' },
+  { value: 'runes', label: '符文/印记', desc: '身上或装备出现发光符文' },
+  { value: 'halo', label: '光环', desc: '头顶出现神圣光环' },
+  { value: 'wings', label: '翅膀', desc: '出现实体或能量翅膀' },
+  { value: 'horns', label: '角/犄角', desc: '头上长出角' },
+  { value: 'tail', label: '尾巴', desc: '出现尾巴' },
+  { value: 'glowing_eyes', label: '眼睛发光', desc: '双眼发出光芒' },
+  { value: 'floating', label: '漂浮/悬浮', desc: '身体或物体漂浮' },
+  { value: 'ethereal', label: '虚化/灵体', desc: '半透明灵体状态' },
+  { value: 'size_change', label: '体型变化', desc: '变大或变小' },
+  { value: 'particles', label: '粒子效果', desc: '周围有粒子/光点飘动' },
+  { value: 'cracks', label: '裂纹/破碎', desc: '皮肤或装备出现裂纹' },
+  { value: 'smoke', label: '烟雾/蒸汽', desc: '周围有烟雾或蒸汽' },
+  { value: 'frost', label: '结霜/冰冻', desc: '表面结霜或冰冻效果' },
+  { value: 'burning', label: '燃烧', desc: '角色或装备在燃烧' },
+  { value: 'custom', label: '自定义描述', desc: '自由填写视觉效果' },
+]
+
 /** 工具熟练选项（工匠工具 + 工具包 + 赌具） */
 export const TOOL_PROFICIENCY_OPTIONS = [
   { value: 'alchemist_supplies', label: '炼金工具' },
@@ -343,7 +367,7 @@ export function formatDamagePiercingTraitsValue(value) {
  * 第一级：大类 (category)
  * 第二级：具体效果 (key, label, dataType, subSelect, hidden)
  */
-const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'active_release', 'container', 'proficiency', 'choice', 'custom']
+const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'active_release', 'container', 'proficiency', 'choice', 'visual', 'custom']
 
 export const BUFF_TYPES = {
   ability: {
@@ -398,6 +422,8 @@ export const BUFF_TYPES = {
       { key: 'crit_range_override', label: '暴击范围（覆盖）', dataType: 'number' },
       // 暴击范围增量：-N，多个效果可叠加
       { key: 'crit_range_increment', label: '暴击范围（+N）', dataType: 'number' },
+      // 暴击范围缩减：专用于火铳手"致命专注"等-N机制，与crit_range_increment计算逻辑相同但语义独立
+      { key: 'crit_range_reduction', label: '暴击范围缩减', dataType: 'number' },
       // 暴击×：仅作用于「该件物品」自身；战斗手段里每把武器单独读自己的附魔，不会因其它已装备武器上的×4而串用
       { key: 'crit_extra_dice', label: '暴击×', dataType: 'number' },
       // 表格：伤害骰（自定义一行：箭 - 数字 + 骰子 箭 类型 箭，箭为下拉）
@@ -441,6 +467,8 @@ export const BUFF_TYPES = {
       { key: 'death_save_bonus', label: '死亡豁免加值', dataType: 'number' },
       /** 防死：一次 HP 降至 0 以下时，强制改为 1 并消耗该效果 */
       { key: 'death_ward', label: '防死', dataType: 'boolean' },
+      /** 护盾池：追踪可消耗的护盾/护甲层数，当 current ≤ threshold 时同卡其他效果全部禁用 */
+      { key: 'shield_pool', label: '护盾池', dataType: 'object', subSelect: 'shieldPool' },
     ],
   },
   // 施法优化
@@ -475,6 +503,7 @@ export const BUFF_TYPES = {
       // ── 以下旧 key 保留供已有数据兼容，不在新增下拉中显示 ──
       { key: 'contained_spell', label: '内含法术', dataType: 'object', subSelect: 'containedSpell', hidden: true },
       { key: 'ac_cap_stone_layer', label: '瓦石层', dataType: 'number', hidden: true },
+      { key: 'recharge_short_rest', label: '短休恢复', dataType: 'object', subSelect: 'chargeRecovery', hidden: true },
       { key: 'recharge_long_rest', label: '长休恢复', dataType: 'object', subSelect: 'chargeRecovery', hidden: true },
       { key: 'recharge_dawn', label: '黎明恢复', dataType: 'object', subSelect: 'chargeRecovery', hidden: true },
       { key: 'charge', label: '充能数', dataType: 'number', hidden: true },
@@ -510,6 +539,14 @@ export const BUFF_TYPES = {
     choiceType: true,
     effects: [
       { key: 'choice', label: '选择', dataType: 'object', subSelect: 'choice' },
+    ],
+  },
+  /** 视觉/外观：纯视觉效果，不参与数值计算，仅作展示提醒 */
+  visual: {
+    label: '视觉',
+    color: 'pink',
+    effects: [
+      { key: 'visual_effect', label: '视觉效果', dataType: 'object', subSelect: 'visualEffect' },
     ],
   },
   custom: {

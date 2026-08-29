@@ -468,6 +468,33 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     onSave({ inventory: nextInv })
   }
 
+  /** 瓦石甲 AC 递减（最低 12） */
+  const decrementStoneArmorAC = (inventoryId) => {
+    const entryIdx = inv.findIndex((e) => e.id === inventoryId)
+    if (entryIdx < 0) return
+    const entry = inv[entryIdx]
+    const currentAC = typeof entry.stoneArmorAC === 'number' ? entry.stoneArmorAC : 21
+    if (currentAC <= 12) return
+    const nextInv = inv.map((e, i) => (i === entryIdx ? { ...e, stoneArmorAC: currentAC - 1 } : e))
+    onSave({ inventory: nextInv })
+  }
+
+  /** 瓦石甲 AC 重置回 21 */
+  const resetStoneArmorAC = (inventoryId) => {
+    const entryIdx = inv.findIndex((e) => e.id === inventoryId)
+    if (entryIdx < 0) return
+    const nextInv = inv.map((e, i) => (i === entryIdx ? { ...e, stoneArmorAC: 21 } : e))
+    onSave({ inventory: nextInv })
+  }
+
+  /** 判断是否为瓦石甲（通过 stoneArmorAC 字段或物品名） */
+  const isStoneArmor = (entry) => {
+    if (!entry) return false
+    if (typeof entry.stoneArmorAC === 'number') return true
+    const name = getEntryDisplayName(entry) || ''
+    return name.includes('瓦石甲')
+  }
+
   const addWornSlot = () => {
     const used = new Set(wornAddable.map((a) => a.slotId).filter(Boolean))
     const slotId = WORN_SLOT_OPTIONS.find((o) => o.id !== 'body' && !used.has(o.id))?.id ?? 'head'
@@ -609,6 +636,33 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     const n = Math.max(1, parseInt(value, 10) || 1)
     nested[nestedIndex] = { ...item, qty: n }
     onSave({ inventory: inv.map((e, i) => (i === containerIdx ? { ...e, nestedInventory: nested } : e)) })
+  }
+
+  /** 容器内物品存到团队仓库 */
+  const openStoreToVaultForNested = (containerInvIndex, nestedIndex) => {
+    const container = inv[containerInvIndex]
+    if (!container) return
+    const nested = Array.isArray(container.nestedInventory) ? container.nestedInventory : []
+    const item = nested[nestedIndex]
+    if (!item) return
+    const q = Math.max(1, Number(item.qty) || 1)
+    const moduleId = character?.moduleId ?? 'default'
+    const addPromise = item.itemId
+      ? Promise.resolve(addToWarehouse(moduleId, { ...item, qty: q }))
+      : Promise.resolve(addToWarehouse(moduleId, { name: item.name || '—', qty: q }))
+    setIsStoreToVaulting(true)
+    setTransferHint('物品存入中，请耐心等待；若长时间未完成请尝试刷新页面。')
+    const nextNested = nested.filter((_, idx) => idx !== nestedIndex)
+    onSave({ inventory: inv.map((e, i) => (i === containerInvIndex ? { ...e, nestedInventory: nextNested } : e)) })
+    addPromise
+      .catch((err) => {
+        console.error('[EquipmentAndInventory] 容器内物品存到团队仓库失败', err)
+        alert('存入失败，请重试或刷新页面')
+      })
+      .finally(() => {
+        setIsStoreToVaulting(false)
+        setTransferHint('')
+      })
   }
 
   /** 容器储物：拖放背包物品到展开区域入袋 */
@@ -1409,19 +1463,53 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                       const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
                       const hasStoneLayer = !!stoneEffect
                       const stoneValue = hasStoneLayer ? (Number(stoneEffect.value) || 0) : 0
-                      return hasStoneLayer && entry ? (
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <span className="text-gray-500 text-[10px] whitespace-nowrap">瓦石层</span>
-                          <NumberStepper
-                            compact
-                            narrow
-                            min={0}
-                            max={99}
-                            value={stoneValue}
-                            onChange={(v) => setWornStoneLayer(entry.id, String(v))}
-                          />
-                        </div>
-                      ) : null
+                      const stoneAC = isStoneArmor(entry) ? (typeof entry.stoneArmorAC === 'number' ? entry.stoneArmorAC : 21) : null
+                      return (
+                        <>
+                          {hasStoneLayer && entry && (
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="text-gray-500 text-[10px] whitespace-nowrap">瓦石层</span>
+                              <NumberStepper
+                                compact
+                                narrow
+                                min={0}
+                                max={99}
+                                value={stoneValue}
+                                onChange={(v) => setWornStoneLayer(entry.id, String(v))}
+                              />
+                            </div>
+                          )}
+                          {stoneAC !== null && entry && (
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => decrementStoneArmorAC(entry.id)}
+                                disabled={stoneAC <= 12}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono font-bold border transition-colors active:scale-[0.96] disabled:opacity-40 disabled:cursor-not-allowed"
+                                title={stoneAC <= 12 ? 'AC 已降至最低 12' : '受击 AC-1'}
+                                style={{
+                                  borderColor: stoneAC <= 12 ? 'rgba(239,68,68,0.4)' : 'rgba(199,154,66,0.5)',
+                                  backgroundColor: stoneAC <= 12 ? 'rgba(239,68,68,0.1)' : 'rgba(199,154,66,0.12)',
+                                  color: stoneAC <= 12 ? 'rgb(239,68,68)' : 'rgb(220,190,120)',
+                                }}
+                              >
+                                <Shield className="w-3 h-3" />
+                                AC {stoneAC}
+                              </button>
+                              {stoneAC < 21 && (
+                                <button
+                                  type="button"
+                                  onClick={() => resetStoneArmorAC(entry.id)}
+                                  className="w-5 h-5 flex items-center justify-center rounded text-gray-600 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-colors active:scale-95"
+                                  title="重置 AC 到 21"
+                                >
+                                  <ChevronDown className="w-3 h-3 rotate-180" />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )
                     })()}
                     <AttuneToggle
                       entry={bodyEntry}
@@ -1443,9 +1531,31 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                       const entry = inv.find((e) => e.id === bodySlot.inventoryId)
                       const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
                       const stoneValue = stoneEffect != null ? (Number(stoneEffect.value) || 0) : 0
-                      return stoneEffect && stoneValue > 0 ? (
-                        <span className="text-dnd-gold-light/90 text-xs font-mono shrink-0" title="瓦石层">{stoneValue}层</span>
-                      ) : null
+                      const stoneAC = isStoneArmor(entry) ? (typeof entry.stoneArmorAC === 'number' ? entry.stoneArmorAC : 21) : null
+                      return (
+                        <>
+                          {stoneEffect && stoneValue > 0 && (
+                            <span className="text-dnd-gold-light/90 text-xs font-mono shrink-0" title="瓦石层">{stoneValue}层</span>
+                          )}
+                          {stoneAC !== null && (
+                            <button
+                              type="button"
+                              onClick={() => decrementStoneArmorAC(entry.id)}
+                              disabled={stoneAC <= 12}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono font-bold border transition-colors active:scale-[0.96] disabled:opacity-40 disabled:cursor-not-allowed"
+                              title={stoneAC <= 12 ? 'AC 已降至最低 12' : '受击 AC-1'}
+                              style={{
+                                borderColor: stoneAC <= 12 ? 'rgba(239,68,68,0.4)' : 'rgba(199,154,66,0.5)',
+                                backgroundColor: stoneAC <= 12 ? 'rgba(239,68,68,0.1)' : 'rgba(199,154,66,0.12)',
+                                color: stoneAC <= 12 ? 'rgb(239,68,68)' : 'rgb(220,190,120)',
+                              }}
+                            >
+                              <Shield className="w-3 h-3" />
+                              AC {stoneAC}
+                            </button>
+                          )}
+                        </>
+                      )
                     })()}
                   </>
                 )}
@@ -2124,52 +2234,186 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                               {(Array.isArray(entry.nestedInventory) ? entry.nestedInventory : []).map((nested, nestedIdx) => {
                                 const nestedLb = getInventoryEntryStackWeightLb(nested)
                                 const nestedQty = Math.max(1, Math.floor(Number(nested?.qty) || 1))
+                                const nestedCharge = Number(nested?.charge) || 0
+                                const nestedHasCharge = nestedCharge > 0 || hasContainedSpellEffect(nested)
+                                const nestedMagicBonus = Number(nested?.magicBonus) || 0
+                                const nestedStoneEffect = Array.isArray(nested?.effects)
+                                  ? nested.effects.find((e) => e.effectType === 'ac_cap_stone_layer')
+                                  : null
+                                const nestedStoneVal = nestedStoneEffect != null && nestedStoneEffect.value != null ? Number(nestedStoneEffect.value) : null
+                                const nestedActiveEntry = activeAbilities.find(a => a.inventoryId === nested.id)
+                                const nestedGridClass = canEdit
+                                  ? (nestedHasCharge ? inventoryItemRowGridEditableWithCharge : inventoryItemRowGridEditableNoCharge)
+                                  : (nestedHasCharge ? inventoryItemRowGridReadWithCharge : inventoryItemRowGridReadNoCharge)
                                 return (
                                   <div
                                     key={nested.id ?? `nested-${nestedIdx}`}
                                     className="rounded-md border border-gray-600/40 bg-[#151c28]/60 px-2 py-1.5"
                                   >
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <span className="min-w-0 flex-1 truncate text-white text-xs font-medium">
-                                        {invDisplayName(nested)}
-                                      </span>
-                                      {canEdit && (
-                                        <div className="w-[4.5rem] shrink-0">
-                                          <NumberStepper
-                                            value={nestedQty}
-                                            onChange={(v) => setNestedQty(entry.id, nestedIdx, v)}
-                                            min={1}
-                                            compact
-                                            pill
-                                            subtle
-                                          />
+                                    <div className={nestedGridClass}>
+                                      {/* 名称列 */}
+                                      <div className={inventoryItemNameRowClass}>
+                                        <div className={inventoryItemNameTitleGroupClass}>
+                                          <InfoTooltip
+                                            content={(() => {
+                                              const p = nested?.itemId ? getItemById(nested.itemId) : null
+                                              return <ItemTooltipContent proto={p} entry={nested} />
+                                            })()}
+                                            triggerClassName={inventoryItemNameTextClass}
+                                            disabled={!nested?.itemId}
+                                          >
+                                            <span className="break-words">{invDisplayName(nested)}</span>
+                                          </InfoTooltip>
+                                          <span className={inventoryItemNameExtrasClass}>
+                                            {nestedStoneVal != null && !Number.isNaN(nestedStoneVal) && nestedStoneVal > 0 ? (
+                                              <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0" title="瓦石层">
+                                                {nestedStoneVal}层
+                                              </span>
+                                            ) : nestedMagicBonus > 0 ? (
+                                              <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{nestedMagicBonus}</span>
+                                            ) : null}
+                                          </span>
+                                          {hasContainedSpellEffect(nested) && (
+                                            <ContainedSpellUseButton
+                                              entry={nested}
+                                              onChargeChange={(v) => {
+                                                const nextNested = entry.nestedInventory.map((n, idx) =>
+                                                  idx === nestedIdx ? { ...n, charge: v } : n
+                                                )
+                                                onSave({ inventory: inv.map((e, idx) => idx === i ? { ...e, nestedInventory: nextNested } : e) })
+                                              }}
+                                            />
+                                          )}
+                                          {nestedActiveEntry && (
+                                            <button
+                                              type="button"
+                                              onClick={async (e) => {
+                                                e.stopPropagation()
+                                                if (!canUseAbility(character, nestedActiveEntry.ability.id)) {
+                                                  alert('该技能当前不可用（可能资源不足或处于冷却中）')
+                                                  return
+                                                }
+                                                try {
+                                                  const result = await executeAbility(character, nestedActiveEntry.ability.id)
+                                                  if (result.success) {
+                                                    if (result.classResources) {
+                                                      onSave({ ...character, classResources: result.classResources })
+                                                    }
+                                                    if (result.patch) {
+                                                      onSave({ ...character, ...result.patch })
+                                                    }
+                                                    alert(`✅ ${nestedActiveEntry.ability.name} 执行成功！`)
+                                                  } else {
+                                                    alert(' 技能执行失败')
+                                                  }
+                                                } catch (err) {
+                                                  console.error('[Equipment] 执行容器内物品主动技能失败', err)
+                                                  alert('执行失败，请查看控制台')
+                                                }
+                                              }}
+                                              className="inline-flex items-center justify-center h-6 w-6 shrink-0 rounded border border-cyan-600/70 bg-cyan-900/20 text-cyan-300 hover:bg-cyan-800/40 transition-colors"
+                                              title={`使用主动技能: ${nestedActiveEntry.ability.name}`}
+                                            >
+                                              <Sparkles className="w-3.5 h-3.5" />
+                                            </button>
+                                          )}
                                         </div>
-                                      )}
-                                      {!canEdit && (
-                                        <span className="text-dnd-text-body text-xs tabular-nums shrink-0">×{nestedQty}</span>
-                                      )}
-                                      <span className="text-dnd-text-muted text-[10px] tabular-nums w-12 text-right shrink-0">
-                                        {nestedLb > 0 ? `${formatDisplayWeightLb(nestedLb)} lb` : '—'}
-                                      </span>
-                                      {canEdit && (
-                                        <button
-                                          type="button"
-                                          onClick={() => setEditingNested({ containerId: entry.id, nestedIndex: nestedIdx })}
-                                          title="编辑"
-                                          className="p-1 rounded text-dnd-gold-light hover:bg-dnd-gold/20 shrink-0"
+                                      </div>
+
+                                      {/* 充能列 */}
+                                      {nestedHasCharge ? (
+                                        <div
+                                          className={inventoryItemChargeCellClass}
+                                          onMouseDown={(e) => e.stopPropagation()}
+                                          role="presentation"
                                         >
-                                          <Pencil size={13} />
-                                        </button>
-                                      )}
-                                      {canEdit && (
-                                        <button
-                                          type="button"
-                                          onClick={() => removeItemFromContainer(entry.id, nestedIdx)}
-                                          title="取出到背包"
-                                          className="p-1 rounded text-dnd-red hover:bg-dnd-red/20 shrink-0"
+                                          <span className="shrink-0 leading-none">充能</span>
+                                          <div className="w-[5.125rem] shrink-0 max-w-full">
+                                            {canEdit ? (
+                                              <NumberStepper
+                                                value={nestedCharge}
+                                                onChange={(v) => {
+                                                  const nextNested = entry.nestedInventory.map((n, idx) =>
+                                                    idx === nestedIdx ? { ...n, charge: v } : n
+                                                  )
+                                                  onSave({ inventory: inv.map((e, idx) => idx === i ? { ...e, nestedInventory: nextNested } : e) })
+                                                }}
+                                                min={0}
+                                                compact
+                                                pill
+                                                subtle
+                                              />
+                                            ) : (
+                                              <span className="text-dnd-text-body text-xs tabular-nums inline-block text-right w-full pr-0.5">{nestedCharge}</span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      ) : null}
+
+                                      {/* 数量+重量列 */}
+                                      <div className={inventoryItemQtyWeightCellClass}>
+                                        <div
+                                          className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
+                                          onMouseDown={(e) => e.stopPropagation()}
+                                          role="presentation"
                                         >
-                                          <ArrowUpFromLine size={13} />
-                                        </button>
+                                          <span className="shrink-0 leading-none">数量</span>
+                                          <div className="w-[5.125rem] shrink-0 max-w-full h-6 flex items-center justify-end">
+                                            {canEdit ? (
+                                              <NumberStepper
+                                                value={nestedQty}
+                                                onChange={(v) => setNestedQty(entry.id, nestedIdx, v)}
+                                                min={1}
+                                                compact
+                                                pill
+                                                subtle
+                                              />
+                                            ) : (
+                                              <span className="text-dnd-text-body text-xs tabular-nums inline-block text-right w-full pr-0.5">×{nestedQty}</span>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                                          {nestedLb > 0 ? (
+                                            <span className="text-dnd-text-body">{formatDisplayWeightLb(nestedLb)} lb</span>
+                                          ) : (
+                                            <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>—</span>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      {/* 操作列 */}
+                                      {canEdit && (
+                                        <div
+                                          className={inventoryItemActionsCellClass}
+                                          onMouseDown={(e) => e.stopPropagation()}
+                                          role="presentation"
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={() => openStoreToVaultForNested(i, nestedIdx)}
+                                            title="存到团队仓库"
+                                            className="p-1 rounded text-emerald-400 hover:bg-emerald-400/20 shrink-0"
+                                          >
+                                            <Package size={14} />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setEditingNested({ containerId: entry.id, nestedIndex: nestedIdx })}
+                                            title="编辑"
+                                            className="p-1 rounded text-dnd-gold-light hover:bg-dnd-gold/20 shrink-0"
+                                          >
+                                            <Pencil size={14} />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => removeItemFromContainer(entry.id, nestedIdx)}
+                                            title="取出到背包"
+                                            className="p-1 rounded text-dnd-red hover:bg-dnd-red/20 shrink-0"
+                                          >
+                                            <ArrowUpFromLine size={14} />
+                                          </button>
+                                        </div>
                                       )}
                                     </div>
                                   </div>

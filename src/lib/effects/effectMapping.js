@@ -191,18 +191,17 @@ export function getBuffsFromSelectedFeats(character, moduleId) {
     }
     const duration = patch?.duration
     const enabled = patch?.enabled !== false
-    const defaultAbilities = DEFAULT_FEAT_ABILITIES[item.featId] || []
+    // 已移除硬编码主动技能，全部走BUFF编辑器 charge_item 效果
     // 检查是否有主动技能配置（从 featBuffPatch 的 charge_item 效果提取）
     const hasActiveAbilityFromPatch = Array.isArray(patch?.effects) && patch.effects.some(e => 
       e.effectType === 'charge_item' && e.value && typeof e.value === 'object'
     )
-    // 只有拥有功能卡的专长才出现在 BUFF 栏（有被动效果、默认主动技能、或编辑器配置的主动技能）
-    if (effects.length === 0 && defaultAbilities.length === 0 && !hasActiveAbilityFromPatch) return
+    // 只有拥有功能卡的专长才出现在 BUFF 栏（有被动效果或编辑器配置的主动技能）
+    if (effects.length === 0 && !hasActiveAbilityFromPatch) return
     out.push({
       id: `feat_${item.featId}`,
       source: name,
       effects,
-      ...(defaultAbilities.length ? { activeAbilities: defaultAbilities } : {}),
       ...(duration ? { duration } : {}),
       enabled,
       fromFeat: true,
@@ -458,17 +457,16 @@ export function getBuffsFromClassFeatures(character, moduleId) {
         const choiceResult = getChoiceEffects(buffKey, classFeatureChoices)
         if (choiceResult) effects = choiceResult.effects
       }
-      // 注入默认主动技能（即使无被动效果也保留条目）
-      // 优先级：DM 补丁配置 > 硬编码默认
-      const patchAbilities = Array.isArray(defaultPatch?.activeAbilities) ? defaultPatch.activeAbilities : null
-      const defaultAbilities = patchAbilities || DEFAULT_CLASS_FEATURE_ABILITIES[buffKey] || []
-      // 只有拥有功能卡的特性才出现在 BUFF 栏
-      if (defaultAbilities.length === 0) return null
+      // 注入主动技能（即使无被动效果也保留条目）
+      // 优先级：DM 补丁配置 > 空数组（不再依赖硬编码默认）
+      const patchAbilities = Array.isArray(defaultPatch?.activeAbilities) ? defaultPatch.activeAbilities : []
+      // 只有拥有被动效果或主动技能的特性才出现在 BUFF 栏
+      if (effects.length === 0 && patchAbilities.length === 0) return null
       return {
         id: `classfeature_${f.sourceClass}_${f.sourceSubclass || ''}_${f.id}${optionId ? `_${optionId}` : ''}`,
         source: sourceLabel,
         effects,
-        ...(defaultAbilities.length ? { activeAbilities: defaultAbilities } : {}),
+        ...(patchAbilities.length ? { activeAbilities: patchAbilities } : {}),
         ...(duration ? { duration } : {}),
         enabled,
         fromClassFeature: true,
@@ -578,14 +576,58 @@ export function getEffectsFromItem(entry) {
  * 将 BUFF 列表展平为计算器用的 { effectType, value } 列表（兼容旧格式）
  * 与 useBuffCalculator 原 getFlatEffectEntries 行为一致，统一入口
  * 保留 scope/scopeDetail/itemInventoryId，供 CombatStatus 等处的条件范围匹配使用。
+ * 支持护盾池门控：当护盾池 current ≤ threshold 时，同卡其他效果全部过滤。
  */
-export function getFlatEffectEntries(buffs) {
+export function getFlatEffectEntries(buffs, char) {
   const out = []
   const list = Array.isArray(buffs) ? buffs : []
   for (const b of list) {
     if (b && b.enabled === false) continue
     const effects = getEffectsFromBuff(b)
+    
+    // 检查护盾池门控
+    const shieldPoolEffect = effects.find(e => e.effectType === 'shield_pool')
+    let shieldPoolDepleted = false
+    if (shieldPoolEffect && shieldPoolEffect.value && typeof shieldPoolEffect.value === 'object') {
+      const spValue = shieldPoolEffect.value
+      const max = Number(spValue.max) || 10
+      const threshold = Number(spValue.threshold) || 0
+      
+      // 从 char.shieldPoolStates 读取当前值
+      let current = max
+      if (char?.shieldPoolStates) {
+        // 构建键：根据 buff 来源类型
+        const sourceType = b.fromItem ? 'equipment' 
+          : b.fromFeat ? 'feat'
+          : b.fromClassFeature ? 'classFeature'
+          : b.fromInvocation ? 'invocation'
+          : b.fromFightingStyle ? 'fightingStyle'
+          : 'manual'
+        
+        const sourceKey = b.fromItem ? b.itemInventoryId
+          : b.fromFeat ? b.featId
+          : b.fromClassFeature ? `${b.sourceClass || ''}|${b.sourceSubclass || ''}|${b.featureId || ''}`
+          : b.fromInvocation ? b.invocationId
+          : b.fromFightingStyle ? b.styleId
+          : b.source || b.id || 'unknown'
+        
+        const key = `${sourceType}:${sourceKey}`
+        if (key in char.shieldPoolStates) {
+          current = typeof char.shieldPoolStates[key].current === 'number' 
+            ? char.shieldPoolStates[key].current 
+            : max
+        }
+      }
+      
+      shieldPoolDepleted = current <= threshold
+    }
+    
     for (const e of effects) {
+      // 护盾池门控：如果护盾池已耗尽，只保留 shield_pool 自身
+      if (shieldPoolDepleted && e.effectType !== 'shield_pool') {
+        continue
+      }
+      
       // 选择型 BUFF：展开选中选项的效果
       if (e.effectType === 'choice' && e.value && typeof e.value === 'object' && !Array.isArray(e.value)) {
         const opts = Array.isArray(e.value.choiceOptions) ? e.value.choiceOptions : []

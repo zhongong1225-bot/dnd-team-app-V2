@@ -91,6 +91,10 @@ export function getCritThreatMinNaturalFromItemEntry(entry, context = {}) {
     } else if (e?.effectType === 'crit_range_increment') {
       const n = evaluateBuffValue(e.value, context)
       if (!Number.isNaN(n) && n >= 1) increment += Math.floor(n)
+    } else if (e?.effectType === 'crit_range_reduction') {
+      // 火铳手"致命专注"专属机制：暴击范围-N
+      const n = evaluateBuffValue(e.value, context)
+      if (!Number.isNaN(n) && n >= 1) increment += Math.floor(n)
     }
   }
   // 增量从覆盖结果中再扩展
@@ -171,7 +175,7 @@ function parseBaseSpeedIncrement(raw, evalVal) {
  */
 export function computeBuffStats(character, activeBuffs, shieldEffects) {
   const buffs = (activeBuffs || []).filter((b) => b.enabled !== false)
-    const rawEntries = getFlatEffectEntries(buffs)
+    const rawEntries = getFlatEffectEntries(buffs, character)
     // 注入活跃护盾效果
     if (Array.isArray(shieldEffects) && shieldEffects.length > 0) {
       rawEntries.push(...shieldEffects.filter((e) => e?.effectType))
