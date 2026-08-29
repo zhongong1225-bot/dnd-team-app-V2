@@ -38,7 +38,7 @@ import {
   resolveRuleText,
 } from '../lib/ruleTextOverrides'
 import { FANXING_PRESTIGE_CLASSES } from '../data/fanxing'
-import { ABILITY_NAMES_ZH } from '../data/buffTypes'
+import { ABILITY_NAMES_ZH, BUFF_TYPES } from '../data/buffTypes'
 import { FEATS, FEATS_BY_CATEGORY, formatFeatDescriptionForDisplay } from '../data/feats'
 import { ELDRITCH_INVOCATIONS } from '../data/eldritchInvocations'
 import { FIGHTING_STYLES, getFightingStyleById } from '../data/fightingStyles'
@@ -550,6 +550,15 @@ function RaceBackgroundInline({ char, canEdit, onSave }) {
   const selCls = 'flex-1 min-w-0 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50'
   const txtCls = 'w-12 px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 text-center focus:outline-none focus:border-dnd-gold/50'
 
+  // 效果类型→中文名映射（从 BUFF_TYPES 构建）
+  const effectTypeLabelMap = useMemo(() => {
+    const map = {}
+    Object.values(BUFF_TYPES).forEach((cat) => {
+      if (cat?.effects) cat.effects.forEach((ef) => { map[ef.key] = ef.label })
+    })
+    return map
+  }, [])
+
   // 收集所有 BUFF 效果用于"增强"展示
   const allBuffEffects = []
   if (Array.isArray(raceCard.raceBuffPatch?.effects)) {
@@ -672,7 +681,16 @@ function RaceBackgroundInline({ char, canEdit, onSave }) {
           {allBuffEffects.length > 0 ? (
             <div className="mt-1 space-y-1 h-[72px] overflow-y-auto pr-1">
               {allBuffEffects.map((e, i) => {
-                const desc = e.value?.description || e.text || e.value?.text || `${e.effectType || e.type || '效果'} ${JSON.stringify(e.value || '')}`
+                const effType = e.effectType || e.type || ''
+                const effLabel = effectTypeLabelMap[effType] || effType
+                // 优先用 description，其次 text，最后用类型名+值摘要
+                let desc = e.value?.description || e.text || e.value?.text || ''
+                if (!desc) {
+                  // 对 visual_effect 等特殊类型给出友好提示
+                  if (effType === 'visual_effect') desc = '视觉效果（未配置）'
+                  else if (effType === 'spell_range_extension') desc = '施法距离延伸（未配置）'
+                  else desc = effLabel
+                }
                 const sourceLabel = e._source === 'race'
                   ? (raceCard.raceId === 'custom' ? (raceCard.customName || '自定义种族') : (selectedRace?.name || '种族'))
                   : (backgroundCard.backgroundId === 'custom' ? (backgroundCard.customName || '自定义背景') : (selectedBackground?.name || '背景'))
