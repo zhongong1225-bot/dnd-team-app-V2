@@ -27,8 +27,8 @@ const LABEL_BY_KEY = Object.fromEntries(BUFF_SOURCE_KIND_OPTIONS.map((o) => [o.k
 
 const VALID_KEYS = new Set(BUFF_SOURCE_KIND_OPTIONS.map((o) => o.key))
 
-/** 横向 Buff 分栏顺序（左→右）；须包含全部七类各一次 */
-export const BUFF_COLUMN_KEYS = ['feat', 'adventure', 'class', 'race', 'equipment', 'temporary', 'stance']
+/** 横向 Buff 分栏顺序（左→右）；须包含全部六类各一次（架势不在状态栏显示） */
+export const BUFF_COLUMN_KEYS = ['feat', 'adventure', 'class', 'race', 'equipment', 'temporary']
 
 export const BUFF_COLUMN_DRAG_MIME = 'application/x-dnd-team-buff-column'
 export const BUFF_ENTRY_DRAG_MIME = 'application/x-dnd-team-buff-entry'
@@ -64,7 +64,11 @@ export function getColumnKeyForBuff(buff) {
   if (buff.fromClassFeature) return 'class'
   if (buff.fromItem) return 'equipment'
   if (buff.fromRace || buff.fromBackground) return 'race'
-  return normalizeBuffSourceKindKey(buff.sourceKind)
+  const sk = normalizeBuffSourceKindKey(buff.sourceKind)
+  if (sk !== 'adventure') return sk
+  // 名称兜底：source 含"临时"的归入临时栏（修复历史误分类）
+  if (buff.source && /临时|temp/i.test(String(buff.source))) return 'temporary'
+  return 'adventure'
 }
 
 /** @param {string} key */

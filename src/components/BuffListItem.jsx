@@ -707,6 +707,7 @@ export default function BuffListItem({
   onEdit,
   onDelete,
   canEdit,
+  columnKey,
   standalone,
   hideSourceTag = false,
   showDragHint = false,
@@ -718,6 +719,11 @@ export default function BuffListItem({
   const sourceName = barIdx >= 0 ? summaryLine.slice(0, barIdx) : summaryLine
   const effectsList = getBuffEffectsList(buff, baseAbilities, suppressedEffectTypes, formulaContext)
   const hasSuppressed = effectsList.some(e => e.suppressed)
+  const hasEffects = effectsList.length > 0
+
+  // 仅冒险/临时栏可编辑删除；无效果时不显示操作按钮
+  const editableColumn = columnKey === 'adventure' || columnKey === 'temporary'
+  const showActions = canEdit && editableColumn && !buff.fromItem && hasEffects
 
   const rowHoverTitle = buff.fromItem
     ? '装备BUFF由装备所控'
@@ -729,7 +735,7 @@ export default function BuffListItem({
 
   return (
     <div
-      className={`grid ${canEdit && !buff.fromItem ? GRID_COLS.withActions : GRID_COLS.noActions} items-center gap-x-1 px-1.5 min-h-[32px] py-0.5 h-full bg-[#202838]/36 ${standalone ? '' : 'border-b border-white/10 last:border-b-0'} ${!buff.enabled ? 'opacity-50' : ''}`}
+      className={`grid ${showActions ? GRID_COLS.withActions : GRID_COLS.noActions} items-center gap-x-1 px-1.5 min-h-[32px] py-0.5 h-full bg-[#202838]/36 ${standalone ? '' : 'border-b border-white/10 last:border-b-0'} ${!buff.enabled ? 'opacity-50' : ''}`}
       role="row"
       title={rowHoverTitle}
     >
@@ -781,8 +787,8 @@ export default function BuffListItem({
         </span>
       </div>
 
-      {/* 操作按钮（装备不可改；专长仅可编辑、不可在此删除） */}
-      {canEdit && !buff.fromItem && (
+      {/* 操作按钮（仅冒险/临时栏可编辑删除；无效果时不显示） */}
+      {showActions && (
         <div className="flex items-center justify-end gap-0.5 shrink-0">
           <button
             type="button"
@@ -792,16 +798,14 @@ export default function BuffListItem({
           >
             <Pencil className="w-4 h-4" />
           </button>
-          {!buff.fromFeat && (
-            <button
-              type="button"
-              onClick={() => onDelete?.(buff.id)}
-              className="p-1 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-500 transition-colors"
-              title="删除"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => onDelete?.(buff.id)}
+            className="p-1 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-500 transition-colors"
+            title="删除"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
         </div>
       )}
     </div>

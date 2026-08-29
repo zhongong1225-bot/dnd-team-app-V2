@@ -200,14 +200,14 @@ export default function BuffColumnBoard({
             </div>
             <div
               className={
-                'flex-1 min-w-0 p-1.5 grid grid-cols-2 gap-1.5 content-start auto-rows-min bg-[#1a2430]/35'
+                'flex-1 min-w-0 p-1.5 flex flex-col gap-1 content-start bg-[#1a2430]/35'
               }
               onDragOver={(e) => onRowBodyDragOver(e, colKey)}
               onDrop={(e) => onRowBodyDrop(e, colKey)}
               title={columnBodyHoverTitle}
             >
               {items.length === 0 ? (
-                <div className="col-span-2 min-h-[2.5rem] flex items-center justify-center rounded border border-dashed border-gray-600/40 bg-[#1a2430]/25">
+                <div className="min-h-[2.5rem] flex items-center justify-center rounded border border-dashed border-gray-600/40 bg-[#1a2430]/25">
                   <span className="text-[10px] text-gray-600 px-1 text-center leading-snug">空</span>
                 </div>
               ) : (
@@ -229,6 +229,7 @@ export default function BuffColumnBoard({
                         onEdit={onEdit}
                         onDelete={onDelete}
                         canEdit={canEdit}
+                        columnKey={colKey}
                         standalone
                         hideSourceTag
                         showDragHint={movable}
