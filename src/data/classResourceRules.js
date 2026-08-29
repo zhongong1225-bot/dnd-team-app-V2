@@ -343,21 +343,15 @@ export const RESOURCE_RULES = [
   },
 
   /* ── 岚御法师 ────────────────────────────────────────── */
-  // 岚御法师的招式/步法通过 martialProgress 管理，此处记录特殊资源
-  {
-    resourceKey: 'arcane_fury',
-    name: '奥术之怒',
-    classKey: '岚御法师',
-    recovery: 'long',
-    note: '消耗法术位',
-    group: '核心',
-  },
+  // 岚御法师的招式/步法通过 martialProgress 管理
+  // 奥术之怒：一次性能力（消耗法术位），通过 BUFF 编辑器/主动技能管理，不作为资源点
 
   /* ── 武道家 ──────────────────────────────────────────── */
   {
     resourceKey: 'martial_rage',
     name: '天诛之剑怒气',
     classKey: '武道家',
+    subclass: '天诛之剑',
     levelTable: RAGE_TABLE,
     recovery: 'short',
     shortRestAdd: 1,
@@ -450,6 +444,8 @@ export function getAutoResources(classes) {
       if (r.note?.includes('selectedInvocations')) continue
       // 跳过无恢复机制的被动条目（如狂暴伤害、无甲移动、武艺骰 — 由 BUFF/速度系统处理）
       if (r.recovery === 'none') continue
+      // 子职过滤：规则指定了 subclass 时，只在该子职下生效
+      if (r.subclass && c.subclass !== r.subclass) continue
       rules.push(r)
     }
   }

@@ -36,7 +36,7 @@ import {
   inventoryItemRowGridReadNoCharge,
   inventoryItemRowGridReadWithCharge,
 } from '../lib/inventoryItemCardStyles'
-import { InventoryItemBriefChevron, InventoryItemBriefExpandedText } from './InventoryItemCardBrief'
+import { InventoryItemBriefExpandedText } from './InventoryItemCardBrief'
 
 function collapseStorageKey(characterId) {
   return characterId ? `dnd-bag-panel-collapsed-${characterId}` : 'dnd-bag-panel-collapsed'
@@ -585,7 +585,8 @@ export function BagModuleSection({
                         draggable={!!canEdit}
                         onDragStart={canEdit ? (e) => handleDragStart(e, i) : undefined}
                         onDragEnd={canEdit ? handleDragEnd : undefined}
-                        className={`${bagItemCardClass} ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                        className={`${bagItemCardClass} cursor-pointer ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                        onClick={() => toggleItemBrief(wbKey)}
                       >
                         <div className={bagRowGridCurrency}>
                           {canEdit && (
@@ -598,35 +599,31 @@ export function BagModuleSection({
                             </div>
                           )}
                           <div className={inventoryItemNameRowClass}>
-                            <InventoryItemBriefChevron
-                              brief={walletBriefHelp}
-                              expanded={!!itemBriefOpen[wbKey]}
-                              onToggle={() => toggleItemBrief(wbKey)}
-                            />
                             <div className="min-w-0 flex-1 leading-tight">
                               <span className="text-[10px] text-dnd-text-muted">钱币</span>
                               <span className="text-dnd-gold-light/95 font-medium text-sm truncate block">{label}</span>
                             </div>
-                            <span
-                              className={inventoryItemQtyWeightCellClass}
-                              onMouseDown={(e) => e.stopPropagation()}
-                              role="presentation"
-                            >
-                              <span className="shrink-0 leading-none">数量</span>
-                              <span className="text-dnd-text-body text-xs font-semibold tabular-nums">
-                                {entry.walletCurrencyId === 'gem_lb'
-                                  ? formatDisplayGemLbQty(walletQtyDisplay)
-                                  : walletQtyDisplay}
-                              </span>
-                              {stackLb > 0 ? (
-                                <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
-                              ) : null}
-                            </span>
                           </div>
+                          <span
+                            className={inventoryItemQtyWeightCellClass}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            role="presentation"
+                          >
+                            <span className="shrink-0 leading-none">数量</span>
+                            <span className="text-dnd-text-body text-xs font-semibold tabular-nums">
+                              {entry.walletCurrencyId === 'gem_lb'
+                                ? formatDisplayGemLbQty(walletQtyDisplay)
+                                : walletQtyDisplay}
+                            </span>
+                            {stackLb > 0 ? (
+                              <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
+                            ) : null}
+                          </span>
                           {canEdit && (
                             <div
                               className={inventoryItemActionsCellClass}
                               onMouseDown={(e) => e.stopPropagation()}
+                              onClick={(e) => e.stopPropagation()}
                               role="presentation"
                             >
                               {renderBagActionCell(entry, i)}
@@ -659,7 +656,8 @@ export function BagModuleSection({
                       draggable={!!canEdit}
                       onDragStart={canEdit ? (e) => handleDragStart(e, i) : undefined}
                       onDragEnd={canEdit ? handleDragEnd : undefined}
-                      className={`${bagItemCardClass} ${canEdit ? 'cursor-grab active:cursor-grabbing hover:border-gray-500/65' : ''}`}
+                      className={`${bagItemCardClass} cursor-pointer ${canEdit ? 'cursor-grab active:cursor-grabbing hover:border-gray-500/65' : ''}`}
+                      onClick={() => toggleItemBrief(ibKey)}
                     >
                       <div className={bagRowGridItem}>
                         {canEdit && (
@@ -672,11 +670,6 @@ export function BagModuleSection({
                           </div>
                         )}
                         <div className={inventoryItemNameRowClass}>
-                          <InventoryItemBriefChevron
-                            brief={brief}
-                            expanded={!!itemBriefOpen[ibKey]}
-                            onToggle={() => toggleItemBrief(ibKey)}
-                          />
                           <div className={inventoryItemNameTitleGroupClass}>
                             <span className={inventoryItemNameTextClass}>{invDisplayName(entry)}</span>
                             <span className={inventoryItemNameExtrasClass}>{renderNameExtras(entry)}</span>
@@ -687,54 +680,57 @@ export function BagModuleSection({
                               />
                             )}
                           </div>
-                          {showChargeCol ? (
-                            <span
-                              className={inventoryItemChargeCellClass}
-                              onMouseDown={(e) => e.stopPropagation()}
-                              role="presentation"
-                            >
-                              <span className="shrink-0 leading-none">充能</span>
-                              {canEdit && patchBag ? (
-                                <NumberStepper
-                                  value={Number(entry.charge) || 0}
-                                  onChange={(v) => patchBag(i, { charge: v })}
-                                  min={0}
-                                  compact
-                                  pill
-                                  subtle
-                                />
-                              ) : (
-                                <span className="text-dnd-text-body text-xs tabular-nums">{entry.charge}</span>
-                              )}
-                            </span>
-                          ) : null}
+                        </div>
+                        {showChargeCol ? (
                           <span
-                            className={inventoryItemQtyWeightCellClass}
+                            className={`${inventoryItemChargeCellClass} self-stretch`}
                             onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
                             role="presentation"
                           >
-                            <span className="shrink-0 leading-none">数量</span>
+                            <span className="shrink-0 leading-none">充能</span>
                             {canEdit && patchBag ? (
                               <NumberStepper
-                                value={qty}
-                                onChange={(v) => patchBag(i, { qty: v })}
-                                min={1}
+                                value={Number(entry.charge) || 0}
+                                onChange={(v) => patchBag(i, { charge: v })}
+                                min={0}
                                 compact
                                 pill
                                 subtle
                               />
                             ) : (
-                              <span className="text-dnd-text-body text-xs tabular-nums">{qty}</span>
+                              <span className="text-dnd-text-body text-xs tabular-nums">{entry.charge}</span>
                             )}
-                            {stackLb > 0 ? (
-                              <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
-                            ) : null}
                           </span>
-                        </div>
+                        ) : null}
+                        <span
+                          className={`${inventoryItemQtyWeightCellClass} self-stretch`}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => e.stopPropagation()}
+                          role="presentation"
+                        >
+                          <span className="shrink-0 leading-none">数量</span>
+                          {canEdit && patchBag ? (
+                            <NumberStepper
+                              value={qty}
+                              onChange={(v) => patchBag(i, { qty: v })}
+                              min={1}
+                              compact
+                              pill
+                              subtle
+                            />
+                          ) : (
+                            <span className="text-dnd-text-body text-xs tabular-nums">{qty}</span>
+                          )}
+                          {stackLb > 0 ? (
+                            <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
+                          ) : null}
+                        </span>
                         {canEdit && (
                           <div
                             className={inventoryItemActionsCellClass}
                             onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
                             role="presentation"
                           >
                             {renderBagActionCell(entry, i)}

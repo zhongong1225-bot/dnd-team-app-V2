@@ -747,6 +747,24 @@ select.panel-class-control-h-compact {
   color: var(--text-main);
 }
 
+/* 紧凑版等级步进器 */
+.level-stepper-panel.level-stepper-compact {
+  height: 28px;
+  min-height: 28px;
+  max-height: 28px;
+  border-radius: 6px;
+  gap: 1px;
+  border-color: rgba(255,255,255,0.06);
+}
+.level-stepper-compact button {
+  width: 24px;
+  flex: 0 0 24px;
+}
+.level-stepper-compact span {
+  min-width: 1.5rem;
+  font-size: 0.8125rem;
+}
+
 /* 星形图标：金色填充 */
 .panel-star {
   color: var(--text-title);

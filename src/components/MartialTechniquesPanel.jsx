@@ -19,12 +19,14 @@ import { NumberStepper } from './BuffForm'
 import InfoTooltip from './InfoTooltip'
 import { MartialTechTooltipContent } from '../lib/infoTooltipContent'
 
-/* ── 常量 ── */
+/* ── 常量 ─ */
 const COMBAT_INNER_RIM_ONLY = 'shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]'
 const CM_MEAN_LABEL = 'text-xs'
 const COMBAT_LIST_ROW_SHADOW = 'shadow-[0_2px_10px_rgba(0,0,0,0.42)]'
 const MARTIAL_MOVE_CARD_CLASS =
-  `rounded-md border border-gray-600/50 bg-[#1a2430]/90 px-3 py-2.5 min-w-0 ${COMBAT_LIST_ROW_SHADOW}`
+  `rounded-lg border border-gray-700/60 bg-[#1a2430]/90 px-3.5 py-3 min-w-0 ${COMBAT_LIST_ROW_SHADOW} transition-all duration-200 hover:border-gray-600 hover:bg-[#1e2a38]/95 hover:shadow-[0_4px_12px_rgba(0,0,0,0.5)]`
+const MARTIAL_CARD_SELECTED_CLASS =
+  `border-dnd-gold/40 bg-dnd-gold/[0.03] shadow-[0_0_0_1px_rgba(218,165,32,0.15),0_4px_12px_rgba(218,165,32,0.1)]`
 
 /* ── 工具函数 ── */
 function serializeCombatMartialForSave(slots) {
@@ -267,6 +269,7 @@ export default function MartialTechniquesPanel({ char, canEdit, onSave }) {
     const isStanceCol = column === 'stance'
     const activeStance = isStanceCol && martialActiveStanceId === slot.id
     const usedOther = !isStanceCol && slot.used === true
+    const isSelected = activeStance || usedOther
     const tagAction = tech ? shortMartialAction(tech.action) : '—'
     const tagStyle = tech?.style ?? '—'
     const tagRange = tech?.range ?? tech?.target ?? '—'
@@ -279,22 +282,22 @@ export default function MartialTechniquesPanel({ char, canEdit, onSave }) {
     const isExpanded = expandedMartialIds.has(slot.id)
     const hasDesc = descText.length > 0
     return (
-      <div key={slot.id} className={MARTIAL_MOVE_CARD_CLASS}>
-        <div className="flex gap-2.5 items-start">
-          <div className="flex shrink-0 flex-col items-center">
+      <div key={slot.id} className={`${MARTIAL_MOVE_CARD_CLASS} ${isSelected ? MARTIAL_CARD_SELECTED_CLASS : ''}`}>
+        <div className="flex gap-3 items-start">
+          <div className="flex shrink-0 flex-col items-center pt-0.5">
             {isStanceCol ? (
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); pickMartialActiveStance(slot.id) }}
                 title={activeStance ? '正在使用' : '设为正在使用'}
                 aria-label={activeStance ? '正在使用' : '设为正在使用'}
-                className={`rounded-md border p-1 transition-colors ${
+                className={`rounded-full border-2 p-1.5 transition-all duration-200 ${
                   activeStance
-                    ? 'border-dnd-gold/50 bg-dnd-gold/10 text-dnd-gold-light'
-                    : 'border-gray-600/55 bg-gray-900/30 text-gray-400 hover:border-gray-500 hover:text-gray-200'
+                    ? 'border-dnd-gold bg-dnd-gold/15 text-dnd-gold-light shadow-[0_0_8px_rgba(218,165,32,0.3)]'
+                    : 'border-gray-600 bg-gray-900/40 text-gray-500 hover:border-gray-400 hover:text-gray-300 hover:bg-gray-800/60'
                 }`}
               >
-                {activeStance ? <CircleDot className="h-4 w-4" strokeWidth={2.25} /> : <Circle className="h-4 w-4" strokeWidth={2} />}
+                {activeStance ? <CircleDot className="h-4 w-4" strokeWidth={2.5} /> : <Circle className="h-4 w-4" strokeWidth={2} />}
               </button>
             ) : (
               <button
@@ -302,51 +305,51 @@ export default function MartialTechniquesPanel({ char, canEdit, onSave }) {
                 onClick={(e) => { e.stopPropagation(); toggleMartialOtherUsed(slot.id) }}
                 title={usedOther ? '已使用' : '标记已使用'}
                 aria-label={usedOther ? '已使用' : '标记已使用'}
-                className={`rounded-md border p-1 transition-colors ${
+                className={`rounded-full border-2 p-1.5 transition-all duration-200 ${
                   usedOther
-                    ? 'border-amber-600/55 bg-amber-950/20 text-amber-200/90'
-                    : 'border-gray-600/55 bg-gray-900/30 text-gray-400 hover:border-gray-500 hover:text-gray-200'
+                    ? 'border-amber-500 bg-amber-950/30 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.25)]'
+                    : 'border-gray-600 bg-gray-900/40 text-gray-500 hover:border-gray-400 hover:text-gray-300 hover:bg-gray-800/60'
                 }`}
               >
-                {usedOther ? <CheckCircle2 className="h-4 w-4" strokeWidth={2.25} /> : <Circle className="h-4 w-4" strokeWidth={2} />}
+                {usedOther ? <CheckCircle2 className="h-4 w-4" strokeWidth={2.5} /> : <Circle className="h-4 w-4" strokeWidth={2} />}
               </button>
             )}
           </div>
           <div className="min-w-0 flex-1">
             <div
-              className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 cursor-pointer select-none"
+              className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 cursor-pointer select-none"
               onClick={() => toggleMartialExpand(slot.id)}
             >
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
                   <InfoTooltip
                     content={<MartialTechTooltipContent tech={tech} />}
                     triggerClassName=""
                     disabled={!tech}
                   >
                     <span
-                      className={`break-words font-semibold leading-tight ${tech ? 'text-sm text-white' : 'text-xs text-gray-500'}`}
+                      className={`break-words font-bold leading-tight transition-colors ${tech ? 'text-[15px] text-white' : 'text-xs text-gray-500'}`}
                     >
                       {tech?.name ?? '未知武技（库中无此条目）'}
                     </span>
                   </InfoTooltip>
                   {tech && tagStyle !== '—' ? (
-                    <span className="text-[10px] leading-tight text-dnd-text-muted">
+                    <span className="text-[11px] leading-tight text-gray-400 font-medium">
                       <span className={['inline-block', 'break-words', styleSubTracking].filter(Boolean).join(' ')}>{tagStyle}</span>
                     </span>
                   ) : null}
                   {tech?.tag ? (
-                    <span className="text-[10px] leading-tight text-violet-300/85">{tech.tag}</span>
+                    <span className="text-[11px] leading-tight text-violet-300/90 font-medium">{tech.tag}</span>
                   ) : null}
                 </div>
               </div>
-              <div className="shrink-0 text-right text-[10px] leading-tight">
-                <div className={isStanceCol ? 'text-dnd-gold-light/80' : 'text-dnd-text-muted'}>{tagAction}</div>
-                <div className={isStanceCol ? 'text-dnd-gold-light/80' : 'text-dnd-text-muted'}>{tagRange}</div>
+              <div className="shrink-0 text-right">
+                <div className={`text-[11px] leading-tight font-medium ${isStanceCol ? 'text-dnd-gold-light/90' : 'text-gray-400'}`}>{tagAction}</div>
+                <div className={`text-[10px] leading-tight mt-0.5 ${isStanceCol ? 'text-dnd-gold-light/70' : 'text-gray-500'}`}>{tagRange}</div>
               </div>
             </div>
             {isExpanded && hasDesc && (
-              <p className="mt-2 border-t border-gray-700/35 pt-2 text-[11px] leading-snug break-words text-dnd-text-body">
+              <p className="mt-2.5 border-t border-gray-700/40 pt-2.5 text-[12px] leading-relaxed break-words text-gray-300">
                 {descText}
               </p>
             )}

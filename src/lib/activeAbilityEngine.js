@@ -294,7 +294,34 @@ function computeProficiency(level) {
  */
 function computeEffect(effect, ctx, options) {
   switch (effect.type) {
+    case 'damage': {
+      const v = effect.value || {}
+      const dice = `${v.diceCount || 1}d${v.diceSides || 6}`
+      const bonus = v.diceBonus ? `+${v.diceBonus}` : ''
+      const typeLabel = v.damageType || 'fire'
+      const weaponPart = v.addWeaponDamage ? ' + 武器伤害' : ''
+      return {
+        type: 'damage',
+        description: effect.description || `${dice}${bonus} ${typeLabel}${weaponPart}`,
+        diceFormula: `${dice}${bonus}`,
+        damageType: v.damageType || 'fire',
+        addWeaponDamage: !!v.addWeaponDamage,
+      }
+    }
     case 'heal':
+      // 新版充能治疗（有 value.diceCount）
+      if (effect.value && typeof effect.value === 'object' && effect.value.diceCount) {
+        const v = effect.value
+        const dice = `${v.diceCount}d${v.diceSides || 8}`
+        const bonus = v.diceBonus ? `+${v.diceBonus}` : ''
+        return {
+          type: 'heal',
+          description: effect.description || (v.mode === 'max' ? `满疗 ${dice}${bonus}` : `治疗 ${dice}${bonus}`),
+          diceFormula: `${dice}${bonus}`,
+          mode: v.mode || 'dice',
+        }
+      }
+      // 旧版治疗（formula 格式）
       return computeHealEffect(effect, ctx, options)
     case 'creature_transform':
       return { type: 'creature_transform', description: effect.description }

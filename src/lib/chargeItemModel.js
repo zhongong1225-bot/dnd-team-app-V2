@@ -143,6 +143,12 @@ export function createChargeEffectEntry(type, overrides = {}) {
   if (type === 'custom_logic') {
     return { id, type, value: { title: '', description: '', triggerCondition: 'on_use' }, ...overrides }
   }
+  if (type === 'damage') {
+    return { id, type, value: { diceCount: 1, diceSides: 6, diceBonus: 0, damageType: 'fire', addWeaponDamage: false }, ...overrides }
+  }
+  if (type === 'heal') {
+    return { id, type, value: { mode: 'dice', diceCount: 1, diceSides: 8, diceBonus: 0 }, ...overrides }
+  }
   return { id, type, value: {}, ...overrides }
 }
 
@@ -179,7 +185,7 @@ export function normalizeChargeItemValue(value) {
   const rawEffects = Array.isArray(value.effects) ? value.effects : []
   const effects = rawEffects.map((e) => {
     if (!e || typeof e !== 'object') return createChargeEffectEntry('spell')
-    const type = ['spell', 'ability', 'shield', 'temp_buff', 'creature_transform', 'restore_spell_slots', 'summon', 'custom_logic'].includes(e.type) ? e.type : 'spell'
+    const type = ['spell', 'ability', 'shield', 'temp_buff', 'creature_transform', 'restore_spell_slots', 'summon', 'custom_logic', 'damage', 'heal'].includes(e.type) ? e.type : 'spell'
     const id = e.id || genId()
     if (type === 'spell') {
       const rawSpellVal = e.value && typeof e.value === 'object' ? e.value : {}
@@ -275,6 +281,25 @@ export function normalizeChargeItemValue(value) {
         triggerCondition: ['on_use', 'on_turn_start', 'on_damage_taken', 'on_save_failed'].includes(clv.triggerCondition) ? clv.triggerCondition : 'on_use',
       } }
     }
+    if (type === 'damage') {
+      const dv = e.value && typeof e.value === 'object' ? e.value : {}
+      return { id, type, value: {
+        diceCount: Math.max(1, Number(dv.diceCount) || 1),
+        diceSides: [4, 6, 8, 10, 12, 20].includes(Number(dv.diceSides)) ? Number(dv.diceSides) : 6,
+        diceBonus: Number(dv.diceBonus) || 0,
+        damageType: typeof dv.damageType === 'string' ? dv.damageType : 'fire',
+        addWeaponDamage: !!dv.addWeaponDamage,
+      } }
+    }
+    if (type === 'heal') {
+      const hv = e.value && typeof e.value === 'object' ? e.value : {}
+      return { id, type, value: {
+        mode: hv.mode === 'max' ? 'max' : 'dice',
+        diceCount: Math.max(1, Number(hv.diceCount) || 1),
+        diceSides: [4, 6, 8, 10, 12, 20].includes(Number(hv.diceSides)) ? Number(hv.diceSides) : 8,
+        diceBonus: Number(hv.diceBonus) || 0,
+      } }
+    }
     return { id, type, value: {} }
   })
   return { resourceType, charges, actionCost, movementFeet, recovery, effects }
@@ -347,6 +372,31 @@ export function formatChargeItemBrief(value) {
     if (ctCount > 0) effectLabels.push(`变身 ×${ctCount}`)
     const rssCount = norm.effects.filter((e) => e.type === 'restore_spell_slots').length
     if (rssCount > 0) effectLabels.push(`法术位恢复 ×${rssCount}`)
+    const dmgEffects = norm.effects.filter((e) => e.type === 'damage')
+    if (dmgEffects.length > 0) {
+      dmgEffects.forEach((e) => {
+        const v = e.value || {}
+        const dice = `${v.diceCount || 1}d${v.diceSides || 6}${v.diceBonus ? '+' + v.diceBonus : ''}`
+        const typeLabel = v.damageType || 'fire'
+        effectLabels.push(`伤害 ${dice} ${typeLabel}`)
+      })
+    }
+    const healEffects = norm.effects.filter((e) => e.type === 'heal')
+    if (healEffects.length > 0) {
+      healEffects.forEach((e) => {
+        const v = e.value || {}
+        if (v.mode === 'max') {
+          effectLabels.push(`满疗`)
+        } else {
+          const dice = `${v.diceCount || 1}d${v.diceSides || 8}${v.diceBonus ? '+' + v.diceBonus : ''}`
+          effectLabels.push(`治疗 ${dice}`)
+        }
+      })
+    }
+    const summonCount = norm.effects.filter((e) => e.type === 'summon').length
+    if (summonCount > 0) effectLabels.push(`召唤 ×${summonCount}`)
+    const clCount = norm.effects.filter((e) => e.type === 'custom_logic').length
+    if (clCount > 0) effectLabels.push(`自定义逻辑 ×${clCount}`)
     if (effectLabels.length) parts.push(effectLabels.join('；'))
   }
   return parts.join(' | ')

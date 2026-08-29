@@ -1156,6 +1156,20 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
 
   const isChargesMode = data.resourceType === 'charges'
 
+  // ── 造成能量下拉 ─
+  const [energyDropdownOpen, setEnergyDropdownOpen] = useState(false)
+  const energyDropdownRef = useRef(null)
+  useEffect(() => {
+    if (!energyDropdownOpen) return
+    const handler = (e) => {
+      if (energyDropdownRef.current && !energyDropdownRef.current.contains(e.target)) {
+        setEnergyDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [energyDropdownOpen])
+
   // ── recovery helpers ──
   const rec = data.recovery
   const updateRecovery = (patch) => patchData({ recovery: { ...rec, ...patch } })
@@ -1386,6 +1400,19 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
         <div className="flex items-center justify-between">
           <span className={labelCls}>消耗效果</span>
           <div className="flex items-center gap-x-1 flex-wrap">
+            <div className="relative" ref={energyDropdownRef}>
+              <button type="button" onClick={() => setEnergyDropdownOpen(!energyDropdownOpen)} className="px-1.5 py-0.5 rounded border border-amber-600/70 bg-amber-900/20 text-amber-300 hover:bg-amber-800/40 hover:border-amber-500/80 text-[10px] font-medium transition-colors" title="造成能量">⚡ 造成能量 ▾</button>
+              {energyDropdownOpen && (
+                <div className="absolute left-0 top-[calc(100%+4px)] min-w-[100px] bg-[#1e2836] border border-white/10 rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.4)] z-[100] overflow-hidden">
+                  <button type="button" onClick={() => { addEffect('damage'); setEnergyDropdownOpen(false) }} className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/[0.06] w-full text-left transition-colors">
+                    <span className="text-red-400">⚔</span> 伤害
+                  </button>
+                  <button type="button" onClick={() => { addEffect('heal'); setEnergyDropdownOpen(false) }} className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/[0.06] w-full text-left transition-colors">
+                    <span className="text-green-400">✚</span> 治疗
+                  </button>
+                </div>
+              )}
+            </div>
             <button type="button" onClick={() => addEffect('spell')} className="px-1.5 py-0.5 rounded border border-cyan-600/70 bg-cyan-900/20 text-cyan-300 hover:bg-cyan-800/40 hover:border-cyan-500/80 text-[10px] font-medium transition-colors" title="添加内含法术">+ 法术</button>
             <button type="button" onClick={() => addEffect('temp_buff')} className="px-1.5 py-0.5 rounded border border-violet-600/70 bg-violet-900/20 text-violet-300 hover:bg-violet-800/40 hover:border-violet-500/80 text-[10px] font-medium transition-colors" title="添加临时BUFF">+ 临时BUFF</button>
             <button type="button" onClick={() => addEffect('shield')} className="px-1.5 py-0.5 rounded border border-emerald-600/70 bg-emerald-900/20 text-emerald-300 hover:bg-emerald-800/40 hover:border-emerald-500/80 text-[10px] font-medium transition-colors" title="添加内含护盾">+ 护盾</button>
@@ -1730,6 +1757,73 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
             )
           }
 
+          /* ── 伤害 ── */
+          if (eff.type === 'damage') {
+            const dv = eff.value || {}
+            return (
+              <div key={eff.id} className="rounded-md border border-red-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                <div className="flex items-center gap-x-1.5 mb-1">
+                  <span className="text-red-400 text-[10px] shrink-0 font-medium">伤害</span>
+                  <div className="flex items-center gap-x-1">
+                    <NumberStepper value={dv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...dv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" />
+                    <span className="text-[10px] text-gray-500">d</span>
+                    <select value={dv.diceSides ?? 6} onChange={(e) => updateEffect(idx, { value: { ...dv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
+                      {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <span className="text-[10px] text-gray-500">+</span>
+                    <NumberStepper value={dv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...dv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" />
+                  </div>
+                  <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-x-2 flex-wrap">
+                  <select value={dv.damageType ?? 'fire'} onChange={(e) => updateEffect(idx, { value: { ...dv, damageType: e.target.value } })} className={selectCls + ' !w-[4.5rem]'}>
+                    {DAMAGE_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+                  </select>
+                  <label className="flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer select-none">
+                    <input type="checkbox" checked={!!dv.addWeaponDamage} onChange={(e) => updateEffect(idx, { value: { ...dv, addWeaponDamage: e.target.checked } })} className="accent-amber-500 w-3 h-3" />
+                    附加手持武器伤害
+                  </label>
+                </div>
+              </div>
+            )
+          }
+
+          /* ── 治疗 ── */
+          if (eff.type === 'heal') {
+            const hv = eff.value || {}
+            const isMaxMode = hv.mode === 'max'
+            return (
+              <div key={eff.id} className="rounded-md border border-green-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                <div className="flex items-center gap-x-1.5 mb-1">
+                  <span className="text-green-400 text-[10px] shrink-0 font-medium">治疗</span>
+                  <div className="flex items-center gap-0.5">
+                    <button type="button" onClick={() => updateEffect(idx, { value: { ...hv, mode: 'dice' } })} className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${!isMaxMode ? 'bg-green-800/50 text-green-300 border border-green-600/50' : 'text-gray-500 hover:text-gray-400'}`}>骰子</button>
+                    <button type="button" onClick={() => updateEffect(idx, { value: { ...hv, mode: 'max' } })} className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${isMaxMode ? 'bg-green-800/50 text-green-300 border border-green-600/50' : 'text-gray-500 hover:text-gray-400'}`}>满疗</button>
+                  </div>
+                  <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                {!isMaxMode && (
+                  <div className="flex items-center gap-x-1">
+                    <NumberStepper value={hv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...hv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" />
+                    <span className="text-[10px] text-gray-500">d</span>
+                    <select value={hv.diceSides ?? 8} onChange={(e) => updateEffect(idx, { value: { ...hv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
+                      {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <span className="text-[10px] text-gray-500">+</span>
+                    <NumberStepper value={hv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...hv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" />
+                  </div>
+                )}
+                {isMaxMode && (
+                  <span className="text-[10px] text-gray-500">恢复骰子最大值</span>
+                )}
+              </div>
+            )
+          }
+
           return null
         })}
       </div>
@@ -2024,6 +2118,73 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
                   </>)}
                   <input type="text" value={sv.note || ''} onChange={(e) => updateEffect(idx, { value: { ...sv, note: e.target.value } })} placeholder="备注" className={inputCls + ' min-w-[4rem] flex-1'} />
                 </div>
+              )}
+            </div>
+          )
+        }
+
+        /* ── 伤害 ── */
+        if (eff.type === 'damage') {
+          const dv = eff.value || {}
+          return (
+            <div key={eff.id} className="rounded-md border border-red-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+              <div className="flex items-center gap-x-1.5 mb-1">
+                <span className="text-red-400 text-[10px] shrink-0 font-medium">伤害</span>
+                <div className="flex items-center gap-x-1">
+                  <NumberStepper value={dv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...dv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" />
+                  <span className="text-[10px] text-gray-500">d</span>
+                  <select value={dv.diceSides ?? 6} onChange={(e) => updateEffect(idx, { value: { ...dv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
+                    {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  <span className="text-[10px] text-gray-500">+</span>
+                  <NumberStepper value={dv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...dv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" />
+                </div>
+                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="flex items-center gap-x-2 flex-wrap">
+                <select value={dv.damageType ?? 'fire'} onChange={(e) => updateEffect(idx, { value: { ...dv, damageType: e.target.value } })} className={selectCls + ' !w-[4.5rem]'}>
+                  {DAMAGE_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+                </select>
+                <label className="flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer select-none">
+                  <input type="checkbox" checked={!!dv.addWeaponDamage} onChange={(e) => updateEffect(idx, { value: { ...dv, addWeaponDamage: e.target.checked } })} className="accent-amber-500 w-3 h-3" />
+                  附加手持武器伤害
+                </label>
+              </div>
+            </div>
+          )
+        }
+
+        /* ── 治疗 ── */
+        if (eff.type === 'heal') {
+          const hv = eff.value || {}
+          const isMaxMode = hv.mode === 'max'
+          return (
+            <div key={eff.id} className="rounded-md border border-green-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+              <div className="flex items-center gap-x-1.5 mb-1">
+                <span className="text-green-400 text-[10px] shrink-0 font-medium">治疗</span>
+                <div className="flex items-center gap-0.5">
+                  <button type="button" onClick={() => updateEffect(idx, { value: { ...hv, mode: 'dice' } })} className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${!isMaxMode ? 'bg-green-800/50 text-green-300 border border-green-600/50' : 'text-gray-500 hover:text-gray-400'}`}>骰子</button>
+                  <button type="button" onClick={() => updateEffect(idx, { value: { ...hv, mode: 'max' } })} className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${isMaxMode ? 'bg-green-800/50 text-green-300 border border-green-600/50' : 'text-gray-500 hover:text-gray-400'}`}>满疗</button>
+                </div>
+                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              {!isMaxMode && (
+                <div className="flex items-center gap-x-1">
+                  <NumberStepper value={hv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...hv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" />
+                  <span className="text-[10px] text-gray-500">d</span>
+                  <select value={hv.diceSides ?? 8} onChange={(e) => updateEffect(idx, { value: { ...hv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
+                    {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  <span className="text-[10px] text-gray-500">+</span>
+                  <NumberStepper value={hv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...hv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" />
+                </div>
+              )}
+              {isMaxMode && (
+                <span className="text-[10px] text-gray-500">恢复骰子最大值</span>
               )}
             </div>
           )
@@ -4581,7 +4742,21 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
     // modeSelected 用于区分"从未配置"和"已清空所有效果"
     return (!initial?.effects || initial.effects.length === 0) && !initial?.modeSelected
   })
-  
+
+  /** 造成能量下拉（Location A: 释放效果按钮行） */
+  const [energyDropdownAOpen, setEnergyDropdownAOpen] = useState(false)
+  const energyDropdownARef = useRef(null)
+  useEffect(() => {
+    if (!energyDropdownAOpen) return
+    const handler = (e) => {
+      if (energyDropdownARef.current && !energyDropdownARef.current.contains(e.target)) {
+        setEnergyDropdownAOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [energyDropdownAOpen])
+
   const sourceListId = useMemo(() => 'buff-source-options-' + Math.random().toString(36).slice(2, 9), [])
   /** 用于效果简写求值与内含法术 DC/法攻/充能显示 */
   const effectSummaryContext = useMemo(() => ({
@@ -4788,6 +4963,19 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
               <div className="flex items-center justify-between">
                 <span className="text-gray-400 text-[10px]">释放效果</span>
                 <div className="flex items-center gap-1 flex-wrap">
+                  <div className="relative" ref={energyDropdownARef}>
+                    <button type="button" onClick={() => setEnergyDropdownAOpen(!energyDropdownAOpen)} className="px-1.5 py-0.5 rounded border border-amber-600/70 bg-amber-900/20 text-amber-300 hover:bg-amber-800/40 hover:border-amber-500/80 text-[10px] font-medium transition-colors" title="造成能量">⚡ 造成能量 ▾</button>
+                    {energyDropdownAOpen && (
+                      <div className="absolute left-0 top-[calc(100%+4px)] min-w-[100px] bg-[#1e2836] border border-white/10 rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.4)] z-[100] overflow-hidden">
+                        <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('damage')] })); setEnergyDropdownAOpen(false) }} className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/[0.06] w-full text-left transition-colors">
+                          <span className="text-red-400">⚔</span> 伤害
+                        </button>
+                        <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('heal')] })); setEnergyDropdownAOpen(false) }} className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/[0.06] w-full text-left transition-colors">
+                          <span className="text-green-400">✚</span> 治疗
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('spell')] })) }} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]">+ 法术</button>
                   <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('temp_buff')] })) }} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]">+ 增益</button>
                   <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('shield')] })) }} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]">+ 护盾</button>

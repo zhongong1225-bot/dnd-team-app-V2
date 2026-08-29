@@ -79,11 +79,11 @@ function buffEntryToCard(buffEntry) {
   
   if (chargeEffect) {
     const chargeValue = chargeEffect.value
-    const mainEffect = Array.isArray(chargeValue.effects) && chargeValue.effects.length > 0 
-      ? chargeValue.effects[0]
+    const allEffects = Array.isArray(chargeValue.effects) && chargeValue.effects.length > 0 
+      ? chargeValue.effects
       : null
     
-    if (mainEffect) {
+    if (allEffects) {
       activeAbility = {
         id: `${sourceKey}_active`,
         name: buffEntry.source || '主动技能',
@@ -96,12 +96,11 @@ function buffEntryToCard(buffEntry) {
                   : 'none',
         description: '',
         needsInteraction: 'confirm',
-        effects: [{
-          type: mainEffect.type,
-          value: mainEffect.value,
-          // custom_logic 的描述在 value.description，其他类型可能在 text
-          description: mainEffect.value?.description || mainEffect.text || '',
-        }],
+        effects: allEffects.map((eff) => ({
+          type: eff.type,
+          value: eff.value,
+          description: eff.value?.description || eff.text || '',
+        })),
       }
     }
   }
@@ -127,6 +126,55 @@ function buffEntryToCard(buffEntry) {
     // 主动技能
     ...(finalActiveAbility ? { activeAbility: finalActiveAbility } : {}),
   }))
+}
+
+/* ── 种族基础信息 → BUFF 效果 ──────────────────────────────────── */
+
+/**
+ * 从 raceBaseInfo 生成 BUFF 效果数组
+ * 将结构化的种族基础信息转换为 BUFF 系统可消费的 effect 对象
+ */
+function buildRaceBaseInfoEffects(raceBaseInfo) {
+  if (!raceBaseInfo || typeof raceBaseInfo !== 'object') return []
+  const effects = []
+
+  // 移速 → base_speed_increment（存储差值，默认 30）
+  const speed = Number(raceBaseInfo.speed)
+  if (!Number.isNaN(speed) && speed > 0 && speed !== 30) {
+    effects.push({ effectType: 'base_speed_increment', value: speed - 30 })
+  }
+
+  // 视觉 → special_senses
+  if (raceBaseInfo.vision && raceBaseInfo.vision.type) {
+    effects.push({
+      effectType: 'special_senses',
+      value: {
+        senses: [raceBaseInfo.vision.type],
+        range: Number(raceBaseInfo.vision.range) || 0,
+      },
+    })
+  }
+
+  // 属性提高 → ability_score_uncapped
+  const asi = raceBaseInfo.abilityScoreIncrease
+  if (asi && typeof asi === 'object') {
+    const hasAny = Object.values(asi).some((v) => Number(v) > 0)
+    if (hasAny) {
+      effects.push({
+        effectType: 'ability_score_uncapped',
+        value: {
+          str: Number(asi.str) || 0,
+          dex: Number(asi.dex) || 0,
+          con: Number(asi.con) || 0,
+          int: Number(asi.int) || 0,
+          wis: Number(asi.wis) || 0,
+          cha: Number(asi.cha) || 0,
+        },
+      })
+    }
+  }
+
+  return effects
 }
 
 /* ── 主入口：从角色构建 Card 数组 ──────────────────────────────────── */
@@ -178,6 +226,42 @@ export function buildCardsFromCharacter(character, moduleId) {
   const classFeatureBuffs = getBuffsFromClassFeatures(character, moduleId)
   for (const b of classFeatureBuffs) {
     cards.push(buffEntryToCard(b))
+  }
+
+  // 5.5 种族 → race 卡
+  const raceCard = character.raceCard
+  if (raceCard?.raceId) {
+    // 从 raceBaseInfo 自动生成 BUFF 效果
+    const autoEffects = buildRaceBaseInfoEffects(raceCard.raceBaseInfo)
+    // 手动编辑的 BUFF 效果（优先级更高，放在后面）
+    const manualEffects = Array.isArray(raceCard.raceBuffPatch?.effects) ? raceCard.raceBuffPatch.effects : []
+    const allEffects = [...autoEffects, ...manualEffects]
+
+    if (allEffects.length > 0) {
+      const raceName = raceCard.raceId === 'custom' ? (raceCard.customName || 'custom-race') : raceCard.raceId
+      cards.push(normalizeCard(createCard(SLOT_KIND.race, {
+        id: `race-${raceCard.raceId}`,
+        name: raceName,
+        sourceType: 'race',
+        sourceKey: raceCard.raceId,
+        buffEffects: allEffects,
+        enabled: raceCard.raceBuffPatch?.enabled !== false,
+      })))
+    }
+  }
+
+  // 5.6 背景 → buff 卡
+  const backgroundCard = character.backgroundCard
+  if (backgroundCard?.backgroundId && Array.isArray(backgroundCard.backgroundBuffPatch?.effects) && backgroundCard.backgroundBuffPatch.effects.length > 0) {
+    const backgroundName = backgroundCard.backgroundId === 'custom' ? (backgroundCard.customName || 'custom-background') : backgroundCard.backgroundId
+    cards.push(normalizeCard(createCard(SLOT_KIND.buff, {
+      id: `background-${backgroundCard.backgroundId}`,
+      name: backgroundName,
+      sourceType: 'background',
+      sourceKey: backgroundCard.backgroundId,
+      buffEffects: backgroundCard.backgroundBuffPatch.effects,
+      enabled: backgroundCard.backgroundBuffPatch?.enabled !== false,
+    })))
   }
 
   // 6. 手动 BUFF → buff 卡（排除 fromClassFeature 条目，它们是虚拟的）

@@ -60,6 +60,7 @@ import FightingStylePicker from '../components/FightingStylePicker'
 import CombatStatus from '../components/CombatStatus'
 import EquipmentAndInventory from '../components/EquipmentAndInventory'
 import MartialTechniquesPanel from '../components/MartialTechniquesPanel'
+import RaceBackgroundSlot from '../components/RaceBackgroundSlot'
 import SummonedCreaturesPanel from '../components/combat/SummonedCreaturesPanel'
 import AbilityModule from '../components/AbilityModule'
 import AvatarCropModal from '../components/AvatarCropModal'
@@ -773,17 +774,17 @@ function ExperienceLevelSection({ char, level, canEdit, onSave }) {
 }
 
 /** 等级步进器：上下箭头改数值，并限制在 [min, max]（面板内浅灰箭头风格） */
-function LevelStepper({ value, onChange, min = 0, max = 20, disabled }) {
+function LevelStepper({ value, onChange, min = 0, max = 20, disabled, compact }) {
   const v = Math.max(min, Math.min(max, Number(value) || 0))
   return (
-    <div className="level-stepper-panel">
+    <div className={`level-stepper-panel${compact ? ' level-stepper-compact' : ''}`}>
       <button
         type="button"
         disabled={disabled || v <= min}
         onClick={() => onChange(v - 1)}
         aria-label="减少"
       >
-        <ChevronDown className="w-4 h-4" />
+        <ChevronDown className={compact ? 'w-3 h-3' : 'w-4 h-4'} />
       </button>
       <span>{v}</span>
       <button
@@ -792,7 +793,7 @@ function LevelStepper({ value, onChange, min = 0, max = 20, disabled }) {
         onClick={() => onChange(v + 1)}
         aria-label="增加"
       >
-        <ChevronUp className="w-4 h-4" />
+        <ChevronUp className={compact ? 'w-3 h-3' : 'w-4 h-4'} />
       </button>
     </div>
   )
@@ -1460,6 +1461,13 @@ function ClassFeatureChoiceBlock({ char, feature, canEdit, onSave, modalOpen: ex
   )
 }
 
+/** 所有职业的「子职选择」特性 ID 集合 */
+const SUBCLASS_SELECTION_FEATURE_IDS = new Set([
+  'barbarian_subclass', 'bard_subclass', 'cleric_subclass', 'druid_subclass',
+  'fighter_subclass', 'monk_subclass', 'paladin_subclass', 'ranger_subclass',
+  'roguish_archetype', 'warlock_subclass', 'wizard_subclass', 'wudao_subclass',
+])
+
 /** 职业特性：根据当前职业与等级自动展示，不可手动增删 */
 function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
   const { currentModuleId } = useModule()
@@ -1634,6 +1642,41 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                     onEditOptionBuff={setBuffEditorOption}
                   />
                 )}
+                {SUBCLASS_SELECTION_FEATURE_IDS.has(f.id) && (() => {
+                  const options = getSubclassOptions(f.sourceClass)
+                  if (!options.length) return null
+                  const isMainClass = f.sourceClass === char['class']
+                  const currentSub = isMainClass
+                    ? (char.subclass || '')
+                    : (char.multiclass?.find(m => m['class'] === f.sourceClass)?.subclass || '')
+                  return (
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="text-xs text-[var(--text-muted)] shrink-0">子职选择：</span>
+                      <select
+                        value={currentSub}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          if (isMainClass) {
+                            onSave({ subclass: val })
+                          } else {
+                            const mc = [...(char.multiclass || [])]
+                            const idx = mc.findIndex(m => m['class'] === f.sourceClass)
+                            if (idx >= 0) {
+                              mc[idx] = { ...mc[idx], subclass: val }
+                              onSave({ multiclass: mc })
+                            }
+                          }
+                        }}
+                        className="flex-1 min-w-0 text-sm rounded-md border border-[var(--card-border)] bg-[rgba(30,38,50,0.4)] px-2 py-1 text-[var(--text-main)] focus:outline-none focus:ring-1 focus:ring-indigo-500/40"
+                      >
+                        <option value="">— 未选择 —</option>
+                        {options.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )
+                })()}
               </CardView>
             </li>
           )
@@ -2664,7 +2707,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId }) {
     persistClass({ prestige: next })
   }
 
-  const selectClass = 'panel-select panel-class-control-h min-w-[7rem]'
+  const selectClass = 'panel-select panel-class-control-h-compact min-w-[7rem]'
   return (
     <div className="space-y-1">
       <div className="grid grid-cols-3 gap-1">
@@ -2690,13 +2733,14 @@ function ClassSection({ char, level, canEdit, onSave, moduleId }) {
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
-                <div className="w-[6.25rem] shrink-0">
+                <div className="w-[4.5rem] shrink-0">
                   <LevelStepper
                     value={classLevel}
                     onChange={setMainLevel}
                     min={1}
                     max={Math.max(1, maxLevel - multiclass.reduce((s, m) => s + (m.level || 0), 0) - prestigeLevelSum)}
                     disabled={!classVal}
+                    compact
                   />
                 </div>
                 <select
@@ -2714,7 +2758,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId }) {
                   <button
                     type="button"
                     onClick={() => setSubclassFeatureEditor({ className: classVal, subclassName: subclass })}
-                    className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white transition-all active:scale-90"
+                    className="shrink-0 w-6 h-6 flex items-center justify-center text-gray-500 hover:text-gray-300 transition-colors"
                     title="编辑子职特性 BUFF"
                   >
                     <Settings className="w-3.5 h-3.5" />
@@ -2755,8 +2799,8 @@ function ClassSection({ char, level, canEdit, onSave, moduleId }) {
                           <option key={c} value={c}>{c}</option>
                         ))}
                       </select>
-                      <div className="w-[6.25rem] shrink-0">
-                        <LevelStepper value={m.level} onChange={(n) => setMulticlassRow(i, 'level', n)} min={0} max={rowMax} disabled={!m['class']} />
+                      <div className="w-[4.5rem] shrink-0">
+                        <LevelStepper value={m.level} onChange={(n) => setMulticlassRow(i, 'level', n)} min={0} max={rowMax} disabled={!m['class']} compact />
                       </div>
                       <select
                         value={m.subclass ?? ''}
@@ -2773,7 +2817,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId }) {
                       <button
                         type="button"
                         onClick={() => removeMulticlassRow(i)}
-                        className={`${CS_ICON_BTN} text-[var(--text-muted)] hover:text-[var(--btn-primary)]`}
+                        className="shrink-0 flex items-center justify-center text-gray-500 hover:text-red-400 transition-colors"
                         title="移除"
                       >
                         <Trash2 className={CS_ICON_16} />
@@ -2817,12 +2861,12 @@ function ClassSection({ char, level, canEdit, onSave, moduleId }) {
                         ))}
                       </select>
                       <div className="min-w-0 flex-1">
-                        <LevelStepper value={p.level} onChange={(n) => setPrestigeRow(i, 'level', n)} min={0} max={rowMax} disabled={!p['class']} />
+                        <LevelStepper value={p.level} onChange={(n) => setPrestigeRow(i, 'level', n)} min={0} max={rowMax} disabled={!p['class']} compact />
                       </div>
                       <button
                         type="button"
                         onClick={() => removePrestigeRow(i)}
-                        className={`${CS_ICON_BTN} text-[var(--text-muted)] hover:text-[var(--btn-primary)]`}
+                        className="shrink-0 flex items-center justify-center text-gray-500 hover:text-red-400 transition-colors"
                         title="移除"
                       >
                         <Trash2 className={CS_ICON_16} />
@@ -2877,7 +2921,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId }) {
                         <button
                           type="button"
                           onClick={() => setSubclassBuffEditor({ feature: f, className: scClassName, subclassName })}
-                          className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white transition-all active:scale-90"
+                          className="shrink-0 w-6 h-6 flex items-center justify-center text-gray-500 hover:text-gray-300 transition-colors"
                           title="配置 BUFF"
                         >
                           <Settings className="w-3.5 h-3.5" />
@@ -3559,6 +3603,16 @@ export default function CharacterSheet() {
                 const newSummons = (char.summonedCreatures || []).filter(s => s.id !== summonId)
                 persist({ summonedCreatures: newSummons })
               }}
+            />
+          </section>
+          )}
+          {!isCreatureTemplate && (
+          <section id="sheet-race-background" className="character-sheet-section-anchor mt-6">
+            <h3 className="section-title">种族背景</h3>
+            <RaceBackgroundSlot
+              char={char}
+              canEdit={canEdit}
+              onSave={persist}
             />
           </section>
           )}
