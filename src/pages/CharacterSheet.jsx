@@ -3757,7 +3757,7 @@ export default function CharacterSheet() {
                       raceBuffEditorOpen={raceBuffEditorOpen} setRaceBuffEditorOpen={setRaceBuffEditorOpen}
                       backgroundBuffEditorOpen={backgroundBuffEditorOpen} setBackgroundBuffEditorOpen={setBackgroundBuffEditorOpen} />
                   </div>
-                  <div className="min-w-0 flex flex-col min-h-[340px]">
+                  <div className="min-w-0 h-full">
                     <AvatarFrame char={char} canEdit={canEdit} onSave={persist} large />
                   </div>
                 </div>
