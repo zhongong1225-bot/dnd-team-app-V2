@@ -593,19 +593,7 @@ function RaceBackgroundInline({ char, canEdit, onSave }) {
             placeholder="背景名称" className="flex-1 min-w-0 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50" />
         )}
 
-        {/* BUFF 编辑齿轮 */}
-        {canEdit && raceCard.raceId && (
-          <button type="button" onClick={() => setRaceBuffEditor(true)}
-            className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95" title="编辑种族效果">
-            <Settings className="w-3.5 h-3.5" />
-          </button>
-        )}
-        {canEdit && backgroundCard.backgroundId && (
-          <button type="button" onClick={() => setBackgroundBuffEditor(true)}
-            className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95" title="编辑背景效果">
-            <Settings className="w-3.5 h-3.5" />
-          </button>
-        )}
+        {/* BUFF 编辑入口在下方"种族&背景增强"区域 */}
       </div>
 
       {/* 基础信息（常驻，无框） */}
@@ -3716,7 +3704,7 @@ export default function CharacterSheet() {
             {isCreatureTemplate ? (
               <CreatureSimpleBlock char={char} canEdit={canEdit} onSave={persist} />
             ) : (
-              <div className="grid grid-cols-1 items-stretch lg:grid-cols-[1fr_1fr] min-h-[280px] lg:gap-[2ch]">
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] min-h-[280px] lg:gap-[2ch]">
                 <div className="min-w-0 flex flex-col gap-2 lg:gap-1.5 min-h-0">
                   <div className="form-group-compact">
                     <label className="form-label">代号（可选）</label>
