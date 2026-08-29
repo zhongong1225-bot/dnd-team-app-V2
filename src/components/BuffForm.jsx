@@ -1411,7 +1411,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
           <span className={labelCls}>消耗效果</span>
           <div className="flex items-center gap-x-1 flex-wrap">
             <div className="relative" ref={energyDropdownRef}>
-              <button type="button" onClick={() => setEnergyDropdownOpen(!energyDropdownOpen)} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]" title="造成能量">⚡ 造成能量 </button>
+              <button type="button" onClick={() => setEnergyDropdownOpen(!energyDropdownOpen)} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center" title="造成能量">⚡ 造成能量 </button>
               {energyDropdownOpen && (
                 <div className="absolute left-0 top-[calc(100%+4px)] min-w-[100px] bg-[#1e2836] border border-white/10 rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.4)] z-[100] overflow-hidden">
                   <button type="button" onClick={() => { addEffect('damage'); setEnergyDropdownOpen(false) }} className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/[0.06] w-full text-left transition-colors">
@@ -4998,7 +4998,7 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
                 <span className="text-gray-400 text-[10px]">释放效果</span>
                 <div className="flex items-center gap-1 flex-wrap">
                   <div className="relative" ref={energyDropdownARef}>
-                    <button type="button" onClick={() => setEnergyDropdownAOpen(!energyDropdownAOpen)} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]" title="造成能量">⚡ 造成能量 ▾</button>
+                    <button type="button" onClick={() => setEnergyDropdownAOpen(!energyDropdownAOpen)} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center" title="造成能量">⚡ 造成能量 ▾</button>
                     {energyDropdownAOpen && (
                       <div className="absolute left-0 top-[calc(100%+4px)] min-w-[100px] bg-[#1e2836] border border-white/10 rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.4)] z-[100] overflow-hidden">
                         <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('damage')] })); setEnergyDropdownAOpen(false) }} className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/[0.06] w-full text-left transition-colors">
@@ -5010,12 +5010,12 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
                       </div>
                     )}
                   </div>
-                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('spell')] })) }} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]">+ 法术</button>
-                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('temp_buff')] })) }} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]">+ 增益</button>
-                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('shield')] })) }} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]">+ 护盾</button>
-                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('creature_transform')] })) }} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]">+ 变身</button>
-                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('restore_spell_slots')] })) }} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]">+ 环位恢复</button>
-                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('summon')] })) }} className="px-1.5 py-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px]">+ 召唤</button>
+                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('spell')] })) }} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 法术</button>
+                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('temp_buff')] })) }} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 增益</button>
+                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('shield')] })) }} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 护盾</button>
+                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('creature_transform')] })) }} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 变身</button>
+                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('restore_spell_slots')] })) }} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 环位恢复</button>
+                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('summon')] })) }} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 召唤</button>
                 </div>
               </div>
               {(activeChargeData.effects || []).length === 0 && (
