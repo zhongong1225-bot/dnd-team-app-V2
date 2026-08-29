@@ -670,7 +670,7 @@ function RaceBackgroundInline({ char, canEdit, onSave }) {
             )}
           </div>
           {allBuffEffects.length > 0 ? (
-            <div className="mt-1 space-y-1">
+            <div className="mt-1 space-y-1 h-[72px] overflow-y-auto pr-1">
               {allBuffEffects.map((e, i) => {
                 const desc = e.value?.description || e.text || e.value?.text || `${e.effectType || e.type || '效果'} ${JSON.stringify(e.value || '')}`
                 const sourceLabel = e._source === 'race'
@@ -3705,7 +3705,7 @@ export default function CharacterSheet() {
               <CreatureSimpleBlock char={char} canEdit={canEdit} onSave={persist} />
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] min-h-[280px] lg:gap-[2ch]">
-                <div className="min-w-0 flex flex-col gap-2 lg:gap-1.5 min-h-0">
+                <div className="min-w-0 flex flex-col gap-2 lg:gap-1.5 min-h-[420px]">
                   <div className="form-group-compact">
                     <label className="form-label">代号（可选）</label>
                     {canEdit ? (
