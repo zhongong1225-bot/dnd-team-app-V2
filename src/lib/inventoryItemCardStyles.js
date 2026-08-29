@@ -28,19 +28,70 @@ export const INV_COL_QTY_WEIGHT = '8.5rem'
 /** 编辑列：按 4 个图标（存仓·编辑·锁·删）预留宽度，仅 3 个时也占满本列，各行右缘对齐 */
 export const INV_COL_ACTIONS = '6rem'
 
-/** 有拖柄 + 充能列（充能>0 或钱币占位）；充能/数量已内联到名称行 */
+/**
+ * 统一 10 列网格：名称(2fr) | 充能(7.5rem) | 释放(5rem) | 空白(1fr×2) | 数量(3.5rem) | 重量(4rem) | 操作(3.5rem)
+ * 替代旧的 inventoryItemRowGrid* 系列 class。
+ */
+export const inventoryItemRowGridUnified =
+  'grid grid-cols-[minmax(0,2fr)_7.5rem_5rem_1fr_1fr_3.5rem_4rem_3.5rem] gap-0 items-center min-w-0 shrink-0'
+
+/** 充能步进器容器 */
+export const chargeStepperClass =
+  'flex items-center h-7'
+
+/** 充能步进器 ± 按钮 */
+export const chargeStepperBtnClass =
+  'w-[22px] h-7 flex items-center justify-center bg-white/[0.06] border border-white/[0.08] text-dnd-text-muted text-sm font-semibold cursor-pointer select-none transition-colors hover:bg-white/[0.12] hover:text-gray-300'
+
+/** 充能进度条外框 */
+export const chargeBarWrapClass =
+  'flex-1 h-7 bg-white/[0.04] border-y border-white/[0.08] relative overflow-hidden'
+
+/** 充能进度条填充 */
+export const chargeBarFillClass =
+  'h-full transition-[width] duration-200'
+
+/** 充能数值文字（内置于进度条） */
+export const chargeTextClass =
+  'absolute inset-0 flex items-center justify-center text-[11px] font-semibold text-gray-300 tracking-wide'
+
+/** 释放按钮 */
+export const releaseBtnClass =
+  'flex items-center justify-center gap-1 w-full h-7 rounded-md bg-dnd-gold/[0.12] border border-dnd-gold/25 text-dnd-gold-light text-[10px] font-medium cursor-pointer transition-colors hover:bg-dnd-gold/[0.22] hover:border-dnd-gold/40 active:scale-[0.96]'
+
+/** 操作列：单个下拉按钮 */
+export const actionDropdownBtnClass =
+  'w-7 h-7 flex items-center justify-center rounded-md bg-white/[0.05] border border-white/[0.08] text-dnd-text-muted text-sm cursor-pointer transition-colors hover:bg-white/[0.1] hover:text-gray-400'
+
+/** 操作下拉菜单面板 */
+export const actionDropdownMenuClass =
+  'absolute right-0 top-[calc(100%+4px)] min-w-[110px] bg-[#1e2836] border border-white/10 rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.4)] z-[100] overflow-hidden'
+
+/** 下拉菜单项 */
+export const actionMenuItemClass =
+  'flex items-center gap-2 px-3.5 py-2 text-xs text-gray-400 cursor-pointer transition-colors hover:bg-white/[0.06] whitespace-nowrap'
+
+/** 下拉菜单项（危险操作） */
+export const actionMenuItemDangerClass =
+  'flex items-center gap-2 px-3.5 py-2 text-xs text-dnd-red cursor-pointer transition-colors hover:bg-dnd-red/10 whitespace-nowrap'
+
+/** 下拉菜单分隔线 */
+export const actionMenuDividerClass =
+  'h-px bg-white/[0.06]'
+
+/** @deprecated 使用 inventoryItemRowGridUnified */
 export const inventoryItemRowGridEditableWithCharge =
   'grid grid-cols-[auto_minmax(0,1fr)_6rem] gap-x-2.5 gap-y-0 items-center min-w-0 shrink-0'
 
-/** 有拖柄、无充能列 */
+/** @deprecated 使用 inventoryItemRowGridUnified */
 export const inventoryItemRowGridEditableNoCharge =
   'grid grid-cols-[auto_minmax(0,1fr)_6rem] gap-x-2.5 gap-y-0 items-center min-w-0 shrink-0'
 
-/** 只读、无拖柄：有充能列 */
+/** @deprecated 使用 inventoryItemRowGridUnified */
 export const inventoryItemRowGridReadWithCharge =
   'grid grid-cols-[minmax(0,1fr)_6rem] gap-x-2.5 gap-y-0 items-center min-w-0 shrink-0'
 
-/** 只读、无拖柄：无充能列 */
+/** @deprecated 使用 inventoryItemRowGridUnified */
 export const inventoryItemRowGridReadNoCharge =
   'grid grid-cols-[minmax(0,1fr)_6rem] gap-x-2.5 gap-y-0 items-center min-w-0 shrink-0'
 

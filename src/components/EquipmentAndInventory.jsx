@@ -3,7 +3,7 @@
  * 上方：手持与身穿（左右分栏）
  * 下方：背包
  */
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Plus,
   Trash2,
@@ -12,7 +12,6 @@ import {
   Pencil,
   Package,
   ChevronDown,
-  ChevronRight,
   Lock,
   Unlock,
   Sparkles,
@@ -27,9 +26,9 @@ import {
   Gem,
   Eye,
   Layers,
+  MoreVertical,
 } from 'lucide-react'
 import { executeAbility, canUseAbility } from '../lib/activeAbilityEngine'
-import DragHandleIcon from './DragHandleIcon'
 import { getItemById, getItemDisplayName, itemRequiresAttunement } from '../data/itemDatabase'
 import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { getCharacterWallet, transferCurrency } from '../lib/currencyStore'
@@ -82,22 +81,26 @@ import {
 } from '../lib/backpackLayoutOrder'
 import {
   inventoryItemActionsCellClass,
-  inventoryItemBriefChevronBtnClass,
   inventoryItemCardListGapClass,
   inventoryItemCardShellClass,
-  inventoryItemChargeCellClass,
+  inventoryItemRowGridUnified,
+  chargeStepperClass,
+  chargeStepperBtnClass,
+  chargeBarWrapClass,
+  chargeBarFillClass,
+  chargeTextClass,
+  releaseBtnClass,
+  actionDropdownBtnClass,
+  actionDropdownMenuClass,
+  actionMenuItemClass,
+  actionMenuItemDangerClass,
+  actionMenuDividerClass,
   inventoryItemNameExtrasClass,
   inventoryItemNameRowClass,
   inventoryItemNameTextClass,
   inventoryItemNameTitleGroupClass,
-  inventoryItemQtyWeightCellClass,
-  inventoryItemRowGridEditableNoCharge,
-  inventoryItemRowGridEditableWithCharge,
-  inventoryItemRowGridReadNoCharge,
-  inventoryItemRowGridReadWithCharge,
-  inventoryItemBriefIsExpandable,
 } from '../lib/inventoryItemCardStyles'
-import { InventoryItemBriefChevron, InventoryItemBriefExpandedText } from './InventoryItemCardBrief'
+import { InventoryItemBriefExpandedText } from './InventoryItemCardBrief'
 import InfoTooltip from './InfoTooltip'
 import { ItemTooltipContent } from '../lib/infoTooltipContent'
 
@@ -354,6 +357,19 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   const [bagModuleExpanded, setBagModuleExpanded] = useState({})
   /** 背包物品卡详情：默认折叠，与次元袋/团队仓库一致 */
   const [backpackItemBriefOpen, setBackpackItemBriefOpen] = useState({})
+  const [openActionRow, setOpenActionRow] = useState(null)
+  const actionMenuRef = useRef(null)
+
+  useEffect(() => {
+    if (openActionRow === null) return
+    const handler = (e) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target)) {
+        setOpenActionRow(null)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [openActionRow])
 
   useEffect(() => {
     setBagModuleExpanded((prev) => {
@@ -1756,21 +1772,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                     !isAnchor &&
                     !entry?.walletCurrencyId &&
                     ((Number(entry.charge) || 0) > 0 || hasContainedSpellEffect(entry))
-                  const backpackRowGrid = isAnchor
-                    ? canEdit
-                      ? inventoryItemRowGridEditableWithCharge
-                      : inventoryItemRowGridReadWithCharge
-                    : entry?.walletCurrencyId
-                      ? canEdit
-                        ? inventoryItemRowGridEditableNoCharge
-                        : inventoryItemRowGridReadNoCharge
-                      : canEdit
-                        ? showChargeCol
-                          ? inventoryItemRowGridEditableWithCharge
-                          : inventoryItemRowGridEditableNoCharge
-                        : showChargeCol
-                          ? inventoryItemRowGridReadWithCharge
-                          : inventoryItemRowGridReadNoCharge
+                  const backpackRowGrid = inventoryItemRowGridUnified
                   const walletRowOnBodyNoFunds =
                     !!entry?.walletCurrencyId &&
                     !entry?.inBagOfHolding &&
@@ -1784,57 +1786,30 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                       <div
                         data-backpack-card
                         className={`${backpackItemCardClass} ${isAnchor ? 'border-dnd-gold/35 bg-[#1b2738]/38' : ''}`}
+                        draggable={canEdit}
+                        onDragStart={canEdit ? (e) => handleBackpackRowDragStart(e, layoutIdx) : undefined}
+                        onDragEnd={canEdit ? handleBackpackRowDragEnd : undefined}
                         onDragOver={canEdit ? handleDragOver : undefined}
                         onDrop={canEdit ? (e) => handleBackpackRowDrop(e, layoutIdx) : undefined}
-                        title={
-                          canEdit && isAnchor && modForAnchor && bagModuleExpanded[modForAnchor.id] === false
-                            ? '折叠中：可拖到本卡将物品放入该次元袋；展开后袋内接在同一卡片下方'
-                            : undefined
-                        }
                       >
                         <div className={backpackRowGrid}>
-                          {canEdit && (
-                            <div
-                              className="shrink-0 cursor-grab active:cursor-grabbing text-dnd-text-muted"
-                              title="从此柄或名称区拖动排序；勿从数字、按钮起拖"
-                              draggable
-                              onDragStart={(e) => handleBackpackRowDragStart(e, layoutIdx)}
-                              onDragEnd={handleBackpackRowDragEnd}
-                            >
-                              <span className="inline-flex pointer-events-none select-none p-0.5">
-                                <DragHandleIcon className="w-3.5 h-3.5" />
-                              </span>
-                            </div>
-                          )}
                           {isAnchor && modForAnchor ? (
-                            <div className={inventoryItemNameRowClass}>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  if (e.shiftKey && inventoryItemBriefIsExpandable(packBrief)) {
-                                    setBackpackItemBriefOpen((p) => ({ ...p, [bbKey]: !p[bbKey] }))
-                                  } else {
-                                    setBagModuleExpanded((p) => ({ ...p, [modForAnchor.id]: p[modForAnchor.id] === false }))
-                                  }
-                                }}
-                                className="shrink-0 inline-flex items-center justify-center h-6 w-6 rounded border border-white/15 bg-[#1a2430]/70 text-gray-300 hover:bg-white/10"
-                                title={
-                                  inventoryItemBriefIsExpandable(packBrief)
-                                    ? '单击：展开或折叠袋内；按住 Shift 再点：展开或收起物品说明'
-                                    : anchorBagExpanded
-                                      ? '折叠袋内'
-                                      : '展开袋内'
+                            <div
+                              className={`${inventoryItemNameRowClass} col-span-7 cursor-pointer`}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (e.shiftKey) {
+                                  setBagModuleExpanded((p) => ({ ...p, [modForAnchor.id]: p[modForAnchor.id] === false }))
+                                } else {
+                                  setBackpackItemBriefOpen((prev) => ({ ...prev, [bbKey]: !prev[bbKey] }))
                                 }
-                                aria-expanded={anchorBagExpanded}
-                                aria-label={anchorBagExpanded ? '折叠袋内' : '展开袋内'}
-                              >
-                                {anchorBagExpanded ? (
-                                  <ChevronDown className="w-3.5 h-3.5" aria-hidden />
-                                ) : (
-                                  <ChevronRight className="w-3.5 h-3.5" aria-hidden />
-                                )}
-                              </button>
+                              }}
+                              title={
+                                bagModuleExpanded[modForAnchor.id] === false
+                                  ? '点击展开说明 · Shift+点击展开袋内'
+                                  : '点击收起说明 · Shift+点击收起袋内'
+                              }
+                            >
                               <div className={inventoryItemNameTitleGroupClass}>
                                 <InfoTooltip
                                   content={(() => {
@@ -1973,213 +1948,221 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                               </span>
                             </div>
                           ) : (
-                            <div className={inventoryItemNameRowClass}>
-                              {isContainer ? (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setBackpackItemBriefOpen((p) => ({ ...p, [bbKey]: !p[bbKey] }))
-                                  }}
-                                  className={inventoryItemBriefChevronBtnClass}
-                                  title={backpackItemBriefOpen[bbKey] ? '收起容器内容' : '展开容器内容'}
-                                  aria-expanded={!!backpackItemBriefOpen[bbKey]}
-                                  aria-label={backpackItemBriefOpen[bbKey] ? '收起容器内容' : '展开容器内容'}
-                                >
-                                  <ChevronDown
-                                    className={`w-3.5 h-3.5 transition-transform ${!!backpackItemBriefOpen[bbKey] ? 'rotate-180' : ''}`}
-                                    aria-hidden
-                                  />
-                                </button>
+                            <>
+                              {/* Col 1: Name */}
+                              <div
+                                className={`${inventoryItemNameRowClass} cursor-pointer`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setBackpackItemBriefOpen((prev) => ({ ...prev, [bbKey]: !prev[bbKey] }))
+                                }}
+                                title="点击展开/收起说明"
+                              >
+                                <div className={inventoryItemNameTitleGroupClass}>
+                                  <InfoTooltip
+                                    content={(() => {
+                                      const p = entry?.itemId ? getItemById(entry.itemId) : null
+                                      return <ItemTooltipContent proto={p} entry={entry} />
+                                    })()}
+                                    triggerClassName={inventoryItemNameTextClass}
+                                    disabled={!entry?.itemId}
+                                  >
+                                    <span className="break-words">{invDisplayName(entry)}</span>
+                                  </InfoTooltip>
+                                  <span className={inventoryItemNameExtrasClass}>
+                                    {(() => {
+                                      const stoneEffect = Array.isArray(entry?.effects)
+                                        ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer')
+                                        : null
+                                      const stoneVal = stoneEffect != null && stoneEffect.value != null ? Number(stoneEffect.value) : null
+                                      if (stoneVal != null && !Number.isNaN(stoneVal) && stoneVal > 0) {
+                                        return (
+                                          <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0" title="瓦石层">
+                                            {stoneVal}层
+                                          </span>
+                                        )
+                                      }
+                                      return (Number(entry.magicBonus) || 0) > 0 ? (
+                                        <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>
+                                      ) : null
+                                    })()}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Col 2: Charge stepper (7.5rem) */}
+                              {showChargeCol ? (
+                                <div className={chargeStepperClass} onMouseDown={(e) => e.stopPropagation()}>
+                                  <button
+                                    className={`${chargeStepperBtnClass} rounded-l-md border-r-0`}
+                                    onClick={(e) => { e.stopPropagation(); setCharge(i, Math.max(0, (Number(entry.charge) || 0) - 1)); }}
+                                  >
+                                    −
+                                  </button>
+                                  <div className={chargeBarWrapClass}>
+                                    <div
+                                      className={chargeBarFillClass}
+                                      style={{
+                                        width: `${Math.min(100, ((Number(entry.charge) || 0) / Math.max(1, Number(entry.charge) || 1)) * 100)}%`,
+                                        background: (Number(entry.charge) || 0) > 0 ? 'linear-gradient(90deg, rgba(74,144,217,0.35), rgba(124,179,245,0.25))' : 'transparent',
+                                      }}
+                                    />
+                                    <span className={chargeTextClass}>{Number(entry.charge) || 0}</span>
+                                  </div>
+                                  <button
+                                    className={`${chargeStepperBtnClass} rounded-r-md border-l-0`}
+                                    onClick={(e) => { e.stopPropagation(); setCharge(i, (Number(entry.charge) || 0) + 1); }}
+                                  >
+                                    +
+                                  </button>
+                                </div>
                               ) : (
-                                <InventoryItemBriefChevron
-                                  brief={packBrief}
-                                  expanded={!!backpackItemBriefOpen[bbKey]}
-                                  onToggle={() => setBackpackItemBriefOpen((p) => ({ ...p, [bbKey]: !p[bbKey] }))}
-                                />
+                                <span className="text-dnd-text-muted text-center text-xs">-</span>
                               )}
-                              <div className={inventoryItemNameTitleGroupClass}>
-                                <InfoTooltip
-                                  content={(() => {
-                                    const p = entry?.itemId ? getItemById(entry.itemId) : null
-                                    return <ItemTooltipContent proto={p} entry={entry} />
-                                  })()}
-                                  triggerClassName={inventoryItemNameTextClass}
-                                  disabled={!entry?.itemId}
-                                >
-                                  <span className="break-words">{invDisplayName(entry)}</span>
-                                </InfoTooltip>
-                                <span className={inventoryItemNameExtrasClass}>
-                                  {(() => {
-                                    const stoneEffect = Array.isArray(entry?.effects)
-                                      ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer')
-                                      : null
-                                    const stoneVal = stoneEffect != null && stoneEffect.value != null ? Number(stoneEffect.value) : null
-                                    if (stoneVal != null && !Number.isNaN(stoneVal) && stoneVal > 0) {
-                                      return (
-                                        <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0" title="瓦石层">
-                                          {stoneVal}层
-                                        </span>
-                                      )
-                                    }
-                                    return (Number(entry.magicBonus) || 0) > 0 ? (
-                                      <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>
-                                    ) : null
-                                  })()}
-                                </span>
-                                {hasContainedSpellEffect(entry) && (
-                                  <ContainedSpellUseButton
-                                    entry={entry}
-                                    onChargeChange={(v) => setCharge(i, v)}
-                                  />
+
+                              {/* Col 3: Release button (5rem) */}
+                              {(() => {
+                                const activeEntry = activeAbilities.find(a => a.inventoryId === entry.id)
+                                const hasSpell = hasContainedSpellEffect(entry)
+                                if (!activeEntry && !hasSpell) return <span className="text-dnd-text-muted text-center text-xs">-</span>
+                                if (hasSpell) {
+                                  return (
+                                    <ContainedSpellUseButton
+                                      entry={entry}
+                                      onChargeChange={(v) => setCharge(i, v)}
+                                    />
+                                  )
+                                }
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation()
+                                      if (!canUseAbility(character, activeEntry.ability.id)) { alert('该技能当前不可用'); return }
+                                      try {
+                                        const result = await executeAbility(character, activeEntry.ability.id)
+                                        if (result.success) {
+                                          if (result.classResources) onSave({ ...character, classResources: result.classResources })
+                                          if (result.patch) onSave({ ...character, ...result.patch })
+                                          alert(`✅ ${activeEntry.ability.name} 执行成功！`)
+                                        } else { alert('❌ 技能执行失败') }
+                                      } catch (err) { console.error('[Equipment] 执行装备主动技能失败', err); alert('执行失败') }
+                                    }}
+                                    className={releaseBtnClass}
+                                    title={`使用主动技能: ${activeEntry.ability.name}`}
+                                  >
+                                    <Sparkles className="w-3 h-3" /> 释放
+                                  </button>
+                                )
+                              })()}
+
+                              {/* Col 4-5: Blank */}
+                              <div></div>
+                              <div></div>
+
+                              {/* Col 6: Quantity (3.5rem) */}
+                              <div className="text-center text-xs tabular-nums" onMouseDown={(e) => e.stopPropagation()}>
+                                {canEdit && !entry?.walletCurrencyId ? (
+                                  <NumberStepper value={qty} onChange={(v) => setQty(i, v)} min={1} compact pill subtle />
+                                ) : (
+                                  <span className="text-dnd-text-body">{entry?.walletCurrencyId === 'gem_lb' ? formatDisplayGemLbQty(qty) : qty}</span>
                                 )}
                               </div>
-                              {/* inline charge */}
-                              {showChargeCol && (
-                                <span
-                                  className={inventoryItemChargeCellClass}
-                                  onMouseDown={(e) => e.stopPropagation()}
-                                  role="presentation"
-                                >
-                                  <span className="shrink-0 leading-none">充能</span>
-                                  <div className="w-[5.125rem] shrink-0 max-w-full">
-                                    {canEdit ? (
-                                      <NumberStepper
-                                        value={Number(entry.charge) || 0}
-                                        onChange={(v) => setCharge(i, v)}
-                                        min={0}
-                                        compact
-                                        pill
-                                        subtle
-                                      />
-                                    ) : (
-                                      <span className="text-dnd-text-body text-xs tabular-nums inline-block text-right w-full pr-0.5">{entry.charge}</span>
-                                    )}
-                                  </div>
-                                </span>
-                              )}
-                              {/* inline qty + weight */}
-                              <span className={inventoryItemQtyWeightCellClass}>
-                                <div
-                                  className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
-                                  onMouseDown={(e) => e.stopPropagation()}
-                                  role="presentation"
-                                >
-                                  <span className="shrink-0 leading-none">数量</span>
-                                  <div className="w-[5.125rem] shrink-0 max-w-full h-6 flex items-center justify-end">
-                                    {canEdit && !entry?.walletCurrencyId ? (
-                                      <NumberStepper
-                                        value={qty}
-                                        onChange={(v) => setQty(i, v)}
-                                        min={1}
-                                        max={undefined}
-                                        compact
-                                        pill
-                                        subtle
-                                      />
-                                    ) : (
-                                      <span className="text-dnd-text-body text-xs tabular-nums inline-block text-right w-full pr-0.5">
-                                        {entry?.walletCurrencyId === 'gem_lb' ? formatDisplayGemLbQty(qty) : qty}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
-                                  {totalLb > 0 ? (
-                                    <span className="text-dnd-text-body">{formatDisplayWeightLb(totalLb)} lb</span>
-                                  ) : (
-                                    <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
-                                      —
-                                    </span>
-                                  )}
-                                </div>
-                              </span>
-                            </div>
+
+                              {/* Col 7: Weight (4rem) */}
+                              <div className="text-center text-xs tabular-nums">
+                                {totalLb > 0 ? <span className="text-dnd-text-body">{formatDisplayWeightLb(totalLb)} lb</span> : <span className="opacity-0 select-none text-dnd-text-muted">—</span>}
+                              </div>
+                            </>
                           )}
 
                           {canEdit && (
-                            <div
-                              className={inventoryItemActionsCellClass}
-                              onMouseDown={(e) => e.stopPropagation()}
-                              role="presentation"
-                            >
+                            <div className="relative" onMouseDown={(e) => e.stopPropagation()}>
                               <button
                                 type="button"
-                                onClick={() => openStoreToVault(i)}
-                                disabled={isAnchor || walletRowOnBodyNoFunds}
-                                title={
-                                  isAnchor
-                                    ? '次元袋实体行不可整件存入仓库'
-                                    : walletRowOnBodyNoFunds
-                                      ? '身上该币种为 0，无法存仓库；可点垃圾桶清除此行'
-                                      : '存到团队仓库'
-                                }
-                                className="p-1 rounded text-emerald-400 hover:bg-emerald-400/20 shrink-0 disabled:opacity-30 disabled:pointer-events-none"
+                                className={actionDropdownBtnClass}
+                                onClick={(e) => { e.stopPropagation(); setOpenActionRow(openActionRow === layoutIdx ? null : layoutIdx); }}
                               >
-                                <Package size={14} />
+                                <MoreVertical size={14} />
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => startEdit(i)}
-                                disabled={isAnchor}
-                                title={isAnchor ? '袋内物品请展开后点铅笔编辑' : '编辑'}
-                                className="p-1 rounded text-dnd-gold-light hover:bg-dnd-gold/20 shrink-0 disabled:opacity-30 disabled:pointer-events-none"
-                              >
-                                <Pencil size={14} />
-                              </button>
-                              {isAnchor && modForAnchor ? (
-                                <>
-                                  <button
-                                    type="button"
+                              {openActionRow === layoutIdx && (
+                                <div ref={actionMenuRef} className={actionDropdownMenuClass}>
+                                  <div
+                                    className={`${actionMenuItemClass} ${(isAnchor || walletRowOnBodyNoFunds) ? 'opacity-30 pointer-events-none' : ''}`}
                                     onClick={(e) => {
                                       e.stopPropagation()
-                                      setBagModuleDeleteUnlocked((p) => ({ ...p, [modForAnchor.id]: !p[modForAnchor.id] }))
+                                      if (!isAnchor && !walletRowOnBodyNoFunds) { openStoreToVault(i); setOpenActionRow(null) }
                                     }}
-                                    className={`p-1 rounded shrink-0 ${
-                                      bagModuleDeleteUnlocked[modForAnchor.id]
-                                        ? 'text-emerald-400 hover:bg-emerald-400/20'
-                                        : 'text-gray-300 hover:bg-white/10'
-                                    }`}
                                     title={
-                                      bagModuleDeleteUnlocked[modForAnchor.id]
-                                        ? '模块删除已解锁：点此重新上锁'
-                                        : '先解锁再删整模块（与袋内单行删除不同）'
+                                      isAnchor
+                                        ? '次元袋实体行不可整件存入仓库'
+                                        : walletRowOnBodyNoFunds
+                                          ? '身上该币种为 0，无法存仓库；可点垃圾桶清除此行'
+                                          : '存到团队仓库'
                                     }
-                                    aria-label={bagModuleDeleteUnlocked[modForAnchor.id] ? '锁定模块删除' : '解锁模块删除'}
-                                    aria-pressed={!!bagModuleDeleteUnlocked[modForAnchor.id]}
                                   >
-                                    {bagModuleDeleteUnlocked[modForAnchor.id] ? (
-                                      <Unlock size={14} aria-hidden />
-                                    ) : (
-                                      <Lock size={14} aria-hidden />
-                                    )}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={!bagModuleDeleteUnlocked[modForAnchor.id]}
+                                    <Package size={13} /> 存仓
+                                  </div>
+                                  <div
+                                    className={`${actionMenuItemClass} ${isAnchor ? 'opacity-30 pointer-events-none' : ''}`}
                                     onClick={(e) => {
                                       e.stopPropagation()
-                                      removeItem(i)
+                                      if (!isAnchor) { startEdit(i); setOpenActionRow(null) }
                                     }}
-                                    className="p-1 rounded text-dnd-red hover:text-dnd-red/20 shrink-0 disabled:opacity-30 disabled:pointer-events-none"
-                                    title={
-                                      bagModuleDeleteUnlocked[modForAnchor.id]
-                                        ? '删除此次元袋模块'
-                                        : '请先点锁图标解锁'
-                                    }
+                                    title={isAnchor ? '袋内物品请展开后点铅笔编辑' : '编辑'}
                                   >
-                                    <Trash2 size={14} />
-                                  </button>
-                                </>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => removeItem(i)}
-                                  title="移除"
-                                  className="p-1 rounded text-dnd-red hover:text-dnd-red/20 shrink-0"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
+                                    <Pencil size={13} /> 编辑
+                                  </div>
+                                  {isAnchor && modForAnchor ? (
+                                    <>
+                                      <div className={actionMenuDividerClass}></div>
+                                      <div
+                                        className={actionMenuItemClass}
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          setBagModuleDeleteUnlocked((p) => ({ ...p, [modForAnchor.id]: !p[modForAnchor.id] }))
+                                          setOpenActionRow(null)
+                                        }}
+                                        title={
+                                          bagModuleDeleteUnlocked[modForAnchor.id]
+                                            ? '模块删除已解锁：点此重新上锁'
+                                            : '先解锁再删整模块（与袋内单行删除不同）'
+                                        }
+                                      >
+                                        {bagModuleDeleteUnlocked[modForAnchor.id] ? (
+                                          <Unlock size={13} />
+                                        ) : (
+                                          <Lock size={13} />
+                                        )}
+                                        {bagModuleDeleteUnlocked[modForAnchor.id] ? '锁定' : '解锁'}
+                                      </div>
+                                      <div
+                                        className={`${actionMenuItemDangerClass} ${!bagModuleDeleteUnlocked[modForAnchor.id] ? 'opacity-30 pointer-events-none' : ''}`}
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          if (bagModuleDeleteUnlocked[modForAnchor.id]) { removeItem(i); setOpenActionRow(null) }
+                                        }}
+                                        title={
+                                          bagModuleDeleteUnlocked[modForAnchor.id]
+                                            ? '删除此次元袋模块'
+                                            : '请先点锁图标解锁'
+                                        }
+                                      >
+                                        <Trash2 size={13} /> 删除
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div className={actionMenuDividerClass}></div>
+                                      <div
+                                        className={actionMenuItemDangerClass}
+                                        onClick={(e) => { e.stopPropagation(); removeItem(i); setOpenActionRow(null) }}
+                                      >
+                                        <Trash2 size={13} /> 删除
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
                               )}
                             </div>
                           )}
@@ -2215,16 +2198,15 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                   : null
                                 const nestedStoneVal = nestedStoneEffect != null && nestedStoneEffect.value != null ? Number(nestedStoneEffect.value) : null
                                 const nestedActiveEntry = activeAbilities.find(a => a.inventoryId === nested.id)
-                                const nestedGridClass = canEdit
-                                  ? (nestedHasCharge ? inventoryItemRowGridEditableWithCharge : inventoryItemRowGridEditableNoCharge)
-                                  : (nestedHasCharge ? inventoryItemRowGridReadWithCharge : inventoryItemRowGridReadNoCharge)
+                                const nestedGridClass = inventoryItemRowGridUnified
+                                const nestedKey = `nested-${i}-${nestedIdx}`
                                 return (
                                   <div
                                     key={nested.id ?? `nested-${nestedIdx}`}
                                     className="rounded-md border border-gray-600/40 bg-[#151c28]/60 px-2 py-1.5"
                                   >
                                     <div className={nestedGridClass}>
-                                      {/* 名称列 */}
+                                      {/* Col 1: Name */}
                                       <div className={inventoryItemNameRowClass}>
                                         <div className={inventoryItemNameTitleGroupClass}>
                                           <InfoTooltip
@@ -2246,7 +2228,57 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                               <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{nestedMagicBonus}</span>
                                             ) : null}
                                           </span>
-                                          {hasContainedSpellEffect(nested) && (
+                                        </div>
+                                      </div>
+
+                                      {/* Col 2: Charge stepper */}
+                                      {nestedHasCharge ? (
+                                        <div className={chargeStepperClass} onMouseDown={(e) => e.stopPropagation()}>
+                                          <button
+                                            className={`${chargeStepperBtnClass} rounded-l-md border-r-0`}
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              const nextNested = entry.nestedInventory.map((n, idx) =>
+                                                idx === nestedIdx ? { ...n, charge: Math.max(0, nestedCharge - 1) } : n
+                                              )
+                                              onSave({ inventory: inv.map((e, idx) => idx === i ? { ...e, nestedInventory: nextNested } : e) })
+                                            }}
+                                          >
+                                            −
+                                          </button>
+                                          <div className={chargeBarWrapClass}>
+                                            <div
+                                              className={chargeBarFillClass}
+                                              style={{
+                                                width: `${Math.min(100, (nestedCharge / Math.max(1, nestedCharge)) * 100)}%`,
+                                                background: nestedCharge > 0 ? 'linear-gradient(90deg, rgba(74,144,217,0.35), rgba(124,179,245,0.25))' : 'transparent',
+                                              }}
+                                            />
+                                            <span className={chargeTextClass}>{nestedCharge}</span>
+                                          </div>
+                                          <button
+                                            className={`${chargeStepperBtnClass} rounded-r-md border-l-0`}
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              const nextNested = entry.nestedInventory.map((n, idx) =>
+                                                idx === nestedIdx ? { ...n, charge: nestedCharge + 1 } : n
+                                              )
+                                              onSave({ inventory: inv.map((e, idx) => idx === i ? { ...e, nestedInventory: nextNested } : e) })
+                                            }}
+                                          >
+                                            +
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <span className="text-dnd-text-muted text-center text-xs">-</span>
+                                      )}
+
+                                      {/* Col 3: Release button */}
+                                      {(() => {
+                                        const hasSpell = hasContainedSpellEffect(nested)
+                                        if (!nestedActiveEntry && !hasSpell) return <span className="text-dnd-text-muted text-center text-xs">-</span>
+                                        if (hasSpell) {
+                                          return (
                                             <ContainedSpellUseButton
                                               entry={nested}
                                               onChargeChange={(v) => {
@@ -2256,134 +2288,105 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                                 onSave({ inventory: inv.map((e, idx) => idx === i ? { ...e, nestedInventory: nextNested } : e) })
                                               }}
                                             />
-                                          )}
-                                          {nestedActiveEntry && (
-                                            <button
-                                              type="button"
-                                              onClick={async (e) => {
-                                                e.stopPropagation()
-                                                if (!canUseAbility(character, nestedActiveEntry.ability.id)) {
-                                                  alert('该技能当前不可用（可能资源不足或处于冷却中）')
-                                                  return
-                                                }
-                                                try {
-                                                  const result = await executeAbility(character, nestedActiveEntry.ability.id)
-                                                  if (result.success) {
-                                                    if (result.classResources) {
-                                                      onSave({ ...character, classResources: result.classResources })
-                                                    }
-                                                    if (result.patch) {
-                                                      onSave({ ...character, ...result.patch })
-                                                    }
-                                                    alert(`✅ ${nestedActiveEntry.ability.name} 执行成功！`)
-                                                  } else {
-                                                    alert(' 技能执行失败')
+                                          )
+                                        }
+                                        return (
+                                          <button
+                                            type="button"
+                                            onClick={async (e) => {
+                                              e.stopPropagation()
+                                              if (!canUseAbility(character, nestedActiveEntry.ability.id)) {
+                                                alert('该技能当前不可用（可能资源不足或处于冷却中）')
+                                                return
+                                              }
+                                              try {
+                                                const result = await executeAbility(character, nestedActiveEntry.ability.id)
+                                                if (result.success) {
+                                                  if (result.classResources) {
+                                                    onSave({ ...character, classResources: result.classResources })
                                                   }
-                                                } catch (err) {
-                                                  console.error('[Equipment] 执行容器内物品主动技能失败', err)
-                                                  alert('执行失败，请查看控制台')
+                                                  if (result.patch) {
+                                                    onSave({ ...character, ...result.patch })
+                                                  }
+                                                  alert(`✅ ${nestedActiveEntry.ability.name} 执行成功！`)
+                                                } else {
+                                                  alert('❌ 技能执行失败')
                                                 }
-                                              }}
-                                              className="inline-flex items-center justify-center h-6 w-6 shrink-0 rounded border border-cyan-600/70 bg-cyan-900/20 text-cyan-300 hover:bg-cyan-800/40 transition-colors"
-                                              title={`使用主动技能: ${nestedActiveEntry.ability.name}`}
-                                            >
-                                              <Sparkles className="w-3.5 h-3.5" />
-                                            </button>
-                                          )}
-                                        </div>
-                                        {/* inline charge */}
-                                        {nestedHasCharge && (
-                                          <span
-                                            className={inventoryItemChargeCellClass}
-                                            onMouseDown={(e) => e.stopPropagation()}
-                                            role="presentation"
+                                              } catch (err) {
+                                                console.error('[Equipment] 执行容器内物品主动技能失败', err)
+                                                alert('执行失败，请查看控制台')
+                                              }
+                                            }}
+                                            className={releaseBtnClass}
+                                            title={`使用主动技能: ${nestedActiveEntry.ability.name}`}
                                           >
-                                            <span className="shrink-0 leading-none">充能</span>
-                                            <div className="w-[5.125rem] shrink-0 max-w-full">
-                                              {canEdit ? (
-                                                <NumberStepper
-                                                  value={nestedCharge}
-                                                  onChange={(v) => {
-                                                    const nextNested = entry.nestedInventory.map((n, idx) =>
-                                                      idx === nestedIdx ? { ...n, charge: v } : n
-                                                    )
-                                                    onSave({ inventory: inv.map((e, idx) => idx === i ? { ...e, nestedInventory: nextNested } : e) })
-                                                  }}
-                                                  min={0}
-                                                  compact
-                                                  pill
-                                                  subtle
-                                                />
-                                              ) : (
-                                                <span className="text-dnd-text-body text-xs tabular-nums inline-block text-right w-full pr-0.5">{nestedCharge}</span>
-                                              )}
-                                            </div>
-                                          </span>
+                                            <Sparkles className="w-3 h-3" /> 释放
+                                          </button>
+                                        )
+                                      })()}
+
+                                      {/* Col 4-5: Blank */}
+                                      <div></div>
+                                      <div></div>
+
+                                      {/* Col 6: Quantity */}
+                                      <div className="text-center text-xs tabular-nums" onMouseDown={(e) => e.stopPropagation()}>
+                                        {canEdit ? (
+                                          <NumberStepper
+                                            value={nestedQty}
+                                            onChange={(v) => setNestedQty(entry.id, nestedIdx, v)}
+                                            min={1}
+                                            compact
+                                            pill
+                                            subtle
+                                          />
+                                        ) : (
+                                          <span className="text-dnd-text-body">×{nestedQty}</span>
                                         )}
-                                        {/* inline qty + weight */}
-                                        <span className={inventoryItemQtyWeightCellClass}>
-                                          <div
-                                            className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
-                                            onMouseDown={(e) => e.stopPropagation()}
-                                            role="presentation"
-                                          >
-                                            <span className="shrink-0 leading-none">数量</span>
-                                            <div className="w-[5.125rem] shrink-0 max-w-full h-6 flex items-center justify-end">
-                                              {canEdit ? (
-                                                <NumberStepper
-                                                  value={nestedQty}
-                                                  onChange={(v) => setNestedQty(entry.id, nestedIdx, v)}
-                                                  min={1}
-                                                  compact
-                                                  pill
-                                                  subtle
-                                                />
-                                              ) : (
-                                                <span className="text-dnd-text-body text-xs tabular-nums inline-block text-right w-full pr-0.5">×{nestedQty}</span>
-                                              )}
-                                            </div>
-                                          </div>
-                                          <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
-                                            {nestedLb > 0 ? (
-                                              <span className="text-dnd-text-body">{formatDisplayWeightLb(nestedLb)} lb</span>
-                                            ) : (
-                                              <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>—</span>
-                                            )}
-                                          </div>
-                                        </span>
                                       </div>
 
-                                      {/* 操作列 */}
+                                      {/* Col 7: Weight */}
+                                      <div className="text-center text-xs tabular-nums">
+                                        {nestedLb > 0 ? (
+                                          <span className="text-dnd-text-body">{formatDisplayWeightLb(nestedLb)} lb</span>
+                                        ) : (
+                                          <span className="opacity-0 select-none text-dnd-text-muted">—</span>
+                                        )}
+                                      </div>
+
+                                      {/* Col 8: Actions dropdown */}
                                       {canEdit && (
-                                        <div
-                                          className={inventoryItemActionsCellClass}
-                                          onMouseDown={(e) => e.stopPropagation()}
-                                          role="presentation"
-                                        >
+                                        <div className="relative" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
                                           <button
                                             type="button"
-                                            onClick={() => openStoreToVaultForNested(i, nestedIdx)}
-                                            title="存到团队仓库"
-                                            className="p-1 rounded text-emerald-400 hover:bg-emerald-400/20 shrink-0"
+                                            className={actionDropdownBtnClass}
+                                            onClick={(e) => { e.stopPropagation(); setOpenActionRow(openActionRow === nestedKey ? null : nestedKey); }}
                                           >
-                                            <Package size={14} />
+                                            <MoreVertical size={14} />
                                           </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => setEditingNested({ containerId: entry.id, nestedIndex: nestedIdx })}
-                                            title="编辑"
-                                            className="p-1 rounded text-dnd-gold-light hover:bg-dnd-gold/20 shrink-0"
-                                          >
-                                            <Pencil size={14} />
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => removeItemFromContainer(entry.id, nestedIdx)}
-                                            title="取出到背包"
-                                            className="p-1 rounded text-dnd-red hover:bg-dnd-red/20 shrink-0"
-                                          >
-                                            <ArrowUpFromLine size={14} />
-                                          </button>
+                                          {openActionRow === nestedKey && (
+                                            <div ref={actionMenuRef} className={actionDropdownMenuClass}>
+                                              <div
+                                                className={actionMenuItemClass}
+                                                onClick={(e) => { e.stopPropagation(); openStoreToVaultForNested(i, nestedIdx); setOpenActionRow(null); }}
+                                              >
+                                                <Package size={13} /> 存仓
+                                              </div>
+                                              <div
+                                                className={actionMenuItemClass}
+                                                onClick={(e) => { e.stopPropagation(); setEditingNested({ containerId: entry.id, nestedIndex: nestedIdx }); setOpenActionRow(null); }}
+                                              >
+                                                <Pencil size={13} /> 编辑
+                                              </div>
+                                              <div className={actionMenuDividerClass}></div>
+                                              <div
+                                                className={actionMenuItemClass}
+                                                onClick={(e) => { e.stopPropagation(); removeItemFromContainer(entry.id, nestedIdx); setOpenActionRow(null); }}
+                                              >
+                                                <ArrowUpFromLine size={13} /> 取出到背包
+                                              </div>
+                                            </div>
+                                          )}
                                         </div>
                                       )}
                                     </div>
