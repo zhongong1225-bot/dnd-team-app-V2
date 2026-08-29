@@ -418,9 +418,7 @@ function AppearanceGrid({ char, canEdit, onSave, noBorder, compact }) {
   const [eyes, setEyes] = useState(app.eyes ?? '')
   const [height, setHeight] = useState(app.height ?? '')
   const [skin, setSkin] = useState(app.skin ?? '')
-  const [background, setBackground] = useState(app.background ?? '')
   const [race, setRace] = useState(app.race ?? '')
-  const [size, setSize] = useState(app.size ?? '')
   const [weight, setWeight] = useState(app.weight ?? '')
   const [hair, setHair] = useState(app.hair ?? '')
   useEffect(() => {
@@ -430,14 +428,12 @@ function AppearanceGrid({ char, canEdit, onSave, noBorder, compact }) {
     setEyes(a.eyes ?? '')
     setHeight(a.height ?? '')
     setSkin(a.skin ?? '')
-    setBackground(a.background ?? '')
     setRace(a.race ?? '')
-    setSize(a.size ?? '')
     setWeight(a.weight ?? '')
     setHair(a.hair ?? '')
   }, [char?.id])
 
-  const appearanceData = () => ({ age, race, size, alignment, height, weight, hair, eyes, skin, background })
+  const appearanceData = () => ({ age, race, alignment, height, weight, hair, eyes, skin })
   const save = () => onSave({ appearance: appearanceData() })
 
   const cells = [
@@ -446,11 +442,9 @@ function AppearanceGrid({ char, canEdit, onSave, noBorder, compact }) {
     { label: '瞳色', value: eyes, set: setEyes },
     { label: '身高', value: height, set: setHeight },
     { label: '肤色', value: skin, set: setSkin },
-    { label: '背景', value: background, set: setBackground },
     { label: '种族', value: race, set: setRace },
     { label: '体重', value: weight, set: setWeight },
     { label: '发色', value: hair, set: setHair },
-    { label: '体型', value: size, set: setSize },
   ]
 
   const inputCls = compact
@@ -500,7 +494,6 @@ function RaceBackgroundInline({ char, canEdit, onSave }) {
 
   const [raceBuffEditor, setRaceBuffEditor] = useState(false)
   const [backgroundBuffEditor, setBackgroundBuffEditor] = useState(false)
-  const [raceBaseInfoOpen, setRaceBaseInfoOpen] = useState(false)
 
   const raceBaseInfo = raceCard.raceBaseInfo || {}
   const updateRaceBaseInfo = (patch) => {
@@ -515,12 +508,9 @@ function RaceBackgroundInline({ char, canEdit, onSave }) {
 
   const defaultASI = { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 }
   const asi = raceBaseInfo.abilityScoreIncrease || defaultASI
+  const ASI_LABELS = { str: '力', dex: '敏', con: '体', int: '智', wis: '感', cha: '魅' }
 
   const selectedRace = useMemo(() => getRaceById(raceCard.raceId), [raceCard.raceId])
-  const selectedSubrace = useMemo(() => {
-    if (!selectedRace || !raceCard.subraceId) return null
-    return selectedRace.subraces.find((s) => s.id === raceCard.subraceId) || null
-  }, [selectedRace, raceCard.subraceId])
   const selectedBackground = useMemo(() => getBackgroundById(backgroundCard.backgroundId), [backgroundCard.backgroundId])
 
   const handleRaceChange = (raceId) => {
@@ -558,10 +548,20 @@ function RaceBackgroundInline({ char, canEdit, onSave }) {
   }
 
   const selCls = 'flex-1 min-w-0 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50'
+  const txtCls = 'w-12 px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 text-center focus:outline-none focus:border-dnd-gold/50'
+
+  // 收集所有 BUFF 效果用于"增强"展示
+  const allBuffEffects = []
+  if (Array.isArray(raceCard.raceBuffPatch?.effects)) {
+    raceCard.raceBuffPatch.effects.forEach((e, i) => allBuffEffects.push({ ...e, _source: 'race', _idx: i }))
+  }
+  if (Array.isArray(backgroundCard.backgroundBuffPatch?.effects)) {
+    backgroundCard.backgroundBuffPatch.effects.forEach((e, i) => allBuffEffects.push({ ...e, _source: 'bg', _idx: i }))
+  }
 
   return (
-    <div className="space-y-2 mt-2">
-      {/* 种族 + 背景下拉 */}
+    <div className="mt-2 space-y-1.5">
+      {/* 种族 + 背景下拉行 */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs text-gray-400 shrink-0">种族</span>
         <select value={raceCard.raceId || ''} onChange={(e) => handleRaceChange(e.target.value)} className={selCls}>
@@ -581,7 +581,7 @@ function RaceBackgroundInline({ char, canEdit, onSave }) {
           </select>
         )}
 
-        <span className="text-xs text-gray-400 shrink-0 ml-2">背景</span>
+        <span className="text-xs text-gray-400 shrink-0 ml-1">背景</span>
         <select value={backgroundCard.backgroundId || ''} onChange={(e) => handleBackgroundChange(e.target.value)} className={selCls}>
           <option value="">— 选择背景 —</option>
           {BACKGROUNDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -608,66 +608,96 @@ function RaceBackgroundInline({ char, canEdit, onSave }) {
         )}
       </div>
 
-      {/* 种族基础信息（折叠） */}
+      {/* 基础信息（常驻，无框） */}
       {raceCard.raceId && (
-        <div>
-          <button type="button" onClick={() => setRaceBaseInfoOpen((p) => !p)}
-            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-dnd-gold-light transition-colors">
-            {raceBaseInfoOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-            种族基础信息
-            {hasRaceBaseInfo(raceBaseInfo) && <span className="w-1.5 h-1.5 rounded-full bg-dnd-gold/60" />}
-          </button>
+        <div className="space-y-1">
+          <div className="flex items-center gap-4 flex-wrap">
+            <label className="flex items-center gap-1 text-xs text-gray-400">
+              移速
+              <input type="text" inputMode="numeric" value={raceBaseInfo.speed ?? 30}
+                onChange={(e) => updateRaceBaseInfo({ speed: Number(e.target.value) || 0 })}
+                className={txtCls} />
+              <span className="text-gray-500">尺</span>
+            </label>
+            <label className="flex items-center gap-1 text-xs text-gray-400">
+              体型
+              <select value={raceBaseInfo.size || 'medium'} onChange={(e) => updateRaceBaseInfo({ size: e.target.value })}
+                className="px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+                {CREATURE_SIZES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </label>
+            <span className="text-xs text-gray-400">视觉</span>
+            <select value={raceBaseInfo.vision?.type || ''}
+              onChange={(e) => updateRaceBaseInfo({ vision: e.target.value ? { type: e.target.value, range: raceBaseInfo.vision?.range || 60 } : null })}
+              className="px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+              <option value="">无</option>
+              {SPECIAL_SENSES_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+            {raceBaseInfo.vision?.type && (
+              <label className="flex items-center gap-1 text-xs text-gray-400">
+                <input type="text" inputMode="numeric" value={raceBaseInfo.vision.range ?? 60}
+                  onChange={(e) => updateRaceBaseInfo({ vision: { ...raceBaseInfo.vision, range: Number(e.target.value) || 0 } })}
+                  className={txtCls} />
+                <span className="text-gray-500">尺</span>
+              </label>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-gray-400">属性提高</span>
+            {Object.entries(asi).map(([key, val]) => (
+              <label key={key} className="flex items-center gap-1 text-xs text-gray-400">
+                <span className="w-4 text-center text-[11px]">{ASI_LABELS[key] || key}</span>
+                <input type="text" inputMode="numeric" value={val || 0}
+                  onChange={(e) => updateRaceBaseInfo({ abilityScoreIncrease: { ...asi, [key]: Number(e.target.value) || 0 } })}
+                  className={txtCls} />
+              </label>
+            ))}
+          </div>
+          {canEdit && hasRaceBaseInfo(raceBaseInfo) && (
+            <button type="button" onClick={clearRaceBaseInfo} className="text-[11px] text-gray-500 hover:text-red-400 transition-colors">清除基础信息</button>
+          )}
+        </div>
+      )}
 
-          {raceBaseInfoOpen && (
-            <div className="panel-card-compact mt-1.5">
-              <div className="flex items-center gap-4 flex-wrap">
-                <label className="flex items-center gap-1.5 text-xs text-gray-400">
-                  移速
-                  <input type="number" value={raceBaseInfo.speed ?? 30}
-                    onChange={(e) => updateRaceBaseInfo({ speed: Number(e.target.value) || 0 })}
-                    className="w-14 px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 text-center focus:outline-none focus:border-dnd-gold/50" min={0} max={120} step={5} />
-                  <span className="text-gray-500">尺</span>
-                </label>
-                <label className="flex items-center gap-1.5 text-xs text-gray-400">
-                  体型
-                  <select value={raceBaseInfo.size || 'medium'} onChange={(e) => updateRaceBaseInfo({ size: e.target.value })}
-                    className="px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
-                    {CREATURE_SIZES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-                  </select>
-                </label>
-                <span className="text-xs text-gray-400">视觉</span>
-                <select value={raceBaseInfo.vision?.type || ''}
-                  onChange={(e) => updateRaceBaseInfo({ vision: e.target.value ? { type: e.target.value, range: raceBaseInfo.vision?.range || 60 } : null })}
-                  className="px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
-                  <option value="">无</option>
-                  {SPECIAL_SENSES_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-                </select>
-                {raceBaseInfo.vision?.type && (
-                  <label className="flex items-center gap-1 text-xs text-gray-400">
-                    <input type="number" value={raceBaseInfo.vision.range ?? 60}
-                      onChange={(e) => updateRaceBaseInfo({ vision: { ...raceBaseInfo.vision, range: Number(e.target.value) || 0 } })}
-                      className="w-12 px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 text-center focus:outline-none focus:border-dnd-gold/50" min={0} max={300} step={10} />
-                    <span className="text-gray-500">尺</span>
-                  </label>
+      {/* 种族&背景增强 */}
+      {(raceCard.raceId || backgroundCard.backgroundId) && (
+        <div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-gray-400">种族&背景增强</span>
+            {canEdit && (
+              <div className="flex items-center gap-1">
+                {raceCard.raceId && (
+                  <button type="button" onClick={() => setRaceBuffEditor(true)}
+                    className="text-[11px] px-2 py-0.5 rounded bg-dnd-gold/15 text-dnd-gold-light border border-dnd-gold/20 hover:bg-dnd-gold/25 transition-colors">
+                    + 种族效果
+                  </button>
+                )}
+                {backgroundCard.backgroundId && (
+                  <button type="button" onClick={() => setBackgroundBuffEditor(true)}
+                    className="text-[11px] px-2 py-0.5 rounded bg-dnd-gold/15 text-dnd-gold-light border border-dnd-gold/20 hover:bg-dnd-gold/25 transition-colors">
+                    + 背景效果
+                  </button>
                 )}
               </div>
-              <div className="flex items-center gap-3 flex-wrap mt-1.5">
-                <span className="text-xs text-gray-400">属性提高</span>
-                {Object.entries(asi).map(([key, val]) => (
-                  <label key={key} className="flex items-center gap-1 text-xs text-gray-400">
-                    <span className="uppercase w-7 text-center font-mono text-[11px]">{key}</span>
-                    <input type="number" value={val || 0}
-                      onChange={(e) => updateRaceBaseInfo({ abilityScoreIncrease: { ...asi, [key]: Number(e.target.value) || 0 } })}
-                      className="w-14 px-1 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 text-center focus:outline-none focus:border-dnd-gold/50" min={0} max={4} />
-                  </label>
-                ))}
-              </div>
-              {canEdit && hasRaceBaseInfo(raceBaseInfo) && (
-                <div className="flex justify-end mt-1.5 pt-1.5 border-t border-gray-700/30">
-                  <button type="button" onClick={clearRaceBaseInfo} className="text-[11px] text-gray-500 hover:text-red-400 transition-colors">清除基础信息</button>
-                </div>
-              )}
+            )}
+          </div>
+          {allBuffEffects.length > 0 ? (
+            <div className="mt-1 space-y-1">
+              {allBuffEffects.map((e, i) => {
+                const desc = e.value?.description || e.text || e.value?.text || `${e.effectType || e.type || '效果'} ${JSON.stringify(e.value || '')}`
+                const sourceLabel = e._source === 'race'
+                  ? (raceCard.raceId === 'custom' ? (raceCard.customName || '自定义种族') : (selectedRace?.name || '种族'))
+                  : (backgroundCard.backgroundId === 'custom' ? (backgroundCard.customName || '自定义背景') : (selectedBackground?.name || '背景'))
+                return (
+                  <div key={i} className="flex items-start gap-1.5 px-2 py-1 rounded bg-gray-800/30 border border-gray-700/20">
+                    <span className="text-[10px] text-dnd-gold/70 shrink-0 mt-0.5 font-medium">{sourceLabel}</span>
+                    <span className="text-xs text-gray-300 leading-snug">{desc}</span>
+                  </div>
+                )
+              })}
             </div>
+          ) : (
+            <p className="text-[11px] text-gray-600 mt-1">暂无增强效果，点击上方按钮添加</p>
           )}
         </div>
       )}
