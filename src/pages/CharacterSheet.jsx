@@ -573,15 +573,17 @@ function RaceBackgroundInline({ char, canEdit, onSave }) {
       {/* 种族 + 背景下拉行 */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs text-gray-400 shrink-0">种族</span>
-        <select value={raceCard.raceId || ''} onChange={(e) => handleRaceChange(e.target.value)} className={selCls}>
-          <option value="">— 选择种族 —</option>
-          {RACES.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-          <option value="custom">自定义...</option>
-        </select>
-        {raceCard.raceId === 'custom' && (
-          <input type="text" value={raceCard.customName || ''}
+        {raceCard.raceId === 'custom' ? (
+          <input type="text" value={raceCard.customName || ''} autoFocus
             onChange={(e) => onSave({ raceCard: { ...raceCard, customName: e.target.value } })}
-            placeholder="种族名称" className="flex-1 min-w-0 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50" />
+            onBlur={() => { if (!raceCard.customName?.trim()) onSave({ raceCard: { ...raceCard, raceId: '' } }) }}
+            placeholder="输入种族名称" className="flex-1 min-w-0 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50" />
+        ) : (
+          <select value={raceCard.raceId || ''} onChange={(e) => handleRaceChange(e.target.value)} className={selCls}>
+            <option value="">— 选择种族 —</option>
+            {RACES.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            <option value="custom">自定义...</option>
+          </select>
         )}
         {selectedRace && selectedRace.subraces.length > 0 && (
           <select value={raceCard.subraceId || ''} onChange={(e) => handleSubraceChange(e.target.value)} className={selCls}>
@@ -591,15 +593,17 @@ function RaceBackgroundInline({ char, canEdit, onSave }) {
         )}
 
         <span className="text-xs text-gray-400 shrink-0 ml-1">背景</span>
-        <select value={backgroundCard.backgroundId || ''} onChange={(e) => handleBackgroundChange(e.target.value)} className={selCls}>
-          <option value="">— 选择背景 —</option>
-          {BACKGROUNDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          <option value="custom">自定义...</option>
-        </select>
-        {backgroundCard.backgroundId === 'custom' && (
-          <input type="text" value={backgroundCard.customName || ''}
+        {backgroundCard.backgroundId === 'custom' ? (
+          <input type="text" value={backgroundCard.customName || ''} autoFocus
             onChange={(e) => onSave({ backgroundCard: { ...backgroundCard, customName: e.target.value } })}
-            placeholder="背景名称" className="flex-1 min-w-0 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50" />
+            onBlur={() => { if (!backgroundCard.customName?.trim()) onSave({ backgroundCard: { ...backgroundCard, backgroundId: '' } }) }}
+            placeholder="输入背景名称" className="flex-1 min-w-0 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50" />
+        ) : (
+          <select value={backgroundCard.backgroundId || ''} onChange={(e) => handleBackgroundChange(e.target.value)} className={selCls}>
+            <option value="">— 选择背景 —</option>
+            {BACKGROUNDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            <option value="custom">自定义...</option>
+          </select>
         )}
 
         {/* BUFF 编辑入口在下方"种族&背景增强"区域 */}
