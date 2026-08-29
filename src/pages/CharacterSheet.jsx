@@ -2428,35 +2428,6 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                   headerRight={
                     canEdit ? (
                       <div className="flex items-center gap-1.5 shrink-0">
-                        {hasActiveAbility && (() => {
-                          const ability = findActiveAbilityForFeat(row.featId, featCards)
-                          if (!ability) return null
-                          const check = canUseAbility(ability, char)
-                          const costText = ability.cost.type === 'class_resource'
-                            ? `${ability.cost.amount}${({ star_points: '星', wild_shape: '变', second_wind: '气', lay_on_hands: '疗' }[ability.cost.resourceKey] || '')}`
-                            : ability.cost.type === 'none' ? '免费' : ''
-                          return (
-                            <button
-                              type="button"
-                              disabled={!check.usable}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                const result = executeAbility(ability, char)
-                                if (result.success) {
-                                  const patches = { ...result.patch }
-                                  if (result.classResources) patches.classResources = result.classResources
-                                  if (Object.keys(patches).length > 0) onSave(patches)
-                                }
-                              }}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-                              title={check.usable ? `点击使用${ability.name}` : check.reason}
-                            >
-                              <Zap className="w-3 h-3" />
-                              使用 {ability.name}
-                              {costText && <span className="text-[10px] opacity-70">{costText}</span>}
-                            </button>
-                          )
-                        })()}
                         <button
                           type="button"
                           onClick={() => removeFreeFeat(i)}
@@ -2468,6 +2439,35 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                       </div>
                     ) : null
                   }
+                  footer={hasActiveAbility ? (() => {
+                    const ability = findActiveAbilityForFeat(row.featId, featCards)
+                    if (!ability) return null
+                    const check = canUseAbility(ability, char)
+                    const costText = ability.cost.type === 'class_resource'
+                      ? `${ability.cost.amount}${({ star_points: '星', wild_shape: '变', second_wind: '气', lay_on_hands: '疗' }[ability.cost.resourceKey] || '')}`
+                      : ability.cost.type === 'none' ? '免费' : ''
+                    return (
+                      <button
+                        type="button"
+                        disabled={!check.usable}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          const result = executeAbility(ability, char)
+                          if (result.success) {
+                            const patches = { ...result.patch }
+                            if (result.classResources) patches.classResources = result.classResources
+                            if (Object.keys(patches).length > 0) onSave(patches)
+                          }
+                        }}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={check.usable ? `点击使用${ability.name}` : check.reason}
+                      >
+                        <Zap className="w-3 h-3" />
+                        使用 {ability.name}
+                        {costText && <span className="text-[10px] opacity-70">{costText}</span>}
+                      </button>
+                    )
+                  })() : undefined}
                 >
                   {legacyStyle && (
                     <p className="text-sm text-dnd-red mt-2 pt-2 border-t border-dnd-red/20 leading-relaxed">
