@@ -235,7 +235,7 @@ function AvatarFrame({ char, canEdit, onSave, large }) {
       />
       <div
         ref={zoneRef}
-        className="avatar-upload-zone w-full h-full min-h-[220px] aspect-square max-w-full flex flex-col items-center justify-center relative overflow-hidden"
+        className="avatar-upload-zone w-full h-full min-h-[220px] max-w-full flex flex-col items-center justify-center relative overflow-hidden"
       >
         {avatar ? (
           <img src={avatar} alt="头像" className="w-full h-full object-cover object-center absolute inset-0" />
@@ -3755,7 +3755,7 @@ export default function CharacterSheet() {
                   </div>
                 </div>
                 <div
-                  className="character-sheet-profile-avatar-sticky min-w-0 flex flex-col min-h-[200px] lg:min-h-0 lg:aspect-square lg:w-full"
+                  className="character-sheet-profile-avatar-sticky min-w-0 flex flex-col min-h-[200px] lg:min-h-0 lg:w-full"
                 >
                   <AvatarFrame char={char} canEdit={canEdit} onSave={persist} large />
                 </div>
