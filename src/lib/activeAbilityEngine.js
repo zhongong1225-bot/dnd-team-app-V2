@@ -140,6 +140,10 @@ export function canUseAbility(ability, char) {
 
   // 2. classResource 消耗
   if (ability.cost.type === 'class_resource') {
+    // charges 资源追踪在 inventory entry 上，不在 classResources，直接放行
+    if (ability.cost.resourceKey === 'charges') {
+      return { usable: true }
+    }
     const resource = (char.classResources || []).find(
       (r) => r.resourceKey === ability.cost.resourceKey,
     )
@@ -203,7 +207,7 @@ export function executeAbility(ability, char, options = {}) {
   let resourcePatchNeeded = false
 
   // ── 扣除 classResource ──
-  if (ability.cost.type === 'class_resource') {
+  if (ability.cost.type === 'class_resource' && ability.cost.resourceKey !== 'charges') {
     newClassResources = (char.classResources || []).map((r) => {
       if (r.resourceKey !== ability.cost.resourceKey) return r
       return { ...r, current: Math.max(0, r.current - (options.customCostAmount || ability.cost.amount)) }
@@ -399,6 +403,8 @@ function computeEffect(effect, ctx, options) {
           type: 'heal',
           description: effect.description || (v.mode === 'max' ? `满疗 ${dice}${bonus}` : `治疗 ${dice}${bonus}`) + scaleNote,
           diceFormula: `${dice}${bonus}`,
+          dicePart: { count: diceCount, size: v.diceSides || 8 },
+          baseValue: v.diceBonus || 0,
           mode: v.mode || 'dice',
         }
       }
@@ -413,7 +419,7 @@ function computeEffect(effect, ctx, options) {
         applicableAbilities: effect.applicableAbilities || [],
       }
     case 'buff':
-      return { type: 'buff', description: effect.description, duration: effect.duration || '1分钟' }
+      return { type: 'buff', description: effect.description, duration: effect.duration || '1分钟', raw: effect }
     case 'heal_full':
       return { type: 'heal_full', description: effect.description }
     case 'teleport':
@@ -432,7 +438,7 @@ function computeEffect(effect, ctx, options) {
         cost: effect.cost || 1,
       }
     case 'summon':
-      return { type: 'summon', description: effect.description, duration: effect.duration || '1分钟' }
+      return { type: 'summon', description: effect.description, duration: effect.duration || '1分钟', raw: effect }
     default:
       return { type: effect.type, description: effect.description }
   }
