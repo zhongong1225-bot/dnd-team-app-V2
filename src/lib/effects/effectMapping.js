@@ -123,6 +123,20 @@ function normalizeSelectedFeatsForBuffs(character) {
       seen.add(x.featId)
       return true
     })
+    .map((x) => {
+      // ── 数据迁移：修复 star_doppelganger 旧版 resourceType ──
+      // 旧版默认模板错误地将 resourceType 设为 'star_points'，实际应为 'none'（不消耗星辰点）
+      if (x.featId === 'star_doppelganger' && x.featBuffPatch?.effects) {
+        const fixed = x.featBuffPatch.effects.map((e) => {
+          if (e.effectType === 'charge_item' && e.value?.resourceType === 'star_points') {
+            return { ...e, value: { ...e.value, resourceType: 'none' } }
+          }
+          return e
+        })
+        return { ...x, featBuffPatch: { ...x.featBuffPatch, effects: fixed } }
+      }
+      return x
+    })
 }
 
 /**

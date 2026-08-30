@@ -1184,7 +1184,7 @@ export const HARDCODED_FEAT_BUFFS = {
     ],
   },
   
-  // 星辰替身：召唤分身
+  // 星辰替身：召唤分身（每 24 小时一次，不消耗星辰点）
   star_doppelganger: {
     source: '星辰替身',
     effects: [
@@ -1194,7 +1194,7 @@ export const HARDCODED_FEAT_BUFFS = {
         scope: 'global',
         scopeDetail: [],
         value: {
-          resourceType: 'star_points',
+          resourceType: 'none',
           charges: 1,
           recovery: { method: 'long_rest' },
           actionCost: 'action',

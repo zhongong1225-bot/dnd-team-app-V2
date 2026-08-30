@@ -28,6 +28,7 @@ import { CONDITION_OPTIONS, CONDITION_DESCRIPTIONS, EXHAUSTION_DESCRIPTIONS, DAM
 import { inputClass, inputClassInline } from '../lib/inputStyles'
 import { hpBarMainFillClass, HP_BAR_TEMP_FILL_CLASS } from '../lib/hpBarShared'
 import { RESOURCE_RULES, getAutoResources, computeResourceMax, createResourceEntry } from '../data/classResourceRules'
+import { resetAbilityCooldowns } from '../lib/activeAbilityEngine'
 import { restoreChargesForEvent } from '../lib/chargeRecovery'
 import { recoverShieldsOnRest } from '../lib/shieldEngine'
 import WeaponAttackCard from './combat/WeaponAttackCard'
@@ -1768,6 +1769,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         onSave({ spellSlots: merged })
       }
     }
+    // 重置短休冷却的主动技能
+    const cooldownPatch = resetAbilityCooldowns(char, 'short', moduleId)
+    if (cooldownPatch) onSave({ activeAbilityState: cooldownPatch })
   }
 
   /* ── 长休：恢复所有资源 + 重置死亡豁免 + 恢复所有法术位 ── */
@@ -1811,6 +1815,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       setSpellSlotsCurrentLocal(merged)
       onSave({ spellSlots: merged })
     }
+    // 重置长休冷却的主动技能（包括短休和长休冷却）
+    const cooldownPatch = resetAbilityCooldowns(char, 'long', moduleId)
+    if (cooldownPatch) onSave({ activeAbilityState: cooldownPatch })
   }
 
   /* ── 黎明恢复：仅恢复黎明恢复类型的物品充能 ── */
@@ -2346,7 +2353,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             <div className="flex items-center justify-between gap-1 mb-1 shrink-0">
               <h3 className={`text-dnd-gold-light ${CM_MEAN_LABEL} font-semibold uppercase tracking-wider leading-tight`}>其它职业资源</h3>
               <div className="flex items-center gap-1 shrink-0">
-                {canEdit && classResources.some((r) => r.recovery === 'short') && (
+                {canEdit && (
                   <button type="button" onClick={handleShortRest} className="px-1.5 py-0.5 rounded bg-amber-700/60 text-amber-200 text-[10px] font-medium hover:bg-amber-700/80" title="短休：恢复所有短休资源">
                     短休
                   </button>
