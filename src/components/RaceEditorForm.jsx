@@ -203,7 +203,7 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
             <label className={labelCls}>背景描述</label>
             <textarea
               className={`${inputCls} resize-none`}
-              rows={3}
+              rows={5}
               placeholder="种族背景故事 / 风味文字"
               value={race.description}
               onChange={e => patch('description', e.target.value)}
@@ -305,17 +305,21 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
               </div>
               <textarea
                 className={`${inputCls} resize-none`}
-                rows={2}
+                rows={3}
                 placeholder="特性描述"
                 value={t.description}
                 onChange={e => patchTrait(t.id, 'description', e.target.value)}
               />
-              <button
-                onClick={() => setEditingTraitBuffId({ type: 'race', traitId: t.id })}
-                className="px-2 py-0.5 rounded bg-indigo-600/80 hover:bg-indigo-500 text-white text-[10px]"
-              >
-                编辑效果 {(t.cards || []).length > 0 && `(${t.cards.length})`}
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setEditingTraitBuffId({ type: 'race', traitId: t.id })}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-indigo-300/80 hover:text-indigo-200 hover:bg-indigo-500/15 border border-indigo-400/20"
+                  title="编辑BUFF效果"
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                  效果 {(t.cards || []).length > 0 && `(${t.cards.length})`}
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -397,7 +401,7 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
               </div>
               <textarea
                 className={`${inputCls} resize-none`}
-                rows={2}
+                rows={3}
                 placeholder="亚种描述"
                 value={sub.description}
                 onChange={e => patchSubrace(sub.id, 'description', e.target.value)}
@@ -432,17 +436,21 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
                     </div>
                     <textarea
                       className={`${inputCls} resize-none`}
-                      rows={2}
+                      rows={3}
                       placeholder="特性描述"
                       value={st.description}
                       onChange={e => patchSubraceTrait(sub.id, st.id, 'description', e.target.value)}
                     />
-                    <button
-                      onClick={() => setEditingTraitBuffId({ type: 'subrace', subraceId: sub.id, traitId: st.id })}
-                      className="px-2 py-0.5 rounded bg-indigo-600/80 hover:bg-indigo-500 text-white text-[10px]"
-                    >
-                      编辑效果 {(st.cards || []).length > 0 && `(${st.cards.length})`}
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setEditingTraitBuffId({ type: 'subrace', subraceId: sub.id, traitId: st.id })}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-indigo-300/80 hover:text-indigo-200 hover:bg-indigo-500/15 border border-indigo-400/20"
+                        title="编辑BUFF效果"
+                      >
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                        效果 {(st.cards || []).length > 0 && `(${st.cards.length})`}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -470,29 +478,34 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
         )}
       </div>
 
-      {/* BUFF 编辑器全屏覆盖 */}
+      {/* BUFF 编辑器嵌套弹窗 */}
       {buffTrait && editingTraitBuffId && (
-        <div className="fixed inset-0 z-50 bg-[var(--page-bg)] overflow-y-auto">
-          <div className="p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-display text-base font-semibold text-white">
-                编辑效果 — {buffLabel} · {buffTrait.name}
-              </h2>
-              <button
-                onClick={() => setEditingTraitBuffId(null)}
-                className="text-dnd-text-muted text-sm hover:text-white"
-              >
-                取消
-              </button>
+        <>
+          <div className="fixed inset-0 bg-black/50" style={{ zIndex: 400 }} onClick={() => setEditingTraitBuffId(null)} aria-hidden />
+          <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: 401 }}>
+            <div className="w-full max-w-2xl max-h-[85vh] rounded-xl border border-white/10 bg-[#1a2332] flex flex-col overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+                <h2 className="text-sm font-semibold text-dnd-gold-light/90">
+                  编辑效果 — {buffLabel} · {buffTrait.name}
+                </h2>
+                <button
+                  onClick={() => setEditingTraitBuffId(null)}
+                  className="p-1 rounded text-gray-400 hover:bg-white/10 hover:text-white"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4">
+                <BuffForm
+                  compact
+                  initial={{ effects: buffTrait.cards || [], source: buffTrait.name }}
+                  onSave={handleBuffSave}
+                  onCancel={() => setEditingTraitBuffId(null)}
+                />
+              </div>
             </div>
-            <BuffForm
-              compact
-              initial={{ effects: buffTrait.cards || [], source: buffTrait.name }}
-              onSave={handleBuffSave}
-              onCancel={() => setEditingTraitBuffId(null)}
-            />
           </div>
-        </div>
+        </>
       )}
     </>
   )

@@ -19,7 +19,7 @@ export default function RuleTextOverrideControl({
   isAdmin,
   /** 简短说明，用于按钮 title */
   label = '编辑正文',
-  buttonClassName = 'inline-flex shrink-0 items-center justify-center rounded p-1 text-gray-500 hover:bg-white/10 hover:text-dnd-gold-light',
+  buttonClassName = 'inline-flex shrink-0 items-center justify-center rounded-md p-1.5 text-gray-400 hover:bg-white/10 hover:text-dnd-gold-light border border-white/[0.06]',
 }) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState('')
@@ -86,7 +86,7 @@ export default function RuleTextOverrideControl({
               <textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                className={textareaClass + ' flex-1 min-h-[28rem] text-sm'}
+                className={textareaClass + ' flex-1 !min-h-[28rem] text-sm'}
                 spellCheck={false}
               />
             </div>

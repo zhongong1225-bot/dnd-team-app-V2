@@ -1214,4 +1214,1659 @@ export const HARDCODED_FEAT_BUFFS = {
       },
     ],
   },
+
+  // ========== 灵能专长 ==========
+  
+  // 灵能身躯：每个灵能专长+6HP（被动）
+  psionic_body: {
+    source: '灵能身躯',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'max_hp_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { bonus: { ref: 'level', mult: 2 } },
+      },
+    ],
+  },
+  
+  // 灵能闪避：反射闪避（被动）
+  psionic_dodge: {
+    source: '灵能闪避',
+    effects: [
+      {
+        category: 'defense',
+        effectType: 'evasion',
+        scope: 'global',
+        scopeDetail: [],
+        value: {},
+      },
+    ],
+  },
+  
+  // 专注之盾：盾牌AC+1，体质+1（被动）
+  psionic_focus_shield: {
+    source: '专注之盾',
+    effects: [
+      {
+        category: 'defense',
+        effectType: 'ac_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { bonus: 1, slot: 'shield' },
+      },
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { con: 1 },
+      },
+    ],
+  },
+  
+  // 深度视野：黑暗视觉+30尺（被动）
+  psionic_deep_vision: {
+    source: '深度视野',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'darkvision_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { bonus: 30 },
+      },
+    ],
+  },
+  
+  // 心灵共振：灵能集中时附近有其他灵能者，能力/技能/豁免+2（被动）
+  psionic_resonance: {
+    source: '心灵共振',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_check_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { bonus: 2 },
+      },
+      {
+        category: 'ability',
+        effectType: 'save_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { bonus: 2 },
+      },
+    ],
+  },
+  
+  // 特选能量：每伤害骰+1（被动）
+  psionic_privileged_energy: {
+    source: '特选能量',
+    effects: [
+      {
+        category: 'offense',
+        effectType: 'damage_bonus_per_die',
+        scope: 'global',
+        scopeDetail: [],
+        value: { bonus: 1 },
+      },
+    ],
+  },
+  
+  // 炫目能量：能量异能附加目眩（被动）
+  psionic_dazzling_energy: {
+    source: '炫目能量',
+    effects: [
+      {
+        category: 'offense',
+        effectType: 'conditional_damage_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { condition: 'energy_power', description: '能量异能攻击附带目眩效果 1 分钟' },
+      },
+    ],
+  },
+  
+  // 异能越障：消耗灵能集中穿越屏障显能（主动）
+  psionic_overcome_barrier: {
+    source: '异能越障',
+    effects: [
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'psionic_focus',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'action',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '穿越屏障',
+                description: '消耗灵能集中，尝试对被墙或力场效果掩蔽的目标显能。进行 DC 10+硬度+每英尺厚度 1 的奥秘检定。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+  
+  // 异能双发：双重释放异能（主动）
+  psionic_twin_power: {
+    source: '异能双发',
+    effects: [
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'psionic_focus',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'action',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '双重异能',
+                description: '消耗灵能集中，展现的异能在目标身上作用两次。目标分别经受两道异能的全部效果并分别进行豁免。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+  
+  // 异能瞬发：附赠动作释放异能（主动）
+  psionic_quicken: {
+    source: '异能瞬发',
+    effects: [
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'psionic_focus',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'bonus',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '瞬发异能',
+                description: '消耗灵能集中，用附赠动作释放一道异能。每轮只能展现一道瞬发异能。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+  
+  // 异能链化：连锁打击（主动）
+  psionic_chain: {
+    source: '异能链化',
+    effects: [
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'psionic_focus',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'action',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '链化打击',
+                description: '消耗灵能集中，异能打击主目标后可连锁打击最多等于显能者等级（最多20）的次要目标，每次造成一半伤害。次要目标需在主目标30尺内。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+  
+  // 战斗显能：专注熟练+属性提升（被动+主动）
+  psionic_combat: {
+    source: '战斗显能',
+    effects: [
+      {
+        category: 'mobility_casting',
+        effectType: 'concentration_enhance',
+        scope: 'global',
+        scopeDetail: [],
+        value: { proficiency: true },
+      },
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'none',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '属性提升',
+                description: '在智力、感知、体质中选择一项提升 1 点。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+  
+  // 燃烧自身：属性燃烧恢复魂力点（主动）
+  psionic_burn_self: {
+    source: '燃烧自身',
+    effects: [
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'action',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '属性燃烧',
+                description: '在力量、敏捷和体质上各承受 1 点属性燃烧伤害，恢复 2 点魂力点。可燃烧更多按比例恢复。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+  
+  // 亲和灵晶：获得灵晶仆（主动）
+  psionic_crystal_affinity: {
+    source: '亲和灵晶',
+    effects: [
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'action',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '灵晶仆',
+                description: '获得一个灵晶仆 companion。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+  
+  // 灵能资质：异能豁免DC+1（主动，消耗灵能集中）
+  psionic_focus: {
+    source: '灵能资质',
+    effects: [
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'psionic_focus',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'none',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '专注增幅',
+                description: '消耗灵能集中，展现的异能豁免 DC+1。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+  
+  // 灵能拳：额外伤害（主动，消耗灵能集中）
+  psionic_fist: {
+    source: '灵能拳',
+    effects: [
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'psionic_focus',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'none',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '灵能拳打击',
+                description: '消耗灵能集中，徒手击打或天然武器攻击造成额外 2d6 伤害。5级4d6，11级5d6，17级6d6。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+  
+  // 灵能射击：远程额外伤害（主动，消耗灵能集中）
+  psionic_shot: {
+    source: '灵能射击',
+    effects: [
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'psionic_focus',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'none',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '灵能射击',
+                description: '消耗灵能集中，一次远程攻击造成额外 2d6 伤害。5级4d6，11级5d6，17级6d6。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+  
+  // 充能护甲：反应减能量伤害10（主动）
+  psionic_charged_armor: {
+    source: '充能护甲',
+    effects: [
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'spell_slot',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'reaction',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '充能防护',
+                description: '消耗法术环位，抵抗能量伤害减少 10 点。',
+                triggerCondition: 'on_hit',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+  
+  // 狂野兴奋：攻击/豁免/伤害+1（主动，长休恢复）
+  psionic_wild_excitement: {
+    source: '狂野兴奋',
+    effects: [
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'long_rest' },
+          actionCost: 'none',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '狂野兴奋',
+                description: '攻击检定、豁免检定、伤害检定 +1。12级+2，20级+3。持续等于角色等级的回合数。使用后长休才可再次启动，结束时获得1级力竭。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+  
+  // 强化护甲：AC+3（主动，消耗灵能集中）
+  psionic_invest_armor: {
+    source: '强化护甲',
+    effects: [
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'psionic_focus',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'none',
+          effects: [
+            {
+              type: 'ac_bonus',
+              value: {
+                bonus: 3,
+                duration: { type: 'until_rest', value: 'short_rest' },
+                description: '增强护甲 AC+3，消耗灵能集中。',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+  
+  // 秘法汇流：同调+1+鉴定术（被动+主动）
+  psionic_mystic_conflux: {
+    source: '秘法汇流',
+    effects: [
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'long_rest' },
+          actionCost: 'action',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '鉴定术',
+                description: '不消耗法术位施展鉴定术一次。长休后恢复。可同时同调4个魔法物品。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+
+  // ========== 史诗恩惠 ==========
+
+  // 英勇战斗之恩惠
+  epic_boon_combat_prowess: {
+    source: '英勇战斗之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, bonus: 1 },
+      },
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'reaction',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '命中转换',
+                description: '当你的一次攻击投骰失手时，你可以使用反应使该次攻击改为命中。每回合可用。',
+                triggerCondition: 'on_miss',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+
+  // 次元旅行之恩惠
+  epic_boon_dimensional_travel: {
+    source: '次元旅行之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, bonus: 1 },
+      },
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'bonus_action',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '传送',
+                description: '传送至多30尺到你可见的一个未被占据的空间。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+
+  // 能量抗性之恩惠
+  epic_boon_energy_resistance: {
+    source: '能量抗性之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, bonus: 1 },
+      },
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '能量抗性',
+          description: '选择两种伤害类型（从酸蚀、寒冷、火焰、闪电、毒素、雷鸣中选）。你对这两种伤害类型具有抗性。长休后可重新选择。',
+          triggerCondition: 'passive',
+        },
+      },
+    ],
+  },
+
+  // 扭曲命运之恩惠
+  epic_boon_fate: {
+    source: '扭曲命运之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, bonus: 1 },
+      },
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'initiative' },
+          actionCost: 'reaction',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '命运骰',
+                description: '投1d4，将结果加到你自己的一次D20投骰上，或从另一个你能看到的生物的一次D20投骰中减去。先攻、短休或长休后恢复使用次数。',
+                triggerCondition: 'on_roll',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+
+  // 超凡强韧之恩惠
+  epic_boon_fortitude: {
+    source: '超凡强韧之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, bonus: 1 },
+      },
+      {
+        category: 'ability',
+        effectType: 'max_hp_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { bonus: 40 },
+      },
+    ],
+  },
+
+  // 无敌攻势之恩惠
+  epic_boon_irresistible_offense: {
+    source: '无敌攻势之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, choiceOptions: ['str', 'dex'], bonus: 1 },
+      },
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '无视抗性',
+          description: '你用力量或敏捷做出的钝击、挥砍、穿刺伤害攻击无视目标的抗性（将抗性视为无，但不影响免疫）。',
+          triggerCondition: 'passive',
+        },
+      },
+    ],
+  },
+
+  // 强力恢复之恩惠
+  epic_boon_recovery: {
+    source: '强力恢复之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, bonus: 1 },
+      },
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'long_rest' },
+          actionCost: 'special',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '背水一战',
+                description: '当你被降至0HP时，你可以改为降至1HP并恢复你最大HP的一半。长休后恢复。',
+                triggerCondition: 'on_hp_zero',
+              },
+            },
+          ],
+        },
+      },
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'long_rest' },
+          actionCost: 'bonus_action',
+          effects: [
+            {
+              type: 'heal',
+              value: { dice: '10d10', bonus: 0 },
+            },
+          ],
+        },
+      },
+    ],
+  },
+
+  // 博学多才之恩惠
+  epic_boon_skill: {
+    source: '博学多才之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, bonus: 1 },
+      },
+      {
+        category: 'proficiency',
+        effectType: 'skill_proficiency',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          skills: [
+            'acrobatics', 'animal_handling', 'arcana', 'athletics', 'deception',
+            'history', 'insight', 'intimidation', 'investigation', 'medicine',
+            'nature', 'perception', 'performance', 'persuasion', 'religion',
+            'sleight_of_hand', 'stealth', 'survival',
+          ],
+        },
+      },
+    ],
+  },
+
+  // 神行无拘之恩惠
+  epic_boon_speed: {
+    source: '神行无拘之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, bonus: 1 },
+      },
+      {
+        category: 'mobility_casting',
+        effectType: 'speed_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { bonus: 30 },
+      },
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'bonus_action',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '撤离与解脱',
+                description: '执行撤离动作（Disengage）并解除擒抱状态。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+
+  // 法术溯回之恩惠
+  epic_boon_spell_recall: {
+    source: '法术溯回之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, choiceOptions: ['int', 'wis', 'cha'], bonus: 1 },
+      },
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '法术溯回',
+          description: '当你施展一个环阶等于1d4投骰结果的法术时，该法术不消耗法术位。',
+          triggerCondition: 'on_cast',
+        },
+      },
+    ],
+  },
+
+  // 暗夜精魂之恩惠
+  epic_boon_night_spirit: {
+    source: '暗夜精魂之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, bonus: 1 },
+      },
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'bonus_action',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '暗影隐形',
+                description: '当你处于微光光照或黑暗环境中时，你可以变为隐形状态。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '暗夜抗性',
+          description: '你对除心灵伤害和光耀伤害外的所有伤害类型具有抗性。',
+          triggerCondition: 'passive',
+        },
+      },
+    ],
+  },
+
+  // 真实视觉之恩惠
+  epic_boon_truesight: {
+    source: '真实视觉之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, bonus: 1 },
+      },
+      {
+        category: 'mobility_casting',
+        effectType: 'darkvision_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { bonus: 60 },
+      },
+    ],
+  },
+
+  // 血海漂橹之恩惠
+  epic_boon_bloodshed: {
+    source: '血海漂橹之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, bonus: 1 },
+      },
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '血海漂橹',
+          description: '当一个你能看到的敌人在你30尺内被降至0HP时，你的下一次攻击投骰具有优势。浴血期间，你的武器攻击额外造成1d10伤害。',
+          triggerCondition: 'on_enemy_down',
+        },
+      },
+    ],
+  },
+
+  // 生机勃发之恩惠
+  epic_boon_bountiful_health: {
+    source: '生机勃发之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, bonus: 1 },
+      },
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '生机勃发',
+          description: '每当你完成一次短休或长休时，你获得等于你角色等级+5的临时生命值。',
+          triggerCondition: 'on_rest',
+        },
+      },
+    ],
+  },
+
+  // 八面玲珑之恩惠
+  epic_boon_communication: {
+    source: '八面玲珑之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, choiceOptions: ['int', 'wis', 'cha'], bonus: 1 },
+      },
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '心灵感应',
+          description: '你可以与120尺内你能看到的任何具有语言的生物进行心灵感应。',
+          triggerCondition: 'passive',
+        },
+      },
+    ],
+  },
+
+  // 绝境逢生之恩惠
+  epic_boon_desperate_resilience: {
+    source: '绝境逢生之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, choiceOptions: ['str', 'con'], bonus: 1 },
+      },
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '绝境逢生',
+          description: '浴血期间，你对除力场伤害外的所有伤害类型具有抗性。',
+          triggerCondition: 'on_bloodied',
+        },
+      },
+    ],
+  },
+
+  // 熠熠生辉之恩惠
+  epic_boon_exquisite_radiance: {
+    source: '熠熠生辉之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, bonus: 1 },
+      },
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '熠熠生辉',
+          description: '被降至0HP的生物不能被你复活为亡灵。你的光耀伤害投骰取最大值。长休后恢复。',
+          triggerCondition: 'passive',
+        },
+      },
+    ],
+  },
+
+  // 变幻无常之恩惠
+  epic_boon_fluid_forms: {
+    source: '变幻无常之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, choiceOptions: ['int', 'wis', 'cha'], bonus: 1 },
+      },
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'long_rest' },
+          actionCost: 'magic_action',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '变形',
+                description: '变形为挑战等级10或以下的野兽、类人生物或怪兽。长休后恢复。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+
+  // 命运眷顾之恩惠
+  epic_boon_fortunes_favor: {
+    source: '命运眷顾之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, bonus: 1 },
+      },
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '命运眷顾',
+          description: '当你进行一次攻击投骰、属性检定或豁免投骰时，你可以将结果改为20。每回合限一次。',
+          triggerCondition: 'on_roll',
+        },
+      },
+    ],
+  },
+
+  // 毒手殁心之恩惠
+  epic_boon_poison_mastery: {
+    source: '毒手殁心之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, bonus: 1 },
+      },
+      {
+        category: 'defense',
+        effectType: 'damage_immunity',
+        scope: 'global',
+        scopeDetail: [],
+        value: { damageTypes: ['poison'] },
+      },
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '中毒免疫',
+          description: '你对中毒状态免疫。',
+          triggerCondition: 'passive',
+        },
+      },
+    ],
+  },
+
+  // 夜宴狂欢之恩惠
+  epic_boon_revelry: {
+    source: '夜宴狂欢之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, choiceOptions: ['int', 'wis', 'cha'], bonus: 1 },
+      },
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'long_rest' },
+          actionCost: 'action',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '奥图迷舞',
+                description: '施展奥图迷舞（Otto\'s Irresistible Dance），无需材料成分，且专注不会被伤害打断。长休后恢复。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+
+  // 惊魂落魄之恩惠
+  epic_boon_terror: {
+    source: '惊魂落魄之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { ability: 'cha', bonus: 1 },
+      },
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '恐慌免疫与威吓专精',
+          description: '你对恐慌状态免疫。你的威吓（Intimidation）技能获得熟练和专精（双倍熟练加值）。',
+          triggerCondition: 'passive',
+        },
+      },
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'short_rest' },
+          actionCost: 'reaction',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '恐惧驱逐',
+                description: '当一个你能看到的生物处于恐慌状态时，你可以使用反应迫使该生物远离你移动。短休后恢复。',
+                triggerCondition: 'on_fear',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+
+  // 旭日骄阳之恩惠
+  epic_boon_bright_sun: {
+    source: '旭日骄阳之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, choiceOptions: ['con', 'wis', 'cha'], bonus: 1 },
+      },
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'bonus_action',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '阳光光环',
+                description: '你散发30尺阳光光环，持续1分钟。每回合开始时你获得10点临时生命值。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+
+  // 暴风骤岚之恩惠
+  epic_boon_furious_storm: {
+    source: '暴风骤岚之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, choiceOptions: ['int', 'wis', 'cha'], bonus: 1 },
+      },
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '暴风骤岚',
+          description: '你对闪电和雷鸣伤害具有抗性。浴血期间，你对闪电和雷鸣伤害免疫。',
+          triggerCondition: 'passive',
+        },
+      },
+    ],
+  },
+
+  // 汲魂饮魄之恩惠
+  epic_boon_soul_drinker: {
+    source: '汲魂饮魄之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, bonus: 1 },
+      },
+      {
+        category: 'defense',
+        effectType: 'damage_resistance',
+        scope: 'global',
+        scopeDetail: [],
+        value: { damageTypes: ['cold', 'necrotic'] },
+      },
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'short_rest' },
+          actionCost: 'reaction',
+          effects: [
+            {
+              type: 'heal',
+              value: { fixed: 50 },
+            },
+          ],
+        },
+      },
+    ],
+  },
+
+  // 炽耀黎明之恩惠
+  epic_boon_blazing_dawn: {
+    source: '炽耀黎明之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, bonus: 1 },
+      },
+      {
+        category: 'defense',
+        effectType: 'damage_immunity',
+        scope: 'global',
+        scopeDetail: [],
+        value: { damageTypes: ['radiant'] },
+      },
+    ],
+  },
+
+  // 厄影迫现之恩惠
+  epic_boon_looming_shadows: {
+    source: '厄影迫现之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, bonus: 1 },
+      },
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '厄影迫现',
+          description: '当你执行攻击动作时，你的触及增加10尺。',
+          triggerCondition: 'on_attack',
+        },
+      },
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'bonus_action',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '回避',
+                description: '执行撤离动作（Disengage）。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+
+  // 雾影遁形之恩惠
+  epic_boon_misty_escape: {
+    source: '雾影遁形之恩惠',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'ability_score_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { choice: true, choiceOptions: ['int', 'wis', 'cha'], bonus: 1 },
+      },
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'long_rest' },
+          actionCost: 'special',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '雾影遁形',
+                description: '当你被降至0HP时，你可以变为气化形体并获得20尺飞行速度。每回合开始时你恢复10HP。长休后恢复。',
+                triggerCondition: 'on_hp_zero',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+
+  // ========== 制作物品专长 ==========
+
+  // 抄录法术卷轴
+  scribe_scroll: {
+    source: '抄录法术卷轴',
+    effects: [
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '抄录卷轴',
+          description: '你可以将你所知晓的法术抄录至卷轴上。',
+          triggerCondition: 'passive',
+        },
+      },
+    ],
+  },
+
+  // 调制药水
+  brew_potion: {
+    source: '调制药水',
+    effects: [
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '调制药水',
+          description: '你可以制造包含你所知晓法术的药水。调制一瓶药水需要一天的时间。',
+          triggerCondition: 'passive',
+        },
+      },
+    ],
+  },
+
+  // 制造魔法武器及防具
+  craft_magic_arms_armor: {
+    source: '制造魔法武器及防具',
+    effects: [
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '制造魔法武器防具',
+          description: '你可以制造任何你已经满足其制造前提的魔法武器、盔甲或盾牌。',
+          triggerCondition: 'passive',
+        },
+      },
+    ],
+  },
+
+  // 制造权杖
+  craft_rod: {
+    source: '制造权杖',
+    effects: [
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '制造权杖',
+          description: '你可以制造任何你已经满足其制造前提的权杖。',
+          triggerCondition: 'passive',
+        },
+      },
+    ],
+  },
+
+  // 制造法杖
+  craft_staff: {
+    source: '制造法杖',
+    effects: [
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '制造法杖',
+          description: '你可以制造任何你已经满足其制造前提的法杖。',
+          triggerCondition: 'passive',
+        },
+      },
+    ],
+  },
+
+  // 制造魔杖
+  craft_wand: {
+    source: '制造魔杖',
+    effects: [
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '制造魔杖',
+          description: '你可以制造存储你所知晓法术的魔杖，法术等级为四级或更低。',
+          triggerCondition: 'passive',
+        },
+      },
+    ],
+  },
+
+  // 制造奇物
+  craft_wondrous_item: {
+    source: '制造奇物',
+    effects: [
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '制造奇物',
+          description: '你可以制造任何你已经满足其制造前提的奇物。',
+          triggerCondition: 'passive',
+        },
+      },
+    ],
+  },
+
+  // 锻造戒指
+  forge_ring: {
+    source: '锻造戒指',
+    effects: [
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '锻造戒指',
+          description: '你可以制造任何你已经满足其制造前提的戒指。',
+          triggerCondition: 'passive',
+        },
+      },
+    ],
+  },
+
+  // ========== 九剑特殊专长 ==========
+
+  // 武术学习
+  tob_martial_study: {
+    source: '武术学习',
+    effects: [
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 1,
+          recovery: { method: 'none' },
+          actionCost: 'action',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '武术招式',
+                description: '使用你所学的武术招式。无武术家等级时每场遭遇限一次。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
+
+  // 武术架势
+  tob_martial_stance: {
+    source: '武术架势',
+    effects: [
+      {
+        category: 'custom_condition',
+        effectType: 'custom_logic',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          title: '武术架势',
+          description: '你掌握了一种流派的架势，获得该架势的持续增益效果。具体效果取决于所学架势。',
+          triggerCondition: 'passive',
+        },
+      },
+    ],
+  },
+
+  // 瞬间明晰
+  tob_instant_clarity: {
+    source: '瞬间明晰',
+    effects: [
+      {
+        category: 'active_release',
+        effectType: 'charge_item',
+        scope: 'global',
+        scopeDetail: [],
+        value: {
+          resourceType: 'none',
+          charges: 3,
+          recovery: { method: 'long_rest' },
+          actionCost: 'bonus_action',
+          effects: [
+            {
+              type: 'custom_logic',
+              value: {
+                title: '瞬间明晰',
+                description: '在一次成功的攻击技之后，以附赠动作进入灵能专注。每天3次。',
+                triggerCondition: 'on_use',
+              },
+            },
+          ],
+        },
+      },
+    ],
+  },
 }

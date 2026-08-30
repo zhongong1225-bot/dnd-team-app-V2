@@ -731,7 +731,7 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                     </div>
                   </div>
                   {/* 右栏：RaceEditorForm */}
-                  <div className="flex-1 flex flex-col min-w-0 overflow-y-auto" style={{ maxHeight: '70vh' }}>
+                  <div className="flex-1 flex flex-col min-w-0 overflow-y-auto" style={{ maxHeight: '85vh' }}>
                     <div className="flex items-center justify-between mb-2">
                       <h3 className="text-base font-semibold text-dnd-gold-light/90">{editingRaceData?.id ? '编辑种族' : '新建种族'}</h3>
                       <div className="flex items-center gap-1">
