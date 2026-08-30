@@ -3833,17 +3833,64 @@ export default function CharacterSheet() {
                     <RaceBackgroundInline char={char} canEdit={canEdit} onSave={persist}
                       raceBuffEditorOpen={raceBuffEditorOpen} setRaceBuffEditorOpen={setRaceBuffEditorOpen}
                       backgroundBuffEditorOpen={backgroundBuffEditorOpen} setBackgroundBuffEditorOpen={setBackgroundBuffEditorOpen} />
+
+                    {/* 种族特性展示 */}
+                    {(() => {
+                      const selRace = getRaceById(char.raceCard?.raceId)
+                      if (!selRace) return null
+                      const allTraits = []
+                      ;(selRace.traits || []).forEach(t => allTraits.push({ ...t, _isSubrace: false }))
+                      if (char.raceCard?.subraceId && selRace.subraces) {
+                        const sub = selRace.subraces.find(s => s.id === char.raceCard.subraceId)
+                        if (sub) (sub.traits || []).forEach(t => allTraits.push({ ...t, _isSubrace: true }))
+                      }
+                      if (allTraits.length === 0) return null
+                      return (
+                        <div className="mt-2 space-y-1.5">
+                          {allTraits.map((t) => {
+                            const traitCards = Array.isArray(t.cards) ? t.cards : []
+                            const effectSummaries = traitCards.map(c =>
+                              getEffectSummaryShort({ effectType: c.effectType, value: c.value, customText: c.customText, scope: c.scope, scopeDetail: c.scopeDetail }, {})
+                            ).filter(Boolean)
+                            return (
+                              <div key={t.id} className="bg-white/[0.03] rounded-md border border-gray-700/40 px-3 py-2">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{t._isSubrace ? '亚种特性' : '种族特性'}</span>
+                                  <span className="text-xs font-semibold text-gray-200">{t.name}</span>
+                                </div>
+                                {t.description && <p className="text-[11px] text-gray-400 leading-relaxed mb-1">{t.description}</p>}
+                                {effectSummaries.length > 0 && (
+                                  <div className="flex flex-wrap gap-1">
+                                    {effectSummaries.map((s, i) => (
+                                      <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-[10px] text-blue-300/80">{s}</span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )
+                    })()}
+
+                    {/* 背景特性展示（占位，背景编辑器待开发） */}
+                    {char.backgroundCard?.backgroundId && (() => {
+                      const selBg = getBackgroundById(char.backgroundCard.backgroundId)
+                      const bgName = char.backgroundCard.customName || selBg?.name || '背景'
+                      return (
+                        <div className="mt-2 bg-white/[0.03] rounded-md border border-yellow-600/30 px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">【{bgName}】背景特性</span>
+                          </div>
+                          <p className="text-[11px] text-gray-500 mt-1">背景编辑器开发中...</p>
+                        </div>
+                      )
+                    })()}
                   </div>
                   <div className="min-w-0 h-full">
                     <AvatarFrame char={char} canEdit={canEdit} onSave={persist} large />
                   </div>
                 </div>
-
-                {/* 种族/背景特性展示 — 全宽，顶层布局 */}
-                <RaceBackgroundInline char={char} canEdit={canEdit} onSave={persist}
-                  raceBuffEditorOpen={raceBuffEditorOpen} setRaceBuffEditorOpen={setRaceBuffEditorOpen}
-                  backgroundBuffEditorOpen={backgroundBuffEditorOpen} setBackgroundBuffEditorOpen={setBackgroundBuffEditorOpen}
-                  showTraitsOnly />
 
                 {/* 人物背景故事（全宽，左右与上方对齐） */}
                 <div className="mt-3">
