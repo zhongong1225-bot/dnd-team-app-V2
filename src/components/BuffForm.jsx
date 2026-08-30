@@ -4848,6 +4848,13 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
       }
       return out
     }).filter((ef) => ef.effectType)
+    // 非永久持续时间 = 有结束时刻 = 必然有开始时刻 = 需要主动激活 → 自动添加 charge_item 使卡片变为主动
+    const durType = duration?.type || 'permanent'
+    const hasChargeItem = effects.some((ef) => ef.effectType === 'charge_item')
+    const isTimedDuration = !['permanent', 'instant', 'custom'].includes(durType)
+    if (isTimedDuration && !hasChargeItem) {
+      effects.push({ category: 'active_release', effectType: 'charge_item', scope: 'global', scopeDetail: [], value: normalizeChargeItemValue({}) })
+    }
     const payload = {
       ...initial,
       source: source.trim(),

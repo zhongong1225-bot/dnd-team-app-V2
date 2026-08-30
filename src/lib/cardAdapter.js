@@ -18,6 +18,7 @@ import {
   getBuffsFromClassFeatures,
 } from './effects/effectMapping'
 import { createCard, normalizeCard, SLOT_KIND } from './cardModel'
+import { getRaceById } from '../data/races'
 
 /* ── BUFF 条目 → Card 映射 ───────────────────────────────────────── */
 
@@ -233,9 +234,31 @@ export function buildCardsFromCharacter(character, moduleId) {
   if (raceCard?.raceId) {
     // 从 raceBaseInfo 自动生成 BUFF 效果
     const autoEffects = buildRaceBaseInfoEffects(raceCard.raceBaseInfo)
-    // 手动编辑的 BUFF 效果（优先级更高，放在后面）
+    // 种族定义中的特性 BUFF 效果（trait.cards）
+    const raceDef = getRaceById(raceCard.raceId)
+    const traitEffects = []
+    if (raceDef) {
+      // 主种族特性
+      ;(raceDef.traits || []).forEach(t => {
+        if (Array.isArray(t.cards) && t.cards.length > 0) {
+          t.cards.forEach(c => traitEffects.push({ ...c, _traitName: t.name }))
+        }
+      })
+      // 亚种特性
+      if (raceCard.subraceId && raceDef.subraces) {
+        const subrace = raceDef.subraces.find(s => s.id === raceCard.subraceId)
+        if (subrace) {
+          ;(subrace.traits || []).forEach(t => {
+            if (Array.isArray(t.cards) && t.cards.length > 0) {
+              t.cards.forEach(c => traitEffects.push({ ...c, _traitName: t.name }))
+            }
+          })
+        }
+      }
+    }
+    // 手动编辑的 BUFF 效果（优先级最高，放在最后）
     const manualEffects = Array.isArray(raceCard.raceBuffPatch?.effects) ? raceCard.raceBuffPatch.effects : []
-    const allEffects = [...autoEffects, ...manualEffects]
+    const allEffects = [...autoEffects, ...traitEffects, ...manualEffects]
 
     if (allEffects.length > 0) {
       const raceName = raceCard.customName || (raceCard.raceId === 'custom' ? 'custom-race' : raceCard.raceId)
