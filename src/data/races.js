@@ -83,6 +83,17 @@ function persistCustomRaces(list) {
   return Promise.resolve()
 }
 
+/** 从 Supabase 加载自定义种族到远程缓存 */
+export async function loadCustomRacesFromSupabase() {
+  if (!isSupabaseEnabled()) return
+  try {
+    const list = await teamData.fetchCustomLibrary('custom_races')
+    customRacesRemoteCache = Array.isArray(list) ? list : []
+  } catch {
+    customRacesRemoteCache = []
+  }
+}
+
 /** 获取所有自定义种族（自动 normalize 为新版格式） */
 export function getCustomRaces() {
   let list

@@ -11,6 +11,7 @@ import {
 import { clearLegacyTeamLocalStorage } from '../lib/clearLegacyTeamLocalStorage'
 import { loadCustomItemsFromSupabase } from '../data/itemDatabase'
 import { loadCustomSpellsFromSupabase } from '../data/spellDatabase'
+import { loadCustomRacesFromSupabase } from '../data/races'
 import { startAutoBackupScheduler, stopAutoBackupScheduler } from '../lib/moduleSnapshotStore'
 import { startAutoArchiveListener } from '../lib/moduleArchiveStore'
 import {
@@ -81,6 +82,7 @@ export function ModuleProvider({ children }) {
         setCurrentModuleIdState(getCurrentModuleId(user.name))
         await loadCustomItemsFromSupabase()
         await loadCustomSpellsFromSupabase()
+        await loadCustomRacesFromSupabase()
       } catch (e) {
         console.warn('团队数据从 Supabase 加载失败（请执行 supabase-schema-v3-team-data.sql）', e)
         if (!cancelled) {
