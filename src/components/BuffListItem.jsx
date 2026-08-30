@@ -117,6 +117,24 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
     const sign = v >= 0 ? '+' : ''
     return `${effectLabel}${sign}${v}`
   }
+  // 速度增加：数字值（种族自动生成）和对象值（手动编辑器）都需要处理
+  if (buff.effectType === 'base_speed_increment') {
+    if (typeof v === 'number') {
+      return v !== 0 ? `${effectLabel}${v >= 0 ? '+' : ''}${v}尺` : effectLabel
+    }
+    if (v && typeof v === 'object' && !Array.isArray(v) && !isFormulaValue(v)) {
+      const parts = []
+      const add = (key, label) => {
+        const num = Number(v[key])
+        if (num) parts.push(`${label}速度${num >= 0 ? '+' : ''}${num}尺`)
+      }
+      add('walk', '步行')
+      add('fly', '飞行')
+      add('swim', '游泳')
+      add('climb', '攀爬')
+      return parts.length ? parts.join('，') : effectLabel
+    }
+  }
   if (info.effect.dataType === 'object' && v) {
     if (Array.isArray(v) || isFormulaValue(v)) return effectLabel
     if (v.type != null && (typeof v.val === 'number' || isFormulaValue(v.val))) {
@@ -304,21 +322,6 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
         const signed = /^[+-]/.test(s) ? s : `+${s}`
         const valueText = v.onlySpellDamage ? `${signed}（仅法术伤害）` : signed
         return `${effectLabel} ${valueText}`.trim()
-      }
-    }
-    if (buff.effectType === 'base_speed_increment') {
-      if (typeof v === 'number') return `${v >= 0 ? '+' : ''}${v}尺`
-      if (v && typeof v === 'object' && !Array.isArray(v)) {
-        const parts = []
-        const add = (key, label) => {
-          const num = Number(v[key])
-          if (num) parts.push(`${label}速度${num >= 0 ? '+' : ''}${num}尺`)
-        }
-        add('walk', '步行')
-        add('fly', '飞行')
-        add('swim', '游泳')
-        add('climb', '攀爬')
-        return parts.length ? parts.join('，') : effectLabel
       }
     }
     return effectLabel
