@@ -391,6 +391,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           patch.hp = { ...char.hp, current: newHp }
           runningHp = newHp
 
+          const cloneId = 'stellar_' + Date.now()
           const cloneData = {
             id: 'stellar_double_' + Date.now(),
             name: `${char.name}的分身`,
@@ -400,6 +401,21 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           }
           const currentSummons = Array.isArray(char.summonedCreatures) ? char.summonedCreatures : []
           patch.summonedCreatures = [...currentSummons, cloneData]
+
+          // 同步到顶栏召唤槽（stellarClones + summonSlots）
+          const stellarCloneEntry = {
+            id: cloneId,
+            name: '星辰分身',
+            hp: { current: cloneHp, max: cloneHp },
+          }
+          const currentStellar = Array.isArray(char.stellarClones) ? char.stellarClones : []
+          patch.stellarClones = [...currentStellar, stellarCloneEntry]
+          const currentSlots = Array.isArray(char.summonSlots) ? char.summonSlots : [null, null, null, null]
+          const slotsCopy = currentSlots.slice(0, 4)
+          const emptyIdx = slotsCopy.findIndex((s) => s == null)
+          if (emptyIdx >= 0) slotsCopy[emptyIdx] = { type: 'stellar', id: cloneId }
+          patch.summonSlots = slotsCopy
+
           lines.push(`⭐ 星辰替身：消耗 ${hpCost} 点生命值，创建分身（${cloneHp}/${cloneHp} HP）`)
         } else {
           // 普通召唤：从生物库选择或预置 creatureId

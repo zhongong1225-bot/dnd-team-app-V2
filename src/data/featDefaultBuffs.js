@@ -1202,6 +1202,7 @@ export const HARDCODED_FEAT_BUFFS = {
             {
               type: 'summon',
               value: {
+                preset: 'stellar_double',
                 creatureId: 'star_doppelganger_clone',
                 duration: { type: 'minutes', value: 1 },
                 costHpPercent: 50,
