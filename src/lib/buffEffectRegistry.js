@@ -84,7 +84,6 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   creature_transform: 'calculator',
   restore_spell_slots_v2: 'metadata',
   contained_spell: 'metadata',
-  ac_cap_stone_layer: 'calculator',
   recharge_long_rest: 'metadata',
   recharge_dawn: 'metadata',
   // container

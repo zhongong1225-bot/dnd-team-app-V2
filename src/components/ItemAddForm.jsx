@@ -14,6 +14,7 @@ import { useModule } from '../contexts/ModuleContext'
 import { BUFF_TYPES, getCategories, normalizeEffectCategory, parseDamageString, formatDamageForAttack, ITEM_STORAGE_DEFAULT_ITEM_IDS } from '../data/buffTypes'
 import { DamageDiceInlineRow, NumberStepper } from './BuffForm'
 import BuffForm from './BuffForm'
+import BuffEditorModal from './BuffEditorModal'
 import { getEffectSummaryShort } from './BuffListItem'
 import { evaluateBuffValue, isFormulaValue } from '../lib/formulas'
 import {
@@ -280,7 +281,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
   const [intro, setIntro] = useState('')
   const [qty, setQty] = useState(1)
   const [effectModules, setEffectModules] = useState(() => [])
-  const [armorFields, setArmorFields] = useState(() => ({ isShield: false, armorSubtype: '', baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '', stoneLayer: null }))
+  const [armorFields, setArmorFields] = useState(() => ({ isShield: false, armorSubtype: '', baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' }))
   const [weaponDamage, setWeaponDamage] = useState(() => ({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' }))
   const [weaponVersatileDamage, setWeaponVersatileDamage] = useState(() => ({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' }))
   const [weaponTraits, setWeaponTraits] = useState(() => [])
@@ -351,7 +352,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     setIntro('')
     setQty(1)
     setEffectModules([])
-    setArmorFields({ isShield: false, armorSubtype: '', baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '', stoneLayer: null })
+    setArmorFields({ isShield: false, armorSubtype: '', baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' })
     setWeaponDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
     setWeaponVersatileDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
     setWeaponTraits([])
@@ -383,11 +384,9 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     const note = (entry?.附注 != null && entry.附注 !== '') ? String(entry.附注) : (proto?.附注 ?? '')
     if (proto && proto.类型 === '盔甲') {
       let f = parseArmorNoteToFields(note)
-      const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
-      const stoneVal = stoneEffect ? (Number(stoneEffect.value) || 0) : null
-      setArmorFields({ ...f, armorSubtype: proto.子类型 || '', stoneLayer: stoneVal })
+      setArmorFields({ ...f, armorSubtype: proto.子类型 || '' })
     } else {
-      setArmorFields({ isShield: false, armorSubtype: '', baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '', stoneLayer: null })
+      setArmorFields({ isShield: false, armorSubtype: '', baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' })
     }
     if (proto && (proto.类型 === '近战武器' || proto.类型 === '远程武器' || proto.类型 === '枪械')) {
       const { base, versa } = splitVersatileDamage(entry?.攻击 ?? proto?.攻击 ?? '')
@@ -451,9 +450,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     }
     if (proto && proto.类型 === '盔甲') {
       let f = parseArmorNoteToFields(proto.附注 ?? '')
-      const stoneEffect = Array.isArray(proto?.effects) ? proto.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
-      const stoneVal = stoneEffect ? (Number(stoneEffect.value) || 0) : null
-      setArmorFields({ ...f, armorSubtype: proto.子类型 || '', stoneLayer: stoneVal })
+      setArmorFields({ ...f, armorSubtype: proto.子类型 || '' })
     }
     if (proto && (proto.类型 === '近战武器' || proto.类型 === '远程武器' || proto.类型 === '枪械')) {
       const { base, versa } = splitVersatileDamage(proto.攻击 ?? '')
@@ -487,6 +484,11 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     if (!open) return
     autoResizeIntro()
   }, [open, intro])
+
+  /** 删除单个附魔效果模块 */
+  const removeEffectModule = (modId) => {
+    setEffectModules((prev) => prev.filter((m) => m.id !== modId))
+  }
 
   /** 打开编辑卡弹窗：将当前 effectModules 转为 BuffForm 格式 */
   const openBuffFormEditor = () => {
@@ -605,15 +607,6 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       if (parts.攻击距离 !== undefined) 攻击距离 = parts.攻击距离 || undefined
       if (parts.攻击范围 !== undefined) 攻击范围 = parts.攻击范围 || undefined
     })
-    // 瓦石层效果：若 armorFields.stoneLayer 有值，写入或更新 ac_cap_stone_layer 效果
-    if (armorFields.stoneLayer !== null) {
-      const existingStoneIdx = effectsForSave.findIndex((e) => e.effectType === 'ac_cap_stone_layer')
-      if (existingStoneIdx >= 0) {
-        effectsForSave[existingStoneIdx] = { ...effectsForSave[existingStoneIdx], value: armorFields.stoneLayer }
-      } else {
-        effectsForSave.push({ category: 'defense', effectType: 'ac_cap_stone_layer', value: armorFields.stoneLayer, customText: '' })
-      }
-    }
     // 默认储物物品强制写入 item_storage 效果
     if (isDefaultStorageItem(itemId || editEntry) && !effectsForSave.some((e) => e.effectType === 'item_storage')) {
       effectsForSave.push({ category: 'container', effectType: 'item_storage', value: true, customText: '' })
@@ -741,11 +734,19 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
             return (
               <span
                 key={mod.id}
-                className="inline-flex items-center rounded bg-[#1a2333]/60 border border-white/[0.08] px-1.5 py-0.5 text-xs text-gray-300"
+                className="inline-flex items-center rounded bg-[#1a2333]/60 border border-white/[0.08] px-1.5 py-0.5 text-xs text-gray-300 gap-1"
                 title={summary}
               >
-                <span className="text-dnd-gold-light/80 mr-1">{label}</span>
+                <span className="text-dnd-gold-light/80">{label}</span>
                 {summary && <span className="text-gray-400 truncate max-w-[120px]">{summary}</span>}
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); removeEffectModule(mod.id) }}
+                  className="text-gray-500 hover:text-red-400 transition-colors shrink-0 leading-none"
+                  title="删除此效果"
+                >
+                  ×
+                </button>
               </span>
             )
           })}
@@ -1178,18 +1179,6 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                     </div>
                   </div>
                 )}
-                {armorFields.stoneLayer !== null && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-dnd-text-muted text-xs">瓦石层</span>
-                    <NumberStepper
-                      value={armorFields.stoneLayer}
-                      onChange={(v) => setArmorFields((f) => ({ ...f, stoneLayer: Math.max(0, v) }))}
-                      min={0}
-                      max={99}
-                      compact
-                    />
-                  </div>
-                )}
               </div>
               <div className="rounded border border-gray-600 bg-gray-700/30 px-2 py-1.5 space-y-1.5">
                 {renderEffectCardSection()}
@@ -1231,38 +1220,23 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
         </form>
       </div>
 
-      {buffFormOpen && buffFormInitial && (
-        <>
-          <div className="fixed inset-0 z-[300] bg-black/60" onClick={() => setBuffFormOpen(false)} aria-hidden />
-          <div className="fixed inset-0 z-[301] flex items-center justify-center p-4 sm:p-8 overflow-auto" onClick={() => setBuffFormOpen(false)}>
-            <div className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl" onClick={(e) => e.stopPropagation()}>
-              <div className="p-4 border-b border-white/10">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-base font-semibold text-dnd-gold-light/90">编辑物品效果</h3>
-                  <button type="button" onClick={() => setBuffFormOpen(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white">
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-              <div className="p-4">
-                <BuffForm
-                  key="item-buff-form"
-                  compact
-                  hideDuration
-                  initial={buffFormInitial}
-                  onSave={handleBuffFormSave}
-                  onCancel={() => setBuffFormOpen(false)}
-                  referenceData={referenceData}
-                  baseReferenceData={referenceData}
-                  spellDC={spellDC}
-                  spellAttackBonus={spellAttackBonus}
-                  useWandScrollTable={useWandScrollTable}
-                />
-              </div>
-            </div>
-          </div>
-        </>
-      )}
+      <BuffEditorModal
+        open={buffFormOpen && !!buffFormInitial}
+        onClose={() => setBuffFormOpen(false)}
+        title="编辑物品效果"
+        buffFormProps={{
+          key: 'item-buff-form',
+          compact: true,
+          hideDuration: true,
+          initial: buffFormInitial,
+          onSave: handleBuffFormSave,
+          referenceData,
+          baseReferenceData: referenceData,
+          spellDC,
+          spellAttackBonus,
+          useWandScrollTable,
+        }}
+      />
     </>
   )
 }

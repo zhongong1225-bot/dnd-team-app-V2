@@ -48,8 +48,48 @@ function evalHpFormula(formula, char) {
   return isNaN(num) ? 10 : num
 }
 
-export default function AbilityUseModal({ chargeValue, char, featureName, onConfirm, onClose }) {
-  const norm = normalizeChargeItemValue(chargeValue)
+/**
+ * 将 activeAbility 格式转换为 charge item value 格式，
+ * 使其可以走 normalizeChargeItemValue 归一化管线。
+ */
+function activeAbilityToChargeValue(ability) {
+  let resourceType = 'none'
+  let charges = 0
+  if (ability.cost?.type === 'class_resource') {
+    resourceType = ability.cost.resourceKey || 'none'
+    charges = ability.cost.amount || 1
+  }
+
+  const cooldownMap = {
+    short_rest: 'short_rest',
+    long_rest: 'long_rest',
+  }
+
+  return {
+    resourceType,
+    charges,
+    actionCost: ability.actionType || 'action',
+    movementFeet: 0,
+    recovery: {
+      method: cooldownMap[ability.cooldown] || 'none',
+      kind: 'full',
+      fixed: 0,
+      diceCount: 1,
+      diceSides: 6,
+      diceBonus: 0,
+    },
+    effects: Array.isArray(ability.effects) ? ability.effects.map(e => ({
+      type: e.type,
+      value: e.value || {},
+    })) : [],
+    isStance: !!ability.isStance,
+  }
+}
+
+export default function AbilityUseModal({ chargeValue, activeAbility, char, featureName, onConfirm, onClose }) {
+  // 支持两种输入：chargeValue（充能物品）或 activeAbility（主动技能）
+  const effectiveChargeValue = chargeValue || (activeAbility ? activeAbilityToChargeValue(activeAbility) : null)
+  const norm = normalizeChargeItemValue(effectiveChargeValue)
   const [amt, setAmt] = useState(1)
   const [maxAmount] = useState(() => getMaxSpendableAmount(norm, char))
   const [resultLines, setResultLines] = useState(null)

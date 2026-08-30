@@ -360,6 +360,7 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
   // 新版统一抗性格式：damage_type_relation
   if (buff.effectType === 'damage_type_relation' && v && typeof v === 'object' && !Array.isArray(v)) {
     const types = Array.isArray(v.types) ? v.types : []
+    if (types.length === 0) return ''
     const relation = v.relation || 'resist'
     const suffix = relation === 'resist' ? '抗性' : relation === 'immune' ? '免疫' : '易伤'
     const labels = types.map(getDamageTypeLabel)

@@ -604,7 +604,6 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
     }
 
     let acBonus = 0
-    const acCapStoneLayerValues = []
     let speedBonus = 0
     let swimSpeedBonus = 0
     let climbSpeedBonus = 0
@@ -656,10 +655,6 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
             damageReductionTyped[key] = (damageReductionTyped[key] || 0) + red
           }
         }
-      }
-      else if (b.effectType === 'ac_cap_stone_layer') {
-        const y = evalVal(raw)
-        if (!Number.isNaN(y)) acCapStoneLayerValues.push(y)
       }
       else if (b.effectType === 'speed_bonus') speedBonus += evalVal(raw) || 0
       else if (b.effectType === 'reach_bonus') reachBonus += v
@@ -906,10 +901,6 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
 
     const baseACTotal = (typeof baseAC === 'object' && baseAC !== null) ? (baseAC.total ?? 10) : (baseAC ?? 10)
     let ac = baseACTotal + acBonus
-    if (acCapStoneLayerValues.length > 0) {
-      const cap = baseACTotal + Math.min(...acCapStoneLayerValues)
-      ac = Math.min(ac, cap)
-    }
 
     // DC 和法术攻击加值：不能累加，只取最高值
     const saveDcBonus = saveDcValues.length ? Math.max(...saveDcValues) : 0

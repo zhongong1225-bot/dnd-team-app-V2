@@ -70,6 +70,7 @@ import AvatarCropModal from '../components/AvatarCropModal'
 import CharacterSheetTopBar from '../components/CharacterSheetTopBar'
 import FeatPickerModal from '../components/FeatPickerModal'
 import BuffForm from '../components/BuffForm'
+import BuffEditorModal from '../components/BuffEditorModal'
 import { loadDefaultBuffPatch, saveDefaultBuffPatch, clearDefaultBuffPatch, buildClassFeatureBuffKey, DEFAULT_BUFF_PATCHES_EVENT } from '../lib/defaultBuffPatchStore'
 import { CLASS_FEATURE_CHOICE_REGISTRY, CHOICE_ID_ALIASES } from '../data/classFeatureChoiceRegistry'
 import { executeAbility, canUseAbility } from '../lib/activeAbilityEngine'
@@ -236,7 +237,7 @@ function AvatarFrame({ char, canEdit, onSave, large }) {
       />
       <div
         ref={zoneRef}
-        className="avatar-upload-zone w-full h-full min-h-[220px] max-w-full flex flex-col items-center justify-center relative overflow-hidden"
+        className="avatar-upload-zone w-full h-full min-h-[360px] max-w-full flex flex-col items-center justify-center relative overflow-hidden"
       >
         {avatar ? (
           <img src={avatar} alt="头像" className="w-full h-full object-cover object-center absolute inset-0" />
@@ -671,60 +672,59 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
       {raceBuffEditorOpen && (() => {
         const initialEffects = Array.isArray(raceCard.raceBuffPatch?.effects) && raceCard.raceBuffPatch.effects.length ? raceCard.raceBuffPatch.effects : []
         return (
-          <>
-            <div className="fixed inset-0 z-[300] bg-black/60" onClick={() => setRaceBuffEditorOpen(false)} aria-hidden />
-            <div className="fixed inset-0 z-[301] flex items-center justify-center p-4 sm:p-8 overflow-auto" onClick={() => setRaceBuffEditorOpen(false)}>
-              <div className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl" onClick={(e) => e.stopPropagation()}>
-                <div className="p-4 border-b border-white/10 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-base font-semibold text-dnd-gold-light/90">{raceCard.raceId ? '编辑种族' : '创建种族'}</h3>
-                    <button type="button" onClick={() => setRaceBuffEditorOpen(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"><X className="w-5 h-5" /></button>
-                  </div>
-                  {/* 种族选择 */}
+          <BuffEditorModal
+            open
+            onClose={() => setRaceBuffEditorOpen(false)}
+            header={
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-semibold text-dnd-gold-light/90">{raceCard.raceId ? '编辑种族' : '创建种族'}</h3>
+                  <button type="button" onClick={() => setRaceBuffEditorOpen(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"><X className="w-5 h-5" /></button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 shrink-0">种族</span>
+                  <select value={raceCard.raceId || ''} onChange={(e) => handleRaceChange(e.target.value)}
+                    className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+                    <option value="">— 选择种族 —</option>
+                    {RACES.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                    <option value="custom">自定义种族...</option>
+                  </select>
+                </div>
+                {selectedRace && selectedRace.subraces.length > 0 && (
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-400 shrink-0">种族</span>
-                    <select value={raceCard.raceId || ''} onChange={(e) => handleRaceChange(e.target.value)}
+                    <span className="text-xs text-gray-400 shrink-0">亚种</span>
+                    <select value={raceCard.subraceId || ''} onChange={(e) => handleSubraceChange(e.target.value)}
                       className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
-                      <option value="">— 选择种族 —</option>
-                      {RACES.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-                      <option value="custom">自定义种族...</option>
+                      <option value="">— 亚种 —</option>
+                      {selectedRace.subraces.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                   </div>
-                  {/* 亚种选择 */}
-                  {selectedRace && selectedRace.subraces.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-400 shrink-0">亚种</span>
-                      <select value={raceCard.subraceId || ''} onChange={(e) => handleSubraceChange(e.target.value)}
-                        className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
-                        <option value="">— 亚种 —</option>
-                        {selectedRace.subraces.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                      </select>
-                    </div>
-                  )}
-                  {/* 名称 */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-400 shrink-0">名称</span>
-                    <input type="text" value={raceEditName} onChange={(e) => setRaceEditName(e.target.value)}
-                      className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50"
-                      placeholder={selectedRace?.name || '种族名称'} />
-                  </div>
-                  {/* 描述 */}
-                  <div>
-                    <textarea value={raceEditDesc} onChange={(e) => setRaceEditDesc(e.target.value)} rows={15}
-                      className="w-full px-2 py-1.5 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold/50"
-                      placeholder="种族描述 / 特性" />
-                  </div>
-                  <p className="text-xs text-dnd-text-muted">种族效果</p>
+                )}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 shrink-0">名称</span>
+                  <input type="text" value={raceEditName} onChange={(e) => setRaceEditName(e.target.value)}
+                    className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50"
+                    placeholder={selectedRace?.name || '种族名称'} />
                 </div>
-                <div className="p-4">
-                  <BuffForm key={`race-buff-${raceCard.raceId || 'custom'}`} compact hideDuration
-                    charResources={char?.classResources} spellSlots={char?.spellSlots}
-                    initial={{ source: raceCard.raceId === 'custom' ? (raceEditName || 'custom-race') : `race-${raceCard.raceId}`, effects: initialEffects, enabled: raceCard.raceBuffPatch?.enabled !== false }}
-                    onSave={handleRaceBuffSave} onClear={handleRaceBuffClear} onCancel={() => setRaceBuffEditorOpen(false)} />
+                <div>
+                  <textarea value={raceEditDesc} onChange={(e) => setRaceEditDesc(e.target.value)} rows={15}
+                    className="w-full px-2 py-1.5 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold/50"
+                    placeholder="种族描述 / 特性" />
                 </div>
+                <p className="text-xs text-dnd-text-muted">种族效果</p>
               </div>
-            </div>
-          </>
+            }
+            buffFormProps={{
+              key: `race-buff-${raceCard.raceId || 'custom'}`,
+              compact: true,
+              hideDuration: true,
+              charResources: char?.classResources,
+              spellSlots: char?.spellSlots,
+              initial: { source: raceCard.raceId === 'custom' ? (raceEditName || 'custom-race') : `race-${raceCard.raceId}`, effects: initialEffects, enabled: raceCard.raceBuffPatch?.enabled !== false },
+              onSave: handleRaceBuffSave,
+              onClear: handleRaceBuffClear,
+            }}
+          />
         )
       })()}
 
@@ -732,49 +732,49 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
       {backgroundBuffEditorOpen && (() => {
         const initialEffects = Array.isArray(backgroundCard.backgroundBuffPatch?.effects) && backgroundCard.backgroundBuffPatch.effects.length ? backgroundCard.backgroundBuffPatch.effects : []
         return (
-          <>
-            <div className="fixed inset-0 z-[300] bg-black/60" onClick={() => setBackgroundBuffEditorOpen(false)} aria-hidden />
-            <div className="fixed inset-0 z-[301] flex items-center justify-center p-4 sm:p-8 overflow-auto" onClick={() => setBackgroundBuffEditorOpen(false)}>
-              <div className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl" onClick={(e) => e.stopPropagation()}>
-                <div className="p-4 border-b border-white/10 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-base font-semibold text-dnd-gold-light/90">{backgroundCard.backgroundId ? '编辑背景' : '创建背景'}</h3>
-                    <button type="button" onClick={() => setBackgroundBuffEditorOpen(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"><X className="w-5 h-5" /></button>
-                  </div>
-                  {/* 背景选择 */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-400 shrink-0">背景</span>
-                    <select value={backgroundCard.backgroundId || ''} onChange={(e) => handleBackgroundChange(e.target.value)}
-                      className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
-                      <option value="">— 选择背景 —</option>
-                      {BACKGROUNDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                      <option value="custom">自定义背景...</option>
-                    </select>
-                  </div>
-                  {/* 名称 */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-400 shrink-0">名称</span>
-                    <input type="text" value={bgEditName} onChange={(e) => setBgEditName(e.target.value)}
-                      className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50"
-                      placeholder={selectedBackground?.name || '背景名称'} />
-                  </div>
-                  {/* 描述 */}
-                  <div>
-                    <textarea value={bgEditDesc} onChange={(e) => setBgEditDesc(e.target.value)} rows={15}
-                      className="w-full px-2 py-1.5 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold/50"
-                      placeholder="背景描述" />
-                  </div>
-                  <p className="text-xs text-dnd-text-muted">背景效果</p>
+          <BuffEditorModal
+            open
+            onClose={() => setBackgroundBuffEditorOpen(false)}
+            header={
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-semibold text-dnd-gold-light/90">{backgroundCard.backgroundId ? '编辑背景' : '创建背景'}</h3>
+                  <button type="button" onClick={() => setBackgroundBuffEditorOpen(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"><X className="w-5 h-5" /></button>
                 </div>
-                <div className="p-4">
-                  <BuffForm key={`background-buff-${backgroundCard.backgroundId || 'custom'}`} compact hideDuration
-                    charResources={char?.classResources} spellSlots={char?.spellSlots}
-                    initial={{ source: backgroundCard.backgroundId === 'custom' ? (bgEditName || 'custom-background') : `background-${backgroundCard.backgroundId}`, effects: initialEffects, enabled: backgroundCard.backgroundBuffPatch?.enabled !== false }}
-                    onSave={handleBackgroundBuffSave} onClear={handleBackgroundBuffClear} onCancel={() => setBackgroundBuffEditorOpen(false)} />
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 shrink-0">背景</span>
+                  <select value={backgroundCard.backgroundId || ''} onChange={(e) => handleBackgroundChange(e.target.value)}
+                    className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+                    <option value="">— 选择背景 —</option>
+                    {BACKGROUNDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    <option value="custom">自定义背景...</option>
+                  </select>
                 </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 shrink-0">名称</span>
+                  <input type="text" value={bgEditName} onChange={(e) => setBgEditName(e.target.value)}
+                    className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50"
+                    placeholder={selectedBackground?.name || '背景名称'} />
+                </div>
+                <div>
+                  <textarea value={bgEditDesc} onChange={(e) => setBgEditDesc(e.target.value)} rows={15}
+                    className="w-full px-2 py-1.5 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold/50"
+                    placeholder="背景描述" />
+                </div>
+                <p className="text-xs text-dnd-text-muted">背景效果</p>
               </div>
-            </div>
-          </>
+            }
+            buffFormProps={{
+              key: `background-buff-${backgroundCard.backgroundId || 'custom'}`,
+              compact: true,
+              hideDuration: true,
+              charResources: char?.classResources,
+              spellSlots: char?.spellSlots,
+              initial: { source: backgroundCard.backgroundId === 'custom' ? (bgEditName || 'custom-background') : `background-${backgroundCard.backgroundId}`, effects: initialEffects, enabled: backgroundCard.backgroundBuffPatch?.enabled !== false },
+              onSave: handleBackgroundBuffSave,
+              onClear: handleBackgroundBuffClear,
+            }}
+          />
         )
       })()}
     </div>
@@ -1513,6 +1513,7 @@ function FightingStylesBlock({ char, feature, canEdit, onSave, moduleId }) {
 function ClassFeatureActions({ feature, moduleId, char, onSave }) {
   const [lastResult, setLastResult] = useState(null)
   const [useChargeValue, setUseChargeValue] = useState(null)
+  const [useActiveAbility, setUseActiveAbility] = useState(null)
 
   const buffKey = buildClassFeatureBuffKey(feature.sourceClass, feature.sourceSubclass, feature.id)
   const defaultPatch = loadDefaultBuffPatch(moduleId, 'classFeature', buffKey)
@@ -1568,12 +1569,7 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
           disabled={!check.usable}
           onClick={(e) => {
             e.stopPropagation()
-            const result = executeAbility(ab, char)
-            if (result.success) {
-              const patches = { ...result.patch }
-              if (result.classResources) patches.classResources = result.classResources
-              if (Object.keys(patches).length > 0) onSave(patches)
-            }
+            setUseActiveAbility(ab)
           }}
           className={`w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-all active:scale-[0.98] ${
             check.usable
@@ -1636,6 +1632,20 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
             setLastResult({ lines })
           }}
           onClose={() => setUseChargeValue(null)}
+        />
+      )}
+
+      {/* ── 主动技能确认弹窗 ── */}
+      {useActiveAbility && (
+        <AbilityUseModal
+          activeAbility={useActiveAbility}
+          char={char}
+          featureName={useActiveAbility.name || feature.name}
+          onConfirm={(patch, lines) => {
+            if (patch && Object.keys(patch).length > 0) onSave(patch)
+            setLastResult({ lines })
+          }}
+          onClose={() => setUseActiveAbility(null)}
         />
       )}
     </div>
@@ -1989,137 +1999,123 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
 
       {/* BUFF 编辑器弹窗 */}
       {buffEditorFeature && (
-        <>
-          <div
-            className="fixed inset-0 z-[300] bg-black/60"
-            onClick={() => setBuffEditorFeature(null)}
-            aria-hidden
-          />
-          <div
-            className="fixed inset-0 z-[301] flex items-center justify-center p-4 sm:p-8 overflow-auto"
-            onClick={() => setBuffEditorFeature(null)}
-          >
-            <div
-              className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="p-4 border-b border-white/10">
-                <div className="flex items-center justify-between gap-3">
-                  <input
-                    type="text"
-                    value={editCardName}
-                    onChange={(e) => setEditCardName(e.target.value)}
-                    className="flex-1 text-base font-semibold text-dnd-gold-light/90 bg-transparent border-b border-transparent hover:border-white/20 focus:border-dnd-gold-light/50 focus:outline-none px-1 py-0.5"
-                    placeholder="卡名称"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setBuffEditorFeature(null)}
-                    className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white shrink-0"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-                <p className="text-xs text-dnd-text-muted mt-1">
-                  {isAdmin
-                    ? 'DM 配置默认 BUFF 效果，玩家选择该特性时自动获得。'
-                    : '查看该职业特性的 BUFF 效果（只读）。'}
-                </p>
-                {descEditing ? (
-                  <textarea
-                    value={editCardDesc}
-                    onChange={(e) => setEditCardDesc(e.target.value)}
-                    rows={3}
-                    className="mt-2 w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold-light/40"
-                    placeholder="卡描述…"
-                  />
-                ) : (
-                  <div className="mt-2 flex items-start gap-2">
-                    <p className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 leading-relaxed whitespace-pre-line min-h-[2.5rem]">
-                      {editCardDesc || '暂无描述'}
-                    </p>
-                    {isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => setDescEditing(true)}
-                        className="shrink-0 mt-0.5 p-1 rounded text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all"
-                        title="编辑描述"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className="p-4">
-                <BuffForm
-                  key={`cf-buff-${buffEditorFeature.sourceClass}-${buffEditorFeature.sourceSubclass || ''}-${buffEditorFeature.id}`}
-                  compact
-                  readOnly={!isAdmin}
-                  hideDuration
-                  charResources={char?.classResources}
-                  spellSlots={char?.spellSlots}
-                  initial={{
-                    source: `${buffEditorFeature.sourceClass}-${buffEditorFeature.name}`,
-                    cardName: editCardName,
-                    cardDescription: editCardDesc,
-                    effects: (() => {
-                      const patch = loadDefaultBuffPatch(
-                        moduleId,
-                        'classFeature',
-                        buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
-                      )
-                      if (patch && Array.isArray(patch.effects) && patch.effects.length) return patch.effects
-                      const bk = buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id)
-                      return HARDCODED_CLASS_FEATURE_BUFFS[bk] || []
-                    })(),
-                    enabled: (() => {
-                      const patch = loadDefaultBuffPatch(
-                        moduleId,
-                        'classFeature',
-                        buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
-                      )
-                      return patch?.enabled !== false
-                    })(),
-                    cardScope: (() => {
-                      const patch = loadDefaultBuffPatch(
-                        moduleId,
-                        'classFeature',
-                        buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
-                      )
-                      return patch?.cardScope || undefined
-                    })(),
-                  }}
-                  onSave={(buff) => {
-                    saveDefaultBuffPatch(
-                      moduleId,
-                      'classFeature',
-                      buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
-                      {
-                        effects: buff.effects,
-                        enabled: buff.enabled,
-                        sourceName: `${buffEditorFeature.sourceClass}-${buffEditorFeature.name}`,
-                        cardScope: buff.cardScope,
-                        cardName: editCardName || undefined,
-                        cardDescription: editCardDesc || undefined,
-                      },
-                    )
-                    setBuffEditorFeature(null)
-                  }}
-                  onClear={() => {
-                    clearDefaultBuffPatch(
-                      moduleId,
-                      'classFeature',
-                      buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
-                    )
-                    setBuffEditorFeature(null)
-                  }}
-                  onCancel={() => setBuffEditorFeature(null)}
+        <BuffEditorModal
+          open
+          onClose={() => setBuffEditorFeature(null)}
+          header={
+            <>
+              <div className="flex items-center justify-between gap-3">
+                <input
+                  type="text"
+                  value={editCardName}
+                  onChange={(e) => setEditCardName(e.target.value)}
+                  className="flex-1 text-base font-semibold text-dnd-gold-light/90 bg-transparent border-b border-transparent hover:border-white/20 focus:border-dnd-gold-light/50 focus:outline-none px-1 py-0.5"
+                  placeholder="卡名称"
                 />
+                <button
+                  type="button"
+                  onClick={() => setBuffEditorFeature(null)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white shrink-0"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-            </div>
-          </div>
-        </>
+              <p className="text-xs text-dnd-text-muted mt-1">
+                {isAdmin
+                  ? 'DM 配置默认 BUFF 效果，玩家选择该特性时自动获得。'
+                  : '查看该职业特性的 BUFF 效果（只读）。'}
+              </p>
+              {descEditing ? (
+                <textarea
+                  value={editCardDesc}
+                  onChange={(e) => setEditCardDesc(e.target.value)}
+                  rows={3}
+                  className="mt-2 w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold-light/40"
+                  placeholder="卡描述…"
+                />
+              ) : (
+                <div className="mt-2 flex items-start gap-2">
+                  <p className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 leading-relaxed whitespace-pre-line min-h-[2.5rem]">
+                    {editCardDesc || '暂无描述'}
+                  </p>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => setDescEditing(true)}
+                      className="shrink-0 mt-0.5 p-1 rounded text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all"
+                      title="编辑描述"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
+          }
+          buffFormProps={{
+            key: `cf-buff-${buffEditorFeature.sourceClass}-${buffEditorFeature.sourceSubclass || ''}-${buffEditorFeature.id}`,
+            compact: true,
+            readOnly: !isAdmin,
+            hideDuration: true,
+            charResources: char?.classResources,
+            spellSlots: char?.spellSlots,
+            initial: {
+              source: `${buffEditorFeature.sourceClass}-${buffEditorFeature.name}`,
+              cardName: editCardName,
+              cardDescription: editCardDesc,
+              effects: (() => {
+                const patch = loadDefaultBuffPatch(
+                  moduleId,
+                  'classFeature',
+                  buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
+                )
+                if (patch && Array.isArray(patch.effects) && patch.effects.length) return patch.effects
+                const bk = buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id)
+                return HARDCODED_CLASS_FEATURE_BUFFS[bk] || []
+              })(),
+              enabled: (() => {
+                const patch = loadDefaultBuffPatch(
+                  moduleId,
+                  'classFeature',
+                  buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
+                )
+                return patch?.enabled !== false
+              })(),
+              cardScope: (() => {
+                const patch = loadDefaultBuffPatch(
+                  moduleId,
+                  'classFeature',
+                  buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
+                )
+                return patch?.cardScope || undefined
+              })(),
+            },
+            onSave: (buff) => {
+              saveDefaultBuffPatch(
+                moduleId,
+                'classFeature',
+                buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
+                {
+                  effects: buff.effects,
+                  enabled: buff.enabled,
+                  sourceName: `${buffEditorFeature.sourceClass}-${buffEditorFeature.name}`,
+                  cardScope: buff.cardScope,
+                  cardName: editCardName || undefined,
+                  cardDescription: editCardDesc || undefined,
+                },
+              )
+              setBuffEditorFeature(null)
+            },
+            onClear: () => {
+              clearDefaultBuffPatch(
+                moduleId,
+                'classFeature',
+                buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
+              )
+              setBuffEditorFeature(null)
+            },
+          }}
+        />
       )}
 
       {/* 齿轮按钮触发的选择型特性 modal */}
@@ -2138,138 +2134,134 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
 
       {/* 选项专属 BUFF 编辑器弹窗 */}
       {buffEditorOption && (
-        <>
-          <div
-            className="fixed inset-0 z-[300] bg-black/60"
-            onClick={() => setBuffEditorOption(null)}
-            aria-hidden
-          />
-          <div
-            className="fixed inset-0 z-[301] flex items-center justify-center p-4 sm:p-8 overflow-auto"
-            onClick={() => setBuffEditorOption(null)}
-          >
-            <div
-              className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="p-4 border-b border-white/10">
-                <div className="flex items-center justify-between gap-3">
-                  <input
-                    type="text"
-                    value={editOptionCardName}
-                    onChange={(e) => setEditOptionCardName(e.target.value)}
-                    className="flex-1 text-base font-semibold text-dnd-gold-light/90 bg-transparent border-b border-transparent hover:border-white/20 focus:border-dnd-gold-light/50 focus:outline-none px-1 py-0.5"
-                    placeholder="卡名称"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setBuffEditorOption(null)}
-                    className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-                {optionDescEditing ? (
-                  <textarea
-                    value={editOptionCardDesc}
-                    onChange={(e) => setEditOptionCardDesc(e.target.value)}
-                    rows={3}
-                    className="mt-2 w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold-light/40"
-                    placeholder="卡描述…"
-                  />
-                ) : (
-                  <div className="mt-2 flex items-start gap-2">
-                    <p className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 leading-relaxed whitespace-pre-line min-h-[2.5rem]">
-                      {editOptionCardDesc || '暂无描述'}
-                    </p>
-                    {isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => setOptionDescEditing(true)}
-                        className="shrink-0 mt-0.5 p-1 rounded text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all"
-                        title="编辑描述"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className="p-4">
-                <BuffForm
-                  key={`cf-opt-buff-${buffEditorOption.feature.sourceClass}-${buffEditorOption.feature.sourceSubclass || ''}-${buffEditorOption.feature.id}-${buffEditorOption.optionId}`}
-                  compact
-                  readOnly={!isAdmin}
-                  hideDuration
-                  charResources={char?.classResources}
-                  spellSlots={char?.spellSlots}
-                  initial={{
-                    source: `${buffEditorOption.feature.sourceClass}-${buffEditorOption.feature.name}（${buffEditorOption.optionLabel}）`,
-                    cardName: editOptionCardName,
-                    cardDescription: editOptionCardDesc,
-                    effects: (() => {
-                      const optBuffKey = buildClassFeatureOptionBuffKey(
-                        buffEditorOption.feature.sourceClass,
-                        buffEditorOption.feature.sourceSubclass,
-                        buffEditorOption.feature.id,
-                        buffEditorOption.optionId,
-                      )
-                      const dmPatch = loadDefaultBuffPatch(moduleId, 'classFeature', optBuffKey)
-                      if (dmPatch && Array.isArray(dmPatch.effects) && dmPatch.effects.length) {
-                        return dmPatch.effects
-                      }
-                      // 回退到硬编码默认效果
-                      const buffKey = buildClassFeatureBuffKey(
-                        buffEditorOption.feature.sourceClass,
-                        buffEditorOption.feature.sourceSubclass,
-                        buffEditorOption.feature.id,
-                      )
-                      const registryEntry = CLASS_FEATURE_CHOICE_REGISTRY[buffKey]
-                      if (registryEntry) {
-                        const opt = registryEntry.options.find((o) => o.id === buffEditorOption.optionId)
-                        if (opt && typeof registryEntry.getEffects === 'function') {
-                          return registryEntry.getEffects(opt.id) || []
-                        }
-                      }
-                      return []
-                    })(),
-                    enabled: loadDefaultBuffPatch(
-                      moduleId,
-                      'classFeature',
-                      buildClassFeatureOptionBuffKey(
-                        buffEditorOption.feature.sourceClass,
-                        buffEditorOption.feature.sourceSubclass,
-                        buffEditorOption.feature.id,
-                        buffEditorOption.optionId,
-                      ),
-                    )?.enabled !== false,
-                  }}
-                  onSave={(buff) => {
-                    saveDefaultBuffPatch(
-                      moduleId,
-                      'classFeature',
-                      buildClassFeatureOptionBuffKey(
-                        buffEditorOption.feature.sourceClass,
-                        buffEditorOption.feature.sourceSubclass,
-                        buffEditorOption.feature.id,
-                        buffEditorOption.optionId,
-                      ),
-                      {
-                        effects: buff.effects,
-                        enabled: buff.enabled,
-                        sourceName: `${buffEditorOption.feature.sourceClass}-${buffEditorOption.feature.name}（${buffEditorOption.optionLabel}）`,
-                        cardName: editOptionCardName || undefined,
-                        cardDescription: editOptionCardDesc || undefined,
-                      },
-                    )
-                    setBuffEditorOption(null)
-                  }}
-                  onCancel={() => setBuffEditorOption(null)}
+        <BuffEditorModal
+          open
+          onClose={() => setBuffEditorOption(null)}
+          header={
+            <>
+              <div className="flex items-center justify-between gap-3">
+                <input
+                  type="text"
+                  value={editOptionCardName}
+                  onChange={(e) => setEditOptionCardName(e.target.value)}
+                  className="flex-1 text-base font-semibold text-dnd-gold-light/90 bg-transparent border-b border-transparent hover:border-white/20 focus:border-dnd-gold-light/50 focus:outline-none px-1 py-0.5"
+                  placeholder="卡名称"
                 />
+                <button
+                  type="button"
+                  onClick={() => setBuffEditorOption(null)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-            </div>
-          </div>
-        </>
+              {optionDescEditing ? (
+                <textarea
+                  value={editOptionCardDesc}
+                  onChange={(e) => setEditOptionCardDesc(e.target.value)}
+                  rows={3}
+                  className="mt-2 w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold-light/40"
+                  placeholder="卡描述…"
+                />
+              ) : (
+                <div className="mt-2 flex items-start gap-2">
+                  <p className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 leading-relaxed whitespace-pre-line min-h-[2.5rem]">
+                    {editOptionCardDesc || '暂无描述'}
+                  </p>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => setOptionDescEditing(true)}
+                      className="shrink-0 mt-0.5 p-1 rounded text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all"
+                      title="编辑描述"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
+          }
+          buffFormProps={{
+            key: `cf-opt-buff-${buffEditorOption.feature.sourceClass}-${buffEditorOption.feature.sourceSubclass || ''}-${buffEditorOption.feature.id}-${buffEditorOption.optionId}`,
+            compact: true,
+            readOnly: !isAdmin,
+            hideDuration: true,
+            charResources: char?.classResources,
+            spellSlots: char?.spellSlots,
+            initial: {
+              source: `${buffEditorOption.feature.sourceClass}-${buffEditorOption.feature.name}（${buffEditorOption.optionLabel}）`,
+              cardName: editOptionCardName,
+              cardDescription: editOptionCardDesc,
+              effects: (() => {
+                const optBuffKey = buildClassFeatureOptionBuffKey(
+                  buffEditorOption.feature.sourceClass,
+                  buffEditorOption.feature.sourceSubclass,
+                  buffEditorOption.feature.id,
+                  buffEditorOption.optionId,
+                )
+                const dmPatch = loadDefaultBuffPatch(moduleId, 'classFeature', optBuffKey)
+                if (dmPatch && Array.isArray(dmPatch.effects) && dmPatch.effects.length) {
+                  return dmPatch.effects
+                }
+                const buffKey = buildClassFeatureBuffKey(
+                  buffEditorOption.feature.sourceClass,
+                  buffEditorOption.feature.sourceSubclass,
+                  buffEditorOption.feature.id,
+                )
+                const registryEntry = CLASS_FEATURE_CHOICE_REGISTRY[buffKey]
+                if (registryEntry) {
+                  const opt = registryEntry.options.find((o) => o.id === buffEditorOption.optionId)
+                  if (opt && typeof registryEntry.getEffects === 'function') {
+                    return registryEntry.getEffects(opt.id) || []
+                  }
+                }
+                return []
+              })(),
+              enabled: loadDefaultBuffPatch(
+                moduleId,
+                'classFeature',
+                buildClassFeatureOptionBuffKey(
+                  buffEditorOption.feature.sourceClass,
+                  buffEditorOption.feature.sourceSubclass,
+                  buffEditorOption.feature.id,
+                  buffEditorOption.optionId,
+                ),
+              )?.enabled !== false,
+              cardScope: loadDefaultBuffPatch(
+                moduleId,
+                'classFeature',
+                buildClassFeatureOptionBuffKey(
+                  buffEditorOption.feature.sourceClass,
+                  buffEditorOption.feature.sourceSubclass,
+                  buffEditorOption.feature.id,
+                  buffEditorOption.optionId,
+                ),
+              )?.cardScope || undefined,
+            },
+            onSave: (buff) => {
+              saveDefaultBuffPatch(
+                moduleId,
+                'classFeature',
+                buildClassFeatureOptionBuffKey(
+                  buffEditorOption.feature.sourceClass,
+                  buffEditorOption.feature.sourceSubclass,
+                  buffEditorOption.feature.id,
+                  buffEditorOption.optionId,
+                ),
+                {
+                  effects: buff.effects,
+                  enabled: buff.enabled,
+                  sourceName: `${buffEditorOption.feature.sourceClass}-${buffEditorOption.feature.name}（${buffEditorOption.optionLabel}）`,
+                  cardScope: buff.cardScope,
+                  cardName: editOptionCardName || undefined,
+                  cardDescription: editOptionCardDesc || undefined,
+                },
+              )
+              setBuffEditorOption(null)
+            },
+          }}
+        />
       )}
     </SlotPanel>
   )
@@ -2291,12 +2283,13 @@ function formatFeatAcquisitionSentence(sourceClass, level, category) {
 }
 
 /** 专长：按自动计算的槽位展示，每个槽位从指定分类中选取；额外传奇专长可自由添加 */
-function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModuleId }) {
+function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModuleId, buffPatchRev }) {
   const { currentModuleId } = useModule()
   const moduleId = currentModuleId || 'default'
   const overridesMap = useRuleTextOverridesMap(moduleId)
   const [expandedFeatIds, setExpandedFeatIds] = useState(new Set())
   const [featBuffEditor, setFeatBuffEditor] = useState(null) // { row, slot } for feat BUFF editor
+  const [featActiveAbility, setFeatActiveAbility] = useState(null) // active ability for AbilityUseModal
   const toggleFeatExpand = (featId) => {
     setExpandedFeatIds((prev) => {
       const next = new Set(prev)
@@ -2626,12 +2619,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                         disabled={!check.usable}
                         onClick={(e) => {
                           e.stopPropagation()
-                          const result = executeAbility(ability, char)
-                          if (result.success) {
-                            const patches = { ...result.patch }
-                            if (result.classResources) patches.classResources = result.classResources
-                            if (Object.keys(patches).length > 0) onSave(patches)
-                          }
+                          setFeatActiveAbility(ability)
                         }}
                         className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                         title={check.usable ? `点击使用${ability.name}` : check.reason}
@@ -2756,12 +2744,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                         disabled={!check.usable}
                         onClick={(e) => {
                           e.stopPropagation()
-                          const result = executeAbility(ability, char)
-                          if (result.success) {
-                            const patches = { ...result.patch }
-                            if (result.classResources) patches.classResources = result.classResources
-                            if (Object.keys(patches).length > 0) onSave(patches)
-                          }
+                          setFeatActiveAbility(ability)
                         }}
                         className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                         title={check.usable ? `点击使用${ability.name}` : check.reason}
@@ -2808,84 +2791,66 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
             ? defaultPatch.effects
             : []
         return (
-          <>
-            <div
-              className="fixed inset-0 z-[300] bg-black/60"
-              onClick={() => setFeatBuffEditor(null)}
-              aria-hidden
-            />
-            <div
-              className="fixed inset-0 z-[301] flex items-center justify-center p-4 sm:p-8 overflow-auto"
-              onClick={() => setFeatBuffEditor(null)}
-            >
-              <div
-                className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="p-4 border-b border-white/10">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-base font-semibold text-dnd-gold-light/90">
-                      编辑专长效果：{featName}
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => setFeatBuffEditor(null)}
-                      className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
-                  <p className="text-xs text-dnd-text-muted mt-1">
-                    自定义该专长的 BUFF 效果，保存后立即生效。
-                  </p>
-                </div>
-                <div className="p-4">
-                  <BuffForm
-                    key={`feat-buff-${editFeatId}`}
-                    compact
-                    hideDuration
-                    charResources={char?.classResources}
-                    spellSlots={char?.spellSlots}
-                    initial={{
-                      source: `feat-${editFeatId}`,
-                      effects: initialEffects,
-                      enabled: editRow?.featBuffPatch?.enabled !== false,
-                      cardScope: editRow?.featBuffPatch?.cardScope || defaultPatch?.cardScope || undefined,
-                    }}
-                    onSave={(buff) => {
-                      const raw = char?.selectedFeats ?? []
-                      const updated = raw.map((f) => {
-                        if (f?.slotId !== editRow.slotId && f?.featId !== editFeatId) return f
-                        const next = { ...f }
-                        if (buff.effects.length > 0) {
-                          next.featBuffPatch = { effects: buff.effects, enabled: buff.enabled, cardScope: buff.cardScope }
-                        } else {
-                          delete next.featBuffPatch
-                        }
-                        return next
-                      })
-                      onSave({ selectedFeats: updated })
-                      setFeatBuffEditor(null)
-                    }}
-                    onClear={() => {
-                      const raw = char?.selectedFeats ?? []
-                      const updated = raw.map((f) => {
-                        if (f?.slotId !== editRow.slotId && f?.featId !== editFeatId) return f
-                        const next = { ...f }
-                        delete next.featBuffPatch
-                        return next
-                      })
-                      onSave({ selectedFeats: updated })
-                      setFeatBuffEditor(null)
-                    }}
-                    onCancel={() => setFeatBuffEditor(null)}
-                  />
-                </div>
-              </div>
-            </div>
-          </>
+          <BuffEditorModal
+            open
+            onClose={() => setFeatBuffEditor(null)}
+            title={`编辑专长效果：${featName}`}
+            description="自定义该专长的 BUFF 效果，保存后立即生效。"
+            buffFormProps={{
+              key: `feat-buff-${editFeatId}`,
+              compact: true,
+              hideDuration: true,
+              charResources: char?.classResources,
+              spellSlots: char?.spellSlots,
+              initial: {
+                source: editRow?.featBuffPatch?.source || `feat-${editFeatId}`,
+                effects: initialEffects,
+                duration: editRow?.featBuffPatch?.duration,
+                enabled: editRow?.featBuffPatch?.enabled !== false,
+                cardScope: editRow?.featBuffPatch?.cardScope || defaultPatch?.cardScope || undefined,
+              },
+              onSave: (buff) => {
+                const raw = char?.selectedFeats ?? []
+                const updated = raw.map((f) => {
+                  if (f?.slotId !== editRow.slotId && f?.featId !== editFeatId) return f
+                  const next = { ...f }
+                  if (buff.effects.length > 0) {
+                    next.featBuffPatch = { effects: buff.effects, enabled: buff.enabled, cardScope: buff.cardScope, duration: buff.duration, source: buff.source }
+                  } else {
+                    delete next.featBuffPatch
+                  }
+                  return next
+                })
+                onSave({ selectedFeats: updated })
+                setFeatBuffEditor(null)
+              },
+              onClear: () => {
+                const raw = char?.selectedFeats ?? []
+                const updated = raw.map((f) => {
+                  if (f?.slotId !== editRow.slotId && f?.featId !== editFeatId) return f
+                  const next = { ...f }
+                  delete next.featBuffPatch
+                  return next
+                })
+                onSave({ selectedFeats: updated })
+                setFeatBuffEditor(null)
+              },
+            }}
+          />
         )
       })()}
+
+      {featActiveAbility && (
+        <AbilityUseModal
+          activeAbility={featActiveAbility}
+          char={char}
+          featureName={featActiveAbility.name}
+          onConfirm={(patch, lines) => {
+            if (patch && Object.keys(patch).length > 0) onSave(patch)
+          }}
+          onClose={() => setFeatActiveAbility(null)}
+        />
+      )}
     </SlotPanel>
   )
 }
@@ -3245,69 +3210,68 @@ function ClassSection({ char, level, canEdit, onSave, moduleId }) {
         const { feature, className: scClassName, subclassName } = subclassBuffEditor
         const buffKey = buildClassFeatureBuffKey(scClassName, subclassName, feature.id)
         return (
-          <>
-            <div className="fixed inset-0 z-[400] bg-black/60" onClick={() => setSubclassBuffEditor(null)} aria-hidden />
-            <div className="fixed inset-0 z-[401] flex items-center justify-center p-4 sm:p-8 overflow-auto" onClick={() => setSubclassBuffEditor(null)}>
-              <div className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl" onClick={(e) => e.stopPropagation()}>
-                <div className="p-4 border-b border-white/10">
-                  <div className="flex items-center justify-between gap-3">
-                    <input
-                      type="text"
-                      value={editSubclassCardName}
-                      onChange={(e) => setEditSubclassCardName(e.target.value)}
-                      className="flex-1 text-base font-semibold text-dnd-gold-light/90 bg-transparent border-b border-transparent hover:border-white/20 focus:border-dnd-gold-light/50 focus:outline-none px-1 py-0.5"
-                      placeholder="卡名称"
-                    />
-                    <button type="button" onClick={() => setSubclassBuffEditor(null)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white">
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
-                  <textarea
-                    value={editSubclassCardDesc}
-                    onChange={(e) => setEditSubclassCardDesc(e.target.value)}
-                    rows={3}
-                    className="mt-2 w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold-light/40"
-                    placeholder="卡描述…"
+          <BuffEditorModal
+            open
+            onClose={() => setSubclassBuffEditor(null)}
+            zIndex={400}
+            header={
+              <>
+                <div className="flex items-center justify-between gap-3">
+                  <input
+                    type="text"
+                    value={editSubclassCardName}
+                    onChange={(e) => setEditSubclassCardName(e.target.value)}
+                    className="flex-1 text-base font-semibold text-dnd-gold-light/90 bg-transparent border-b border-transparent hover:border-white/20 focus:border-dnd-gold-light/50 focus:outline-none px-1 py-0.5"
+                    placeholder="卡名称"
                   />
+                  <button type="button" onClick={() => setSubclassBuffEditor(null)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white">
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
-                <div className="p-4">
-                  <BuffForm
-                    key={`sc-buff-${scClassName}-${subclassName}-${feature.id}`}
-                    compact
-                    readOnly={!canEdit}
-                    hideDuration
-                    charResources={char?.classResources}
-                    spellSlots={char?.spellSlots}
-                    initial={{
-                      source: `${scClassName}-${feature.name}`,
-                      cardName: editSubclassCardName,
-                      cardDescription: editSubclassCardDesc,
-                      effects: (() => {
-                        const patch = loadDefaultBuffPatch(moduleId, 'classFeature', buffKey)
-                        if (patch && Array.isArray(patch.effects) && patch.effects.length) return patch.effects
-                        return HARDCODED_CLASS_FEATURE_BUFFS[buffKey] || []
-                      })(),
-                      enabled: (() => {
-                        const patch = loadDefaultBuffPatch(moduleId, 'classFeature', buffKey)
-                        return patch?.enabled !== false
-                      })(),
-                    }}
-                    onSave={(buff) => {
-                      saveDefaultBuffPatch(moduleId, 'classFeature', buffKey, {
-                        effects: buff.effects,
-                        enabled: buff.enabled,
-                        sourceName: `${scClassName}-${feature.name}`,
-                        cardName: editSubclassCardName || undefined,
-                        cardDescription: editSubclassCardDesc || undefined,
-                      })
-                      setSubclassBuffEditor(null)
-                    }}
-                    onCancel={() => setSubclassBuffEditor(null)}
-                  />
-                </div>
-              </div>
-            </div>
-          </>
+                <textarea
+                  value={editSubclassCardDesc}
+                  onChange={(e) => setEditSubclassCardDesc(e.target.value)}
+                  rows={3}
+                  className="mt-2 w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold-light/40"
+                  placeholder="卡描述…"
+                />
+              </>
+            }
+            buffFormProps={{
+              key: `sc-buff-${scClassName}-${subclassName}-${feature.id}`,
+              compact: true,
+              readOnly: !canEdit,
+              hideDuration: true,
+              charResources: char?.classResources,
+              spellSlots: char?.spellSlots,
+              initial: {
+                source: `${scClassName}-${feature.name}`,
+                cardName: editSubclassCardName,
+                cardDescription: editSubclassCardDesc,
+                effects: (() => {
+                  const patch = loadDefaultBuffPatch(moduleId, 'classFeature', buffKey)
+                  if (patch && Array.isArray(patch.effects) && patch.effects.length) return patch.effects
+                  return HARDCODED_CLASS_FEATURE_BUFFS[buffKey] || []
+                })(),
+                enabled: (() => {
+                  const patch = loadDefaultBuffPatch(moduleId, 'classFeature', buffKey)
+                  return patch?.enabled !== false
+                })(),
+                cardScope: loadDefaultBuffPatch(moduleId, 'classFeature', buffKey)?.cardScope || undefined,
+              },
+              onSave: (buff) => {
+                saveDefaultBuffPatch(moduleId, 'classFeature', buffKey, {
+                  effects: buff.effects,
+                  enabled: buff.enabled,
+                  sourceName: `${scClassName}-${feature.name}`,
+                  cardScope: buff.cardScope,
+                  cardName: editSubclassCardName || undefined,
+                  cardDescription: editSubclassCardDesc || undefined,
+                })
+                setSubclassBuffEditor(null)
+              },
+            }}
+          />
         )
       })()}
     </div>
@@ -3785,8 +3749,8 @@ export default function CharacterSheet() {
                   )}
                 </div>
                 {/* 左：外观/基础 + 种族背景 | 右：头像（四边对齐） */}
-                <div className="grid grid-cols-1 lg:grid-cols-[1fr_460px] lg:gap-[2ch]">
-                  <div className="min-w-0 flex flex-col gap-1.5">
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_500px] lg:gap-3">
+                  <div className="min-w-0 flex flex-col gap-1">
                     <h3 className="profile-section-title mt-0 mb-0.5">外观 / 基础</h3>
                     <AppearanceGrid char={char} canEdit={canEdit} onSave={persist} noBorder compact />
                     <RaceBackgroundInline char={char} canEdit={canEdit} onSave={persist}
@@ -3935,7 +3899,7 @@ export default function CharacterSheet() {
                 </div>
                 <div className="min-w-0">
                   <h3 className="section-title">专长</h3>
-                  <FeatsSection char={char} level={level} canEdit={canEdit} onSave={persist} formulaContext={buffFormulaContext} sheetModuleId={sheetModuleId} />
+                  <FeatsSection char={char} level={level} canEdit={canEdit} onSave={persist} formulaContext={buffFormulaContext} sheetModuleId={sheetModuleId} buffPatchRev={buffPatchRev} />
                 </div>
               </div>
             </section>

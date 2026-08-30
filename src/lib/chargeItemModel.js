@@ -30,6 +30,7 @@
  */
 
 import { createEmptyContainedSpellSub } from './containedSpellModel'
+import { getDamageTypeLabel } from '../data/buffTypes'
 
 export const ACTION_COST_OPTIONS = [
   { value: 'action', label: '动作' },
@@ -364,9 +365,11 @@ export function formatChargeItemBrief(value) {
     const tempBuffCount = norm.effects.filter((e) => e.type === 'temp_buff').length
     if (tempBuffCount > 0) {
       norm.effects.filter((e) => e.type === 'temp_buff').forEach((e) => {
-        const name = (e.value?.buffName || '').trim() || '(临时BUFF)'
-        const modCount = e.value?.modules?.length ?? 0
-        effectLabels.push(`${name}（${modCount}个效果）`)
+        const desc = (e.value?.description || '').trim()
+        const name = (e.value?.buffName || '').trim()
+        if (desc) effectLabels.push(desc)
+        else if (name) effectLabels.push(name)
+        else effectLabels.push('临时增益')
       })
     }
     if (shieldCount > 0) effectLabels.push(`护盾 ×${norm.effects.find((e) => e.type === 'shield').value?.amount ?? 1}`)
@@ -379,7 +382,7 @@ export function formatChargeItemBrief(value) {
       dmgEffects.forEach((e) => {
         const v = e.value || {}
         const dice = `${v.diceCount || 1}d${v.diceSides || 6}${v.diceBonus ? '+' + v.diceBonus : ''}`
-        const typeLabel = v.damageType || 'fire'
+        const typeLabel = getDamageTypeLabel(v.damageType || 'fire')
         const scale = v.scaleWithSlot ? '（按环位缩放）' : ''
         effectLabels.push(`伤害 ${dice} ${typeLabel}${scale}`)
       })
@@ -389,7 +392,7 @@ export function formatChargeItemBrief(value) {
       healEffects.forEach((e) => {
         const v = e.value || {}
         if (v.mode === 'max') {
-          effectLabels.push(`满疗`)
+          effectLabels.push(`生命值恢复至上限`)
         } else {
           const dice = `${v.diceCount || 1}d${v.diceSides || 8}${v.diceBonus ? '+' + v.diceBonus : ''}`
           const scale = v.scaleWithSlot ? '（按环位缩放）' : ''
@@ -399,8 +402,13 @@ export function formatChargeItemBrief(value) {
     }
     const summonCount = norm.effects.filter((e) => e.type === 'summon').length
     if (summonCount > 0) effectLabels.push(`召唤 ×${summonCount}`)
-    const clCount = norm.effects.filter((e) => e.type === 'custom_logic').length
-    if (clCount > 0) effectLabels.push(`自定义逻辑 ×${clCount}`)
+    const clEffects = norm.effects.filter((e) => e.type === 'custom_logic')
+    if (clEffects.length > 0) {
+      clEffects.forEach((e) => {
+        const title = (e.value?.title || '').trim()
+        effectLabels.push(title || '特殊能力')
+      })
+    }
     if (effectLabels.length) parts.push(effectLabels.join('；'))
   }
   return parts.join(' | ')

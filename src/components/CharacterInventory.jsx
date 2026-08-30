@@ -891,11 +891,6 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                             })()}
                             {invDisplayName(entry)}
                             {(() => {
-                              const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
-                              const stoneVal = stoneEffect != null && stoneEffect.value != null ? Number(stoneEffect.value) : null
-                              if (stoneVal != null && !Number.isNaN(stoneVal) && stoneVal > 0) {
-                                return <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0" title="瓦石层">{stoneVal}层</span>
-                              }
                               return (Number(entry.magicBonus) || 0) > 0
                                 ? <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>
                                 : null

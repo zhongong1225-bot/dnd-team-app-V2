@@ -1959,7 +1959,9 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
           const spellScalingEnabled = !!sp.scalingEnabled
           const spellSU = sp.scalingPerUnit || {}
           return (
-            <div key={eff.id} className="rounded-md border border-cyan-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+            <div key={eff.id} className="flex items-start gap-x-2">
+              <span className="shrink-0 mt-1.5 text-[10px] font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
+              <div className="rounded-md border border-cyan-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
               <div className="flex items-center gap-x-1.5 flex-wrap">
                 <input type="text" value={spellInputValue(sp)}
                   onChange={(e) => {
@@ -1994,6 +1996,7 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
                 </>)}
               </div>
             </div>
+            </div>
           )
         }
 
@@ -2002,7 +2005,9 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
           const tv = eff.value || {}
           const modules = tv.modules || []
           return (
-            <div key={eff.id} className="rounded-md border border-violet-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+            <div key={eff.id} className="flex items-start gap-x-2">
+              <span className="shrink-0 mt-1.5 text-[10px] font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
+              <div className="rounded-md border border-violet-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
               <div className="flex items-center gap-x-1.5 flex-wrap">
                 <span className="text-violet-400 text-[10px] shrink-0 font-medium">临时BUFF</span>
                 <input type="text" value={tv.buffName ?? ''} onChange={(e) => updateEffect(idx, { value: { ...tv, buffName: e.target.value } })} placeholder="BUFF名称" className={inputCls + ' min-w-[6rem]'} />
@@ -2027,6 +2032,7 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
               )}
               <button type="button" onClick={() => openTempBuffModal(idx, -1)} className="mt-1.5 px-2 py-0.5 rounded-md border border-violet-600/50 bg-violet-900/10 text-violet-300/80 hover:bg-violet-800/30 hover:border-violet-500/60 text-[10px] font-medium transition-colors">+ 添加效果</button>
             </div>
+            </div>
           )
         }
 
@@ -2036,7 +2042,9 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
           const shieldScalingEnabled = !!sv.scalingEnabled
           const shieldSU = sv.scalingPerUnit || {}
           return (
-            <div key={eff.id} className="rounded-md border border-emerald-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+            <div key={eff.id} className="flex items-start gap-x-2">
+              <span className="shrink-0 mt-1.5 text-[10px] font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
+              <div className="rounded-md border border-emerald-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
               <div className="flex items-center gap-x-1.5 flex-wrap">
                 <span className="text-emerald-400 text-[10px] shrink-0 font-medium">护盾</span>
                 <span className={labelCls}>层数</span>
@@ -2055,18 +2063,22 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
                 </>)}
               </div>
             </div>
+            </div>
           )
         }
 
-        /* ── 变身 ── */
+        /* ─ 变身 ── */
         if (eff.type === 'creature_transform') {
           return (
-            <div key={eff.id} className="rounded-md border border-rose-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+            <div key={eff.id} className="flex items-start gap-x-2">
+              <span className="shrink-0 mt-1.5 text-[10px] font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
+              <div className="rounded-md border border-rose-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
               <div className="flex items-center gap-x-1.5 mb-1">
                 <span className="text-rose-400 text-[10px] shrink-0 font-medium">变身</span>
                 <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
               <CreatureTransformEditor value={eff.value} onChange={(newValue) => updateEffect(idx, { value: newValue })} />
+              </div>
             </div>
           )
         }
@@ -2075,12 +2087,15 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
         if (eff.type === 'restore_spell_slots') {
           const syntheticModule = { value: eff.value || {} }
           return (
-            <div key={eff.id} className="rounded-md border border-sky-800/30 bg-[#0d1520]/50 px-2 py-1.5">
-              <div className="flex items-center gap-x-1.5 mb-1">
-                <span className="text-sky-400 text-[10px] shrink-0 font-medium">法术位恢复</span>
-                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除"><Trash2 className="w-3.5 h-3.5" /></button>
+            <div key={eff.id} className="flex items-start gap-x-2">
+              <span className="shrink-0 mt-1.5 text-[10px] font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
+              <div className="rounded-md border border-sky-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
+                <div className="flex items-center gap-x-1.5 mb-1">
+                  <span className="text-sky-400 text-[10px] shrink-0 font-medium">法术位恢复</span>
+                  <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+                <RestoreSpellSlotsEditor module={syntheticModule} onChange={(newModule) => updateEffect(idx, { value: newModule.value })} />
               </div>
-              <RestoreSpellSlotsEditor module={syntheticModule} onChange={(newModule) => updateEffect(idx, { value: newModule.value })} />
             </div>
           )
         }
@@ -2090,7 +2105,9 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
           const sv = eff.value || {}
           const isStellarDouble = sv.preset === 'stellar_double'
           return (
-            <div key={eff.id} className="rounded-md border border-indigo-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+            <div key={eff.id} className="flex items-start gap-x-2">
+              <span className="shrink-0 mt-1.5 text-[10px] font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
+              <div className="rounded-md border border-indigo-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
               <div className="flex items-center gap-x-1.5 flex-wrap">
                 <span className="text-indigo-400 text-[10px] shrink-0 font-medium">召唤</span>
                 <select value={sv.preset || ''} onChange={(e) => updateEffect(idx, { value: { ...sv, preset: e.target.value } })} className={selectCls + ' !w-[6rem] shrink-0'}>
@@ -2141,6 +2158,7 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
                   <input type="text" value={sv.note || ''} onChange={(e) => updateEffect(idx, { value: { ...sv, note: e.target.value } })} placeholder="备注" className={inputCls + ' min-w-[4rem] flex-1'} />
                 </div>
               )}
+              </div>
             </div>
           )
         }
@@ -2149,7 +2167,9 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
         if (eff.type === 'damage') {
           const dv = eff.value || {}
           return (
-            <div key={eff.id} className="rounded-md border border-red-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+            <div key={eff.id} className="flex items-start gap-x-2">
+              <span className="shrink-0 mt-1.5 text-[10px] font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
+              <div className="rounded-md border border-red-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
               <div className="flex items-center gap-x-1.5 mb-1">
                 <span className="text-red-400 text-[10px] shrink-0 font-medium">伤害</span>
                 <div className="flex items-center gap-x-1">
@@ -2180,6 +2200,7 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
                   </label>
                 )}
               </div>
+              </div>
             </div>
           )
         }
@@ -2189,7 +2210,9 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
           const hv = eff.value || {}
           const isMaxMode = hv.mode === 'max'
           return (
-            <div key={eff.id} className="rounded-md border border-green-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+            <div key={eff.id} className="flex items-start gap-x-2">
+              <span className="shrink-0 mt-1.5 text-[10px] font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
+              <div className="rounded-md border border-green-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
               <div className="flex items-center gap-x-1.5 mb-1">
                 <span className="text-green-400 text-[10px] shrink-0 font-medium">治疗</span>
                 <div className="flex items-center gap-0.5">
@@ -2220,6 +2243,7 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
                   按环位缩放
                 </label>
               )}
+              </div>
             </div>
           )
         }
@@ -5303,7 +5327,7 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
             清除
           </button>
         )}
-        <button type="submit" className={`${compact ? 'px-2.5 py-1 text-[11px]' : 'px-4 py-2'} rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-medium`}>
+        <button type="submit" className={`${compact ? 'px-2.5 py-1 text-[11px]' : 'px-4 py-2'} rounded-[10px] bg-dnd-red hover:bg-dnd-red-hover text-white font-medium shadow-[0_0_12px_rgba(230,57,70,0.35)]`}>
           保存
         </button>
       </div>

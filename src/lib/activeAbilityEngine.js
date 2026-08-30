@@ -401,7 +401,7 @@ function computeEffect(effect, ctx, options) {
         const scaleNote = v.scaleWithSlot && options?.slotLevel ? `（${options.slotLevel}环缩放）` : ''
         return {
           type: 'heal',
-          description: effect.description || (v.mode === 'max' ? `满疗 ${dice}${bonus}` : `治疗 ${dice}${bonus}`) + scaleNote,
+          description: effect.description || (v.mode === 'max' ? `生命值恢复至上限 ${dice}${bonus}` : `治疗 ${dice}${bonus}`) + scaleNote,
           diceFormula: `${dice}${bonus}`,
           dicePart: { count: diceCount, size: v.diceSides || 8 },
           baseValue: v.diceBonus || 0,

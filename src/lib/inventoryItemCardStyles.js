@@ -29,11 +29,12 @@ export const INV_COL_QTY_WEIGHT = '8.5rem'
 export const INV_COL_ACTIONS = '6rem'
 
 /**
- * 统一 10 列网格：名称(2fr) | 充能(7.5rem) | 释放(5rem) | 空白(1fr×2) | 数量(3.5rem) | 重量(4rem) | 操作(3.5rem)
+ * 统一网格：名称(1.6fr) | 充能(6rem) | 释放(4.5rem) | 空白(1fr×2) | 数量(3.5rem) | 重量(4rem) | 操作(3.5rem)
+ * gap-x-2 让充能/释放紧跟名称但不贴死；空白列把数量/重量/操作推到右侧。
  * 替代旧的 inventoryItemRowGrid* 系列 class。
  */
 export const inventoryItemRowGridUnified =
-  'grid grid-cols-[minmax(0,2fr)_7.5rem_5rem_1fr_1fr_3.5rem_4rem_3.5rem] gap-0 items-center min-w-0 shrink-0'
+  'grid grid-cols-[minmax(0,1.6fr)_6rem_4.5rem_0.5fr_0.5fr_3.5rem_4rem_7rem] gap-x-2 items-center min-w-0 shrink-0'
 
 /** 充能步进器容器 */
 export const chargeStepperClass =
@@ -51,6 +52,10 @@ export const chargeBarWrapClass =
 export const chargeBarFillClass =
   'h-full transition-[width] duration-200'
 
+/** 充能进度条填充色：低透明度灰蓝，避免在深色卡片上抢夺视觉重心 */
+export const chargeBarFillGradient =
+  'linear-gradient(90deg, rgba(74,144,217,0.18), rgba(124,179,245,0.12))'
+
 /** 充能数值文字（内置于进度条） */
 export const chargeTextClass =
   'absolute inset-0 flex items-center justify-center text-[11px] font-semibold text-gray-300 tracking-wide'
@@ -58,6 +63,14 @@ export const chargeTextClass =
 /** 释放按钮 */
 export const releaseBtnClass =
   'flex items-center justify-center gap-1 w-full h-7 rounded-md bg-dnd-gold/[0.12] border border-dnd-gold/25 text-dnd-gold-light text-[10px] font-medium cursor-pointer transition-colors hover:bg-dnd-gold/[0.22] hover:border-dnd-gold/40 active:scale-[0.96]'
+
+/** 操作列：直接图标按钮（无背景无边框，hover 才亮） */
+export const actionIconBtnClass =
+  'w-7 h-7 flex items-center justify-center rounded-md text-dnd-text-muted cursor-pointer transition-colors hover:bg-white/[0.08] hover:text-gray-300'
+
+/** 操作列：危险图标按钮（删除用，hover 显红底） */
+export const actionIconBtnDangerClass =
+  'w-7 h-7 flex items-center justify-center rounded-md text-dnd-text-muted cursor-pointer transition-colors hover:bg-dnd-red/10 hover:text-dnd-red'
 
 /** 操作列：单个下拉按钮 */
 export const actionDropdownBtnClass =

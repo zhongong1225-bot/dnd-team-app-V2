@@ -140,6 +140,7 @@ export default function BuffManager({
       effects: buff.effects,
       enabled: buff.enabled !== false,
       sourceKind: normalizeBuffSourceKindKey(buff.sourceKind ?? 'temporary'),
+      cardScope: buff.cardScope,
     }
     const next = formState?.id
       ? stash.map((b) => (b.id === formState.id ? { ...clean, id: b.id } : b))

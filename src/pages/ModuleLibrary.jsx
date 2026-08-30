@@ -10,6 +10,7 @@ import {
   removeItemTemplate,
 } from '../lib/moduleLibraryStore'
 import BuffForm from '../components/BuffForm'
+import BuffEditorModal from '../components/BuffEditorModal'
 import ItemAddForm from '../components/ItemAddForm'
 import { getItemById, getItemDisplayName } from '../data/itemDatabase'
 import { inputClass } from '../lib/inputStyles'
@@ -539,24 +540,19 @@ export default function ModuleLibrary() {
       </SectionCard>
 
       {buffForm && (
-        <>
-          <div className="fixed inset-0 z-[200] bg-black/50" onClick={() => setBuffForm(null)} aria-hidden />
-          <div
-            className="fixed inset-0 z-[201] flex items-center justify-center p-4 sm:p-8 overflow-auto"
-            onClick={() => setBuffForm(null)}
-          >
-            <div className="w-full max-w-3xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-              <BuffForm
-                key={`module-buff-${buffForm.id ?? 'new'}`}
-                initial={buffForm.initial}
-                defaultSourceKind="temporary"
-                sourceKindOptions={BUFF_SOURCE_KIND_LIBRARY_OPTIONS}
-                onSave={handleSaveBuff}
-                onCancel={() => setBuffForm(null)}
-              />
-            </div>
-          </div>
-        </>
+        <BuffEditorModal
+          open
+          onClose={() => setBuffForm(null)}
+          zIndex={200}
+          plain
+          buffFormProps={{
+            key: `module-buff-${buffForm.id ?? 'new'}`,
+            initial: buffForm.initial,
+            defaultSourceKind: 'temporary',
+            sourceKindOptions: BUFF_SOURCE_KIND_LIBRARY_OPTIONS,
+            onSave: handleSaveBuff,
+          }}
+        />
       )}
 
       {itemForm && (

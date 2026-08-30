@@ -13,6 +13,7 @@ import { BACKGROUNDS, getBackgroundById } from '../data/backgrounds'
 import { SPECIAL_SENSES_OPTIONS } from '../data/buffTypes'
 import { CREATURE_SIZES } from '../data/creatureLibrary'
 import BuffForm from './BuffForm'
+import BuffEditorModal from './BuffEditorModal'
 
 export default function RaceBackgroundSlot({ char, canEdit, onSave }) {
   const raceCard = char?.raceCard || {}
@@ -397,57 +398,26 @@ export default function RaceBackgroundSlot({ char, canEdit, onSave }) {
           ? raceCard.raceBuffPatch.effects
           : []
         return (
-          <>
-            <div
-              className="fixed inset-0 z-[300] bg-black/60"
-              onClick={() => setRaceBuffEditor(false)}
-              aria-hidden
-            />
-            <div
-              className="fixed inset-0 z-[301] flex items-center justify-center p-4 sm:p-8 overflow-auto"
-              onClick={() => setRaceBuffEditor(false)}
-            >
-              <div
-                className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="p-4 border-b border-white/10">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-base font-semibold text-dnd-gold-light/90">
-                      编辑种族效果：{raceName}
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => setRaceBuffEditor(false)}
-                      className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
-                  <p className="text-xs text-dnd-text-muted mt-1">
-                    自定义该种族的 BUFF 效果，保存后立即生效。
-                  </p>
-                </div>
-                <div className="p-4">
-                  <BuffForm
-                    key={`race-buff-${raceCard.raceId}`}
-                    compact
-                    hideDuration
-                    charResources={char?.classResources}
-                    spellSlots={char?.spellSlots}
-                    initial={{
-                      source: raceCard.raceId === 'custom' ? (raceCard.customName || 'custom-race') : `race-${raceCard.raceId}`,
-                      effects: initialEffects,
-                      enabled: raceCard.raceBuffPatch?.enabled !== false,
-                    }}
-                    onSave={handleRaceBuffSave}
-                    onClear={handleRaceBuffClear}
-                    onCancel={() => setRaceBuffEditor(false)}
-                  />
-                </div>
-              </div>
-            </div>
-          </>
+          <BuffEditorModal
+            open
+            onClose={() => setRaceBuffEditor(false)}
+            title={`编辑种族效果：${raceName}`}
+            description="自定义该种族的 BUFF 效果，保存后立即生效。"
+            buffFormProps={{
+              key: `race-buff-${raceCard.raceId}`,
+              compact: true,
+              hideDuration: true,
+              charResources: char?.classResources,
+              spellSlots: char?.spellSlots,
+              initial: {
+                source: raceCard.raceId === 'custom' ? (raceCard.customName || 'custom-race') : `race-${raceCard.raceId}`,
+                effects: initialEffects,
+                enabled: raceCard.raceBuffPatch?.enabled !== false,
+              },
+              onSave: handleRaceBuffSave,
+              onClear: handleRaceBuffClear,
+            }}
+          />
         )
       })()}
 
@@ -460,57 +430,26 @@ export default function RaceBackgroundSlot({ char, canEdit, onSave }) {
           ? backgroundCard.backgroundBuffPatch.effects
           : []
         return (
-          <>
-            <div
-              className="fixed inset-0 z-[300] bg-black/60"
-              onClick={() => setBackgroundBuffEditor(false)}
-              aria-hidden
-            />
-            <div
-              className="fixed inset-0 z-[301] flex items-center justify-center p-4 sm:p-8 overflow-auto"
-              onClick={() => setBackgroundBuffEditor(false)}
-            >
-              <div
-                className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="p-4 border-b border-white/10">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-base font-semibold text-dnd-gold-light/90">
-                      编辑背景效果：{backgroundName}
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => setBackgroundBuffEditor(false)}
-                      className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
-                  <p className="text-xs text-dnd-text-muted mt-1">
-                    自定义该背景的 BUFF 效果，保存后立即生效。
-                  </p>
-                </div>
-                <div className="p-4">
-                  <BuffForm
-                    key={`background-buff-${backgroundCard.backgroundId}`}
-                    compact
-                    hideDuration
-                    charResources={char?.classResources}
-                    spellSlots={char?.spellSlots}
-                    initial={{
-                      source: backgroundCard.backgroundId === 'custom' ? (backgroundCard.customName || 'custom-background') : `background-${backgroundCard.backgroundId}`,
-                      effects: initialEffects,
-                      enabled: backgroundCard.backgroundBuffPatch?.enabled !== false,
-                    }}
-                    onSave={handleBackgroundBuffSave}
-                    onClear={handleBackgroundBuffClear}
-                    onCancel={() => setBackgroundBuffEditor(false)}
-                  />
-                </div>
-              </div>
-            </div>
-          </>
+          <BuffEditorModal
+            open
+            onClose={() => setBackgroundBuffEditor(false)}
+            title={`编辑背景效果：${backgroundName}`}
+            description="自定义该背景的 BUFF 效果，保存后立即生效。"
+            buffFormProps={{
+              key: `background-buff-${backgroundCard.backgroundId}`,
+              compact: true,
+              hideDuration: true,
+              charResources: char?.classResources,
+              spellSlots: char?.spellSlots,
+              initial: {
+                source: backgroundCard.backgroundId === 'custom' ? (backgroundCard.customName || 'custom-background') : `background-${backgroundCard.backgroundId}`,
+                effects: initialEffects,
+                enabled: backgroundCard.backgroundBuffPatch?.enabled !== false,
+              },
+              onSave: handleBackgroundBuffSave,
+              onClear: handleBackgroundBuffClear,
+            }}
+          />
         )
       })()}
     </>

@@ -59,7 +59,7 @@ export default function ContainedSpellUseButton({ entry, onChargeChange, classNa
         type="button"
         onClick={handleOpen}
         disabled={!canUseAny}
-        className={`inline-flex items-center justify-center gap-1 rounded border border-dnd-gold/40 text-dnd-gold-light hover:bg-dnd-gold/20 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap shrink-0 ${compact ? 'h-6 px-1.5 text-[10px]' : 'px-1.5 py-0.5 text-[10px]'} ${buttonClassName}`}
+        className={`inline-flex items-center justify-center gap-1 rounded-md bg-dnd-gold/[0.12] border border-dnd-gold/25 text-dnd-gold-light text-[10px] font-medium cursor-pointer transition-colors hover:bg-dnd-gold/[0.22] hover:border-dnd-gold/40 active:scale-[0.96] disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap shrink-0 ${compact ? 'h-6 px-1.5' : 'h-7 px-2'} ${buttonClassName}`}
         title="使用内含法术"
       >
         <Sparkles className="w-3 h-3" />
