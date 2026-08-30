@@ -237,7 +237,7 @@ export default function AbilityUseModal({ chargeValue, char, featureName, onConf
             const buffId = 'stance_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
             const newBuff = {
               id: buffId,
-              source: buffName,
+              source: featureName || buffName,
               effects: scaledModules.map((m) => ({ ...m })),
               enabled: true,
               sourceKind: 'stance',
@@ -249,7 +249,7 @@ export default function AbilityUseModal({ chargeValue, char, featureName, onConf
           } else {
             const newBuff = {
               id: String(Date.now()) + '_' + Math.random().toString(36).slice(2, 7),
-              source: buffName,
+              source: featureName || buffName,
               effects: modules.map((m) => ({ ...m })),
               enabled: true,
               sourceKind: 'temporary',
