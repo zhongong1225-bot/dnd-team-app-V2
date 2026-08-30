@@ -583,9 +583,9 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
   }
 
   return (
-    <div className="mt-1.5 space-y-1">
-      {/* 种族 + 背景按钮行 */}
-      <div className="flex items-center gap-1.5 flex-wrap">
+    <div className="mt-2 space-y-2">
+      {/* 种族 + 背景按钮行（2格均匀分布） */}
+      <div className="flex items-center justify-between">
         {/* 种族按钮 */}
         <button type="button" onClick={() => {
           const rName = raceCard.customName || selectedRace?.name || ''
@@ -617,42 +617,46 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
         </button>
       </div>
 
-      {/* 基础信息（常驻，无框） */}
+      {/* 基础信息（每行均匀分布，左右对齐） */}
       {raceCard.raceId && (
-        <div className="space-y-0.5">
-          <div className="flex items-center gap-3 flex-wrap">
-            <label className="flex items-center gap-1 text-xs text-gray-400">
-              移速
+        <div className="space-y-2">
+          {/* 移速 / 体型 / 视觉 行（3格均匀分布） */}
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-1.5 text-xs text-gray-400">
+              <span className="shrink-0 w-8 text-right">移速</span>
               <input type="text" inputMode="numeric" value={raceBaseInfo.speed ?? 30}
                 onChange={(e) => updateRaceBaseInfo({ speed: Number(e.target.value) || 0 })}
                 className={txtCls} />
-              <span className="text-gray-500">尺</span>
+              <span className="text-gray-500 shrink-0">尺</span>
             </label>
-            <label className="flex items-center gap-1 text-xs text-gray-400">
-              体型
+            <label className="flex items-center gap-1.5 text-xs text-gray-400">
+              <span className="shrink-0 w-8 text-right">体型</span>
               <select value={raceBaseInfo.size || 'medium'} onChange={(e) => updateRaceBaseInfo({ size: e.target.value })}
                 className="px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
                 {CREATURE_SIZES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </label>
-            <span className="text-xs text-gray-400">视觉</span>
-            <select value={raceBaseInfo.vision?.type || ''}
-              onChange={(e) => updateRaceBaseInfo({ vision: e.target.value ? { type: e.target.value, range: raceBaseInfo.vision?.range || 60 } : null })}
-              className="px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
-              <option value="">无</option>
-              {SPECIAL_SENSES_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
-            {raceBaseInfo.vision?.type && (
-              <label className="flex items-center gap-1 text-xs text-gray-400">
-                <input type="text" inputMode="numeric" value={raceBaseInfo.vision.range ?? 60}
-                  onChange={(e) => updateRaceBaseInfo({ vision: { ...raceBaseInfo.vision, range: Number(e.target.value) || 0 } })}
-                  className={txtCls} />
-                <span className="text-gray-500">尺</span>
-              </label>
-            )}
+            <div className="flex items-center gap-1.5 text-xs text-gray-400">
+              <span className="shrink-0 w-8 text-right">视觉</span>
+              <select value={raceBaseInfo.vision?.type || ''}
+                onChange={(e) => updateRaceBaseInfo({ vision: e.target.value ? { type: e.target.value, range: raceBaseInfo.vision?.range || 60 } : null })}
+                className="px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+                <option value="">无</option>
+                {SPECIAL_SENSES_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+              {raceBaseInfo.vision?.type && (
+                <>
+                  <input type="text" inputMode="numeric" value={raceBaseInfo.vision.range ?? 60}
+                    onChange={(e) => updateRaceBaseInfo({ vision: { ...raceBaseInfo.vision, range: Number(e.target.value) || 0 } })}
+                    className={txtCls} />
+                  <span className="text-gray-500 shrink-0">尺</span>
+                </>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-xs text-gray-400">属性提高</span>
+          {/* 属性提高行（7格均匀分布） */}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-gray-400 shrink-0">属性提高</span>
             {['str', 'dex', 'con', 'int', 'wis', 'cha'].map((key) => (
               <label key={key} className="flex items-center gap-1 text-xs text-gray-400">
                 <span className="w-4 text-center text-[11px]">{ASI_LABELS[key]}</span>
@@ -3707,51 +3711,50 @@ export default function CharacterSheet() {
               <CreatureSimpleBlock char={char} canEdit={canEdit} onSave={persist} />
             ) : (
               <>
-                {/* 代号 & 角色名（全宽，在网格上方） */}
-                <div className="form-group-compact">
-                  <label className="form-label">代号（可选）</label>
-                  {canEdit ? (
-                    <input
-                      type="text"
-                      value={editingCodename !== null ? editingCodename : (char.codename ?? '')}
-                      onChange={(e) => setEditingCodename(e.target.value)}
-                      onFocus={() => { if (editingCodename === null) setEditingCodename(char.codename ?? '') }}
-                      onBlur={() => {
-                        const value = (editingCodename !== null ? editingCodename : char.codename ?? '').trim() || undefined
-                        persist({ codename: value })
-                        setEditingCodename(null)
-                      }}
-                      placeholder="区分同名角色"
-                      className="input-thin w-full text-[var(--text-muted)] text-lg"
-                    />
-                  ) : (
-                    <p className="text-[var(--text-muted)] text-lg break-words">{char.codename || '—'}</p>
-                  )}
-                </div>
-                <div className="form-group-compact">
-                  <label className="form-label">角色名</label>
-                  {canEdit ? (
-                    <NameInput
-                      ref={nameInputRef}
-                      value={editingName !== null ? editingName : (char.name ?? '')}
-                      onChange={(e) => setEditingName(e.target.value)}
-                      onFocus={() => { if (editingName === null) setEditingName(char.name ?? '') }}
-                      onBlur={() => {
-                        const value = (editingName ?? char.name ?? '').trim() || '未命名'
-                        persist({ name: value })
-                        setEditingName(null)
-                      }}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur() } }}
-                      className="input-thin w-full font-bold text-2xl sm:text-3xl text-[var(--text-main)] py-1 break-words leading-tight"
-                    />
-                  ) : (
-                    <p className="text-2xl sm:text-3xl font-bold text-[var(--text-main)] break-words leading-tight" style={{ fontWeight: 700 }}>{char.name || '未命名'}</p>
-                  )}
-                </div>
-                {/* 左：外观/基础 + 种族背景 | 右：头像（四边对齐） */}
+                {/* 左列：代号+角色名+外观 | 右列：头像（顶部对齐角色名） */}
                 <div className="grid grid-cols-1 lg:grid-cols-[1fr_500px] lg:gap-3">
-                  <div className="min-w-0 flex flex-col gap-1">
-                    <h3 className="profile-section-title mt-0 mb-0.5">外观 / 基础</h3>
+                  <div className="min-w-0">
+                    <div className="form-group-compact">
+                      <label className="form-label">代号（可选）</label>
+                      {canEdit ? (
+                        <input
+                          type="text"
+                          value={editingCodename !== null ? editingCodename : (char.codename ?? '')}
+                          onChange={(e) => setEditingCodename(e.target.value)}
+                          onFocus={() => { if (editingCodename === null) setEditingCodename(char.codename ?? '') }}
+                          onBlur={() => {
+                            const value = (editingCodename !== null ? editingCodename : char.codename ?? '').trim() || undefined
+                            persist({ codename: value })
+                            setEditingCodename(null)
+                          }}
+                          placeholder="区分同名角色"
+                          className="input-thin w-full text-[var(--text-muted)] text-lg"
+                        />
+                      ) : (
+                        <p className="text-[var(--text-muted)] text-lg break-words">{char.codename || '—'}</p>
+                      )}
+                    </div>
+                    <div className="form-group-compact">
+                      <label className="form-label">角色名</label>
+                      {canEdit ? (
+                        <NameInput
+                          ref={nameInputRef}
+                          value={editingName !== null ? editingName : (char.name ?? '')}
+                          onChange={(e) => setEditingName(e.target.value)}
+                          onFocus={() => { if (editingName === null) setEditingName(char.name ?? '') }}
+                          onBlur={() => {
+                            const value = (editingName ?? char.name ?? '').trim() || '未命名'
+                            persist({ name: value })
+                            setEditingName(null)
+                          }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur() } }}
+                          className="input-thin w-full font-bold text-2xl sm:text-3xl text-[var(--text-main)] py-1 break-words leading-tight"
+                        />
+                      ) : (
+                        <p className="text-2xl sm:text-3xl font-bold text-[var(--text-main)] break-words leading-tight" style={{ fontWeight: 700 }}>{char.name || '未命名'}</p>
+                      )}
+                    </div>
+                    <h3 className="profile-section-title mt-2 mb-0.5">外观 / 基础</h3>
                     <AppearanceGrid char={char} canEdit={canEdit} onSave={persist} noBorder compact />
                     <RaceBackgroundInline char={char} canEdit={canEdit} onSave={persist}
                       raceBuffEditorOpen={raceBuffEditorOpen} setRaceBuffEditorOpen={setRaceBuffEditorOpen}
@@ -3761,7 +3764,7 @@ export default function CharacterSheet() {
                     <AvatarFrame char={char} canEdit={canEdit} onSave={persist} large />
                   </div>
                 </div>
-                {/* 人物背景故事（全宽固定高度） */}
+                {/* 人物背景故事（全宽，左右与上方对齐） */}
                 <div className="mt-3">
                   <h3 className="profile-section-title mt-0 mb-1">人物背景故事</h3>
                   <div className="h-[120px]">

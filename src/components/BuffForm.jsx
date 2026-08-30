@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from 'react'
 import { Trash2, Plus, ChevronDown, Database, X, Pencil } from 'lucide-react'
 import { getEffectSummaryShort } from './BuffListItem'
-import ModeSelectionModal from './ModeSelectionModal'
 import {
   BUFF_TYPES,
   getCategories,
@@ -4793,27 +4792,6 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
     const resolved = resolveInitialSourceKind(initial, defaultSourceKind)
     return sourceKindOptions.some((o) => o.key === resolved) ? resolved : normalizeBuffSourceKindKey(defaultSourceKind ?? 'adventure')
   })
-  
-  /** 模式选择弹窗显示状态：空卡首次配置时显示 */
-  const [showModeSelection, setShowModeSelection] = useState(() => {
-    // 如果没有任何 effects 且没有 modeSelected 标记，显示模式选择
-    // modeSelected 用于区分"从未配置"和"已清空所有效果"
-    return (!initial?.effects || initial.effects.length === 0) && !initial?.modeSelected
-  })
-
-  /** 造成能量下拉（Location A: 释放效果按钮行） */
-  const [energyDropdownAOpen, setEnergyDropdownAOpen] = useState(false)
-  const energyDropdownARef = useRef(null)
-  useEffect(() => {
-    if (!energyDropdownAOpen) return
-    const handler = (e) => {
-      if (energyDropdownARef.current && !energyDropdownARef.current.contains(e.target)) {
-        setEnergyDropdownAOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [energyDropdownAOpen])
 
   const sourceListId = useMemo(() => 'buff-source-options-' + Math.random().toString(36).slice(2, 9), [])
   /** 用于效果简写求值与内含法术 DC/法攻/充能显示 */
@@ -4824,12 +4802,13 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
     useWandScrollTable,
   }), [referenceData, spellDC, spellAttackBonus, useWandScrollTable])
   // custom_text 纯描述性效果无实际功能，过滤掉避免显示在编辑器中
-  // charge_item 属于主动释放效果，不应出现在被动模式中（由 activeChargeData 管理）
   const filteredInitial = Array.isArray(initial?.effects)
-    ? { ...initial, effects: initial.effects.filter(e => e.effectType !== 'custom_text' && e.effectType !== 'charge_item') }
+    ? { ...initial, effects: initial.effects.filter(e => e.effectType !== 'custom_text') }
     : initial
-  
+
   const [effectModules, setEffectModules] = useState(() => normalizeInitialEffects(filteredInitial))
+  /** 初始效果 ID 集合，用于判断新建 vs 编辑 */
+  const _initIdsRef = useRef(new Set(effectModules.map(m => m.id)))
   /** 行内效果类型选择器开关 */
   const [showEffectPicker, setShowEffectPicker] = useState(false)
   const [pickerCategory, setPickerCategory] = useState('ability')
@@ -4846,7 +4825,7 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
       effectType: effectKey,
       scope: SCOPE_KIND.global,
       scopeDetail: [],
-      value: 0,
+      value: effectKey === 'charge_item' ? normalizeChargeItemValue({}) : 0,
       break20: {},
       customText: '',
     }
@@ -4855,32 +4834,16 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
     // 添加后自动打开行内编辑
     setEditingModuleId(newMod.id)
   }
-  /** 主动释放区域显示开关 */
-  const _initEffects = Array.isArray(initial?.effects) ? initial.effects : []
-  const [showActiveRelease, setShowActiveRelease] = useState(() => {
-    return _initEffects.some((e) => e.effectType === 'charge_item')
-  })
-  /** 主动模式的充能物品数据 */
-  const [activeChargeData, setActiveChargeData] = useState(() => {
-    const chargeEffect = _initEffects.find((e) => e.effectType === 'charge_item')
-    if (chargeEffect?.value && typeof chargeEffect.value === 'object') {
-      return normalizeChargeItemValue(chargeEffect.value)
-    }
-    return normalizeChargeItemValue({})
-  })
-  
-  /** Tab模式：'passive' | 'active' */
-  const [editMode, setEditMode] = useState(() => {
-    // 如果已有charge_item效果，默认进入主动模式；否则进入被动模式
-    return _initEffects.some((e) => e.effectType === 'charge_item') ? 'active' : 'passive'
-  })
 
   const handleSubmit = (e) => {
     e.preventDefault()
     if (!source.trim()) return
     const catDataByKey = BUFF_TYPES
-    // 被动效果
-    const passiveEffects = effectModules.map((mod) => {
+    const effects = effectModules.map((mod) => {
+      // charge_item 直接保存 value 对象
+      if (mod.effectType === 'charge_item') {
+        return { category: 'active_release', effectType: 'charge_item', scope: 'global', scopeDetail: [], value: { ...mod.value } }
+      }
       const catData = catDataByKey[mod.category]
       const effList = catData?.effects ?? []
       const effectType = effList.some((e) => e.key === mod.effectType) ? mod.effectType : (effList[0]?.key ?? '')
@@ -4897,23 +4860,12 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
       }
       return out
     }).filter((ef) => ef.effectType)
-    // 主动释放效果：从 activeChargeData 构造 charge_item
-    const activeEffects = (activeChargeData.effects?.length > 0)
-      ? [{ category: 'active_release', effectType: 'charge_item', scope: 'global', scopeDetail: [], value: { ...activeChargeData } }]
-      : []
-    // 去重：如果主动模式有 charge_item，则从被动效果中移除所有 charge_item（避免重复）
-    const passiveEffectsFiltered = activeEffects.length > 0
-      ? passiveEffects.filter(ef => ef.effectType !== 'charge_item')
-      : passiveEffects
-    const effects = [...passiveEffectsFiltered, ...activeEffects]
     const payload = {
       ...initial,
       source: source.trim(),
       duration: duration?.type ? duration : (duration || undefined),
       effects,
       enabled: initial?.enabled !== false,
-      // 标记已完成模式选择，避免下次打开再次弹窗
-      modeSelected: effects.length > 0 ? true : (initial?.modeSelected || false),
     }
     if (!initial?.fromFeat && !initial?.fromItem) {
       payload.sourceKind = normalizeBuffSourceKindKey(sourceKind)
@@ -4934,19 +4886,6 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
   const removeModule = (id) => {
     setEffectModules(prev => prev.filter(m => m.id !== id))
     if (editingModuleId === id) setEditingModuleId(null)
-  }
-
-  /** 首次配置时显示模式选择弹窗 */
-  if (showModeSelection) {
-    return (
-      <ModeSelectionModal 
-        onSelect={(mode) => {
-          setEditMode(mode);
-          setShowModeSelection(false);
-        }}
-        onCancel={onCancel}
-      />
-    );
   }
 
   return (
@@ -4978,91 +4917,7 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
       </div>
       )}
 
-      {/* ── 模式切换 Tab ─ */}
-      <div className="flex items-center gap-1 mb-2 border-b border-gray-700 pb-1">
-        <button
-          type="button"
-          onClick={() => setEditMode('passive')}
-          className={`px-2 py-1 text-xs transition-colors ${
-            editMode === 'passive'
-              ? 'text-white border-b-2 border-white'
-              : 'text-gray-500 hover:text-gray-400'
-          }`}
-        >
-          被动效果
-        </button>
-        <button
-          type="button"
-          onClick={() => setEditMode('active')}
-          className={`px-2 py-1 text-xs transition-colors ${
-            editMode === 'active'
-              ? 'text-white border-b-2 border-white'
-              : 'text-gray-500 hover:text-gray-400'
-          }`}
-        >
-          主动释放
-        </button>
-      </div>
-
-      {/* ── 标签页内容区（固定高度，内部滚动，标签不动） ── */}
-      <div className="h-[340px] overflow-y-auto">
-
-      {/* ══════ 主动模式：ActiveCardEditor ══════ */}
-      {editMode === 'active' && (
-        <ActiveCardEditor
-          data={activeChargeData}
-          onChange={setActiveChargeData}
-          duration={duration}
-          onDurationChange={setDuration}
-          charResources={charResources}
-          spellSlots={spellSlots}
-          renderEffects={() => (
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-gray-400 text-[10px]">释放效果</span>
-                <div className="flex items-center gap-1 flex-wrap">
-                  <div className="relative" ref={energyDropdownARef}>
-                    <button type="button" onClick={() => setEnergyDropdownAOpen(!energyDropdownAOpen)} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center" title="造成能量">⚡ 造成能量 ▾</button>
-                    {energyDropdownAOpen && (
-                      <div className="absolute left-0 top-[calc(100%+4px)] min-w-[100px] bg-[#1e2836] border border-white/10 rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.4)] z-[100] overflow-hidden">
-                        <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('damage')] })); setEnergyDropdownAOpen(false) }} className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/[0.06] w-full text-left transition-colors">
-                          <span className="text-red-400">⚔</span> 伤害
-                        </button>
-                        <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('heal')] })); setEnergyDropdownAOpen(false) }} className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/[0.06] w-full text-left transition-colors">
-                          <span className="text-green-400">✚</span> 治疗
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('spell')] })) }} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 法术</button>
-                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('temp_buff')] })) }} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 增益</button>
-                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('shield')] })) }} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 护盾</button>
-                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('creature_transform')] })) }} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 变身</button>
-                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('restore_spell_slots')] })) }} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 环位恢复</button>
-                  <button type="button" onClick={() => { const effs = activeChargeData.effects || []; setActiveChargeData(prev => ({ ...prev, effects: [...effs, createChargeEffectEntry('summon')] })) }} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 召唤</button>
-                </div>
-              </div>
-              {(activeChargeData.effects || []).length === 0 && (
-                <p className="text-gray-500 text-[10px]">点击上方按钮添加释放效果</p>
-              )}
-              <ActiveEffectsList
-                data={activeChargeData}
-                onChange={setActiveChargeData}
-                spellDC={spellDC}
-                spellAttackBonus={spellAttackBonus}
-                useWandScrollTable={useWandScrollTable}
-                referenceData={referenceData}
-                baseReferenceData={baseReferenceData}
-                subordinates={subordinates}
-              />
-            </div>
-          )}
-        />
-      )}
-
-      {/* ══════ 被动模式：传统附魔效果编辑器 ══════ */}
-      {editMode === 'passive' && (
-      <>
+      {/* ══════ 统一效果编辑器 ══════ */}
       {!compact && (
       <div>
         <label className="block text-gray-300 text-xs mb-1">来源归类</label>
@@ -5121,7 +4976,6 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
               className="h-7 px-1.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-[10px] cursor-pointer shrink-0"
             >
               {Object.entries(BUFF_TYPES)
-                .filter(([k]) => k !== 'active_release')
                 .map(([k, v]) => (
                   <option key={k} value={k}>{v.label}</option>
                 ))}
@@ -5161,9 +5015,11 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
               const displayLabel = summary && summary !== rawLabel && summary !== '未选择效果' ? summary : rawLabel
               const isEditing = editingModuleId === mod.id
               // 判断是否为新建效果（刚添加，尚未保存过）
-              const isNewEffect = !_initEffects.some((e) => e.effectType === mod.effectType && JSON.stringify(e.value) === JSON.stringify(mod.value))
+              const isNewEffect = !_initIdsRef.current.has(mod.id)
               // 判断效果是否配置完整（有 value 且不为默认值）
               const isIncomplete = !mod.value || (typeof mod.value === 'number' && mod.value === 0) || (typeof mod.value === 'object' && Object.keys(mod.value).length === 0)
+              const isChargeItem = mod.effectType === 'charge_item'
+              const chargeData = isChargeItem ? normalizeChargeItemValue(mod.value) : null
               
               return (
                 <div key={mod.id}>
@@ -5179,6 +5035,13 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
                     }`}
                   >
                     <div className="min-w-0 flex-1 flex items-center gap-1.5">
+                      <span className={`text-[9px] px-1 py-0.5 rounded shrink-0 font-medium ${
+                        isChargeItem
+                          ? 'text-amber-400 bg-amber-500/10'
+                          : 'text-blue-400 bg-blue-500/10'
+                      }`}>
+                        {isChargeItem ? '主' : '被'}
+                      </span>
                       {isCustomText && (
                         <span className="text-[9px] text-gray-500 bg-gray-700/50 px-1 py-0.5 rounded shrink-0">文案</span>
                       )}
@@ -5227,6 +5090,8 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
                         </button>
                       </div>
                       
+                      {!isChargeItem && (
+                      <>
                       <div className="flex items-center gap-1.5">
                         <select
                           value={mod.category || ''}
@@ -5237,7 +5102,6 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
                           className="h-7 px-1.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-[10px] cursor-pointer shrink-0"
                         >
                           {Object.entries(BUFF_TYPES)
-                            .filter(([k]) => k !== 'active_release')
                             .map(([k, v]) => (
                               <option key={k} value={k}>{v.label}</option>
                             ))}
@@ -5268,7 +5132,51 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
                       {mod.effectType && (
                         <ScopeEditor scope={mod.scope} scopeDetail={mod.scopeDetail} onChange={(next) => updateModule(mod.id, next)} />
                       )}
-                      {currentEffect && (
+                      </>
+                      )}
+                      {isChargeItem ? (
+                        <ActiveCardEditor
+                          data={chargeData}
+                          onChange={(next) => updateModule(mod.id, { value: normalizeChargeItemValue(next) })}
+                          duration={duration}
+                          onDurationChange={setDuration}
+                          charResources={charResources}
+                          spellSlots={spellSlots}
+                          renderEffects={() => {
+                            const addChargeEffect = (type) => updateModule(mod.id, { value: normalizeChargeItemValue({ ...chargeData, effects: [...(chargeData.effects || []), createChargeEffectEntry(type)] }) })
+                            return (
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-gray-400 text-[10px]">释放效果</span>
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  <button type="button" onClick={() => addChargeEffect('damage')} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">⚔ 伤害</button>
+                                  <button type="button" onClick={() => addChargeEffect('heal')} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">✚ 治疗</button>
+                                  <button type="button" onClick={() => addChargeEffect('spell')} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 法术</button>
+                                  <button type="button" onClick={() => addChargeEffect('temp_buff')} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 增益</button>
+                                  <button type="button" onClick={() => addChargeEffect('shield')} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 护盾</button>
+                                  <button type="button" onClick={() => addChargeEffect('creature_transform')} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 变身</button>
+                                  <button type="button" onClick={() => addChargeEffect('restore_spell_slots')} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 环位恢复</button>
+                                  <button type="button" onClick={() => addChargeEffect('summon')} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 召唤</button>
+                                </div>
+                              </div>
+                              {(chargeData.effects || []).length === 0 && (
+                                <p className="text-gray-500 text-[10px]">点击上方按钮添加释放效果</p>
+                              )}
+                              <ActiveEffectsList
+                                data={chargeData}
+                                onChange={(next) => updateModule(mod.id, { value: normalizeChargeItemValue(next) })}
+                                spellDC={spellDC}
+                                spellAttackBonus={spellAttackBonus}
+                                useWandScrollTable={useWandScrollTable}
+                                referenceData={referenceData}
+                                baseReferenceData={baseReferenceData}
+                                subordinates={subordinates}
+                              />
+                            </div>
+                            )
+                          }}
+                        />
+                      ) : currentEffect && (
                         <EffectValueEditor
                           module={{ ...mod }}
                           onChange={(next) => updateModule(mod.id, next)}
@@ -5310,10 +5218,6 @@ export default function BuffForm({ initial, onSave, onCancel, onClear, defaultSo
           )}
         </div>
       </div>
-      </>
-      )}
-
-      </div>{/* ── /标签页内容区 ── */}
 
 
 
@@ -5485,7 +5389,6 @@ function EffectModuleModal({
           className="h-7 px-1.5 rounded border border-amber-500/30 bg-dnd-bg text-amber-300 text-[10px] cursor-pointer shrink-0"
         >
           {Object.entries(BUFF_TYPES)
-            .filter(([k]) => k !== 'active_release')
             .map(([k, v]) => (
               <option key={k} value={k}>{v.label}</option>
             ))}
