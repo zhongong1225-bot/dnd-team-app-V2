@@ -583,8 +583,8 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
   }
 
   return (
-    <div className="mt-2 space-y-2">
-      {/* 种族 + 背景按钮行（2格均匀分布） */}
+    <div className="mt-2 flex flex-col gap-2">
+      {/* 种族 + 背景按钮行 */}
       <div className="flex items-center justify-between">
         {/* 种族按钮 */}
         <button type="button" onClick={() => {
@@ -617,30 +617,30 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
         </button>
       </div>
 
-      {/* 基础信息（每行均匀分布，左右对齐） */}
+      {/* 基础信息 */}
       {raceCard.raceId && (
-        <div className="space-y-2">
-          {/* 移速 / 体型 / 视觉 行（3格均匀分布） */}
+        <div>
+          {/* 移速 / 体型 / 视觉 */}
           <div className="flex items-center justify-between">
-            <label className="flex items-center gap-1.5 text-xs text-gray-400">
-              <span className="shrink-0 w-8 text-right">移速</span>
+            <label className="flex items-center gap-1 text-xs text-gray-400 bg-white/[0.03] rounded-md px-1.5 py-0.5">
+              <span className="shrink-0 w-7 text-right text-[11px]">移速</span>
               <input type="text" inputMode="numeric" value={raceBaseInfo.speed ?? 30}
                 onChange={(e) => updateRaceBaseInfo({ speed: Number(e.target.value) || 0 })}
                 className={txtCls} />
-              <span className="text-gray-500 shrink-0">尺</span>
+              <span className="text-gray-500 shrink-0 text-[11px]">尺</span>
             </label>
-            <label className="flex items-center gap-1.5 text-xs text-gray-400">
-              <span className="shrink-0 w-8 text-right">体型</span>
+            <label className="flex items-center gap-1 text-xs text-gray-400 bg-white/[0.03] rounded-md px-1.5 py-0.5">
+              <span className="shrink-0 w-7 text-right text-[11px]">体型</span>
               <select value={raceBaseInfo.size || 'medium'} onChange={(e) => updateRaceBaseInfo({ size: e.target.value })}
-                className="px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+                className="px-1 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
                 {CREATURE_SIZES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </label>
-            <div className="flex items-center gap-1.5 text-xs text-gray-400">
-              <span className="shrink-0 w-8 text-right">视觉</span>
+            <div className="flex items-center gap-1 text-xs text-gray-400 bg-white/[0.03] rounded-md px-1.5 py-0.5">
+              <span className="shrink-0 w-7 text-right text-[11px]">视觉</span>
               <select value={raceBaseInfo.vision?.type || ''}
                 onChange={(e) => updateRaceBaseInfo({ vision: e.target.value ? { type: e.target.value, range: raceBaseInfo.vision?.range || 60 } : null })}
-                className="px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+                className="px-1 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
                 <option value="">无</option>
                 {SPECIAL_SENSES_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
@@ -649,17 +649,17 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                   <input type="text" inputMode="numeric" value={raceBaseInfo.vision.range ?? 60}
                     onChange={(e) => updateRaceBaseInfo({ vision: { ...raceBaseInfo.vision, range: Number(e.target.value) || 0 } })}
                     className={txtCls} />
-                  <span className="text-gray-500 shrink-0">尺</span>
+                  <span className="text-gray-500 shrink-0 text-[11px]">尺</span>
                 </>
               )}
             </div>
           </div>
-          {/* 属性提高行（7格均匀分布） */}
+          {/* 属性提高 */}
           <div className="flex items-center justify-between">
-            <span className="text-xs text-gray-400 shrink-0">属性提高</span>
+            <span className="text-xs text-gray-400 shrink-0 bg-white/[0.03] rounded-md px-1.5 py-0.5 text-[11px]">属性提高</span>
             {['str', 'dex', 'con', 'int', 'wis', 'cha'].map((key) => (
-              <label key={key} className="flex items-center gap-1 text-xs text-gray-400">
-                <span className="w-4 text-center text-[11px]">{ASI_LABELS[key]}</span>
+              <label key={key} className="flex items-center gap-0.5 text-xs text-gray-400 bg-white/[0.03] rounded-md px-1.5 py-0.5">
+                <span className="w-3.5 text-center text-[10px] font-semibold">{ASI_LABELS[key]}</span>
                 <input type="text" inputMode="numeric" value={asi[key] || 0}
                   onChange={(e) => updateRaceBaseInfo({ abilityScoreIncrease: { ...asi, [key]: Number(e.target.value) || 0 } })}
                   className={txtCls} />
@@ -1828,7 +1828,11 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
     })
   }
 
-  const available = useMemo(() => getAvailableFeatures(char), [char])
+  const available = useMemo(() => {
+    const feats = getAvailableFeatures(char)
+    // 过滤掉子职选择占位特性（职业等级区域已有子职选择器，此处冗余）
+    return feats.filter((f) => !SUBCLASS_SELECTION_FEATURE_IDS.has(f.id))
+  }, [char])
   if (available.length === 0) return null
   return (
     <SlotPanel
@@ -2887,7 +2891,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId }) {
     if (Array.isArray(char?.prestige)) setPrestige(char.prestige.map((p) => ({ 'class': p?.['class'] ?? '', level: Math.max(0, Math.min(20, Number(p?.level) ?? 0)) })))
     else if (char?.prestigeClass) setPrestige([{ 'class': char.prestigeClass, level: Math.max(0, Math.min(20, Number(char.prestigeLevel) ?? 0)) }])
     else setPrestige([])
-  }, [char?.id])
+  }, [char?.id, char?.subclass])
   const prestigeLevelSum = prestige.reduce((s, p) => s + (p.level || 0), 0)
   const totalClassLevels = classLevel + multiclass.reduce((s, m) => s + (m.level || 0), 0) + prestigeLevelSum
   const overCap = totalClassLevels > maxLevel
