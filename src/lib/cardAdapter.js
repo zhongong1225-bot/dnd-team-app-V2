@@ -265,7 +265,14 @@ export function buildCardsFromCharacter(character, moduleId) {
   }
 
   // 6. 手动 BUFF → buff 卡（排除 fromClassFeature 条目，它们是虚拟的）
-  const manualBuffs = (character.buffs ?? []).filter((b) => !b.fromClassFeature)
+  // 同时排除与种族卡重复的条目（避免同一来源在多个分栏显示）
+  const raceCardName = raceCard?.customName || (raceCard?.raceId === 'custom' ? 'custom-race' : raceCard?.raceId)
+  const manualBuffs = (character.buffs ?? []).filter((b) => {
+    if (b.fromClassFeature) return false
+    // 跳过与种族卡名称相同的手动 BUFF（防止重复显示）
+    if (raceCardName && b.source === raceCardName) return false
+    return true
+  })
   for (const b of manualBuffs) {
     cards.push(normalizeCard(createCard(SLOT_KIND.buff, {
       id: b.id,

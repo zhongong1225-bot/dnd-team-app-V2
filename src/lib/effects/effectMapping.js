@@ -457,6 +457,20 @@ export function getBuffsFromClassFeatures(character, moduleId) {
         const choiceResult = getChoiceEffects(buffKey, classFeatureChoices)
         if (choiceResult) effects = choiceResult.effects
       }
+      // 过滤掉没有实际数值的效果（如 ability_score_uncapped 值为 0 或全 0 对象）
+      effects = effects.filter((e) => {
+        if (!e || !e.effectType) return true // 保留无效结构，让下游处理
+        // ability_score_uncapped / ability_override：值为 0 或全 0 对象视为空
+        if (e.effectType === 'ability_score_uncapped' || e.effectType === 'ability_override') {
+          const v = e.value
+          if (v == null || v === 0) return false
+          if (typeof v === 'object' && !Array.isArray(v)) {
+            const hasNonZero = Object.values(v).some((val) => val != null && val !== 0)
+            return hasNonZero
+          }
+        }
+        return true
+      })
       // 注入主动技能（即使无被动效果也保留条目）
       // 优先级：DM 补丁配置 > 空数组（不再依赖硬编码默认）
       const patchAbilities = Array.isArray(defaultPatch?.activeAbilities) ? defaultPatch.activeAbilities : []
