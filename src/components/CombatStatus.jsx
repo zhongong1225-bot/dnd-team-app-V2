@@ -717,13 +717,38 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const ab = buffStats?.abilities ?? {}
     const prev = classResourcesRef.current
 
-    let next = prev.map((r) => ({ ...r }))
-    let changed = false
+    // 收集当前角色状态下所有合法的资源 key（用于清理过期资源）
+    const validKeys = new Set()
+    for (const cls of classes) {
+      const rules = getAutoResources([cls])
+      for (const r of rules) {
+        if (r.classKey !== '_global') validKeys.add(r.resourceKey)
+      }
+    }
+    // 全局资源
+    for (const r of RESOURCE_RULES) {
+      if (r.classKey === '_global' && r.recovery !== 'none') validKeys.add(r.resourceKey)
+    }
+    // 专长资源
+    const selectedFeatIds = new Set((char?.selectedFeats || []).map((f) => f?.featId).filter(Boolean))
+    for (const r of RESOURCE_RULES) {
+      if (r.classKey === '_feat' && r.recovery !== 'none' && selectedFeatIds.has(r.featId)) {
+        validKeys.add(r.resourceKey)
+      }
+    }
 
+    // 先清理：移除不在合法集合中的自动资源（保留手动添加的无 resourceKey 资源）
+    let next = prev.filter((r) => {
+      if (!r.resourceKey) return true // 手动添加的无 key 资源保留
+      if (validKeys.has(r.resourceKey)) return true
+      return false // 过期资源（子职变更/等级不足/规则已删除）
+    })
+    let changed = next.length !== prev.length
+
+    // 再填充/更新
     for (const cls of classes) {
       const rules = getAutoResources([cls])
       for (const rule of rules) {
-        // 全局资源跳过（在下方单独处理）
         if (rule.classKey === '_global') continue
         const ctx = { classLevel: cls.level, totalLevel, abilities: ab }
         const newMax = computeResourceMax(rule, ctx)
@@ -760,7 +785,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     }
 
     // 专长资源：根据角色拥有的专长自动填充
-    const selectedFeatIds = new Set((char?.selectedFeats || []).map((f) => f?.featId).filter(Boolean))
     const featRules = RESOURCE_RULES.filter((r) => r.classKey === '_feat' && r.recovery !== 'none')
     for (const rule of featRules) {
       if (!selectedFeatIds.has(rule.featId)) continue
@@ -788,7 +812,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         ...(r.diceType ? { diceType: r.diceType } : {}),
       })) })
     }
-  }, [char?.id, char?.['class'], char?.classLevel, char?.multiclass, char?.prestige, char?.selectedFeats, buffStats?.abilities])
+  }, [char?.id, char?.['class'], char?.classLevel, char?.subclass, char?.multiclass, char?.prestige, char?.selectedFeats, buffStats?.abilities])
 
   useEffect(() => {
     const arr = Array.isArray(char?.combatMeans) ? char.combatMeans : []
@@ -1809,7 +1833,10 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const speedPenalty = buffStats?.speedExhaustionPenalty ?? 0
   const speed = Math.max(0, Math.floor(speedBase * (buffStats?.speedMultiplier ?? 1)) - speedPenalty)
   const swimSpeed = Math.max(0, Math.floor((buffStats?.swimSpeedBonus ?? 0) * (buffStats?.speedMultiplier ?? 1)))
-  const climbSpeed = Math.max(0, Math.floor((buffStats?.climbSpeedBonus ?? 0) * (buffStats?.speedMultiplier ?? 1)))
+  const climbSpeedBonus = buffStats?.climbSpeedBonus ?? 0
+  const climbSpeed = climbSpeedBonus > 0
+    ? Math.max(0, Math.floor(climbSpeedBonus * (buffStats?.speedMultiplier ?? 1)))
+    : speed // 无独立攀爬速度时，攀爬 = 增益后步行速度
   const flySpeed = Math.max(0, Math.floor((buffStats?.flightSpeed ?? 0) * (buffStats?.speedMultiplier ?? 1)))
 
   const dsResults = deathSaves.results?.length === DEATH_SAVE_COUNT ? deathSaves.results : getDefaultDeathSaves().results

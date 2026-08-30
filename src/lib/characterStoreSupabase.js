@@ -3,6 +3,7 @@
  * 由 characterStore 在启用 Supabase 时调用
  */
 import { supabase } from './supabase'
+import { mergeCharacterPatch } from './mergeCharacterPatch'
 
 const TABLE = 'characters'
 
@@ -83,7 +84,7 @@ export async function updateCharacterRow(id, patch) {
   const { data: row, error } = await supabase.from(TABLE).select('*').eq('id', id).maybeSingle()
   if (error || !row) return null
   const current = rowToCharacter(row)
-  const merged = { ...current, ...patch, updatedAt: new Date().toISOString() }
+  const merged = mergeCharacterPatch(current, { ...patch, updatedAt: new Date().toISOString() })
   const { id: _id, owner, moduleId, createdAt, updatedAt, ...data } = merged
   const { error: updateErr } = await supabase.from(TABLE).update({ data, updated_at: merged.updatedAt }).eq('id', id)
   if (updateErr) throw updateErr

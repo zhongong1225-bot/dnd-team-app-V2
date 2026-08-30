@@ -23,6 +23,7 @@ export default function BuffEditorModal({
   description,
   zIndex = 300,
   plain,
+  wide,
   buffFormProps,
 }) {
   if (!open) return null
@@ -41,12 +42,12 @@ export default function BuffEditorModal({
         onClick={onClose}
       >
         {plain ? (
-          <div className="w-full max-w-3xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+          <div className={`w-full ${wide ? 'max-w-5xl' : 'max-w-3xl'} max-h-[90vh] overflow-auto`} onClick={(e) => e.stopPropagation()}>
             <BuffForm {...buffFormProps} onCancel={onClose} />
           </div>
         ) : (
           <div
-            className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl"
+            className={`w-full ${wide ? 'max-w-5xl' : 'max-w-3xl'} max-h-[90vh] overflow-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl`}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-4 border-b border-white/10">

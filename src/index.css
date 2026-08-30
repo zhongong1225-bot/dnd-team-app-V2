@@ -446,9 +446,9 @@ select option {
 /* 角色卡等页面：区块标题暖金色（强化层级） */
 .section-title {
   color: var(--text-title);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 800;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.35rem;
   letter-spacing: 0.06em;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 8px rgba(199, 154, 66, 0.15);
 }
@@ -470,14 +470,14 @@ select option {
 
 /* 模块面板：与法术卡同系外投影 + 内高光（与 tailwind shadow-dnd-card 一致） */
 .module-panel {
-  /* 背景加深约 10%，叠加轻微纹理与高光，提升“轻质感” */
+  /* 背景加深约 10%，叠加轻微纹理与高光，提升”轻质感” */
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.025) 0%, rgba(255, 255, 255, 0.008) 100%),
     radial-gradient(120% 90% at 0% 0%, rgba(120, 150, 190, 0.08) 0%, rgba(120, 150, 190, 0) 45%),
     #1a2332;
   border: 1px solid var(--card-border);
   border-radius: var(--panel-radius);
-  padding: 16px;
+  padding: 12px;
   box-shadow:
     0 6px 22px rgba(0, 0, 0, 0.48),
     0 2px 6px rgba(0, 0, 0, 0.28),

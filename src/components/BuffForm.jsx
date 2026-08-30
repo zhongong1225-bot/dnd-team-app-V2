@@ -57,6 +57,7 @@ import {
 import { loadCreatureLibrary, getCreatureById, CREATURE_SIZES } from '../data/creatureLibrary'
 import DurationEditor from './DurationEditor'
 import ActiveCardEditor from './ActiveCardEditor'
+import SpellNameAutocomplete from './SpellNameAutocomplete'
 import { SCOPE_TYPE, SCOPE_TYPE_OPTIONS } from '../lib/cardModel'
 import { normalizeDuration, formatDurationBrief } from '../lib/durationModel'
 import {
@@ -496,6 +497,7 @@ function ContainedSpellEditor({
             compact
             narrow
             className="!h-5"
+            referenceData={referenceData}
           />
           <span className="text-gray-500 text-[10px]">所有内含法术共用</span>
         </div>
@@ -518,32 +520,20 @@ function ContainedSpellEditor({
             <div className="flex items-center gap-x-1 w-full flex-wrap">
               {prefix && <span className="text-dnd-text-muted shrink-0 tabular-nums select-none text-[10px]">{prefix.replace(/\d+$/, (n) => Number(n) + idx)}</span>}
               <span className={labelCls}>法术</span>
-              <input
-                type="text"
+              <SpellNameAutocomplete
                 value={spellInputValue(sp)}
-                onChange={(e) => {
-                  const name = e.target.value
-                  const match = name.trim() ? getMergedSpells().find((s) => s.name === name.trim()) : null
-                  const nextSpellId = match ? match.id : ''
-                  const nextLevel = match ? match.level : sp.level
-                  updateSpell(idx, {
-                    spellName: name,
-                    spellId: nextSpellId,
-                    level: nextLevel,
-                    range: match ? (match.range ?? '') : sp.range,
-                    area: match ? (match.range ?? '') : sp.area,
-                  })
-                }}
+                onChange={(name) => updateSpell(idx, { spellName: name })}
+                onSelect={(spell) => updateSpell(idx, {
+                  spellName: spell.name,
+                  spellId: spell.id,
+                  level: spell.level,
+                  range: spell.range ?? '',
+                  area: spell.range ?? '',
+                })}
                 placeholder="名称"
                 className={inputCls + ' min-w-[5rem]'}
-                list={'contained-spell-datalist-' + (module.id ?? '') + '-' + idx}
-                title="法术名称"
+                listId={'contained-spell-datalist-' + (module.id ?? '') + '-' + idx}
               />
-              <datalist id={'contained-spell-datalist-' + (module.id ?? '') + '-' + idx}>
-                {getMergedSpells().map((s) => (
-                  <option key={s.id} value={s.name} />
-                ))}
-              </datalist>
               <span className={labelCls}>环位</span>
               <NumberStepper
                 value={Math.max(0, Math.min(9, level))}
@@ -1336,6 +1326,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                   compact
                   narrow
                   className="!h-6"
+                  referenceData={referenceData}
                 />
               )}
               {(rec.kind === 'dice' || recoveryIsDiceOnly(rec.method)) && (
@@ -1348,6 +1339,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                     compact
                     narrow
                     className="!h-6 !w-10"
+                    referenceData={referenceData}
                   />
                   <span className="text-gray-300 text-xs font-medium">d</span>
                   <NumberStepper
@@ -1368,6 +1360,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                     compact
                     narrow
                     className="!h-6 !w-10"
+                    referenceData={referenceData}
                   />
                 </div>
               )}
@@ -1398,6 +1391,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
               compact
               narrow
               className="!h-6 !w-14"
+              referenceData={referenceData}
             />
             <span className="text-gray-400 text-[10px]">尺</span>
           </div>
@@ -1450,29 +1444,23 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
             return (
               <div key={eff.id} className="rounded-md border border-cyan-800/30 bg-[#0d1520]/50 px-2 py-1.5">
                 <div className="flex items-center gap-x-1.5 flex-wrap">
-                  <input
-                    type="text"
+                  <SpellNameAutocomplete
                     value={spellInputValue(sp)}
-                    onChange={(e) => {
-                      const name = e.target.value
-                      const match = name.trim() ? getMergedSpells().find((s) => s.name === name.trim()) : null
-                      const newLevel = match ? match.level : sp.level
-                      updateEffect(idx, {
-                        value: {
-                          ...sp,
-                          spellName: name,
-                          spellId: match ? match.id : '',
-                          level: newLevel,
-                          cost: match ? Math.max(1, newLevel) : sp.cost,
-                          range: match ? (match.range ?? '') : sp.range,
-                          area: match ? (match.range ?? '') : sp.area,
-                        },
-                      })
-                    }}
+                    onChange={(name) => updateEffect(idx, { value: { ...sp, spellName: name } })}
+                    onSelect={(spell) => updateEffect(idx, {
+                      value: {
+                        ...sp,
+                        spellName: spell.name,
+                        spellId: spell.id,
+                        level: spell.level,
+                        cost: Math.max(1, spell.level),
+                        range: spell.range ?? '',
+                        area: spell.range ?? '',
+                      },
+                    })}
                     placeholder="法术名称"
                     className={inputCls + ' min-w-[6rem] flex-1'}
-                    list={'charge-spell-' + (module.id ?? '') + '-' + idx}
-                    title="法术名称"
+                    listId={'charge-spell-' + (module.id ?? '') + '-' + idx}
                   />
                   <span className={labelCls}>环</span>
                   <NumberStepper value={Math.max(0, Math.min(9, level))} onChange={(v) => updateEffect(idx, { value: { ...sp, level: Math.max(0, Math.min(9, v)) } })} min={0} max={9} compact narrow className="!h-7 !w-10" />
@@ -1504,7 +1492,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                   {spellScalingEnabled && (
                     <>
                       <span className={labelCls}>+伤害骰</span>
-                      <NumberStepper value={spellSU.damageDiceCount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...sp, scalingPerUnit: { ...spellSU, damageDiceCount: Math.max(0, v) } } })} min={0} max={20} compact narrow className="!h-7 !w-10" />
+                      <NumberStepper value={spellSU.damageDiceCount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...sp, scalingPerUnit: { ...spellSU, damageDiceCount: Math.max(0, v) } } })} min={0} max={20} compact narrow className="!h-7 !w-10" referenceData={referenceData} />
                     </>
                   )}
                 </div>
@@ -1536,7 +1524,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                 {/* 骰子配置行 */}
                 <div className="flex items-center gap-x-1.5 flex-wrap mt-1.5">
                   <span className={labelCls}>骰子</span>
-                  <NumberStepper value={av.diceCount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, diceCount: Math.max(0, v) } })} min={0} max={20} compact narrow className="!h-7 !w-10" />
+                  <NumberStepper value={av.diceCount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, diceCount: Math.max(0, v) } })} min={0} max={20} compact narrow className="!h-7 !w-10" referenceData={referenceData} />
                   <span className="text-gray-300 text-xs font-medium">d</span>
                   <select
                     value={av.diceSides ?? 10}
@@ -1575,9 +1563,9 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                   {scalingEnabled && (
                     <>
                       <span className={labelCls}>+骰</span>
-                      <NumberStepper value={su.diceCount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, scalingPerUnit: { ...su, diceCount: Math.max(0, v) } } })} min={0} max={20} compact narrow className="!h-7 !w-10" />
+                      <NumberStepper value={su.diceCount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, scalingPerUnit: { ...su, diceCount: Math.max(0, v) } } })} min={0} max={20} compact narrow className="!h-7 !w-10" referenceData={referenceData} />
                       <span className={labelCls}>+固定</span>
-                      <NumberStepper value={su.flatBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, scalingPerUnit: { ...su, flatBonus: Math.max(0, v) } } })} min={0} max={99} compact narrow className="!h-7 !w-10" />
+                      <NumberStepper value={su.flatBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, scalingPerUnit: { ...su, flatBonus: Math.max(0, v) } } })} min={0} max={99} compact narrow className="!h-7 !w-10" referenceData={referenceData} />
                     </>
                   )}
                 </div>
@@ -1643,7 +1631,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                 <div className="flex items-center gap-x-1.5 flex-wrap">
                   <span className="text-emerald-400 text-[10px] shrink-0 font-medium">护盾</span>
                   <span className={labelCls}>层数</span>
-                  <NumberStepper value={sv.amount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...sv, amount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" />
+                  <NumberStepper value={sv.amount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...sv, amount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
                   <span className="text-gray-500 text-[10px]">每次消耗1层</span>
                   <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
                     <Trash2 className="w-3.5 h-3.5" />
@@ -1663,7 +1651,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                   {shieldScalingEnabled && (
                     <>
                       <span className={labelCls}>+层数</span>
-                      <NumberStepper value={shieldSU.amount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...sv, scalingPerUnit: { ...shieldSU, amount: Math.max(0, v) } } })} min={0} max={99} compact narrow className="!h-7 !w-10" />
+                      <NumberStepper value={shieldSU.amount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...sv, scalingPerUnit: { ...shieldSU, amount: Math.max(0, v) } } })} min={0} max={99} compact narrow className="!h-7 !w-10" referenceData={referenceData} />
                     </>
                   )}
                 </div>
@@ -1774,7 +1762,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                 <div className="flex items-center gap-x-1.5 mb-1">
                   <span className="text-red-400 text-[10px] shrink-0 font-medium">伤害</span>
                   <div className="flex items-center gap-x-1">
-                    <NumberStepper value={dv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...dv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" />
+                    <NumberStepper value={dv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...dv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
                     <span className="text-[10px] text-gray-500">d</span>
                     <select value={dv.diceSides ?? 6} onChange={(e) => updateEffect(idx, { value: { ...dv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
                       {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
@@ -1823,7 +1811,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                 </div>
                 {!isMaxMode && (
                   <div className="flex items-center gap-x-1">
-                    <NumberStepper value={hv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...hv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" />
+                    <NumberStepper value={hv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...hv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
                     <span className="text-[10px] text-gray-500">d</span>
                     <select value={hv.diceSides ?? 8} onChange={(e) => updateEffect(idx, { value: { ...hv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
                       {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
@@ -1962,14 +1950,14 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
               <span className="shrink-0 mt-1.5 text-[10px] font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
               <div className="rounded-md border border-cyan-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
               <div className="flex items-center gap-x-1.5 flex-wrap">
-                <input type="text" value={spellInputValue(sp)}
-                  onChange={(e) => {
-                    const name = e.target.value
-                    const match = name.trim() ? getMergedSpells().find((s) => s.name === name.trim()) : null
-                    updateEffect(idx, { value: { ...sp, spellName: name, spellId: match ? match.id : '', level: match ? match.level : sp.level, cost: match ? Math.max(1, match.level) : sp.cost, range: match ? (match.range ?? '') : sp.range, area: match ? (match.range ?? '') : sp.area } })
-                  }}
-                  placeholder="法术名称" className={inputCls + ' min-w-[6rem] flex-1'}
-                  list={'active-spell-' + idx} title="法术名称" />
+                <SpellNameAutocomplete
+                  value={spellInputValue(sp)}
+                  onChange={(name) => updateEffect(idx, { value: { ...sp, spellName: name } })}
+                  onSelect={(spell) => updateEffect(idx, { value: { ...sp, spellName: spell.name, spellId: spell.id, level: spell.level, cost: Math.max(1, spell.level), range: spell.range ?? '', area: spell.range ?? '' } })}
+                  placeholder="法术名称"
+                  className={inputCls + ' min-w-[6rem] flex-1'}
+                  listId={'active-spell-' + idx}
+                />
                 <span className={labelCls}>环</span>
                 <NumberStepper value={Math.max(0, Math.min(9, level))} onChange={(v) => updateEffect(idx, { value: { ...sp, level: Math.max(0, Math.min(9, v)) } })} min={0} max={9} compact narrow className="!h-7 !w-10" />
                 <span className={labelCls}>消耗</span>
@@ -1991,7 +1979,7 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
                 </label>
                 {spellScalingEnabled && (<>
                   <span className={labelCls}>+伤害骰</span>
-                  <NumberStepper value={spellSU.damageDiceCount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...sp, scalingPerUnit: { ...spellSU, damageDiceCount: Math.max(0, v) } } })} min={0} max={20} compact narrow className="!h-7 !w-10" />
+                  <NumberStepper value={spellSU.damageDiceCount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...sp, scalingPerUnit: { ...spellSU, damageDiceCount: Math.max(0, v) } } })} min={0} max={20} compact narrow className="!h-7 !w-10" referenceData={referenceData} />
                 </>)}
               </div>
             </div>
@@ -2047,7 +2035,7 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
               <div className="flex items-center gap-x-1.5 flex-wrap">
                 <span className="text-emerald-400 text-[10px] shrink-0 font-medium">护盾</span>
                 <span className={labelCls}>层数</span>
-                <NumberStepper value={sv.amount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...sv, amount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" />
+                <NumberStepper value={sv.amount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...sv, amount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
                 <span className="text-gray-500 text-[10px]">每次消耗1层</span>
                 <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
@@ -2058,7 +2046,7 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
                 </label>
                 {shieldScalingEnabled && (<>
                   <span className={labelCls}>+层数</span>
-                  <NumberStepper value={shieldSU.amount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...sv, scalingPerUnit: { ...shieldSU, amount: Math.max(0, v) } } })} min={0} max={99} compact narrow className="!h-7 !w-10" />
+                  <NumberStepper value={shieldSU.amount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...sv, scalingPerUnit: { ...shieldSU, amount: Math.max(0, v) } } })} min={0} max={99} compact narrow className="!h-7 !w-10" referenceData={referenceData} />
                 </>)}
               </div>
             </div>
@@ -2172,7 +2160,7 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
               <div className="flex items-center gap-x-1.5 mb-1">
                 <span className="text-red-400 text-[10px] shrink-0 font-medium">伤害</span>
                 <div className="flex items-center gap-x-1">
-                  <NumberStepper value={dv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...dv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" />
+                  <NumberStepper value={dv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...dv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
                   <span className="text-[10px] text-gray-500">d</span>
                   <select value={dv.diceSides ?? 6} onChange={(e) => updateEffect(idx, { value: { ...dv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
                     {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
@@ -2224,7 +2212,7 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
               </div>
               {!isMaxMode && (
                 <div className="flex items-center gap-x-1">
-                  <NumberStepper value={hv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...hv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" />
+                  <NumberStepper value={hv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...hv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
                   <span className="text-[10px] text-gray-500">d</span>
                   <select value={hv.diceSides ?? 8} onChange={(e) => updateEffect(idx, { value: { ...hv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
                     {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}

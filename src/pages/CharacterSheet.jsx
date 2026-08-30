@@ -60,7 +60,7 @@ import FightingStylePicker from '../components/FightingStylePicker'
 import CombatStatus from '../components/CombatStatus'
 import EquipmentAndInventory from '../components/EquipmentAndInventory'
 import MartialTechniquesPanel from '../components/MartialTechniquesPanel'
-import { RACES, getRaceById } from '../data/races'
+import { getAllRaces, getRaceById, addCustomRace, updateCustomRace, removeCustomRace, migrateLegacyRace, isLegacyRace } from '../data/races'
 import { BACKGROUNDS, getBackgroundById } from '../data/backgrounds'
 import { SPECIAL_SENSES_OPTIONS } from '../data/buffTypes'
 import { CREATURE_SIZES } from '../data/creatureLibrary'
@@ -524,8 +524,44 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
   const [bgEditName, setBgEditName] = useState('')
   const [bgEditDesc, setBgEditDesc] = useState('')
 
+  // 种族编辑器弹窗：左侧列表选中 + BUFF form key 稳定性
+  const [editingRaceId, setEditingRaceId] = useState('')
+  const [raceListKey, setRaceListKey] = useState(0)
+  const [raceBuffSessionKey, setRaceBuffSessionKey] = useState(0)
+  const prevEditingRaceIdRef = useRef('')
+  const justCreatedRaceRef = useRef(false)
+
+  // 当左侧选中种族变化时，刷新 BUFF form key（切换种族时重置表单）
+  useEffect(() => {
+    if (editingRaceId && editingRaceId !== prevEditingRaceIdRef.current) {
+      if (!justCreatedRaceRef.current) {
+        setRaceBuffSessionKey((k) => k + 1)
+      }
+      justCreatedRaceRef.current = false
+      prevEditingRaceIdRef.current = editingRaceId
+    }
+  }, [editingRaceId])
+
   const handleRaceBuffSave = (buff) => {
-    const next = { ...raceCard }
+    // 如果是新建种族（尚无 ID），先创建种族定义
+    let finalRaceId = editingRaceId
+    if (editingRaceId && !getRaceById(editingRaceId)) {
+      const created = addCustomRace({ name: raceEditName.trim() || '新种族', traits: raceEditDesc.trim() })
+      if (created) {
+        finalRaceId = created.id
+        justCreatedRaceRef.current = true
+        setEditingRaceId(created.id)
+      }
+    } else if (editingRaceId) {
+      // 旧版兼容种族先迁移为自定义种族
+      if (isLegacyRace(editingRaceId)) migrateLegacyRace(editingRaceId)
+      // 更新已有种族的名称和描述
+      updateCustomRace(editingRaceId, {
+        name: raceEditName.trim() || undefined,
+        traits: raceEditDesc.trim() || undefined,
+      })
+    }
+    const next = { ...raceCard, raceId: finalRaceId }
     if (raceEditName.trim()) next.customName = raceEditName.trim()
     else delete next.customName
     if (raceEditDesc.trim()) next.customDescription = raceEditDesc.trim()
@@ -534,8 +570,14 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
     else delete next.raceBuffPatch
     onSave({ raceCard: next })
     setRaceBuffEditorOpen(false)
+    setRaceListKey((k) => k + 1)
   }
   const handleRaceBuffClear = () => {
+    // 如果是新建种族，删除它
+    if (editingRaceId && !raceCard.raceId) {
+      removeCustomRace(editingRaceId)
+      setRaceListKey((k) => k + 1)
+    }
     const next = { ...raceCard }
     delete next.raceBuffPatch
     delete next.customName
@@ -583,148 +625,222 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
   }
 
   return (
-    <div className="mt-2 flex flex-col gap-2">
-      {/* 种族 + 背景按钮行 */}
-      <div className="flex items-center justify-between">
-        {/* 种族按钮 */}
-        <button type="button" onClick={() => {
-          const rName = raceCard.customName || selectedRace?.name || ''
-          const rDesc = raceCard.customDescription || selectedRace?.traits || ''
-          setRaceEditName(rName)
-          setRaceEditDesc(rDesc)
-          setRaceBuffEditorOpen(true)
-        }} className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 hover:border-dnd-gold/50 transition-colors min-w-0">
-          <span className="text-gray-400 shrink-0">种族</span>
-          <span className="truncate max-w-[120px]">{raceCard.customName || selectedRace?.name || '— 选择种族 —'}</span>
-        </button>
-        {selectedRace && selectedRace.subraces.length > 0 && (
-          <select value={raceCard.subraceId || ''} onChange={(e) => handleSubraceChange(e.target.value)} className={selCls}>
-            <option value="">— 亚种 —</option>
-            {selectedRace.subraces.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        )}
+    <div className="mt-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(14, minmax(0, 1fr))', gap: '0.5rem' }}>
+      {/* 种族 + [亚种] + 背景按钮行 */}
+      {/* 种族按钮 */}
+      <button type="button" onClick={() => {
+        const rName = raceCard.customName || selectedRace?.name || ''
+        const rDesc = raceCard.customDescription || selectedRace?.traits || ''
+        setRaceEditName(rName)
+        setRaceEditDesc(rDesc)
+        // 旧版兼容种族自动迁移
+        if (raceCard.raceId && isLegacyRace(raceCard.raceId)) migrateLegacyRace(raceCard.raceId)
+        const allRaces = getAllRaces()
+        const initRaceId = raceCard.raceId || allRaces[0]?.id || ''
+        setEditingRaceId(initRaceId)
+        prevEditingRaceIdRef.current = initRaceId
+        setRaceBuffSessionKey((k) => k + 1)
+        setRaceBuffEditorOpen(true)
+      }} className={`${selectedRace?.subraces?.length > 0 ? 'col-span-5' : 'col-span-7'} flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.03] border border-gray-700/40 text-xs text-gray-200 hover:border-dnd-gold/50 transition-colors min-w-0`}>
+        <span className="text-gray-400 shrink-0 text-[11px] font-medium">种族</span>
+        <span className="truncate text-gray-200">{raceCard.customName || selectedRace?.name || '— 选择种族 —'}</span>
+      </button>
+      {selectedRace && selectedRace.subraces.length > 0 && (
+        <select value={raceCard.subraceId || ''} onChange={(e) => handleSubraceChange(e.target.value)} className="col-span-2 px-2 py-1.5 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+          <option value="">— 亚种 —</option>
+          {selectedRace.subraces.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      )}
+      {/* 背景按钮 */}
+      <button type="button" onClick={() => {
+        const bgName = backgroundCard.customName || selectedBackground?.name || ''
+        const bgDesc = backgroundCard.customDescription || selectedBackground?.description || ''
+        setBgEditName(bgName)
+        setBgEditDesc(bgDesc)
+        setBackgroundBuffEditorOpen(true)
+      }} className="col-span-7 flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.03] border border-gray-700/40 text-xs text-gray-200 hover:border-dnd-gold/50 transition-colors min-w-0">
+        <span className="text-gray-400 shrink-0 text-[11px] font-medium">背景</span>
+        <span className="truncate text-gray-200">{backgroundCard.customName || selectedBackground?.name || '— 选择背景 —'}</span>
+      </button>
 
-        {/* 背景按钮 */}
-        <button type="button" onClick={() => {
-          const bgName = backgroundCard.customName || selectedBackground?.name || ''
-          const bgDesc = backgroundCard.customDescription || selectedBackground?.description || ''
-          setBgEditName(bgName)
-          setBgEditDesc(bgDesc)
-          setBackgroundBuffEditorOpen(true)
-        }} className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 hover:border-dnd-gold/50 transition-colors min-w-0">
-          <span className="text-gray-400 shrink-0">背景</span>
-          <span className="truncate max-w-[120px]">{backgroundCard.customName || selectedBackground?.name || '— 选择背景 —'}</span>
-        </button>
-      </div>
-
-      {/* 基础信息 */}
+      {/* 基础信息行 — 仅在选了种族后渲染，占满 14 列 */}
       {raceCard.raceId && (
-        <div>
-          {/* 移速 / 体型 / 视觉 */}
-          <div className="flex items-center justify-between">
-            <label className="flex items-center gap-1 text-xs text-gray-400 bg-white/[0.03] rounded-md px-1.5 py-0.5">
-              <span className="shrink-0 w-7 text-right text-[11px]">移速</span>
-              <input type="text" inputMode="numeric" value={raceBaseInfo.speed ?? 30}
-                onChange={(e) => updateRaceBaseInfo({ speed: Number(e.target.value) || 0 })}
-                className={txtCls} />
-              <span className="text-gray-500 shrink-0 text-[11px]">尺</span>
-            </label>
-            <label className="flex items-center gap-1 text-xs text-gray-400 bg-white/[0.03] rounded-md px-1.5 py-0.5">
-              <span className="shrink-0 w-7 text-right text-[11px]">体型</span>
-              <select value={raceBaseInfo.size || 'medium'} onChange={(e) => updateRaceBaseInfo({ size: e.target.value })}
-                className="px-1 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
-                {CREATURE_SIZES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-              </select>
-            </label>
-            <div className="flex items-center gap-1 text-xs text-gray-400 bg-white/[0.03] rounded-md px-1.5 py-0.5">
-              <span className="shrink-0 w-7 text-right text-[11px]">视觉</span>
-              <select value={raceBaseInfo.vision?.type || ''}
-                onChange={(e) => updateRaceBaseInfo({ vision: e.target.value ? { type: e.target.value, range: raceBaseInfo.vision?.range || 60 } : null })}
-                className="px-1 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
-                <option value="">无</option>
-                {SPECIAL_SENSES_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-              </select>
-              {raceBaseInfo.vision?.type && (
-                <>
-                  <input type="text" inputMode="numeric" value={raceBaseInfo.vision.range ?? 60}
-                    onChange={(e) => updateRaceBaseInfo({ vision: { ...raceBaseInfo.vision, range: Number(e.target.value) || 0 } })}
-                    className={txtCls} />
-                  <span className="text-gray-500 shrink-0 text-[11px]">尺</span>
-                </>
-              )}
-            </div>
+        <>
+          {/* 移速 / 体型 / 视觉 — 4 + 4 + 6 = 14 */}
+          <label className="col-span-4 flex items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">
+            <span className="shrink-0 w-8 text-right text-[11px] text-gray-400 font-medium">移速</span>
+            <input type="text" inputMode="numeric" value={raceBaseInfo.speed ?? 30}
+              onChange={(e) => updateRaceBaseInfo({ speed: Number(e.target.value) || 0 })}
+              className="w-12 px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 text-center focus:outline-none focus:border-dnd-gold/50" />
+            <span className="text-gray-500 shrink-0 text-[11px]">尺</span>
+          </label>
+          <label className="col-span-4 flex items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">
+            <span className="shrink-0 w-8 text-right text-[11px] text-gray-400 font-medium">体型</span>
+            <select value={raceBaseInfo.size || 'medium'} onChange={(e) => updateRaceBaseInfo({ size: e.target.value })}
+              className="flex-1 px-1 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+              {CREATURE_SIZES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          </label>
+          <div className="col-span-6 flex items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">
+            <span className="shrink-0 w-8 text-right text-[11px] text-gray-400 font-medium">视觉</span>
+            <select value={raceBaseInfo.vision?.type || ''}
+              onChange={(e) => updateRaceBaseInfo({ vision: e.target.value ? { type: e.target.value, range: raceBaseInfo.vision?.range || 60 } : null })}
+              className="flex-1 px-1 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+              <option value="">无</option>
+              {SPECIAL_SENSES_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+            {raceBaseInfo.vision?.type && (
+              <>
+                <input type="text" inputMode="numeric" value={raceBaseInfo.vision.range ?? 60}
+                  onChange={(e) => updateRaceBaseInfo({ vision: { ...raceBaseInfo.vision, range: Number(e.target.value) || 0 } })}
+                  className="w-12 px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 text-center focus:outline-none focus:border-dnd-gold/50" />
+                <span className="text-gray-500 shrink-0 text-[11px]">尺</span>
+              </>
+            )}
           </div>
-          {/* 属性提高 */}
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-gray-400 shrink-0 bg-white/[0.03] rounded-md px-1.5 py-0.5 text-[11px]">属性提高</span>
-            {['str', 'dex', 'con', 'int', 'wis', 'cha'].map((key) => (
-              <label key={key} className="flex items-center gap-0.5 text-xs text-gray-400 bg-white/[0.03] rounded-md px-1.5 py-0.5">
-                <span className="w-3.5 text-center text-[10px] font-semibold">{ASI_LABELS[key]}</span>
-                <input type="text" inputMode="numeric" value={asi[key] || 0}
-                  onChange={(e) => updateRaceBaseInfo({ abilityScoreIncrease: { ...asi, [key]: Number(e.target.value) || 0 } })}
-                  className={txtCls} />
-              </label>
-            ))}
-          </div>
+
+          {/* 属性提高 — 标签 2 列 + 6 个属性各 2 列 = 14 */}
+          <span className="col-span-2 text-right text-[11px] text-gray-400 font-medium bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">属性提高</span>
+          {['str', 'dex', 'con', 'int', 'wis', 'cha'].map((key) => (
+            <label key={key} className="col-span-2 flex items-center gap-1 bg-white/[0.03] rounded-md border border-gray-700/40 px-1.5 py-1.5">
+              <span className="w-4 text-center text-[10px] font-semibold text-gray-300 shrink-0">{ASI_LABELS[key]}</span>
+              <input type="text" inputMode="numeric" value={asi[key] || 0}
+                onChange={(e) => updateRaceBaseInfo({ abilityScoreIncrease: { ...asi, [key]: Number(e.target.value) || 0 } })}
+                className="flex-1 min-w-0 px-1 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 text-center focus:outline-none focus:border-dnd-gold/50" />
+            </label>
+          ))}
+
           {canEdit && hasRaceBaseInfo(raceBaseInfo) && (
-            <button type="button" onClick={clearRaceBaseInfo} className="text-[11px] text-gray-500 hover:text-red-400 transition-colors">清除基础信息</button>
+            <button type="button" onClick={clearRaceBaseInfo} className="col-span-14 text-[11px] text-gray-500 hover:text-red-400 transition-colors">清除基础信息</button>
           )}
-        </div>
+        </>
       )}
 
-      {/* 种族编辑器弹窗 */}
+      {/* 种族编辑器弹窗 — 左栏种族列表 + 右栏编辑 */}
       {raceBuffEditorOpen && (() => {
+        const allRaces = getAllRaces()
+        const editingRace = getRaceById(editingRaceId)
         const initialEffects = Array.isArray(raceCard.raceBuffPatch?.effects) && raceCard.raceBuffPatch.effects.length ? raceCard.raceBuffPatch.effects : []
         return (
           <BuffEditorModal
             open
+            wide
             onClose={() => setRaceBuffEditorOpen(false)}
             header={
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-base font-semibold text-dnd-gold-light/90">{raceCard.raceId ? '编辑种族' : '创建种族'}</h3>
-                  <button type="button" onClick={() => setRaceBuffEditorOpen(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"><X className="w-5 h-5" /></button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400 shrink-0">种族</span>
-                  <select value={raceCard.raceId || ''} onChange={(e) => handleRaceChange(e.target.value)}
-                    className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
-                    <option value="">— 选择种族 —</option>
-                    {RACES.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-                    <option value="custom">自定义种族...</option>
-                  </select>
-                </div>
-                {selectedRace && selectedRace.subraces.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-400 shrink-0">亚种</span>
-                    <select value={raceCard.subraceId || ''} onChange={(e) => handleSubraceChange(e.target.value)}
-                      className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
-                      <option value="">— 亚种 —</option>
-                      {selectedRace.subraces.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
+              <div className="flex gap-3" style={{ minHeight: 340 }}>
+                {/* 左栏：种族列表 */}
+                <div className="shrink-0 flex flex-col border-r border-white/10 pr-3" style={{ width: 180 }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-dnd-gold-light/80">种族列表</span>
+                    <button type="button" onClick={() => {
+                      const r = addCustomRace({ name: '', traits: '' })
+                      if (r) {
+                        justCreatedRaceRef.current = true
+                        setEditingRaceId(r.id)
+                        setRaceEditName('')
+                        setRaceEditDesc('')
+                        setRaceListKey((k) => k + 1)
+                      }
+                    }} className="p-1 rounded text-gray-400 hover:bg-white/10 hover:text-dnd-gold transition-colors" title="新增种族">
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
                   </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400 shrink-0">名称</span>
-                  <input type="text" value={raceEditName} onChange={(e) => setRaceEditName(e.target.value)}
-                    className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50"
-                    placeholder={selectedRace?.name || '种族名称'} />
+                  <div key={raceListKey} className="flex-1 overflow-y-auto space-y-0.5" style={{ maxHeight: 300 }}>
+                    {allRaces.length === 0 && (
+                      <p className="text-[11px] text-gray-500 text-center py-4">暂无种族<br />点击上方 + 添加</p>
+                    )}
+                    {allRaces.map((r) => (
+                      <button key={r.id} type="button"
+                        onClick={() => {
+                          // 切种族前，自动保存当前种族的名称/描述
+                          if (editingRaceId && editingRaceId !== r.id) {
+                            const cur = getRaceById(editingRaceId)
+                            if (cur) {
+                              if (isLegacyRace(editingRaceId)) migrateLegacyRace(editingRaceId)
+                              updateCustomRace(editingRaceId, {
+                                name: raceEditName.trim() || cur.name,
+                                traits: raceEditDesc.trim() || undefined,
+                              })
+                            }
+                          }
+                          setEditingRaceId(r.id)
+                          setRaceEditName(r.name || '')
+                          setRaceEditDesc(r.traits || '')
+                          setRaceBuffSessionKey((k) => k + 1)
+                        }}
+                        className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors truncate ${
+                          editingRaceId === r.id
+                            ? 'bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30'
+                            : 'text-gray-300 hover:bg-white/5 border border-transparent'
+                        }`}>
+                        {r.name || '未命名种族'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div>
-                  <textarea value={raceEditDesc} onChange={(e) => setRaceEditDesc(e.target.value)} rows={15}
-                    className="w-full px-2 py-1.5 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold/50"
-                    placeholder="种族描述 / 特性" />
+                {/* 右栏：编辑器 */}
+                <div className="flex-1 flex flex-col min-w-0">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-base font-semibold text-dnd-gold-light/90">{editingRace ? '编辑种族' : '新建种族'}</h3>
+                    <div className="flex items-center gap-1">
+                      {editingRace && (
+                        <button type="button" onClick={() => {
+                          if (confirm(`确定删除种族「${editingRace.name || '未命名'}」？`)) {
+                            removeCustomRace(editingRaceId)
+                            const remaining = getAllRaces().filter((r) => r.id !== editingRaceId)
+                            setEditingRaceId(remaining[0]?.id || '')
+                            setRaceEditName(remaining[0]?.name || '')
+                            setRaceEditDesc(remaining[0]?.traits || '')
+                            setRaceListKey((k) => k + 1)
+                            setRaceBuffSessionKey((k) => k + 1)
+                          }
+                        }} className="p-1.5 rounded-lg text-gray-500 hover:bg-red-500/10 hover:text-red-400 transition-colors" title="删除此种族">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button type="button" onClick={() => setRaceBuffEditorOpen(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"><X className="w-5 h-5" /></button>
+                    </div>
+                  </div>
+                  {editingRace ? (
+                    <>
+                      {editingRace.subraces.length > 0 && (
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs text-gray-400 shrink-0">亚种</span>
+                          <select value={raceCard.subraceId || ''} onChange={(e) => handleSubraceChange(e.target.value)}
+                            className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+                            <option value="">— 亚种 —</option>
+                            {editingRace.subraces.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                          </select>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs text-gray-400 shrink-0">名称</span>
+                        <input type="text" value={raceEditName} onChange={(e) => setRaceEditName(e.target.value)}
+                          className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50"
+                          placeholder="种族名称" />
+                      </div>
+                      <div className="mb-2">
+                        <textarea value={raceEditDesc} onChange={(e) => setRaceEditDesc(e.target.value)} rows={6}
+                          className="w-full px-2 py-1.5 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold/50"
+                          placeholder="种族描述 / 特性" />
+                      </div>
+                      <p className="text-xs text-dnd-text-muted">种族效果</p>
+                    </>
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center">
+                      <p className="text-xs text-gray-500">请从左侧选择种族，或点击 + 新增</p>
+                    </div>
+                  )}
                 </div>
-                <p className="text-xs text-dnd-text-muted">种族效果</p>
               </div>
             }
             buffFormProps={{
-              key: `race-buff-${raceCard.raceId || 'custom'}`,
+              key: `race-buff-${editingRaceId || 'new'}-${raceBuffSessionKey}`,
               compact: true,
               hideDuration: true,
               charResources: char?.classResources,
               spellSlots: char?.spellSlots,
-              initial: { source: raceCard.raceId === 'custom' ? (raceEditName || 'custom-race') : `race-${raceCard.raceId}`, effects: initialEffects, enabled: raceCard.raceBuffPatch?.enabled !== false },
+              initial: { source: editingRace ? `race-${editingRaceId}` : (raceEditName || 'new-race'), effects: initialEffects, enabled: raceCard.raceBuffPatch?.enabled !== false },
               onSave: handleRaceBuffSave,
               onClear: handleRaceBuffClear,
             }}
@@ -3356,24 +3472,6 @@ export default function CharacterSheet() {
 
   // 构建统一的 Card 数组，用于所有主动技能检测
   const allCards = useMemo(() => buildCardsFromCharacter(char, sheetModuleId), [char, sheetModuleId, buffPatchRev])
-
-  // 自动同步 BUFF 中的工具/乐器熟练项到 char.proficiencies.tools
-  useEffect(() => {
-    if (!char) return
-    const buffTools = new Set()
-    for (const buff of mergedBuffs) {
-      for (const eff of getEffectsFromBuff(buff)) {
-        if (eff.effectType === 'specific_tool_proficiency' && Array.isArray(eff.value)) {
-          eff.value.forEach((t) => buffTools.add(t))
-        }
-      }
-    }
-    const desired = [...buffTools].sort()
-    const current = [...(char.proficiencies?.tools ?? [])].sort()
-    if (JSON.stringify(desired) !== JSON.stringify(current)) {
-      persist({ proficiencies: { ...(char.proficiencies ?? {}), tools: desired } })
-    }
-  }, [mergedBuffs])
 
   const canEdit = isAdmin || char?.owner === user?.name
   const isCreatureTemplate = char?.subordinateTemplate === 'creature'

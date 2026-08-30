@@ -251,6 +251,7 @@ export function normalizeChargeItemValue(value) {
     }
     if (type === 'restore_spell_slots') {
       const rv = e.value && typeof e.value === 'object' ? e.value : {}
+      const rawSU = rv.scalingPerUnit && typeof rv.scalingPerUnit === 'object' ? rv.scalingPerUnit : {}
       return { id, type, value: {
         mode: rv.mode === 'multi' ? 'multi' : 'single',
         ringLevel: Math.max(1, Math.min(9, Number(rv.ringLevel) || 1)),
@@ -261,10 +262,13 @@ export function normalizeChargeItemValue(value) {
           ringLevel: Math.max(1, Math.min(9, Number(s?.ringLevel) || 1)),
           cost: Math.max(1, Number(s?.cost) || 1),
         })) : [{ ringLevel: 1, cost: 1 }],
+        scalingEnabled: !!rv.scalingEnabled,
+        scalingPerUnit: { slotsCount: Math.max(0, Number(rawSU.slotsCount) || 0) },
       } }
     }
     if (type === 'summon') {
       const sv = e.value && typeof e.value === 'object' ? e.value : {}
+      const rawSU = sv.scalingPerUnit && typeof sv.scalingPerUnit === 'object' ? sv.scalingPerUnit : {}
       return { id, type, value: {
         preset: sv.preset === 'stellar_double' ? 'stellar_double' : '',
         creatureId: String(sv.creatureId || ''),
@@ -273,6 +277,8 @@ export function normalizeChargeItemValue(value) {
         costAmount: Math.max(0, Number(sv.costAmount) || 0),
         costDice: typeof sv.costDice === 'string' ? sv.costDice : '',
         note: typeof sv.note === 'string' ? sv.note : '',
+        scalingEnabled: !!sv.scalingEnabled,
+        scalingPerUnit: { creatureCount: Math.max(0, Number(rawSU.creatureCount) || 0) },
       } }
     }
     if (type === 'custom_logic') {

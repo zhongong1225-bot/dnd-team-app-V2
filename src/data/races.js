@@ -1,93 +1,109 @@
 /**
- * D&D 5e PHB 种族数据
+ * 种族数据层
  *
- * 每个种族包含：id、name、subraces（亚种）、traits（种族特性描述）
- * 用于种族背景槽的种族卡选择与特性展示。
+ * 所有种族均由用户手动创建，无内置预设。
+ * 自定义种族通过 localStorage + Supabase custom_library 双模式存储。
+ *
+ * 种族数据结构：
+ * {
+ *   id: string,
+ *   name: string,
+ *   subraces: [{ id: string, name: string }],
+ *   traits: string,
+ * }
  */
 
-export const RACES = [
-  {
-    id: 'dwarf',
-    name: '矮人',
-    subraces: [
-      { id: 'hill', name: '丘陵矮人' },
-      { id: 'mountain', name: '山地矮人' },
-    ],
-    traits: '黑暗视觉 60 尺；毒素抗性；矮人坚韧（对抗毒素豁免优势）；石工工具熟练；与速度无关的地形（山地）',
-  },
-  {
-    id: 'elf',
-    name: '精灵',
-    subraces: [
-      { id: 'high', name: '高精灵' },
-      { id: 'wood', name: '木精灵' },
-      { id: 'drow', name: '暗精灵（卓尔）' },
-    ],
-    traits: '黑暗视觉 60 尺；敏锐感官（察觉察觉检定优势）；妖精血统（魅惑免疫，睡眠魔法优势）；恍惚（不需要睡眠，冥想 4 小时代替长休）',
-  },
-  {
-    id: 'halfling',
-    name: '半身人',
-    subraces: [
-      { id: 'lightfoot', name: '轻足半身人' },
-      { id: 'stout', name: '健壮半身人' },
-    ],
-    traits: '幸运（掷出1时可重掷）；勇敢（对抗恐惧豁免优势）；半身人敏捷（移动可穿过大型生物空间）',
-  },
-  {
-    id: 'human',
-    name: '人类',
-    subraces: [
-      { id: 'standard', name: '标准人类' },
-      { id: 'variant', name: '变体人类' },
-    ],
-    traits: '全属性 +1（标准）或自选两项 +1 加一项技能/专长（变体）；额外语言',
-  },
-  {
-    id: 'dragonborn',
-    name: '龙裔',
-    subraces: [],
-    traits: '龙息武器（锥形/线形区域，敏捷豁免减半伤害）；伤害抗性（对应龙种伤害类型）；龙语者',
-  },
-  {
-    id: 'gnome',
-    name: '侏儒',
-    subraces: [
-      { id: 'forest', name: '森林侏儒' },
-      { id: 'rock', name: '岩石侏儒' },
-    ],
-    traits: '黑暗视觉 60 尺；侏儒狡诈（智力/感知/魅力豁免优势）；小体型',
-  },
-  {
-    id: 'half-elf',
-    name: '半精灵',
-    subraces: [
-      { id: 'standard', name: '标准半精灵' },
-      { id: 'wood', name: '木精灵血统' },
-      { id: 'drow', name: '卓尔血统' },
-    ],
-    traits: '黑暗视觉 60 尺；妖精血统（魅惑免疫，睡眠魔法优势）；两项自选属性 +1；两项自选技能熟练',
-  },
-  {
-    id: 'half-orc',
-    name: '半兽人',
-    subraces: [],
-    traits: '黑暗视觉 60 尺；不屈（降至 0 HP 时可保留 1 HP，长休前不可重复）；凶猛攻击（暴击时多掷一个伤害骰）；兽人耐力（对抗力竭豁免优势）',
-  },
-  {
-    id: 'tiefling',
-    name: '提夫林',
-    subraces: [
-      { id: 'standard', name: '标准提夫林' },
-      { id: 'variant', name: '变体提夫林' },
-    ],
-    traits: '黑暗视觉 60 尺；地狱抗性（火焰抗性）；炼狱遗产（施法能力：奇术 → 地狱斥责 → 黑暗术）',
-  },
-]
+import { isSupabaseEnabled } from '../lib/supabase'
+import * as teamData from '../lib/teamDataSupabase'
 
-/** 按 ID 查找种族 */
+/** 内置种族列表（已清空，全部由用户手动创建） */
+export const RACES = []
+
+/** 旧版硬编码种族兼容表（仅用于回退显示，不会出现在选择列表中） */
+const LEGACY_RACES = {
+  'dwarf':        { id: 'dwarf',        name: '矮人',     subraces: [{ id: 'hill', name: '丘陵矮人' }, { id: 'mountain', name: '山地矮人' }], traits: '黑暗视觉 60 尺；毒素抗性；矮人坚韧；石工工具熟练' },
+  'elf':          { id: 'elf',          name: '精灵',     subraces: [{ id: 'high', name: '高精灵' }, { id: 'wood', name: '木精灵' }, { id: 'drow', name: '暗精灵' }], traits: '黑暗视觉 60 尺；敏锐感官；妖精血统' },
+  'halfling':     { id: 'halfling',     name: '半身人',   subraces: [{ id: 'lightfoot', name: '轻足半身人' }, { id: 'stout', name: '健壮半身人' }], traits: '幸运；勇敢；半身人敏捷' },
+  'human':        { id: 'human',        name: '人类',     subraces: [{ id: 'standard', name: '标准人类' }, { id: 'variant', name: '变体人类' }], traits: '全属性 +1 或自选两项 +1 加一项技能/专长' },
+  'dragonborn':   { id: 'dragonborn',   name: '龙裔',     subraces: [], traits: '龙息武器；伤害抗性；龙语者' },
+  'gnome':        { id: 'gnome',        name: '侏儒',     subraces: [{ id: 'forest', name: '森林侏儒' }, { id: 'rock', name: '岩石侏儒' }], traits: '黑暗视觉 60 尺；侏儒狡诈' },
+  'half-elf':     { id: 'half-elf',     name: '半精灵',   subraces: [{ id: 'standard', name: '标准半精灵' }, { id: 'wood', name: '木精灵血统' }, { id: 'drow', name: '卓尔血统' }], traits: '黑暗视觉 60 尺；妖精血统；两项自选属性 +1；两项自选技能熟练' },
+  'half-orc':     { id: 'half-orc',     name: '半兽人',   subraces: [], traits: '黑暗视觉 60 尺；不屈；凶猛攻击；兽人耐力' },
+  'tiefling':     { id: 'tiefling',     name: '提夫林',   subraces: [{ id: 'standard', name: '标准提夫林' }, { id: 'variant', name: '变体提夫林' }], traits: '黑暗视觉 60 尺；地狱抗性；炼狱遗产' },
+}
+
+/** 将旧版兼容种族迁移为自定义种族（保留原 ID），已迁移则直接返回 */
+export function migrateLegacyRace(id) {
+  const legacy = LEGACY_RACES[id]
+  if (!legacy) return null
+  const list = getCustomRaces()
+  const existing = list.find((r) => r.id === id)
+  if (existing) return existing
+  const entry = { ...legacy, subraces: [...legacy.subraces] }
+  list.push(entry)
+  persistCustomRaces(list)
+  return entry
+}
+
+/** 判断是否为旧版兼容种族（不在自定义列表中） */
+export function isLegacyRace(id) {
+  if (!LEGACY_RACES[id]) return false
+  return !getCustomRaces().some((r) => r.id === id)
+}
+
+const CUSTOM_RACES_KEY = 'dnd_custom_races'
+let customRacesRemoteCache = null
+
+function generateUniqueRaceId(usedIds) {
+  const used = usedIds instanceof Set ? usedIds : new Set()
+  let id
+  do {
+    id = `race_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+  } while (used.has(id))
+  used.add(id)
+  return id
+}
+
+function saveCustomRacesLocal(list) {
+  try {
+    localStorage.setItem(CUSTOM_RACES_KEY, JSON.stringify(list))
+  } catch (_) {}
+}
+
+function persistCustomRaces(list) {
+  if (isSupabaseEnabled()) {
+    customRacesRemoteCache = [...list]
+    return teamData.saveCustomLibrary('custom_races', customRacesRemoteCache)
+  }
+  saveCustomRacesLocal(list)
+  return Promise.resolve()
+}
+
+/** 获取所有自定义种族 */
+export function getCustomRaces() {
+  let list
+  if (isSupabaseEnabled()) {
+    list = Array.isArray(customRacesRemoteCache) ? [...customRacesRemoteCache] : []
+  } else {
+    try {
+      const raw = localStorage.getItem(CUSTOM_RACES_KEY)
+      const listRaw = raw ? JSON.parse(raw) : []
+      list = Array.isArray(listRaw) ? listRaw : []
+    } catch {
+      list = []
+    }
+  }
+  return list
+}
+
+/** 获取完整种族列表（内置 + 自定义） */
+export function getAllRaces() {
+  return [...RACES, ...getCustomRaces()]
+}
+
+/** 按 ID 查找种族（自定义 + 旧版兼容回退） */
 export function getRaceById(id) {
-  return RACES.find((r) => r.id === id) || null
+  return getAllRaces().find((r) => r.id === id) || LEGACY_RACES[id] || null
 }
 
 /** 按种族 ID + 亚种 ID 查找亚种 */
@@ -95,4 +111,43 @@ export function getSubraceById(raceId, subraceId) {
   const race = getRaceById(raceId)
   if (!race) return null
   return race.subraces.find((s) => s.id === subraceId) || null
+}
+
+/** 新增自定义种族 */
+export function addCustomRace(race) {
+  const list = getCustomRaces()
+  const usedIds = new Set(list.map((x) => x?.id).filter(Boolean))
+  const id = generateUniqueRaceId(usedIds)
+  const newRace = {
+    id,
+    name: race?.name?.trim() || '新种族',
+    subraces: Array.isArray(race?.subraces) ? race.subraces.map((s) => ({
+      id: s?.id?.trim() || `sub_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: s?.name?.trim() || '亚种',
+    })) : [],
+    traits: race?.traits?.trim() || '',
+  }
+  list.push(newRace)
+  const p = persistCustomRaces(list)
+  if (p && typeof p.then === 'function') return p.then(() => newRace)
+  return newRace
+}
+
+/** 更新自定义种族 */
+export function updateCustomRace(id, patch) {
+  const list = getCustomRaces()
+  const idx = list.findIndex((x) => x.id === id)
+  if (idx === -1) return null
+  list[idx] = { ...list[idx], ...patch }
+  const pr = persistCustomRaces(list)
+  if (pr && typeof pr.then === 'function') return pr.then(() => list[idx])
+  return list[idx]
+}
+
+/** 删除自定义种族 */
+export function removeCustomRace(id) {
+  const list = getCustomRaces().filter((x) => x.id !== id)
+  const pr = persistCustomRaces(list)
+  if (pr && typeof pr.then === 'function') return pr.then(() => true)
+  return Promise.resolve(true)
 }

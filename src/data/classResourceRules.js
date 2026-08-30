@@ -59,6 +59,7 @@ const SNEAK_ATTACK_DICE_TABLE = [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2,
  * @property {number} [diceType]      骰面（如 8 = d8）
  * @property {string} [group]         分组
  * @property {string} [note]          备注
+ * @property {number} [minLevel]      最低职业等级（未达等级时不自动添加）
  */
 
 /** @type {ResourceRule[]} */
@@ -364,10 +365,11 @@ export const RESOURCE_RULES = [
     resourceKey: 'shadow_summon',
     name: '召影',
     classKey: '无相影门',
+    minLevel: 8,
     formula: 'int',
     abilityDep: 'int',
     recovery: 'long',
-    note: '上限 = INT 调整值',
+    note: '上限 = INT 调整值，8级获得',
     group: '核心',
   },
   {
@@ -446,6 +448,8 @@ export function getAutoResources(classes) {
       if (r.recovery === 'none') continue
       // 子职过滤：规则指定了 subclass 时，只在该子职下生效
       if (r.subclass && c.subclass !== r.subclass) continue
+      // 等级门槛：未达最低等级时不自动添加
+      if (r.minLevel && c.level < r.minLevel) continue
       rules.push(r)
     }
   }

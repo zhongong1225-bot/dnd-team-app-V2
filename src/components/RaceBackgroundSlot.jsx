@@ -8,7 +8,7 @@
 
 import { useState, useMemo } from 'react'
 import { Settings, X, ChevronDown, ChevronRight, Plus } from 'lucide-react'
-import { RACES, getRaceById } from '../data/races'
+import { getAllRaces, getRaceById } from '../data/races'
 import { BACKGROUNDS, getBackgroundById } from '../data/backgrounds'
 import { SPECIAL_SENSES_OPTIONS } from '../data/buffTypes'
 import { CREATURE_SIZES } from '../data/creatureLibrary'
@@ -148,7 +148,7 @@ export default function RaceBackgroundSlot({ char, canEdit, onSave }) {
                   className="flex-1 min-w-0 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50"
                 >
                   <option value="">— 选择种族 —</option>
-                  {RACES.map((r) => (
+                  {getAllRaces().map((r) => (
                     <option key={r.id} value={r.id}>{r.name}</option>
                   ))}
                   <option value="custom">自定义...</option>

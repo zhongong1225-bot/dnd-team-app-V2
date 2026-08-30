@@ -716,7 +716,6 @@ export default function BuffListItem({
   columnKey,
   standalone,
   hideSourceTag = false,
-  showDragHint = false,
   suppressedEffectTypes = new Set(),
   formulaContext = {},
 }) {
@@ -727,7 +726,7 @@ export default function BuffListItem({
   const hasSuppressed = effectsList.some(e => e.suppressed)
   const hasEffects = effectsList.length > 0
 
-  // 仅冒险/临时栏可编辑删除；无效果时不显示操作按钮
+  // 冒险/临时栏可编辑删除；职业栏BUFF由职业特性控制，不可删除；无效果时不显示操作按钮
   const editableColumn = columnKey === 'adventure' || columnKey === 'temporary'
   const showActions = canEdit && editableColumn && !buff.fromItem && hasEffects
 
@@ -735,9 +734,7 @@ export default function BuffListItem({
     ? '装备BUFF由装备所控'
     : buff.fromFeat
       ? '专长只能改数值不能改类别'
-      : showDragHint
-        ? '可通过拖动改变BUFF类型'
-        : undefined
+      : undefined
 
   return (
     <div
@@ -793,17 +790,19 @@ export default function BuffListItem({
         </span>
       </div>
 
-      {/* 操作按钮（仅冒险/临时栏可编辑删除；无效果时不显示） */}
+      {/* 操作按钮：冒险/临时栏可编辑+删除；职业栏仅删除 */}
       {showActions && (
         <div className="flex items-center justify-end gap-0.5 shrink-0">
-          <button
-            type="button"
-            onClick={() => onEdit?.(buff.id)}
-            className="p-1 rounded text-gray-400 hover:bg-gray-700 hover:text-dnd-gold transition-colors"
-            title="编辑"
-          >
-            <Pencil className="w-4 h-4" />
-          </button>
+          {editableColumn && (
+            <button
+              type="button"
+              onClick={() => onEdit?.(buff.id)}
+              className="p-1 rounded text-gray-400 hover:bg-gray-700 hover:text-dnd-gold transition-colors"
+              title="编辑"
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => onDelete?.(buff.id)}
