@@ -598,6 +598,7 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
   }
 
   return (
+    <>
     <div className="mt-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(14, minmax(0, 1fr))', gap: '0.5rem' }}>
       {/* 种族 + [亚种] + 背景按钮行 */}
       {/* 种族按钮 */}
@@ -684,39 +685,6 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
           )}
         </>
       )}
-
-      {/* 种族特性效果展示 */}
-      {selectedRace && (() => {
-        const allTraits = []
-        ;(selectedRace.traits || []).forEach(t => allTraits.push({ ...t, _isSubrace: false }))
-        if (raceCard.subraceId && selectedRace.subraces) {
-          const sub = selectedRace.subraces.find(s => s.id === raceCard.subraceId)
-          if (sub) (sub.traits || []).forEach(t => allTraits.push({ ...t, _isSubrace: true }))
-        }
-        if (allTraits.length === 0) return null
-        return allTraits.map((t) => {
-          const traitCards = Array.isArray(t.cards) ? t.cards : []
-          const effectSummaries = traitCards.map(c =>
-            getEffectSummaryShort({ effectType: c.effectType, value: c.value, customText: c.customText, scope: c.scope, scopeDetail: c.scopeDetail }, {})
-          ).filter(Boolean)
-          return (
-            <div key={t.id} className="col-span-14 bg-white/[0.03] rounded-md border border-gray-700/40 px-3 py-2">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{t._isSubrace ? '亚种特性' : '种族特性'}</span>
-                <span className="text-xs font-semibold text-gray-200">{t.name}</span>
-              </div>
-              {t.description && <p className="text-[11px] text-gray-400 leading-relaxed mb-1">{t.description}</p>}
-              {effectSummaries.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {effectSummaries.map((s, i) => (
-                    <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-[10px] text-blue-300/80">{s}</span>
-                  ))}
-                </div>
-              )}
-            </div>
-          )
-        })
-      })()}
 
       {/* 种族编辑器弹窗 — 左栏种族列表 + 右栏编辑 */}
       {raceBuffEditorOpen && (() => {
@@ -862,6 +830,44 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
         )
       })()}
     </div>
+
+    {/* 种族特性效果展示 — 放在 grid 外部，不影响原有排版 */}
+    {selectedRace && (() => {
+      const allTraits = []
+      ;(selectedRace.traits || []).forEach(t => allTraits.push({ ...t, _isSubrace: false }))
+      if (raceCard.subraceId && selectedRace.subraces) {
+        const sub = selectedRace.subraces.find(s => s.id === raceCard.subraceId)
+        if (sub) (sub.traits || []).forEach(t => allTraits.push({ ...t, _isSubrace: true }))
+      }
+      if (allTraits.length === 0) return null
+      return (
+        <div className="mt-2 space-y-1.5">
+          {allTraits.map((t) => {
+            const traitCards = Array.isArray(t.cards) ? t.cards : []
+            const effectSummaries = traitCards.map(c =>
+              getEffectSummaryShort({ effectType: c.effectType, value: c.value, customText: c.customText, scope: c.scope, scopeDetail: c.scopeDetail }, {})
+            ).filter(Boolean)
+            return (
+              <div key={t.id} className="bg-white/[0.03] rounded-md border border-gray-700/40 px-3 py-2">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{t._isSubrace ? '亚种特性' : '种族特性'}</span>
+                  <span className="text-xs font-semibold text-gray-200">{t.name}</span>
+                </div>
+                {t.description && <p className="text-[11px] text-gray-400 leading-relaxed mb-1">{t.description}</p>}
+                {effectSummaries.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {effectSummaries.map((s, i) => (
+                      <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-[10px] text-blue-300/80">{s}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )
+    })()}
+    </>
   )
 }
 
