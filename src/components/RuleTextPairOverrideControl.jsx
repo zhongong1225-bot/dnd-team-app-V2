@@ -104,7 +104,7 @@ export default function RuleTextPairOverrideControl({
                 <textarea
                   value={draftDesc}
                   onChange={(e) => setDraftDesc(e.target.value)}
-                  className={textareaClass + ' flex-1 min-h-[18rem] text-sm'}
+                  className={textareaClass + ' flex-1 min-h-[28rem] text-sm'}
                   spellCheck={false}
                 />
               </div>
