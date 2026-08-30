@@ -14,6 +14,7 @@ import { dataTransferHasType } from '../lib/dndTransferTypes'
 import { formatDurationBrief } from '../lib/durationModel'
 import { computeSuppressedEffects } from '../hooks/useBuffCalculator'
 import { useModule } from '../contexts/ModuleContext'
+import { clearDefaultBuffPatch, buildClassFeatureBuffKey } from '../lib/defaultBuffPatchStore'
 import { inputClass } from '../lib/inputStyles'
 import { BUFF_TYPES } from '../data/buffTypes'
 
@@ -41,7 +42,7 @@ export default function BuffManager({
   onEditRace,
   onEditBackground,
 }) {
-  const { moduleLibrary } = useModule()
+  const { moduleLibrary, currentModuleId } = useModule()
   const [formState, setFormState] = useState(null)
   const [editorFullscreen, setEditorFullscreen] = useState(false)
   const [showModuleLibrary, setShowModuleLibrary] = useState(false)
@@ -105,6 +106,12 @@ export default function BuffManager({
   const handleEdit = (id) => {
     const b = list.find((x) => x.id === id)
     if (b?.fromItem) return
+    // 冒险/临时栏中的 buff 直接打开编辑器（用户可见即可编辑）
+    const col = getColumnKeyForBuff(b)
+    if (col === 'adventure' || col === 'temporary') {
+      if (b) setFormState({ mode: 'active', id })
+      return
+    }
     if (b?.fromRace) {
       onEditRace?.()
       return
@@ -120,7 +127,17 @@ export default function BuffManager({
 
   const handleDelete = (id) => {
     const b = list.find((x) => x.id === id)
-    if (b?.fromItem || b?.fromFeat || b?.fromInvocation || b?.fromFightingStyle || b?.fromClassFeature || b?.fromRace || b?.fromBackground) return
+    // 冒险/临时栏中的 buff 直接删除（用户可见即可删除）
+    const col = getColumnKeyForBuff(b)
+    if (col !== 'adventure' && col !== 'temporary') {
+      if (b?.fromItem || b?.fromFeat || b?.fromInvocation || b?.fromFightingStyle || b?.fromRace || b?.fromBackground) return
+      // 子职/职业特性 BUFF：清除默认效果补丁，触发重算后自动消失
+      if (b?.fromClassFeature) {
+        const key = buildClassFeatureBuffKey(b.sourceClass, b.sourceSubclass, b.featureId)
+        clearDefaultBuffPatch(currentModuleId, 'classFeature', key)
+        return
+      }
+    }
     const next = list.filter((x) => x.id !== id)
     onSave(next)
   }
@@ -438,20 +455,17 @@ export default function BuffManager({
         <p className="text-gray-500 text-[10px] shrink-0 min-w-0 leading-snug">
           当前 Buff
           {stashEditable ? '（可从上方拖入临时模板至任一类分区）' : ''}
-          {canEdit ? ' · 左侧分类名可拖动调整上下顺序；冒险/职业/种族/临时之间可拖动词条改归类' : ''}
         </p>
       </div>
 
       <div className="rounded-lg min-w-0 min-h-[2.5rem]" onDragLeave={onDragLeaveActive}>
         <BuffColumnBoard
           columnOrder={buffColumnOrder}
-          onColumnOrderChange={canEdit ? onBuffColumnOrderChange : undefined}
           buckets={buffBuckets}
           baseAbilities={baseAbilities}
           canEdit={canEdit}
           onEdit={handleEdit}
           onDelete={handleDelete}
-          onMoveBuffToColumn={handleMoveBuffToColumn}
           onDragOverStash={stashEditable ? onDragOverActive : undefined}
           onDropStash={stashEditable ? onDropActive : undefined}
           dragOverStash={stashEditable && dragOverActive}
