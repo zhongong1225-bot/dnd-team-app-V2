@@ -3835,7 +3835,7 @@ export default function CharacterSheet() {
           )}
           {!isCreatureTemplate && (
           <section id="sheet-buffs" className="character-sheet-section-anchor mt-6">
-            <h3 className="section-title">Buff / 状态</h3>
+            <h3 className="section-title">被动BUFF</h3>
             <BuffManager
               buffs={mergedBuffs}
               baseAbilities={char.abilities ?? {}}

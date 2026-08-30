@@ -319,7 +319,7 @@ export function cardsToBuffEntries(cards) {
     if (!card || !card.enabled) return null
     const effects = Array.isArray(card.buffEffects) ? card.buffEffects : []
     const hasAbility = card.activeAbility != null
-    if (effects.length === 0 && !hasAbility) return null
+    if (effects.length === 0) return null
 
     const entry = {
       id: card.id,
