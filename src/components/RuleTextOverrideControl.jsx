@@ -86,7 +86,7 @@ export default function RuleTextOverrideControl({
               <textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                className={textareaClass + ' flex-1 min-h-[18rem] text-sm'}
+                className={textareaClass + ' flex-1 min-h-[28rem] text-sm'}
                 spellCheck={false}
               />
             </div>
