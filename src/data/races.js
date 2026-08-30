@@ -4,17 +4,21 @@
  * 所有种族均由用户手动创建，无内置预设。
  * 自定义种族通过 localStorage + Supabase custom_library 双模式存储。
  *
- * 种族数据结构：
+ * 新版种族数据结构（见 raceModel.js）：
  * {
- *   id: string,
- *   name: string,
- *   subraces: [{ id: string, name: string }],
- *   traits: string,
+ *   id, name, description, source, creatureType,
+ *   sizeOptions, sizeDefault, speed, darkvision,
+ *   traits: [{ id, name, description, cards }],
+ *   tables: [{ id, name, dice, rows }],
+ *   subraces: [{ id, name, description, traits }],
  * }
+ *
+ * 旧版格式 { id, name, subraces:[{id,name}], traits:string } 通过 normalizeRace 自动迁移。
  */
 
 import { isSupabaseEnabled } from '../lib/supabase'
 import * as teamData from '../lib/teamDataSupabase'
+import { DEFAULT_RACE, normalizeRace, migrateOldRace } from './raceModel'
 
 /** 内置种族列表（已清空，全部由用户手动创建） */
 export const RACES = []
@@ -39,7 +43,7 @@ export function migrateLegacyRace(id) {
   const list = getCustomRaces()
   const existing = list.find((r) => r.id === id)
   if (existing) return existing
-  const entry = { ...legacy, subraces: [...legacy.subraces] }
+  const entry = normalizeRace(migrateOldRace({ ...legacy, subraces: [...legacy.subraces] }))
   list.push(entry)
   persistCustomRaces(list)
   return entry
@@ -79,7 +83,7 @@ function persistCustomRaces(list) {
   return Promise.resolve()
 }
 
-/** 获取所有自定义种族 */
+/** 获取所有自定义种族（自动 normalize 为新版格式） */
 export function getCustomRaces() {
   let list
   if (isSupabaseEnabled()) {
@@ -93,7 +97,7 @@ export function getCustomRaces() {
       list = []
     }
   }
-  return list
+  return list.map(normalizeRace)
 }
 
 /** 获取完整种族列表（内置 + 自定义） */
@@ -101,9 +105,12 @@ export function getAllRaces() {
   return [...RACES, ...getCustomRaces()]
 }
 
-/** 按 ID 查找种族（自定义 + 旧版兼容回退） */
+/** 按 ID 查找种族（自定义 + 旧版兼容回退），返回 normalize 后的数据 */
 export function getRaceById(id) {
-  return getAllRaces().find((r) => r.id === id) || LEGACY_RACES[id] || null
+  const found = getAllRaces().find((r) => r.id === id)
+  if (found) return normalizeRace(found)
+  if (LEGACY_RACES[id]) return normalizeRace(migrateOldRace(LEGACY_RACES[id]))
+  return null
 }
 
 /** 按种族 ID + 亚种 ID 查找亚种 */
@@ -113,20 +120,17 @@ export function getSubraceById(raceId, subraceId) {
   return race.subraces.find((s) => s.id === subraceId) || null
 }
 
-/** 新增自定义种族 */
+/** 新增自定义种族（支持新版完整格式） */
 export function addCustomRace(race) {
   const list = getCustomRaces()
   const usedIds = new Set(list.map((x) => x?.id).filter(Boolean))
-  const id = generateUniqueRaceId(usedIds)
-  const newRace = {
+  const id = race?.id || generateUniqueRaceId(usedIds)
+  const newRace = normalizeRace({
+    ...DEFAULT_RACE,
+    ...race,
     id,
     name: race?.name?.trim() || '新种族',
-    subraces: Array.isArray(race?.subraces) ? race.subraces.map((s) => ({
-      id: s?.id?.trim() || `sub_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      name: s?.name?.trim() || '亚种',
-    })) : [],
-    traits: race?.traits?.trim() || '',
-  }
+  })
   list.push(newRace)
   const p = persistCustomRaces(list)
   if (p && typeof p.then === 'function') return p.then(() => newRace)

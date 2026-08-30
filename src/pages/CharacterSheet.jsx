@@ -61,6 +61,8 @@ import CombatStatus from '../components/CombatStatus'
 import EquipmentAndInventory from '../components/EquipmentAndInventory'
 import MartialTechniquesPanel from '../components/MartialTechniquesPanel'
 import { getAllRaces, getRaceById, addCustomRace, updateCustomRace, removeCustomRace, migrateLegacyRace, isLegacyRace } from '../data/races'
+import { normalizeRace } from '../data/raceModel'
+import RaceEditorForm from '../components/RaceEditorForm'
 import { BACKGROUNDS, getBackgroundById } from '../data/backgrounds'
 import { SPECIAL_SENSES_OPTIONS } from '../data/buffTypes'
 import { CREATURE_SIZES } from '../data/creatureLibrary'
@@ -518,73 +520,43 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
   const handleSubraceChange = (subraceId) => onSave({ raceCard: { ...raceCard, subraceId } })
   const handleBackgroundChange = (backgroundId) => onSave({ backgroundCard: { ...backgroundCard, backgroundId } })
 
-  // 种族/背景编辑器中的名称/描述编辑状态
-  const [raceEditName, setRaceEditName] = useState('')
-  const [raceEditDesc, setRaceEditDesc] = useState('')
+  // 背景编辑器中的名称/描述编辑状态
   const [bgEditName, setBgEditName] = useState('')
   const [bgEditDesc, setBgEditDesc] = useState('')
 
-  // 种族编辑器弹窗：左侧列表选中 + BUFF form key 稳定性
+  // 种族编辑器弹窗
   const [editingRaceId, setEditingRaceId] = useState('')
+  const [editingRaceData, setEditingRaceData] = useState(null) // 完整种族对象（RaceEditorForm 用）
   const [raceListKey, setRaceListKey] = useState(0)
-  const [raceBuffSessionKey, setRaceBuffSessionKey] = useState(0)
-  const prevEditingRaceIdRef = useRef('')
-  const justCreatedRaceRef = useRef(false)
+  const isNewRaceRef = useRef(false)
 
-  // 当左侧选中种族变化时，刷新 BUFF form key（切换种族时重置表单）
-  useEffect(() => {
-    if (editingRaceId && editingRaceId !== prevEditingRaceIdRef.current) {
-      if (!justCreatedRaceRef.current) {
-        setRaceBuffSessionKey((k) => k + 1)
-      }
-      justCreatedRaceRef.current = false
-      prevEditingRaceIdRef.current = editingRaceId
-    }
-  }, [editingRaceId])
-
-  const handleRaceBuffSave = (buff) => {
-    // 如果是新建种族（尚无 ID），先创建种族定义
+  // 种族编辑器保存（写入种族库 + 更新角色 raceId）
+  const handleRaceEditorSave = () => {
+    if (!editingRaceData?.name?.trim()) return
     let finalRaceId = editingRaceId
-    if (editingRaceId && !getRaceById(editingRaceId)) {
-      const created = addCustomRace({ name: raceEditName.trim() || '新种族', traits: raceEditDesc.trim() })
-      if (created) {
-        finalRaceId = created.id
-        justCreatedRaceRef.current = true
-        setEditingRaceId(created.id)
-      }
-    } else if (editingRaceId) {
-      // 旧版兼容种族先迁移为自定义种族
+    if (isNewRaceRef.current || !getRaceById(editingRaceId)) {
+      const toSave = { ...editingRaceData }
+      delete toSave.id
+      const created = addCustomRace(toSave)
+      if (created) finalRaceId = created.id
+    } else {
       if (isLegacyRace(editingRaceId)) migrateLegacyRace(editingRaceId)
-      // 更新已有种族的名称和描述
-      updateCustomRace(editingRaceId, {
-        name: raceEditName.trim() || undefined,
-        traits: raceEditDesc.trim() || undefined,
-      })
+      updateCustomRace(editingRaceId, editingRaceData)
     }
-    const next = { ...raceCard, raceId: finalRaceId }
-    if (raceEditName.trim()) next.customName = raceEditName.trim()
-    else delete next.customName
-    if (raceEditDesc.trim()) next.customDescription = raceEditDesc.trim()
-    else delete next.customDescription
-    if (buff.effects.length > 0) next.raceBuffPatch = { effects: buff.effects, enabled: buff.enabled }
-    else delete next.raceBuffPatch
-    onSave({ raceCard: next })
+    onSave({ raceCard: { ...raceCard, raceId: finalRaceId } })
     setRaceBuffEditorOpen(false)
     setRaceListKey((k) => k + 1)
   }
-  const handleRaceBuffClear = () => {
-    // 如果是新建种族，删除它
-    if (editingRaceId && !raceCard.raceId) {
+
+  // 种族编辑器取消
+  const handleRaceEditorCancel = () => {
+    if (isNewRaceRef.current && editingRaceId) {
       removeCustomRace(editingRaceId)
       setRaceListKey((k) => k + 1)
     }
-    const next = { ...raceCard }
-    delete next.raceBuffPatch
-    delete next.customName
-    delete next.customDescription
-    onSave({ raceCard: next })
     setRaceBuffEditorOpen(false)
   }
+
   const handleBackgroundBuffSave = (buff) => {
     const next = { ...backgroundCard }
     if (bgEditName.trim()) next.customName = bgEditName.trim()
@@ -629,17 +601,13 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
       {/* 种族 + [亚种] + 背景按钮行 */}
       {/* 种族按钮 */}
       <button type="button" onClick={() => {
-        const rName = raceCard.customName || selectedRace?.name || ''
-        const rDesc = raceCard.customDescription || selectedRace?.traits || ''
-        setRaceEditName(rName)
-        setRaceEditDesc(rDesc)
         // 旧版兼容种族自动迁移
         if (raceCard.raceId && isLegacyRace(raceCard.raceId)) migrateLegacyRace(raceCard.raceId)
-        const allRaces = getAllRaces()
-        const initRaceId = raceCard.raceId || allRaces[0]?.id || ''
+        const initRaceId = raceCard.raceId || ''
+        const initRace = initRaceId ? normalizeRace(getRaceById(initRaceId)) : null
         setEditingRaceId(initRaceId)
-        prevEditingRaceIdRef.current = initRaceId
-        setRaceBuffSessionKey((k) => k + 1)
+        setEditingRaceData(initRace || normalizeRace({ name: '' }))
+        isNewRaceRef.current = !initRaceId
         setRaceBuffEditorOpen(true)
       }} className={`${selectedRace?.subraces?.length > 0 ? 'col-span-5' : 'col-span-7'} flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.03] border border-gray-700/40 text-xs text-gray-200 hover:border-dnd-gold/50 transition-colors min-w-0`}>
         <span className="text-gray-400 shrink-0 text-[11px] font-medium">种族</span>
@@ -719,132 +687,94 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
       {/* 种族编辑器弹窗 — 左栏种族列表 + 右栏编辑 */}
       {raceBuffEditorOpen && (() => {
         const allRaces = getAllRaces()
-        const editingRace = getRaceById(editingRaceId)
-        const initialEffects = Array.isArray(raceCard.raceBuffPatch?.effects) && raceCard.raceBuffPatch.effects.length ? raceCard.raceBuffPatch.effects : []
         return (
-          <BuffEditorModal
-            open
-            wide
-            onClose={() => setRaceBuffEditorOpen(false)}
-            header={
-              <div className="flex gap-3" style={{ minHeight: 340 }}>
-                {/* 左栏：种族列表 */}
-                <div className="shrink-0 flex flex-col border-r border-white/10 pr-3" style={{ width: 180 }}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-semibold text-dnd-gold-light/80">种族列表</span>
-                    <button type="button" onClick={() => {
-                      const r = addCustomRace({ name: '', traits: '' })
-                      if (r) {
-                        justCreatedRaceRef.current = true
-                        setEditingRaceId(r.id)
-                        setRaceEditName('')
-                        setRaceEditDesc('')
-                        setRaceListKey((k) => k + 1)
-                      }
-                    }} className="p-1 rounded text-gray-400 hover:bg-white/10 hover:text-dnd-gold transition-colors" title="新增种族">
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  <div key={raceListKey} className="flex-1 overflow-y-auto space-y-0.5" style={{ maxHeight: 300 }}>
-                    {allRaces.length === 0 && (
-                      <p className="text-[11px] text-gray-500 text-center py-4">暂无种族<br />点击上方 + 添加</p>
-                    )}
-                    {allRaces.map((r) => (
-                      <button key={r.id} type="button"
-                        onClick={() => {
-                          // 切种族前，自动保存当前种族的名称/描述
-                          if (editingRaceId && editingRaceId !== r.id) {
-                            const cur = getRaceById(editingRaceId)
-                            if (cur) {
-                              if (isLegacyRace(editingRaceId)) migrateLegacyRace(editingRaceId)
-                              updateCustomRace(editingRaceId, {
-                                name: raceEditName.trim() || cur.name,
-                                traits: raceEditDesc.trim() || undefined,
-                              })
-                            }
-                          }
+          <>
+            <div className="fixed inset-0 bg-black/60" style={{ zIndex: 300 }} onClick={handleRaceEditorCancel} aria-hidden />
+            <div className="fixed inset-0 flex items-center justify-center p-4 sm:p-8 overflow-auto" style={{ zIndex: 301 }}>
+              <div className="w-full max-w-3xl rounded-xl border border-white/10 bg-[#1a2332] p-4">
+                <div className="flex gap-3" style={{ minHeight: 400 }}>
+                  {/* 左栏：种族列表 */}
+                  <div className="shrink-0 flex flex-col border-r border-white/10 pr-3" style={{ width: 180 }}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-dnd-gold-light/80">种族列表</span>
+                      <button type="button" onClick={() => {
+                        const r = addCustomRace({ name: '' })
+                        if (r) {
+                          isNewRaceRef.current = true
                           setEditingRaceId(r.id)
-                          setRaceEditName(r.name || '')
-                          setRaceEditDesc(r.traits || '')
-                          setRaceBuffSessionKey((k) => k + 1)
-                        }}
-                        className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors truncate ${
-                          editingRaceId === r.id
-                            ? 'bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30'
-                            : 'text-gray-300 hover:bg-white/5 border border-transparent'
-                        }`}>
-                        {r.name || '未命名种族'}
+                          setEditingRaceData(normalizeRace(r))
+                          setRaceListKey((k) => k + 1)
+                        }
+                      }} className="p-1 rounded text-gray-400 hover:bg-white/10 hover:text-dnd-gold transition-colors" title="新增种族">
+                        <Plus className="w-3.5 h-3.5" />
                       </button>
-                    ))}
-                  </div>
-                </div>
-                {/* 右栏：编辑器 */}
-                <div className="flex-1 flex flex-col min-w-0">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-base font-semibold text-dnd-gold-light/90">{editingRace ? '编辑种族' : '新建种族'}</h3>
-                    <div className="flex items-center gap-1">
-                      {editingRace && (
-                        <button type="button" onClick={() => {
-                          if (confirm(`确定删除种族「${editingRace.name || '未命名'}」？`)) {
-                            removeCustomRace(editingRaceId)
-                            const remaining = getAllRaces().filter((r) => r.id !== editingRaceId)
-                            setEditingRaceId(remaining[0]?.id || '')
-                            setRaceEditName(remaining[0]?.name || '')
-                            setRaceEditDesc(remaining[0]?.traits || '')
-                            setRaceListKey((k) => k + 1)
-                            setRaceBuffSessionKey((k) => k + 1)
-                          }
-                        }} className="p-1.5 rounded-lg text-gray-500 hover:bg-red-500/10 hover:text-red-400 transition-colors" title="删除此种族">
-                          <Trash2 className="w-4 h-4" />
+                    </div>
+                    <div key={raceListKey} className="flex-1 overflow-y-auto space-y-0.5" style={{ maxHeight: 500 }}>
+                      {allRaces.length === 0 && (
+                        <p className="text-[11px] text-gray-500 text-center py-4">暂无种族<br />点击上方 + 添加</p>
+                      )}
+                      {allRaces.map((r) => (
+                        <button key={r.id} type="button"
+                          onClick={() => {
+                            setEditingRaceId(r.id)
+                            setEditingRaceData(normalizeRace(getRaceById(r.id)))
+                            isNewRaceRef.current = false
+                          }}
+                          className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors truncate ${
+                            editingRaceId === r.id
+                              ? 'bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30'
+                              : 'text-gray-300 hover:bg-white/5 border border-transparent'
+                          }`}>
+                          {r.name || '未命名种族'}
                         </button>
-                      )}
-                      <button type="button" onClick={() => setRaceBuffEditorOpen(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"><X className="w-5 h-5" /></button>
+                      ))}
                     </div>
                   </div>
-                  {editingRace ? (
-                    <>
-                      {editingRace.subraces.length > 0 && (
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs text-gray-400 shrink-0">亚种</span>
-                          <select value={raceCard.subraceId || ''} onChange={(e) => handleSubraceChange(e.target.value)}
-                            className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
-                            <option value="">— 亚种 —</option>
-                            {editingRace.subraces.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                          </select>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-xs text-gray-400 shrink-0">名称</span>
-                        <input type="text" value={raceEditName} onChange={(e) => setRaceEditName(e.target.value)}
-                          className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50"
-                          placeholder="种族名称" />
+                  {/* 右栏：RaceEditorForm */}
+                  <div className="flex-1 flex flex-col min-w-0 overflow-y-auto" style={{ maxHeight: '70vh' }}>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-base font-semibold text-dnd-gold-light/90">{editingRaceData?.id ? '编辑种族' : '新建种族'}</h3>
+                      <div className="flex items-center gap-1">
+                        {editingRaceData?.id && (
+                          <button type="button" onClick={() => {
+                            if (confirm(`确定删除种族「${editingRaceData.name || '未命名'}」？`)) {
+                              removeCustomRace(editingRaceId)
+                              const remaining = getAllRaces()
+                              if (remaining.length > 0) {
+                                setEditingRaceId(remaining[0].id)
+                                setEditingRaceData(normalizeRace(remaining[0]))
+                              } else {
+                                setEditingRaceId('')
+                                setEditingRaceData(normalizeRace({ name: '' }))
+                              }
+                              isNewRaceRef.current = false
+                              setRaceListKey((k) => k + 1)
+                            }
+                          }} className="p-1.5 rounded-lg text-gray-500 hover:bg-red-500/10 hover:text-red-400 transition-colors" title="删除此种族">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button type="button" onClick={handleRaceEditorCancel} className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"><X className="w-5 h-5" /></button>
                       </div>
-                      <div className="mb-2">
-                        <textarea value={raceEditDesc} onChange={(e) => setRaceEditDesc(e.target.value)} rows={12}
-                          className="w-full px-2 py-1.5 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold/50"
-                          placeholder="种族描述 / 特性" />
-                      </div>
-                      <p className="text-xs text-dnd-text-muted">种族效果</p>
-                    </>
-                  ) : (
-                    <div className="flex-1 flex items-center justify-center">
-                      <p className="text-xs text-gray-500">请从左侧选择种族，或点击 + 新增</p>
                     </div>
-                  )}
+                    {editingRaceData ? (
+                      <RaceEditorForm
+                        race={editingRaceData}
+                        onChange={setEditingRaceData}
+                        onSave={handleRaceEditorSave}
+                        onCancel={handleRaceEditorCancel}
+                        showSaveButtons
+                      />
+                    ) : (
+                      <div className="flex-1 flex items-center justify-center">
+                        <p className="text-xs text-gray-500">请从左侧选择种族，或点击 + 新增</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            }
-            buffFormProps={{
-              key: `race-buff-${editingRaceId || 'new'}-${raceBuffSessionKey}`,
-              compact: true,
-              hideDuration: true,
-              charResources: char?.classResources,
-              spellSlots: char?.spellSlots,
-              initial: { source: editingRace ? `race-${editingRaceId}` : (raceEditName || 'new-race'), effects: initialEffects, enabled: raceCard.raceBuffPatch?.enabled !== false },
-              onSave: handleRaceBuffSave,
-              onClear: handleRaceBuffClear,
-            }}
-          />
+            </div>
+          </>
         )
       })()}
 

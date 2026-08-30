@@ -44,6 +44,13 @@ export default function More() {
           <span className="font-medium">生物库</span>
           <span className="block text-dnd-text-muted text-xs font-normal mt-0.5">变身效果引用的生物数据</span>
         </Link>
+        <Link
+          to="/more/race-library"
+          className="block py-3 px-4 rounded-xl bg-dnd-card border border-white/10 text-white hover:border-dnd-red/50 transition-colors"
+        >
+          <span className="font-medium">种族库</span>
+          <span className="block text-dnd-text-muted text-xs font-normal mt-0.5">管理种族数据、特性与参考表格</span>
+        </Link>
         <p className="text-dnd-text-muted text-sm pt-2">
           当前：{user?.name}
           {isAdmin && ' (DM)'}

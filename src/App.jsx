@@ -14,6 +14,7 @@ import HouseRules from './pages/HouseRules'
 import DataMaintain from './pages/DataMaintain'
 import ModuleLibrary from './pages/ModuleLibrary'
 import CreatureLibraryManager from './pages/CreatureLibraryManager'
+import RaceLibraryManager from './pages/RaceLibraryManager'
 
 const CharacterSheet = lazy(() => import('./pages/CharacterSheet'))
 
@@ -74,6 +75,7 @@ function AppRoutes() {
         <Route path="/more/data" element={<DataMaintain />} />
         <Route path="/more/module-library" element={<ModuleLibrary />} />
         <Route path="/more/creature-library" element={<CreatureLibraryManager />} />
+        <Route path="/more/race-library" element={<RaceLibraryManager />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
