@@ -2936,6 +2936,53 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             )
 
           })}
+          {/* 变身后天生武器 */}
+          {buffStats?.creatureTransform?.naturalWeapons?.length > 0 && (
+            <div className="mt-2 space-y-1">
+              <div className="text-[10px] text-amber-400/80 flex items-center gap-1">
+                <span className="opacity-60">🐾</span> 天生武器（变身）
+              </div>
+              {buffStats.creatureTransform.naturalWeapons.map((weapon, idx) => (
+                <div
+                  key={`nw_${idx}`}
+                  className="flex items-center gap-2 px-2 py-1 rounded bg-amber-900/20 border border-amber-500/20"
+                >
+                  <span className="text-xs text-amber-200 font-medium">{weapon.name}</span>
+                  <span className="text-[10px] text-gray-400">
+                    命中 +{weapon.attackBonus} | {weapon.damage}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 变身后法术 */}
+          {buffStats?.creatureTransform?.spells?.length > 0 && (
+            <div className="mt-2 space-y-1">
+              <div className="text-[10px] text-purple-400/80 flex items-center gap-1">
+                <span className="opacity-60">✦</span> 生物法术（变身）
+                {buffStats.creatureTransform.spellSaveDC > 0 && (
+                  <span className="text-[10px] text-gray-500 ml-1">DC {buffStats.creatureTransform.spellSaveDC}</span>
+                )}
+                {buffStats.creatureTransform.spellAttackBonus > 0 && (
+                  <span className="text-[10px] text-gray-500 ml-1">攻击 +{buffStats.creatureTransform.spellAttackBonus}</span>
+                )}
+              </div>
+              {buffStats.creatureTransform.spells.map((spell, idx) => (
+                <div
+                  key={`cs_${idx}`}
+                  className="flex items-center gap-2 px-2 py-1 rounded bg-purple-900/20 border border-purple-500/20"
+                >
+                  <span className="text-xs text-purple-200 font-medium">{spell.name}</span>
+                  <span className="text-[10px] text-gray-400">
+                    {spell.castMode === 'at-will' && '随意'}
+                    {spell.castMode === 'per-day' && `${spell.timesPerDay || 1}/天`}
+                    {spell.castMode === 'slot' && `${spell.slotLevel || 1}环`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
           {canEdit && (
             <button type="button" onClick={openAddCombatMeanModal} className={`text-dnd-text-muted ${CM_MEAN_LABEL} font-semibold uppercase tracking-wider hover:text-dnd-gold-light hover:underline`}>
               + 添加战斗手段
