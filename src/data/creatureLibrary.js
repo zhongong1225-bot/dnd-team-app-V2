@@ -45,6 +45,23 @@ export const CREATURE_SIZES = [
   { value: 'gargantuan', label: '巨型' },
 ]
 
+export const CREATURE_TYPES = [
+  { value: 'aberration', label: '异怪' },
+  { value: 'beast', label: '野兽' },
+  { value: 'celestial', label: '天界' },
+  { value: 'construct', label: '构装' },
+  { value: 'dragon', label: '龙' },
+  { value: 'elemental', label: '元素' },
+  { value: 'fey', label: '精类' },
+  { value: 'fiend', label: '邪魔' },
+  { value: 'giant', label: '巨人' },
+  { value: 'humanoid', label: '类人' },
+  { value: 'monstrosity', label: '魔兽' },
+  { value: 'ooze', label: '泥怪' },
+  { value: 'plant', label: '植物' },
+  { value: 'undead', label: '不死' },
+]
+
 export const DEFAULT_CREATURE = {
   id: '',
   name: '',

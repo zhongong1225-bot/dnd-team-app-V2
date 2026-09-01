@@ -7,7 +7,7 @@
 
 import { useState, useMemo } from 'react'
 import { X, Search } from 'lucide-react'
-import { listCreatures, CREATURE_SIZES } from '../data/creatureLibrary'
+import { listCreatures, CREATURE_SIZES, CREATURE_TYPES } from '../data/creatureLibrary'
 
 export default function CreatureSelectorModal({ onSelect, onClose, filterCR = null }) {
   const [searchTerm, setSearchTerm] = useState('')
@@ -97,11 +97,9 @@ export default function CreatureSelectorModal({ onSelect, onClose, filterCR = nu
                 className="flex-1 px-2 py-1.5 text-xs bg-gray-700 border border-gray-600 rounded text-gray-200 focus:outline-none focus:border-gray-500"
               >
                 <option value="">所有类型</option>
-                <option value="beast">野兽</option>
-                <option value="dragon">龙类</option>
-                <option value="humanoid">人形生物</option>
-                <option value="monstrosity">怪兽</option>
-                <option value="plant">植物</option>
+                {CREATURE_TYPES.map(t => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
               </select>
             </div>
           </div>
