@@ -908,7 +908,7 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
         if (settled) {
           a.v.multiplyScalar(0.92)
           // 停稳阶段使用更平缓的角速度阻尼，避免最后几秒快速减速的不自然感
-          a.av.multiplyScalar(0.85)
+          a.av.multiplyScalar(0.95)
         }
 
         // 停稳后：把本次点数所在面旋向世界上方，结果只看贴图，不再叠 HTML 圆标
@@ -920,8 +920,8 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
             const ln = faceOutwardNormal(a.bodyMesh.geometry, fi, 3)
             if (ln.lengthSq() > 1e-12) {
               const qTarget = new THREE.Quaternion().setFromUnitVectors(ln, resultFaceDir)
-              // 使用更小的 slerp 值让旋转更平缓自然
-              a.group.quaternion.slerp(qTarget, 0.08)
+              // 使用极小的 slerp 值让旋转非常平缓，避免"突然找面"的感觉
+              a.group.quaternion.slerp(qTarget, 0.03)
               a.group.quaternion.normalize()
             }
           } else if (sd === 6) {
@@ -929,7 +929,7 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
             const ln = d6FaceNormalByValue(fv)
             if (ln.lengthSq() > 1e-12) {
               const qTarget = new THREE.Quaternion().setFromUnitVectors(ln, resultFaceDir)
-              a.group.quaternion.slerp(qTarget, 0.08)
+              a.group.quaternion.slerp(qTarget, 0.03)
               a.group.quaternion.normalize()
             }
           } else if (sd === 10) {
@@ -947,7 +947,7 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
             const ln = faceOutwardNormal(a.bodyMesh.geometry, fi, 6)
             if (ln.lengthSq() > 1e-12) {
               const qTarget = new THREE.Quaternion().setFromUnitVectors(ln, resultFaceDir)
-              a.group.quaternion.slerp(qTarget, 0.08)
+              a.group.quaternion.slerp(qTarget, 0.03)
               a.group.quaternion.normalize()
             }
           } else if (sd === 12) {
@@ -956,7 +956,7 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
             const ln = faceOutwardNormal(a.bodyMesh.geometry, fi, 9)
             if (ln.lengthSq() > 1e-12) {
               const qTarget = new THREE.Quaternion().setFromUnitVectors(ln, resultFaceDir)
-              a.group.quaternion.slerp(qTarget, 0.08)
+              a.group.quaternion.slerp(qTarget, 0.03)
               a.group.quaternion.normalize()
             }
           }
