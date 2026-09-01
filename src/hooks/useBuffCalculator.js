@@ -897,9 +897,12 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
         vulnerableTypes.length = 0
         vulnerableTypes.push(...creature.vulnerabilities.map(getDamageTypeValue).filter(Boolean))
       }
-      // 状态免疫也合并
+      // 变身后，生物的 condition immunities 替换角色自身的
       if (Array.isArray(creature.conditionImmunities) && creature.conditionImmunities.length > 0) {
-        // conditionImmunities 需要特殊处理，这里先简单记录
+        conditionImmunities.clear()
+        for (const c of creature.conditionImmunities) {
+          conditionImmunities.add(String(c).toLowerCase())
+        }
       }
     }
 
