@@ -19,6 +19,13 @@
  * - naturalWeapons: 天生武器数组 [{ name, attackBonus, damage }]
  * - traits: 特性描述数组
  * - actions: 动作描述数组
+ * - reactions: 反应动作数组 [{ name, description }]
+ * - legendaryActions: 传奇动作数组 [{ name, description, cost }]
+ * - legendaryActionPoints: 传奇动作点数
+ * - spellcastingAbility: 施法属性 ('int' | 'wis' | 'cha' | null)
+ * - spellSaveDC: 法术豁免 DC
+ * - spellAttackBonus: 法术攻击加值
+ * - spells: 法术列表 [{ name, castMode, timesPerDay, slotLevel, description }]
  * 
  * 存储：Supabase custom_library (lib_key='creature_library') + localStorage 回退
  */
@@ -68,6 +75,15 @@ export const DEFAULT_CREATURE = {
   naturalWeapons: [],
   traits: [],
   actions: [],
+  reactions: [],  // [{ name, description }]
+  legendaryActions: [],  // [{ name, description, cost }]
+  legendaryActionPoints: 0,
+
+  // 法术相关
+  spellcastingAbility: null,  // 'int' | 'wis' | 'cha' | null
+  spellSaveDC: 0,
+  spellAttackBonus: 0,
+  spells: [],  // [{ name, castMode: 'at-will' | 'per-day' | 'slot', timesPerDay, slotLevel, description }]
 }
 
 /** 从 Supabase 加载生物库（异步）；远程为空时自动从 localStorage 迁移 */
