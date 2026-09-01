@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   loadCreatureLibrary,
-  saveCreatureLibrary,
+  loadCreatureLibraryFromSupabase,
   addCreature,
   updateCreature,
   deleteCreature,
@@ -13,6 +13,7 @@ import {
   createEmptyTrait,
   createEmptyAction,
 } from '../data/creatureLibrary'
+import { Trash2 } from 'lucide-react'
 import BuffForm from '../components/BuffForm'
 
 const CREATURE_TYPES = [
@@ -47,7 +48,7 @@ function modStr(val) {
 function mapParsedToCreature(parsed) {
   const base = { ...DEFAULT_CREATURE, abilities: { ...DEFAULT_CREATURE.abilities }, speed: { ...DEFAULT_CREATURE.speed } }
 
-  if (parsed.name) base.name = parsed.nameZh || parsed.name
+  if (parsed.name) base.name = parsed.name
   if (parsed.size) base.size = parsed.size
   if (parsed.type) base.type = parsed.type
   if (parsed.cr != null) base.cr = Number(parsed.cr) || 0
@@ -104,7 +105,12 @@ export default function CreatureLibraryManager() {
   const [filter, setFilter] = useState('')
   const [parseLoading, setParseLoading] = useState(false)
   const [parseError, setParseError] = useState('')
+  const [translating, setTranslating] = useState(false)
+  const [translateProgress, setTranslateProgress] = useState('')
   const [previewImage, setPreviewImage] = useState(null)
+  const [supabaseLoading, setSupabaseLoading] = useState(false)
+  const [duplicateDialog, setDuplicateDialog] = useState(null) // { pending, existing }
+  const [duplicateSaving, setDuplicateSaving] = useState(false)
   const fileInputRef = useRef(null)
   const listFileInputRef = useRef(null)
 
@@ -112,7 +118,18 @@ export default function CreatureLibraryManager() {
     setCreatures(loadCreatureLibrary())
   }, [])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setSupabaseLoading(true)
+      await loadCreatureLibraryFromSupabase()
+      if (!cancelled) {
+        refresh()
+        setSupabaseLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [refresh])
 
   const filtered = creatures.filter(c =>
     !filter || c.name.toLowerCase().includes(filter.toLowerCase())
@@ -132,8 +149,41 @@ export default function CreatureLibraryManager() {
     })
   }
 
+  // ── 重复检测 ──────────────────────────────────────────────────────
+  const findDuplicateCreature = useCallback((creature) => {
+    const existing = loadCreatureLibrary()
+    const name = (creature.name || '').trim().toLowerCase()
+    if (!name) return null
+
+    // 同名
+    const nameMatch = existing.find(c => c.name.trim().toLowerCase() === name)
+    if (nameMatch) return nameMatch
+
+    // 内容相似度（特质+动作名称的 Jaccard）
+    const getNames = (arr) => new Set((arr || []).map(t => (typeof t === 'string' ? t : t.name || '').trim().toLowerCase()).filter(Boolean))
+    const newNames = new Set([...getNames(creature.traits), ...getNames(creature.actions)])
+    if (newNames.size === 0) return null
+
+    for (const c of existing) {
+      const existNames = new Set([...getNames(c.traits), ...getNames(c.actions)])
+      if (existNames.size === 0) continue
+      const intersection = [...newNames].filter(n => existNames.has(n)).length
+      const union = new Set([...newNames, ...existNames]).size
+      if (union > 0 && intersection / union >= 0.6) return c
+    }
+    return null
+  }, [])
+
   const handleSave = () => {
     if (!editing.name.trim()) return
+    // 新建时检测重复（编辑已有生物不检测）
+    if (!editing.id) {
+      const dup = findDuplicateCreature(editing)
+      if (dup) {
+        setDuplicateDialog({ pending: { ...editing }, existing: dup })
+        return
+      }
+    }
     if (editing.id) {
       updateCreature(editing.id, editing)
     } else {
@@ -142,6 +192,38 @@ export default function CreatureLibraryManager() {
     setEditing(null)
     refresh()
   }
+
+  // ── 重复对话框处理 ──────────────────────────────────────────────────
+  const doSave = useCallback((result, pending) => {
+    const finalize = () => {
+      setEditing(null)
+      setDuplicateDialog(null)
+      setDuplicateSaving(false)
+      refresh()
+    }
+    if (result && typeof result.then === 'function') {
+      result.then(finalize)
+    } else {
+      finalize()
+    }
+  }, [refresh])
+
+  const handleResolveDuplicate = useCallback((action) => {
+    if (!duplicateDialog || duplicateSaving) return
+    const { pending, existing } = duplicateDialog
+    setDuplicateSaving(true)
+    if (action === 'overwrite') {
+      const result = updateCreature(existing.id, { ...pending, id: existing.id })
+      doSave(result, pending)
+    } else if (action === 'keepBoth') {
+      const result = addCreature(pending)
+      doSave(result, pending)
+    } else {
+      // cancel
+      setDuplicateDialog(null)
+      setDuplicateSaving(false)
+    }
+  }, [duplicateDialog, duplicateSaving, doSave])
 
   const handleDelete = (id) => {
     if (window.confirm('确定删除此生物？')) {
@@ -203,6 +285,24 @@ export default function CreatureLibraryManager() {
       ...prev,
       actions: (prev.actions || []).map(a => a.id === id ? { ...a, [key]: val } : a),
     }))
+  }
+
+  // ── 天生武器 编辑 ──────────────────────────────────────────────
+  const addNaturalWeapon = () => {
+    patch('naturalWeapons', [
+      ...(editing.naturalWeapons || []),
+      { name: '', attackBonus: 0, damage: '' },
+    ])
+  }
+  const updateNaturalWeapon = (idx, key, value) => {
+    const weapons = [...(editing.naturalWeapons || [])]
+    weapons[idx] = { ...weapons[idx], [key]: value }
+    patch('naturalWeapons', weapons)
+  }
+  const removeNaturalWeapon = (idx) => {
+    const weapons = [...(editing.naturalWeapons || [])]
+    weapons.splice(idx, 1)
+    patch('naturalWeapons', weapons)
   }
 
   // ── 截图录入 ──────────────────────────────────────────────────────
@@ -304,6 +404,50 @@ export default function CreatureLibraryManager() {
       setParseLoading(false)
     }
   }, [])
+
+  // ── 批量翻译 ──────────────────────────────────────────────────────
+  const handleTranslateAll = useCallback(async () => {
+    const all = loadCreatureLibrary()
+    if (all.length === 0) return
+    if (!window.confirm(`确定翻译全部 ${all.length} 个生物为中文？将逐个调用 AI 翻译。`)) return
+    setTranslating(true)
+    setTranslateProgress('')
+    let done = 0
+    for (const creature of all) {
+      setTranslateProgress(`正在翻译：${creature.name} (${done + 1}/${all.length})`)
+      try {
+        const res = await fetch('/api/translate-creature', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ creature }),
+        })
+        if (res.ok) {
+          const translated = await res.json()
+          updateCreature(creature.id, {
+            ...creature,
+            name: translated.name || creature.name,
+            alignment: translated.alignment || creature.alignment,
+            savingThrows: translated.savingThrows || creature.savingThrows,
+            skills: translated.skills || creature.skills,
+            damageVulnerabilities: translated.damageVulnerabilities || creature.vulnerabilities,
+            damageResistances: translated.damageResistances || creature.resistances,
+            damageImmunities: translated.damageImmunities || creature.immunities,
+            conditionImmunities: translated.conditionImmunities || creature.conditionImmunities,
+            senses: translated.senses || creature.senses,
+            languages: translated.languages || creature.languages,
+            traits: normalizeTraits(translated.traits || creature.traits),
+            actions: normalizeActions(translated.actions || creature.actions),
+          })
+        }
+      } catch (err) {
+        console.error(`Translate failed for ${creature.name}:`, err)
+      }
+      done++
+    }
+    setTranslating(false)
+    setTranslateProgress('')
+    refresh()
+  }, [refresh])
 
   if (editing) {
     const editingTrait = editingTraitBuffId ? (editing.traits || []).find(t => t.id === editingTraitBuffId) : null
@@ -457,6 +601,48 @@ export default function CreatureLibraryManager() {
             </div>
           </div>
 
+          {/* 天生武器 */}
+          <div className="rounded-lg bg-dnd-card border border-white/10 p-3 space-y-2">
+            <div className="text-[10px] text-dnd-text-muted">天生武器</div>
+            {(editing.naturalWeapons || []).length === 0 && <div className="text-[10px] text-gray-600">无天生武器</div>}
+            {(editing.naturalWeapons || []).map((w, idx) => (
+              <div key={idx} className="space-y-1 border-t border-white/5 pt-2">
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-dnd-text-muted w-5 shrink-0">{idx + 1}.</span>
+                  <input
+                    className={`${inputCls} flex-1`}
+                    placeholder="名字（如爪击）"
+                    value={w.name || ''}
+                    onChange={e => updateNaturalWeapon(idx, 'name', e.target.value)}
+                  />
+                  <button
+                    onClick={() => removeNaturalWeapon(idx)}
+                    className="text-dnd-red/60 hover:text-dnd-red shrink-0 px-1"
+                    title="删除"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    className={`${inputCls} w-20 shrink-0`}
+                    type="number"
+                    placeholder="攻击加值"
+                    value={w.attackBonus ?? 0}
+                    onChange={e => updateNaturalWeapon(idx, 'attackBonus', Number(e.target.value) || 0)}
+                  />
+                  <input
+                    className={`${inputCls} flex-1`}
+                    placeholder="伤害（如 2d6+3 挥砍）"
+                    value={w.damage || ''}
+                    onChange={e => updateNaturalWeapon(idx, 'damage', e.target.value)}
+                  />
+                </div>
+              </div>
+            ))}
+            <button onClick={addNaturalWeapon} className="text-dnd-gold text-xs hover:text-dnd-gold-light">+ 添加天生武器</button>
+          </div>
+
           {/* 动作 */}
           <div className="rounded-lg bg-dnd-card border border-white/10 p-3 space-y-2">
             <div className="flex items-center justify-between">
@@ -576,6 +762,13 @@ export default function CreatureLibraryManager() {
         <div className="flex items-center gap-2">
           <button onClick={startNew} className="px-3 py-1.5 rounded-lg bg-dnd-gold text-black text-xs font-medium">+ 新建</button>
           <button
+            onClick={handleTranslateAll}
+            disabled={translating || creatures.length === 0}
+            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-medium"
+          >
+            {translating ? '翻译中...' : '翻译全部'}
+          </button>
+          <button
             onClick={() => listFileInputRef.current?.click()}
             disabled={parseLoading}
             className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-medium"
@@ -604,6 +797,11 @@ export default function CreatureLibraryManager() {
         onChange={e => setFilter(e.target.value)}
       />
 
+      {/* Supabase 加载中 */}
+      {supabaseLoading && (
+        <div className="mb-3 text-xs text-indigo-400 animate-pulse">正在加载远程生物库...</div>
+      )}
+
       {/* 截图新建状态 */}
       {parseLoading && !editing && (
         <div className="mb-3 text-xs text-indigo-400 animate-pulse">AI 正在识别生物数据...</div>
@@ -613,6 +811,9 @@ export default function CreatureLibraryManager() {
           {parseError}
           <button onClick={() => setParseError('')} className="ml-2 underline">关闭</button>
         </div>
+      )}
+      {translating && translateProgress && (
+        <div className="mb-3 text-xs text-emerald-400 animate-pulse">{translateProgress}</div>
       )}
 
       {/* 列表 */}
@@ -641,6 +842,43 @@ export default function CreatureLibraryManager() {
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* 重复检测对话框 */}
+      {duplicateDialog && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-[#1a2332] rounded-xl border border-white/10 p-4 max-w-sm w-full space-y-3">
+            <h3 className="text-white font-semibold text-sm">发现重复生物</h3>
+            <div className="text-xs text-dnd-text-muted space-y-1">
+              <div>已存在：<span className="text-white">{duplicateDialog.existing.name}</span></div>
+              <div>待保存：<span className="text-white">{duplicateDialog.pending.name}</span></div>
+            </div>
+            <div className="text-xs text-dnd-text-muted">如何处理？</div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleResolveDuplicate('overwrite')}
+                disabled={duplicateSaving}
+                className="flex-1 py-1.5 rounded-lg bg-dnd-gold text-black text-xs font-medium disabled:opacity-50"
+              >
+                {duplicateSaving ? '保存中...' : '覆盖已有'}
+              </button>
+              <button
+                onClick={() => handleResolveDuplicate('keepBoth')}
+                disabled={duplicateSaving}
+                className="flex-1 py-1.5 rounded-lg border border-white/20 text-dnd-text-muted text-xs disabled:opacity-50"
+              >
+                保留两个
+              </button>
+              <button
+                onClick={() => handleResolveDuplicate('cancel')}
+                disabled={duplicateSaving}
+                className="px-3 py-1.5 rounded-lg bg-dnd-red/80 hover:bg-dnd-red text-white text-xs disabled:opacity-50"
+              >
+                取消
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
