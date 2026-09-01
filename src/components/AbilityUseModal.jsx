@@ -638,6 +638,31 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
       lines.push(`消耗 ${amt} 充能（共 ${norm.charges}）`)
     }
 
+    // 荒野变形预检：扣减 wild_shape 资源，次数耗尽则阻止变身
+    const effectsArr = norm.effects || []
+    const hasWildShapeTransform = effectsArr.some((eff) => {
+      if (eff.type === 'creature_transform') return !!eff.value?.wildShapeMode
+      if (eff.type === 'spell' && Array.isArray(eff.value?.subEffects)) {
+        return eff.value.subEffects.some((s) => s.type === 'creature_transform' && !!s.value?.wildShapeMode)
+      }
+      return false
+    })
+    if (hasWildShapeTransform) {
+      const wsRes = (char.classResources || []).find((r) => r.resourceKey === 'wild_shape')
+      if (wsRes) {
+        if ((wsRes.current || 0) <= 0) {
+          lines.push('⚠️ 荒野变形次数已用尽，无法变身')
+          setResultLines(lines)
+          onConfirm({}, lines)
+          return
+        }
+        patch.classResources = (patch.classResources || char.classResources || []).map((r) =>
+          r.resourceKey === 'wild_shape' ? { ...r, current: Math.max(0, r.current - 1) } : r
+        )
+        lines.push('🐾 荒野变形次数 -1')
+      }
+    }
+
     // 2. 逐个处理效果
     let runningHp = Number(char.hp?.current) || 0  // 累积 HP 变化，防止多效果互相覆盖
     for (const eff of (norm.effects || [])) {
