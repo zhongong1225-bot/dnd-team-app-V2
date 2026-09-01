@@ -1005,6 +1005,10 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
         creatureImmunities: creatureTransformData.creature.immunities,
         creatureVulnerabilities: creatureTransformData.creature.vulnerabilities,
         creatureConditionImmunities: creatureTransformData.creature.conditionImmunities,
+        naturalWeapons: creatureTransformData.creature.naturalWeapons || [],
+        spells: creatureTransformData.creature.spells || [],
+        spellSaveDC: creatureTransformData.creature.spellSaveDC || 0,
+        spellAttackBonus: creatureTransformData.creature.spellAttackBonus || 0,
       } : null,
     }
 }
