@@ -343,6 +343,32 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
     return prof + mod
   }, [char])
 
+  /**
+   * 自由消耗法术位：从指定环位开始向上寻找第一个可用环位，消耗 1 个。
+   * 返回 { newSlots, consumedRing, consumed, line }，未消耗时保持原 slots 不变。
+   */
+  const consumeFreeSpellSlot = useCallback((spellSlots, slotLevel) => {
+    const currentSlots = { ...(spellSlots || {}) }
+    const level = Math.max(1, Math.min(9, Number(slotLevel) || 1))
+    for (let r = level; r <= 9; r++) {
+      if ((currentSlots[r] || 0) > 0) {
+        currentSlots[r] -= 1
+        return {
+          newSlots: currentSlots,
+          consumedRing: r,
+          consumed: true,
+          line: `消耗 1 个${r}环法术位（×${level} 倍）`,
+        }
+      }
+    }
+    return {
+      newSlots: spellSlots || {},
+      consumedRing: 0,
+      consumed: false,
+      line: `自由消耗 ${level} 环（无法术位可用）`,
+    }
+  }, [])
+
   /* ── 通用效果处理辅助函数 ── */
   // 处理效果数组，返回 { lines, hpChange, buffAdditions, spellSlotPatch, summonAdditions, stellarData }
   const processEffects = useCallback((effectsArr, ctx) => {
@@ -617,20 +643,10 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
       }
       lines.push(`消耗 ${amt} 个${ring}环法术位（剩余 ${newCurrent}）`)
     } else if (isFreeSlot) {
-      // 自由消耗：消耗 1 个 amt 环位的法术位
-      const currentSlots = { ...(char.spellSlots || {}) }
-      let consumed = false
-      // 优先消耗精确环位，否则从最低可用环位开始
-      for (let r = amt; r <= 9; r++) {
-        if (currentSlots[r] > 0) {
-          currentSlots[r] -= 1
-          consumed = true
-          lines.push(`消耗 1 个${r}环法术位（×${amt} 倍）`)
-          break
-        }
-      }
-      if (!consumed) lines.push(`自由消耗 ${amt} 环（无法术位可用）`)
-      patch.spellSlots = currentSlots
+      // 自由消耗：消耗 1 个 amt 环位的法术位（从 amt 环向上寻找可用环位）
+      const { newSlots, consumed, line } = consumeFreeSpellSlot(char.spellSlots, amt)
+      if (consumed) patch.spellSlots = newSlots
+      lines.push(line)
     } else if (isClassResource) {
       const res = (char.classResources || []).find((r) => r.resourceKey === norm.resourceType)
       if (res) {
@@ -710,11 +726,8 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
                   const c = cs[ring] || 0; const nc = Math.max(0, c - amt)
                   if (nc !== c) { cs[ring] = nc; resourcePatch.spellSlots = cs }
                 } else if (isFreeSlot) {
-                  const cs = { ...(char.spellSlots || {}) }
-                  for (let r = amt; r <= 9; r++) {
-                    if (cs[r] > 0) { cs[r] -= 1; break }
-                  }
-                  resourcePatch.spellSlots = cs
+                  const { newSlots, consumed } = consumeFreeSpellSlot(char.spellSlots, amt)
+                  if (consumed) resourcePatch.spellSlots = newSlots
                 } else if (isClassResource) {
                   resourcePatch.classResources = (char.classResources || []).map((r) => {
                     if (r.resourceKey !== norm.resourceType) return r
@@ -852,9 +865,8 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
               const newCurrent = Math.max(0, current - amt)
               if (newCurrent !== current) { currentSlots[ring] = newCurrent; resourcePatch.spellSlots = currentSlots }
             } else if (isFreeSlot) {
-              const cs = { ...(char.spellSlots || {}) }
-              for (let r = amt; r <= 9; r++) { if (cs[r] > 0) { cs[r] -= 1; break } }
-              resourcePatch.spellSlots = cs
+              const { newSlots, consumed } = consumeFreeSpellSlot(char.spellSlots, amt)
+              if (consumed) resourcePatch.spellSlots = newSlots
             } else if (isClassResource) {
               resourcePatch.classResources = (char.classResources || []).map((r) => {
                 if (r.resourceKey !== norm.resourceType) return r
@@ -1090,10 +1102,9 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
             }
             resourceLine = `消耗 ${amt} 个${ring}环法术位（剩余 ${newCurrent}）`
           } else if (isFreeSlot) {
-            const cs = { ...(char.spellSlots || {}) }
-            for (let r = amt; r <= 9; r++) { if (cs[r] > 0) { cs[r] -= 1; break } }
-            resourcePatch.spellSlots = cs
-            resourceLine = `自由消耗 ${amt} 环`
+            const { newSlots, consumed, line } = consumeFreeSpellSlot(char.spellSlots, amt)
+            if (consumed) resourcePatch.spellSlots = newSlots
+            resourceLine = line
           } else if (isClassResource) {
             const res = (char.classResources || []).find((r) => r.resourceKey === norm.resourceType)
             if (res) {

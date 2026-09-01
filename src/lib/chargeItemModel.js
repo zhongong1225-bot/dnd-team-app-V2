@@ -137,17 +137,51 @@ export const RESOURCE_TYPE_OPTIONS = [
   { value: 'martial_rage', label: '天诛之剑怒气' },
   { value: 'shadow_summon', label: '召影' },
   { value: 'star_points', label: '星辰点' },
-  { value: 'spell_slot_1', label: '一环法术位' },
-  { value: 'spell_slot_2', label: '二环法术位' },
-  { value: 'spell_slot_3', label: '三环法术位' },
-  { value: 'spell_slot_4', label: '四环法术位' },
-  { value: 'spell_slot_5', label: '五环法术位' },
-  { value: 'spell_slot_6', label: '六环法术位' },
-  { value: 'spell_slot_7', label: '七环法术位' },
-  { value: 'spell_slot_8', label: '八环法术位' },
-  { value: 'spell_slot_9', label: '九环法术位' },
-  { value: 'spell_slot_free', label: '法术位（自由消耗）' },
+  { value: 'spell_slot', label: '法术位' },
+  // ── 以下旧值保留供已有数据迁移，不在下拉中显示（normalizeChargeItemValue 会转成 spell_slot + consumptionMode）──
+  { value: 'spell_slot_1', label: '一环法术位', legacy: true },
+  { value: 'spell_slot_2', label: '二环法术位', legacy: true },
+  { value: 'spell_slot_3', label: '三环法术位', legacy: true },
+  { value: 'spell_slot_4', label: '四环法术位', legacy: true },
+  { value: 'spell_slot_5', label: '五环法术位', legacy: true },
+  { value: 'spell_slot_6', label: '六环法术位', legacy: true },
+  { value: 'spell_slot_7', label: '七环法术位', legacy: true },
+  { value: 'spell_slot_8', label: '八环法术位', legacy: true },
+  { value: 'spell_slot_9', label: '九环法术位', legacy: true },
+  { value: 'spell_slot_free', label: '法术位（自由消耗）', legacy: true },
 ]
+
+/** 下拉可选的消耗资源（排除已迁移的旧法术位表示） */
+export const SELECTABLE_RESOURCE_TYPE_OPTIONS = RESOURCE_TYPE_OPTIONS.filter((o) => !o.legacy)
+
+/** 环位序号 → 中文 */
+const RING_CN = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九']
+
+/** 是否为法术位类资源（含旧表示） */
+export function isSpellSlotResourceType(resourceType) {
+  return resourceType === 'spell_slot' || /^spell_slot_([1-9]|free)$/.test(resourceType)
+}
+
+/** 归一化后的 value 是否为「法术位 · 自由消耗」 */
+export function isFreeSlotConsumption(norm) {
+  return norm?.resourceType === 'spell_slot' && norm?.consumptionMode === 'free'
+}
+
+/** 归一化后的 value 是否为「法术位 · 固定消耗」 */
+export function isFixedSlotConsumption(norm) {
+  return norm?.resourceType === 'spell_slot' && norm?.consumptionMode === 'fixed'
+}
+
+/** 消耗资源的显示标签（法术位会带上环位/自由区间） */
+export function getResourceLabel(norm) {
+  if (!norm) return ''
+  if (norm.resourceType === 'spell_slot') {
+    return norm.consumptionMode === 'free'
+      ? `法术位（自由 1-${norm.maxSlotLevel}环）`
+      : `${RING_CN[norm.slotLevel] || norm.slotLevel}环法术位`
+  }
+  return RESOURCE_TYPE_OPTIONS.find((o) => o.value === norm.resourceType)?.label ?? norm.resourceType
+}
 
 /** 不需要回能数量设置的方式 */
 const NO_AMOUNT_METHODS = new Set(['none'])
@@ -157,7 +191,8 @@ const DICE_ONLY_METHODS = new Set(['absorb_energy', 'reaction_absorb'])
 export function createEmptyChargeItemValue(overrides = {}) {
   return {
     resourceType: 'charges',
-    consumptionMode: 'fixed', // 'fixed' | 'free' - 固定消耗或自由消耗
+    consumptionMode: 'fixed', // 'fixed' | 'free' - 固定消耗或自由消耗（仅 resourceType === 'spell_slot' 时有意义）
+    slotLevel: 1, // 固定消耗模式下消耗的环位 (1-9)
     maxSlotLevel: 1, // 自由消耗模式下的最大环位 (1-9)
     charges: 1,
     actionCost: 'action',
@@ -219,11 +254,23 @@ export function normalizeChargeItemValue(value) {
   }
   // resourceType：旧数据无此字段，默认 'charges'
   const validResourceTypes = RESOURCE_TYPE_OPTIONS.map((o) => o.value)
-  const resourceType = validResourceTypes.includes(value.resourceType) ? value.resourceType : 'charges'
+  let resourceType = validResourceTypes.includes(value.resourceType) ? value.resourceType : 'charges'
   // consumptionMode: 'fixed' | 'free'
-  const consumptionMode = value.consumptionMode === 'free' ? 'free' : 'fixed'
+  let consumptionMode = value.consumptionMode === 'free' ? 'free' : 'fixed'
+  // slotLevel: 固定消耗模式下消耗的环位 (1-9)
+  let slotLevel = Math.max(1, Math.min(9, Number(value.slotLevel) || 1))
   // maxSlotLevel: 自由消耗模式下的最大环位 (1-9)
   const maxSlotLevel = Math.max(1, Math.min(9, Number(value.maxSlotLevel) || 1))
+  // 迁移旧法术位表示：spell_slot_N → 固定消耗 N 环；spell_slot_free → 自由消耗
+  const legacyRing = /^spell_slot_([1-9])$/.exec(resourceType)
+  if (legacyRing) {
+    resourceType = 'spell_slot'
+    consumptionMode = 'fixed'
+    slotLevel = Number(legacyRing[1])
+  } else if (resourceType === 'spell_slot_free') {
+    resourceType = 'spell_slot'
+    consumptionMode = 'free'
+  }
   const charges = typeof value.charges === 'number'
     ? Math.max(0, value.charges)
     : (parseInt(value.charges, 10) || 0)
@@ -292,7 +339,11 @@ export function normalizeChargeItemValue(value) {
       const tv = e.value && typeof e.value === 'object' ? e.value : {}
       return { id, type, applyMultiplier: e.applyMultiplier !== false, value: {
         buffName: typeof tv.buffName === 'string' ? tv.buffName : '',
-        modules: Array.isArray(tv.modules) ? tv.modules.map((m) => ({ ...m })) : [],
+        duration: tv.duration ?? null,
+        // 模块级 applyMultiplier：自由消耗时该模块数值是否乘以消耗环位（缺省视为乘）
+        modules: Array.isArray(tv.modules)
+          ? tv.modules.map((m) => ({ ...m, applyMultiplier: m?.applyMultiplier !== false }))
+          : [],
       } }
     }
     if (type === 'creature_transform') {
@@ -350,6 +401,8 @@ export function normalizeChargeItemValue(value) {
         title: typeof clv.title === 'string' ? clv.title : '',
         description: typeof clv.description === 'string' ? clv.description : '',
         triggerCondition: ['on_use', 'on_turn_start', 'on_damage_taken', 'on_save_failed'].includes(clv.triggerCondition) ? clv.triggerCondition : 'on_use',
+        damageDiceCount: Math.max(0, Number(clv.damageDiceCount) || 0),
+        damageDiceSides: Math.max(1, Number(clv.damageDiceSides) || 6),
       } }
     }
     if (type === 'damage') {
@@ -401,7 +454,7 @@ export function normalizeChargeItemValue(value) {
     }
     return { id, type, applyMultiplier: e.applyMultiplier !== false, value: {} }
   })
-  return { resourceType, consumptionMode, maxSlotLevel, charges, actionCost, movementFeet, recovery, effects, isStance: !!value.isStance }
+  return { resourceType, consumptionMode, slotLevel, maxSlotLevel, charges, actionCost, movementFeet, recovery, effects, isStance: !!value.isStance }
 }
 
 /** 回能方式是否支持自定义回能数量 */
