@@ -305,6 +305,42 @@ export default function CreatureLibraryManager() {
     patch('naturalWeapons', weapons)
   }
 
+  // ── 反应动作 编辑 ──────────────────────────────────────────────
+  const addReaction = () => {
+    patch('reactions', [
+      ...(editing.reactions || []),
+      { name: '', description: '' },
+    ])
+  }
+  const updateReaction = (idx, key, value) => {
+    const reactions = [...(editing.reactions || [])]
+    reactions[idx] = { ...reactions[idx], [key]: value }
+    patch('reactions', reactions)
+  }
+  const removeReaction = (idx) => {
+    const reactions = [...(editing.reactions || [])]
+    reactions.splice(idx, 1)
+    patch('reactions', reactions)
+  }
+
+  // ── 传奇动作 编辑 ──────────────────────────────────────────────
+  const addLegendaryAction = () => {
+    patch('legendaryActions', [
+      ...(editing.legendaryActions || []),
+      { name: '', description: '', cost: 1 },
+    ])
+  }
+  const updateLegendaryAction = (idx, key, value) => {
+    const actions = [...(editing.legendaryActions || [])]
+    actions[idx] = { ...actions[idx], [key]: value }
+    patch('legendaryActions', actions)
+  }
+  const removeLegendaryAction = (idx) => {
+    const actions = [...(editing.legendaryActions || [])]
+    actions.splice(idx, 1)
+    patch('legendaryActions', actions)
+  }
+
   // ── 截图录入 ──────────────────────────────────────────────────────
   const handleImageFile = useCallback(async (file) => {
     if (!file || !file.type.startsWith('image/')) return
@@ -702,6 +738,96 @@ export default function CreatureLibraryManager() {
                     </span>
                   )}
                 </div>
+              </div>
+            ))}
+          </div>
+
+          {/* 反应动作 */}
+          <div className="rounded-lg bg-dnd-card border border-white/10 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-dnd-text-muted">反应动作</span>
+              <button onClick={addReaction} className="text-dnd-gold text-xs hover:text-dnd-gold-light">+ 添加反应</button>
+            </div>
+            {(editing.reactions || []).length === 0 && <div className="text-[10px] text-gray-600">无反应动作</div>}
+            {(editing.reactions || []).map((r, idx) => (
+              <div key={idx} className="space-y-1 border-t border-white/5 pt-2">
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-dnd-text-muted w-5 shrink-0">{idx + 1}.</span>
+                  <input
+                    className={`${inputCls} flex-1`}
+                    placeholder="反应名称"
+                    value={r.name || ''}
+                    onChange={e => updateReaction(idx, 'name', e.target.value)}
+                  />
+                  <button
+                    onClick={() => removeReaction(idx)}
+                    className="text-dnd-red/60 hover:text-dnd-red shrink-0 px-1"
+                    title="删除"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+                <textarea
+                  className={`${inputCls} resize-none`}
+                  rows={2}
+                  placeholder="反应描述"
+                  value={r.description || ''}
+                  onChange={e => updateReaction(idx, 'description', e.target.value)}
+                />
+              </div>
+            ))}
+          </div>
+
+          {/* 传奇动作 */}
+          <div className="rounded-lg bg-dnd-card border border-white/10 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-dnd-text-muted">传奇动作</span>
+              <button onClick={addLegendaryAction} className="text-dnd-gold text-xs hover:text-dnd-gold-light">+ 添加传奇动作</button>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] text-dnd-text-muted">传奇动作点数</label>
+              <input
+                type="number"
+                className={`${inputCls} w-16`}
+                value={editing.legendaryActionPoints ?? 0}
+                onChange={e => patch('legendaryActionPoints', Number(e.target.value) || 0)}
+                min="0"
+              />
+            </div>
+            {(editing.legendaryActions || []).length === 0 && <div className="text-[10px] text-gray-600">无传奇动作</div>}
+            {(editing.legendaryActions || []).map((la, idx) => (
+              <div key={idx} className="space-y-1 border-t border-white/5 pt-2">
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-dnd-text-muted w-5 shrink-0">{idx + 1}.</span>
+                  <input
+                    className={`${inputCls} flex-1`}
+                    placeholder="传奇动作名称"
+                    value={la.name || ''}
+                    onChange={e => updateLegendaryAction(idx, 'name', e.target.value)}
+                  />
+                  <input
+                    type="number"
+                    className={`${inputCls} w-14 shrink-0`}
+                    placeholder="消耗"
+                    value={la.cost ?? 1}
+                    onChange={e => updateLegendaryAction(idx, 'cost', Number(e.target.value) || 1)}
+                    min="1"
+                  />
+                  <button
+                    onClick={() => removeLegendaryAction(idx)}
+                    className="text-dnd-red/60 hover:text-dnd-red shrink-0 px-1"
+                    title="删除"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+                <textarea
+                  className={`${inputCls} resize-none`}
+                  rows={2}
+                  placeholder="传奇动作描述"
+                  value={la.description || ''}
+                  onChange={e => updateLegendaryAction(idx, 'description', e.target.value)}
+                />
               </div>
             ))}
           </div>
