@@ -447,6 +447,14 @@ export default function CreatureLibraryManager() {
               <label className={labelCls}>免疫（逗号分隔）</label>
               <input className={inputCls} value={(editing.immunities || []).join(', ')} onChange={e => patch('immunities', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} />
             </div>
+            <div>
+              <label className={labelCls}>易伤（逗号分隔）</label>
+              <input className={inputCls} value={(editing.vulnerabilities || []).join(', ')} onChange={e => patch('vulnerabilities', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} placeholder="火, 冰霜" />
+            </div>
+            <div>
+              <label className={labelCls}>状态免疫（逗号分隔）</label>
+              <input className={inputCls} value={(editing.conditionImmunities || []).join(', ')} onChange={e => patch('conditionImmunities', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} placeholder="魅惑, 恐慌, 擒抱" />
+            </div>
           </div>
 
           {/* 动作 */}
