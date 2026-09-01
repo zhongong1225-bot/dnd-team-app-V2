@@ -238,7 +238,6 @@ export default function BuffManager({
   const buffBuckets = useMemo(() => {
     const m = { feat: [], adventure: [], class: [], race: [], equipment: [], temporary: [] }
     for (const b of list) {
-      if (b.sourceKind === 'stance') continue // 架势不在状态栏显示
       // 纯主动释放（charge_item）条目不出现在 BUFF 状态栏——主动技能通过卡片系统独立运作
       const effs = Array.isArray(b.effects) ? b.effects : []
       if (effs.length > 0 && effs.every((e) => e.effectType === 'charge_item')) continue

@@ -2936,53 +2936,98 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             )
 
           })}
-          {/* 变身后天生武器 */}
-          {buffStats?.creatureTransform?.naturalWeapons?.length > 0 && (
-            <div className="mt-2 space-y-1">
-              <div className="text-[10px] text-amber-400/80 flex items-center gap-1">
-                <span className="opacity-60">🐾</span> 天生武器（变身）
-              </div>
-              {buffStats.creatureTransform.naturalWeapons.map((weapon, idx) => (
-                <div
-                  key={`nw_${idx}`}
-                  className="flex items-center gap-2 px-2 py-1 rounded bg-amber-900/20 border border-amber-500/20"
-                >
-                  <span className="text-xs text-amber-200 font-medium">{weapon.name}</span>
-                  <span className="text-[10px] text-gray-400">
-                    命中 +{weapon.attackBonus} | {weapon.damage}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+          {/* 变身后天生武器（临时战斗手段，可快捷投骰） */}
+          {(buffStats?.creatureTransform?.naturalWeapons || []).map((weapon, idx) => {
+            const dmgStr = String(weapon.damage || '').trim()
+            const dmgMatch = dmgStr.match(/^(\S+)\s*([\s\S]*)$/)
+            const dmgDice = dmgMatch ? dmgMatch[1] : dmgStr
+            const dmgTypeRaw = dmgMatch ? dmgMatch[2].trim() : ''
+            const dmgTypeLabel = getDamageTypeLabel(dmgTypeRaw) || dmgTypeRaw
+            const nwAttackBonus = Number(weapon.attackBonus) || 0
+            return (
+              <div key={`nw_${idx}`} className={`rounded-lg border border-gray-600 bg-gray-800/80 p-2 ${COMBAT_LIST_ROW_SHADOW}`}>
+                <div className={COMBAT_MEAN_ROW_GRID}>
+                  {/* 名称列 */}
+                  <div className="col-span-7 flex items-center gap-1 min-w-0 pr-2">
+                    <ActionLabelBadge source="1 动作" />
+                    <span className={`text-white font-medium ${CM_MEAN_HI} truncate min-w-0`}>{weapon.name}</span>
+                    <span className="text-[10px] text-amber-400/80 shrink-0" title="变身生物的天生武器">🐾 变身</span>
+                  </div>
 
-          {/* 变身后法术 */}
-          {buffStats?.creatureTransform?.spells?.length > 0 && (
-            <div className="mt-2 space-y-1">
-              <div className="text-[10px] text-purple-400/80 flex items-center gap-1">
-                <span className="opacity-60">✦</span> 生物法术（变身）
-                {buffStats.creatureTransform.spellSaveDC > 0 && (
-                  <span className="text-[10px] text-gray-500 ml-1">DC {buffStats.creatureTransform.spellSaveDC}</span>
-                )}
-                {buffStats.creatureTransform.spellAttackBonus > 0 && (
-                  <span className="text-[10px] text-gray-500 ml-1">攻击 +{buffStats.creatureTransform.spellAttackBonus}</span>
-                )}
-              </div>
-              {buffStats.creatureTransform.spells.map((spell, idx) => (
-                <div
-                  key={`cs_${idx}`}
-                  className="flex items-center gap-2 px-2 py-1 rounded bg-purple-900/20 border border-purple-500/20"
-                >
-                  <span className="text-xs text-purple-200 font-medium">{spell.name}</span>
-                  <span className="text-[10px] text-gray-400">
-                    {spell.castMode === 'at-will' && '随意'}
-                    {spell.castMode === 'per-day' && `${spell.timesPerDay || 1}/天`}
-                    {spell.castMode === 'slot' && `${spell.slotLevel || 1}环`}
-                  </span>
+                  {/* 攻击列 */}
+                  <div className="col-span-5 pl-2 border-l border-gray-600 flex items-center gap-x-1.5 min-w-0 overflow-hidden">
+                    <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>攻击</span>
+                    <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums truncate`}>{nwAttackBonus >= 0 ? '+' : ''}{nwAttackBonus}</span>
+                    <button type="button" onClick={() => openForCheck(weapon.name + ' 攻击', nwAttackBonus, { quickRoll: true })} className={CM_BTN_RED} title={quickRollTitle('攻击')} aria-label={quickRollTitle('攻击')}>
+                      <QuickRollIcon kind="d20" />
+                    </button>
+                  </div>
+
+                  {/* 伤害列 */}
+                  <div className="col-span-12 pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden">
+                    <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
+                    <span className={`min-w-0 flex-1 font-mono ${CM_MEAN_HI} tabular-nums text-white truncate`}>{dmgStr || '—'}</span>
+                    {dmgDice && (
+                      <>
+                        <button type="button" onClick={() => rollDamageDice(dmgDice, `${weapon.name} 伤害`, `nw_dmg_${idx}`, 0, false, dmgTypeLabel)} className={CM_BTN_GOLD} title={quickRollTitle('伤害')} aria-label={quickRollTitle('伤害')}>
+                          <QuickRollIcon kind="damage" className={CM_DICE_IC_GOLD} />
+                        </button>
+                        <button type="button" onClick={() => rollDamageDice(dmgDice, `${weapon.name} 伤害`, `nw_dmg_${idx}`, 0, true, dmgTypeLabel)} className={CM_BTN_CRIT} title={quickRollTitle('伤害（重击×2伤害骰）')} aria-label={quickRollTitle('伤害（重击×2伤害骰）')}>
+                          <QuickRollIcon kind="crit" />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            )
+          })}
+
+          {/* 变身后生物法术（临时战斗手段，仅展示） */}
+          {(buffStats?.creatureTransform?.spells || []).map((spell, idx) => {
+            const nwSpellDC = buffStats?.creatureTransform?.spellSaveDC
+            const nwSpellAtk = buffStats?.creatureTransform?.spellAttackBonus
+            const castLabel = spell.castMode === 'at-will' ? '随意'
+              : spell.castMode === 'per-day' ? `${spell.timesPerDay || 1}/天`
+              : `${spell.slotLevel || 1}环`
+            return (
+              <div key={`cs_${idx}`} className={`rounded-lg border border-gray-600 bg-gray-800/80 p-2 ${COMBAT_LIST_ROW_SHADOW}`}>
+                <div className={COMBAT_MEAN_ROW_GRID}>
+                  {/* 名称列 */}
+                  <div className="col-span-9 flex items-center gap-1 min-w-0 pr-2">
+                    <ActionLabelBadge source="1 动作" />
+                    <span className={`text-white font-medium ${CM_MEAN_HI} truncate min-w-0`}>{spell.name}</span>
+                    <span className="text-[10px] text-purple-400/80 shrink-0" title="变身生物的天生法术">✦ 变身</span>
+                  </div>
+
+                  {/* 施放列 */}
+                  <div className="col-span-5 pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden">
+                    <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>施放</span>
+                    <span className={`text-white ${CM_MEAN_HI} truncate`}>{castLabel}</span>
+                  </div>
+
+                  {/* DC / 攻击列 */}
+                  <div className="col-span-10 pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden">
+                    {nwSpellDC > 0 && (
+                      <>
+                        <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>DC</span>
+                        <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums`}>{nwSpellDC}</span>
+                      </>
+                    )}
+                    {nwSpellAtk > 0 && (
+                      <>
+                        <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0 ${nwSpellDC > 0 ? 'ml-2' : ''}`}>攻击</span>
+                        <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums`}>+{nwSpellAtk}</span>
+                      </>
+                    )}
+                    {!(nwSpellDC > 0) && !(nwSpellAtk > 0) && (
+                      <span className={`text-white ${CM_MEAN_HI}`}>—</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
           {canEdit && (
             <button type="button" onClick={openAddCombatMeanModal} className={`text-dnd-text-muted ${CM_MEAN_LABEL} font-semibold uppercase tracking-wider hover:text-dnd-gold-light hover:underline`}>
               + 添加战斗手段

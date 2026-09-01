@@ -27,7 +27,7 @@ const LABEL_BY_KEY = Object.fromEntries(BUFF_SOURCE_KIND_OPTIONS.map((o) => [o.k
 
 const VALID_KEYS = new Set(BUFF_SOURCE_KIND_OPTIONS.map((o) => o.key))
 
-/** 横向 Buff 分栏顺序（左→右）；须包含全部六类各一次（架势不在状态栏显示） */
+/** 横向 Buff 分栏顺序（左→右）；包含六类 */
 export const BUFF_COLUMN_KEYS = ['feat', 'adventure', 'class', 'race', 'equipment', 'temporary']
 
 export const BUFF_COLUMN_DRAG_MIME = 'application/x-dnd-team-buff-column'
@@ -111,6 +111,7 @@ export function getBuffSourceKindTitle(buff) {
   if (buff.fromItem) return '装备：来自已装备物品的附魔效果'
   if (buff.fromRace) return '种族：来自种族特性'
   if (buff.fromBackground) return '背景：来自背景特性'
+  if (buff.fromMartialTechnique) return '武技架势：来自武技面板激活的架势，效果由 DM 配置'
   const key = normalizeBuffSourceKindKey(buff.sourceKind)
   const label = LABEL_BY_KEY[key] ?? '冒险'
   const hint = {

@@ -418,40 +418,56 @@ Card = {
 
 #### Step 19：种族数据表 + 展示页面（~4 天）
 
-**目标**：从零构建种族数据体系。
+> **注意**：此步骤已有更详细的设计文档，见 [docs/superpowers/specs/2026-09-01-race-system-redesign-design.md](./docs/superpowers/specs/2026-09-01-race-system-redesign-design.md)
+> 
+> 原计划（raceData.js 硬编码）已被新方案取代：
+> - 改用 `raceModel.js` 数据模型
+> - 采用"加值槽 + 玩家分配"模式，不是硬编码属性加值
+> - 通过 cardAdapter 自动生成效果，不走 raceDefaultBuffs.js
+> - 种族基础值只读，后天变化走 BUFF
 
-**数据模型**：
+**目标**：从零构建种族数据体系（按新设计方案执行）。
+
+**数据模型**（新方案）：
 ```
 Race = {
   id, name, size, speed,
-  abilityBonuses,           // { str: 2, dex: 1 } 或自由分配 +2/+1
-  traits[],                 // 种族特性列表
+  abilityScoreBonuses: [{ amount }],  // 加值槽列表，如 [{amount:2}, {amount:1}]
+  traits[],                           // 种族特性列表
   darkvision, resistances, proficiencies,
   spells, subraces[],
-  buffs[],                  // 关联 BUFF 效果
 }
+
+// 角色卡的种族信息
+character.raceBaseInfo.asiAssignments = [
+  { source: 'race', ability: 'dex' },    // 父种族+2→敏捷
+  { source: 'race', ability: 'wis' },    // 父种族+1→感知
+  { source: 'subrace', ability: 'con' }  // 子种族+1→体质
+]
 ```
 
-**改动范围**：
-- 新建 `src/data/raceData.js`：硬编码常见种族（人类/精灵/矮人/半身人/龙裔/提夫林/半精灵/半血裔/侏儒/阿斯莫/歌利亚）
-- 新建 `src/pages/RaceLibrary.jsx`：种族展示页面
-- `App.jsx`：增加路由 `/more/races`
-- `CharacterSheet.jsx`：角色卡增加种族选择下拉
+**改动范围**（按新方案）：
+- 修改 `src/data/raceModel.js`：新增 abilityScoreBonuses 字段
+- 修改 `src/components/RaceEditorForm.jsx`：新增属性加值槽编辑区域
+- 修改 `src/pages/CharacterSheet.jsx`：重写种族基础信息面板（只读展示 + ASI 分配下拉）
+- 修改 `src/lib/cardAdapter.js`：重写种族效果生成逻辑（从种族定义读取 + ASI 分配）
+- 删除 `src/components/RaceBackgroundSlot.jsx`（从未使用）
 
-**不改动**：BUFF 编辑器、计算引擎。
+**不改动**：BUFF 编辑器、计算管线、种族特性卡片系统。
 
-**风险**：中。角色数据模型增加 `race` 字段。
+**风险**：中。角色数据模型变更，需处理旧数据迁移。
 
 ---
 
 #### Step 20：种族 BUFF 系统（~2 天）
 
-**目标**：种族特性自动注入 BUFF 管线。
+> **注意**：按新设计方案，种族效果通过 cardAdapter 自动生成，不需要 raceDefaultBuffs.js。见 [docs/superpowers/specs/2026-09-01-race-system-redesign-design.md](./docs/superpowers/specs/2026-09-01-race-system-redesign-design.md) 第六节。
+
+**目标**：种族特性自动注入 BUFF 管线（按新方案执行）。
 
 **改动范围**：
-- 新建 `src/data/raceDefaultBuffs.js`
-- `effectMapping.js`：新增 `getBuffsFromRace()`
-- 选择种族后自动在 BUFF 栏显示种族特性效果
+- `src/lib/cardAdapter.js`：从种族定义读取数据，生成 base_speed_increment、special_senses、ability_score_uncapped 效果
+- 不需要新建 raceDefaultBuffs.js
 
 **依赖**：Step 19。
 
@@ -818,6 +834,17 @@ DM 设定商店库存，玩家浏览/购买/出售 → 物品生成 ItemCard 进
 角色数据变更历史 + Service Worker。
 
 #### Step 57：野兽/生物库用户录入（~4 天）
+
+> **注意**：此步骤已有更详细的设计文档，见 [docs/superpowers/specs/2026-09-01-creature-library-improvements-design.md](./docs/superpowers/specs/2026-09-01-creature-library-improvements-design.md)
+> 
+> 包含以下子任务：
+> - Bug 修复：召唤 HP 兼容、名字显示、数据自动加载
+> - 编辑器补全：易伤、状态免疫、天生武器、反应、传奇动作、法术
+> - 天生武器接入战斗计算
+> - 荒野变形次数自动扣减
+> - 生物法术作为战斗手段
+> - 状态免疫完全替换
+> - 生物选择弹窗类型筛选补全（14 种）
 
 #### Step 58：召唤系统（~5 天）
 

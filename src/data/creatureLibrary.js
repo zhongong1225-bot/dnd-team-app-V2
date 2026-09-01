@@ -36,6 +36,24 @@ import * as teamData from '../lib/teamDataSupabase'
 const CREATURE_LIB_KEY = 'creature_library'
 let creatureRemoteCache = null
 
+// 版本号 + 订阅：生物库数据变化（联网加载完成 / 增删改）时通知计算器重算变身状态
+let creatureLibVersion = 0
+const creatureLibListeners = new Set()
+
+function bumpCreatureLibraryVersion() {
+  creatureLibVersion += 1
+  creatureLibListeners.forEach((fn) => fn())
+}
+
+export function subscribeCreatureLibraryVersion(fn) {
+  creatureLibListeners.add(fn)
+  return () => creatureLibListeners.delete(fn)
+}
+
+export function getCreatureLibraryVersion() {
+  return creatureLibVersion
+}
+
 export const CREATURE_SIZES = [
   { value: 'tiny', label: '超小型' },
   { value: 'small', label: '小型' },
@@ -130,6 +148,7 @@ export async function loadCreatureLibraryFromSupabase() {
   } catch {
     creatureRemoteCache = []
   }
+  bumpCreatureLibraryVersion()
 }
 
 /** 读取生物库（同步：Supabase 用缓存，否则 localStorage） */
@@ -151,10 +170,12 @@ export function loadCreatureLibrary() {
 function persistCreatureLibrary(creatures) {
   if (isSupabaseEnabled()) {
     creatureRemoteCache = [...creatures]
+    bumpCreatureLibraryVersion()
     return teamData.saveCustomLibrary(CREATURE_LIB_KEY, creatureRemoteCache)
   }
   try {
     localStorage.setItem('dnd_creature_library', JSON.stringify(creatures))
+    bumpCreatureLibraryVersion()
     return Promise.resolve()
   } catch {
     return Promise.resolve()

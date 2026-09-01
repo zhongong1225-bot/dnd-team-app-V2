@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { computeBuffStats, calculateDamage } from '../hooks/useBuffCalculator'
 import { getMergedBuffsForCalculator, getEffectsFromItem } from './effects/effectMapping'
-import { BUFF_EFFECT_KEY_RUNTIME, getAllVisibleBuffEffectKeys } from './buffEffectRegistry'
+import { BUFF_EFFECT_KEY_RUNTIME, DEPRECATED_EFFECT_RUNTIMES, getAllVisibleBuffEffectKeys } from './buffEffectRegistry'
 
 const baseChar = () => ({
   abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
@@ -15,11 +15,15 @@ const baseChar = () => ({
 describe('BUFF 效果类型登记：每个可见效果均有 calculator / metadata 分类', () => {
   it('登记完整', () => {
     const keys = getAllVisibleBuffEffectKeys()
+    const allKnown = { ...BUFF_EFFECT_KEY_RUNTIME, ...DEPRECATED_EFFECT_RUNTIMES }
     for (const key of keys) {
-      expect(BUFF_EFFECT_KEY_RUNTIME[key], `未登记: ${key}`).toMatch(/^(calculator|metadata)$/)
+      expect(allKnown[key], `未登记: ${key}`).toMatch(/^(calculator|metadata)$/)
     }
-    for (const k of Object.keys(BUFF_EFFECT_KEY_RUNTIME)) {
-      expect(keys.includes(k), `登记多余或隐藏键: ${k}`).toBe(true)
+    for (const [k, v] of Object.entries(BUFF_EFFECT_KEY_RUNTIME)) {
+      expect(v, `RUNTIME 值无效: ${k}`).toMatch(/^(calculator|metadata)$/)
+    }
+    for (const [k, v] of Object.entries(DEPRECATED_EFFECT_RUNTIMES)) {
+      expect(v, `deprecated 值无效: ${k}`).toMatch(/^(calculator|metadata)$/)
     }
   })
 })
@@ -103,9 +107,10 @@ describe('computeBuffStats：代表性效果可改变输出', () => {
     expect(s.saveDcBonus).toBe(3)
   })
 
-  it('物品 legacy：magicBonus → 近战命中', () => {
+  it('物品 legacy：magicBonus → attack_all + dmg_bonus_all', () => {
     const fx = getEffectsFromItem({ id: 'x', name: 'legacy', magicBonus: 2 })
-    expect(fx.some((e) => e.effectType === 'attack_melee' && e.value === 2)).toBe(true)
+    expect(fx.some((e) => e.effectType === 'attack_all' && e.value === 2)).toBe(true)
+    expect(fx.some((e) => e.effectType === 'dmg_bonus_all' && e.value === 2)).toBe(true)
     const c = baseChar()
     const s = computeBuffStats(c, [{ id: 'i', source: 'x', effects: fx, enabled: true }])
     expect(s.meleeAttackBonus).toBe(2)

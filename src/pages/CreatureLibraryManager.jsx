@@ -384,7 +384,7 @@ export default function CreatureLibraryManager() {
         body: JSON.stringify({ image: dataUrl }),
       })
 
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         throw new Error(data.error || data.detail || '解析失败')
       }
@@ -444,7 +444,7 @@ export default function CreatureLibraryManager() {
         body: JSON.stringify({ image: dataUrl }),
       })
 
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || data.detail || '解析失败')
 
       const mapped = mapParsedToCreature(data)
@@ -476,7 +476,7 @@ export default function CreatureLibraryManager() {
           body: JSON.stringify({ creature }),
         })
         if (res.ok) {
-          const translated = await res.json()
+          const translated = await res.json().catch(() => ({}))
           updateCreature(creature.id, {
             ...creature,
             name: translated.name || creature.name,

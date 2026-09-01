@@ -1,0 +1,82 @@
+{
+  "lib_key": "creature_library",
+  "data": [
+    {
+      "ac": 10,
+      "cr": 0,
+      "hp": 10,
+      "id": "creature_1788279072012_ariecc2",
+      "name": "测试生物",
+      "size": "medium",
+      "type": "beast",
+      "speed": {
+        "fly": null,
+        "swim": null,
+        "walk": 30,
+        "climb": null
+      },
+      "spells": [],
+      "traits": [],
+      "actions": [],
+      "hitDice": "1d8",
+      "abilities": {
+        "cha": 10,
+        "con": 10,
+        "dex": 10,
+        "int": 10,
+        "str": 10,
+        "wis": 10
+      },
+      "reactions": [],
+      "immunities": [],
+      "resistances": [],
+      "spellSaveDC": 0,
+      "naturalWeapons": [],
+      "vulnerabilities": [],
+      "legendaryActions": [],
+      "spellAttackBonus": 0,
+      "conditionImmunities": [],
+      "spellcastingAbility": null,
+      "legendaryActionPoints": 0
+    },
+    {
+      "ac": 10,
+      "cr": 0,
+      "hp": 10,
+      "id": "creature_1788279073069_32pn5q1",
+      "name": "改名",
+      "size": "medium",
+      "type": "beast",
+      "speed": {
+        "fly": null,
+        "swim": null,
+        "walk": 30,
+        "climb": null
+      },
+      "spells": [],
+      "traits": [],
+      "actions": [],
+      "hitDice": "1d8",
+      "abilities": {
+        "cha": 10,
+        "con": 10,
+        "dex": 10,
+        "int": 10,
+        "str": 10,
+        "wis": 10
+      },
+      "reactions": [],
+      "immunities": [],
+      "resistances": [],
+      "spellSaveDC": 0,
+      "naturalWeapons": [],
+      "vulnerabilities": [],
+      "legendaryActions": [],
+      "spellAttackBonus": 0,
+      "conditionImmunities": [],
+      "spellcastingAbility": null,
+      "legendaryActionPoints": 0
+    }
+  ],
+  "updated_at": "2026-09-01T16:11:13.791+00:00"
+}

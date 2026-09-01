@@ -25,6 +25,7 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   ability_score: 'calculator',
   ability_override: 'calculator',
   ability_score_uncapped: 'calculator',
+  ability_score_bonus: 'calculator',
   extra_attunement_slots: 'metadata',
   save_bonus: 'calculator',
   adv_save: 'calculator',
@@ -101,7 +102,10 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   weapon_expertise: 'calculator',
   // custom
   custom_condition: 'metadata',
-  // deprecated（旧存档兼容，不再出现在 BUFF_TYPES 中）
+}
+
+/** @type {Record<string, 'calculator' | 'metadata'>} */
+export const DEPRECATED_EFFECT_RUNTIMES = {
   attack_melee: 'calculator',
   attack_ranged: 'calculator',
   attack_all: 'calculator',

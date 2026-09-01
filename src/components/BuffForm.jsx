@@ -1280,7 +1280,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
   ]
 
   const isChargesMode = data.resourceType === 'charges'
-  const isFreeSlotMode = data.resourceType === 'spell_slot_free'
+  const isFreeSlotMode = data.resourceType === 'spell_slot' && data.consumptionMode === 'free'
   const multiplierCheckbox = (effIdx, eff) => isFreeSlotMode ? (
     <label className="flex items-center gap-0.5 text-[10px] text-amber-400 cursor-pointer select-none shrink-0" title="效果是否乘以消耗环位">
       <input type="checkbox" checked={eff.applyMultiplier !== false} onChange={(e) => updateEffect(effIdx, { applyMultiplier: e.target.checked })} className="accent-amber-500 w-3 h-3" />
@@ -1401,10 +1401,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
           onChange={(e) => patchData({ resourceType: e.target.value })}
           className={selectCls + ' min-w-[8rem] max-w-[14rem] shrink-0'}
         >
-          <option disabled>── 法术位 ─</option>
-          {RESOURCE_TYPE_OPTIONS.filter(o => o.value.startsWith('spell_slot')).map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
+          <option value="spell_slot">法术位</option>
           <option disabled>── 其他资源 ──</option>
           {RESOURCE_TYPE_OPTIONS.filter(o => !o.value.startsWith('spell_slot') && o.value !== 'none').map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
@@ -1414,20 +1411,46 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
-        {/* 自由消耗法术位：最大环位选择 */}
-        {data.resourceType === 'spell_slot_free' && (
+        {/* 法术位：固定/自由消耗选择 */}
+        {data.resourceType === 'spell_slot' && (
           <>
-            <span className={labelCls}>最大环位</span>
-            <NumberStepper
-              value={data.maxSlotLevel || 1}
-              onChange={(v) => patchData({ maxSlotLevel: Math.max(1, Math.min(9, v)) })}
-              min={1}
-              max={9}
-              compact
-              narrow
-              className="!h-6"
-              referenceData={referenceData}
-            />
+            <select
+              value={data.consumptionMode || 'fixed'}
+              onChange={(e) => patchData({ consumptionMode: e.target.value })}
+              className={selectCls + ' !w-[5.5rem] shrink-0'}
+            >
+              <option value="fixed">固定消耗</option>
+              <option value="free">自由消耗</option>
+            </select>
+            {(data.consumptionMode || 'fixed') === 'fixed' ? (
+              <>
+                <span className={labelCls}>环位</span>
+                <NumberStepper
+                  value={data.slotLevel || 1}
+                  onChange={(v) => patchData({ slotLevel: Math.max(1, Math.min(9, v)) })}
+                  min={1}
+                  max={9}
+                  compact
+                  narrow
+                  className="!h-6"
+                  referenceData={referenceData}
+                />
+              </>
+            ) : (
+              <>
+                <span className={labelCls}>最大环位</span>
+                <NumberStepper
+                  value={data.maxSlotLevel || 1}
+                  onChange={(v) => patchData({ maxSlotLevel: Math.max(1, Math.min(9, v)) })}
+                  min={1}
+                  max={9}
+                  compact
+                  narrow
+                  className="!h-6"
+                  referenceData={referenceData}
+                />
+              </>
+            )}
           </>
         )}
         {isChargesMode && (
@@ -1987,7 +2010,7 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
     { value: 'spell_attack', label: '法攻' }, { value: 'none', label: '效应' },
   ]
 
-  const isFreeSlotMode = data.resourceType === 'spell_slot_free'
+  const isFreeSlotMode = data.resourceType === 'spell_slot' && data.consumptionMode === 'free'
   const multiplierCheckbox = (effIdx, eff) => isFreeSlotMode ? (
     <label className="flex items-center gap-0.5 text-[10px] text-amber-400 cursor-pointer select-none shrink-0" title="效果是否乘以消耗环位">
       <input type="checkbox" checked={eff.applyMultiplier !== false} onChange={(e) => updateEffect(effIdx, { applyMultiplier: e.target.checked })} className="accent-amber-500 w-3 h-3" />

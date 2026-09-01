@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import { abilityModifier, getAC, proficiencyBonus, evaluateBuffValue, isFormulaValue, calcMaxHP, getHPBuffSum } from '../lib/formulas'
 import { getPrimarySpellcastingAbility, getCharacterClasses } from '../data/classDatabase'
 import { levelFromXP } from '../lib/xp5e'
@@ -13,7 +13,7 @@ import {
 } from '../data/buffTypes'
 import { getFlatEffectEntries } from '../lib/effects/effectMapping'
 import { getActiveShieldEffects } from '../lib/shieldEngine'
-import { loadCreatureLibrary, getCreatureById, parseHpFormula } from '../data/creatureLibrary'
+import { loadCreatureLibrary, getCreatureById, parseHpFormula, subscribeCreatureLibraryVersion, getCreatureLibraryVersion } from '../data/creatureLibrary'
 
 /**
  * BUFF 计算引擎
@@ -1009,6 +1009,7 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
         creatureVulnerabilities: creatureTransformData.creature.vulnerabilities,
         creatureConditionImmunities: creatureTransformData.creature.conditionImmunities,
         naturalWeapons: creatureTransformData.creature.naturalWeapons || [],
+        // 房规：变身后不获得传奇抗性/传奇动作/巢穴动作，因此不暴露 traits、legendaryActions、legendaryActionPoints
         spells: creatureTransformData.creature.spells || [],
         spellSaveDC: creatureTransformData.creature.spellSaveDC || 0,
         spellAttackBonus: creatureTransformData.creature.spellAttackBonus || 0,
@@ -1018,7 +1019,10 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
 
 export function useBuffCalculator(character, activeBuffs, shields) {
   const shieldEffects = useMemo(() => getActiveShieldEffects(shields), [shields])
-  return useMemo(() => computeBuffStats(character, activeBuffs, shieldEffects), [character, activeBuffs, shieldEffects])
+  // 生物库异步加载完成或增删改后重算（否则刷新页面时首算拿不到变身生物数据）
+  const creatureLibVersion = useSyncExternalStore(subscribeCreatureLibraryVersion, getCreatureLibraryVersion)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- creatureLibVersion 是刻意的失效信号，生物库缓存变化时强制重算
+  return useMemo(() => computeBuffStats(character, activeBuffs, shieldEffects), [character, activeBuffs, shieldEffects, creatureLibVersion])
 }
 
 /**

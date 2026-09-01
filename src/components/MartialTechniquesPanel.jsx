@@ -29,6 +29,43 @@ const MARTIAL_CARD_SELECTED_CLASS =
   `border-dnd-gold/40 bg-dnd-gold/[0.03] shadow-[0_0_0_1px_rgba(218,165,32,0.15),0_4px_12px_rgba(218,165,32,0.1)]`
 
 /* ── 工具函数 ── */
+
+/**
+ * 根据当前激活的架势生成对应的 BUFF 条目（归入临时栏）
+ * @param {object} activeSlot - 当前激活的架势槽位
+ * @param {Array} existingBuffs - 现有的 buffs 数组
+ * @returns {Array} 更新后的 buffs 数组
+ */
+function syncStanceToBuffs(activeSlot, existingBuffs) {
+  const buffs = Array.isArray(existingBuffs) ? [...existingBuffs] : []
+  
+  // 移除旧的架势 BUFF（fromMartialTechnique 为 true）
+  const withoutOldStance = buffs.filter(b => !b.fromMartialTechnique)
+  
+  // 如果没有激活的架势，直接返回
+  if (!activeSlot || !activeSlot.techniqueId) {
+    return withoutOldStance
+  }
+  
+  // 获取武技数据
+  const tech = getMartialTechniqueById(activeSlot.techniqueId)
+  if (!tech) return withoutOldStance
+  
+  // 创建新的架势 BUFF（归入临时栏）
+  const stanceBuff = {
+    id: `stance_${activeSlot.id}_${Date.now()}`,
+    source: tech.name,
+    sourceKind: 'temporary',
+    fromMartialTechnique: true,
+    martialTechniqueId: activeSlot.techniqueId,
+    enabled: true,
+    effects: [], // 效果由 DM 通过效果编辑器配置，此处留空
+    description: tech.description || '',
+  }
+  
+  return [...withoutOldStance, stanceBuff]
+}
+
 function serializeCombatMartialForSave(slots) {
   return slots.map((m) => {
     const kind =
@@ -184,10 +221,15 @@ export default function MartialTechniquesPanel({ char, canEdit, onSave }) {
     const actSlot = act ? next.find((s) => s.id === act) : null
     if (!actSlot || actSlot.kind !== 'stance') act = null
     setMartialActiveStanceId(act)
+    
+    // 同步架势到 BUFF 系统
+    const updatedBuffs = syncStanceToBuffs(actSlot, char?.buffs)
+    
     onSave({
       combatMartialTechniques: serializeCombatMartialForSave(next),
       martialLearnQuota: { ...martialLearnQuota },
       martialActiveStanceId: act,
+      buffs: updatedBuffs,
     })
   }
 
@@ -197,10 +239,18 @@ export default function MartialTechniquesPanel({ char, canEdit, onSave }) {
     if (!slotId || !stanceIds.has(slotId)) return
     const nextActive = martialActiveStanceId === slotId ? null : slotId
     setMartialActiveStanceId(nextActive)
+    
+    // 找到对应的槽位
+    const actSlot = nextActive ? prev.find((s) => s.id === nextActive) : null
+    
+    // 同步架势到 BUFF 系统
+    const updatedBuffs = syncStanceToBuffs(actSlot, char?.buffs)
+    
     onSave({
       combatMartialTechniques: serializeCombatMartialForSave(prev),
       martialLearnQuota: { ...martialLearnQuota },
       martialActiveStanceId: nextActive,
+      buffs: updatedBuffs,
     })
   }
 
@@ -231,6 +281,10 @@ export default function MartialTechniquesPanel({ char, canEdit, onSave }) {
       setMartialSlots(built)
       setMartialActiveStanceId(act)
       setMartialLearnQuota(nextModal.quota)
+      
+      // 同步架势到 BUFF 系统
+      const updatedBuffs = syncStanceToBuffs(actSlot, char?.buffs)
+      
       onSave({
         combatMartialTechniques: serializeCombatMartialForSave(built),
         martialLearnQuota: {
@@ -239,9 +293,10 @@ export default function MartialTechniquesPanel({ char, canEdit, onSave }) {
           style: nextModal.quota.style,
         },
         martialActiveStanceId: act,
+        buffs: updatedBuffs,
       })
     },
-    [onSave]
+    [onSave, char?.buffs]
   )
 
   const openMartialSettingsModal = () => {
