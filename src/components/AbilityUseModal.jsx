@@ -14,6 +14,8 @@ import {
   resolveAbilityMod,
   RESOURCE_TYPE_OPTIONS,
   scaleStanceModules,
+  isFreeSlotConsumption,
+  isFixedSlotConsumption,
   POKER_SUITS,
   POKER_RANKS,
   POKER_JOKERS,
@@ -25,35 +27,8 @@ import {
 import { rollDice } from '../data/weaponDatabase'
 import { proficiencyBonus, abilityModifier, calcMaxHP, getHPBuffSum } from '../lib/formulas'
 import { getCharacterClasses, getPrimarySpellcastingAbility, getMaxSpellSlotsByRing } from '../data/classDatabase'
-import { getCreatureById } from '../data/creatureLibrary'
+import { getCreatureById, parseCreatureHp } from '../data/creatureLibrary'
 import CreatureSelectorModal from './CreatureSelectorModal'
-
-/**
- * 评估 HP 公式（支持简单表达式如 "2d8+4" 或角色等级相关公式）
- */
-function evalHpFormula(formula, char) {
-  if (!formula) return 10
-  
-  // 如果公式包含 "level" 或 "charLevel"，替换为角色等级
-  let expr = formula
-  const charLevel = getCharacterClasses(char).reduce((s, c) => s + (c.level || 0), 0) || 1
-  
-  if (expr.includes('level') || expr.includes('charLevel')) {
-    expr = expr.replace(/level|charLevel/gi, String(charLevel))
-  }
-  
-  // 简单掷骰解析（如 "2d8+4"）
-  const diceMatch = expr.match(/(\d+)d(\d+)([+-]\d+)?/)
-  if (diceMatch) {
-    const [, count, sides, mod] = diceMatch
-    const diceExpr = `${count}d${sides}${mod || ''}`
-    return rollDice(diceExpr).total
-  }
-  
-  // 纯数字
-  const num = parseInt(expr, 10)
-  return isNaN(num) ? 10 : num
-}
 
 /**
  * 将 activeAbility 格式转换为 charge item value 格式，
@@ -313,8 +288,8 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
     setPendingHealing(null)
   }
 
-  const isSpellSlot = /^spell_slot_[1-9]$/.test(norm.resourceType)
-  const isFreeSlot = norm.resourceType === 'spell_slot_free'
+  const isSpellSlot = isFixedSlotConsumption(norm)
+  const isFreeSlot = isFreeSlotConsumption(norm)
   const isNone = norm.resourceType === 'none'
   const isClassResource = norm.resourceType !== 'charges' && !isSpellSlot && !isFreeSlot && !isNone
   const resLabel = RESOURCE_TYPE_OPTIONS.find((o) => o.value === norm.resourceType)?.label ?? norm.resourceType
@@ -476,7 +451,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
               const cId = selectedCreatureId || sv.creatureId
               const creature = cId ? getCreatureById(cId) : null
               if (creature) {
-                const sHp = creature.hp?.formula ? evalHpFormula(creature.hp.formula, char) : (creature.hp?.max || 10)
+                const sHp = parseCreatureHp(creature.hp)
                 out.summonAdditions.push({ id: 'summon_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name: creature.name, type: 'summon', creatureId: cId, hp: { current: sHp, max: sHp }, ac: creature.ac || 10, createdAt: Date.now() })
                 out.lines.push(`  📦 召唤: ${creature.name}`)
               }
@@ -588,7 +563,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           const finalCreatureId = selectedCreatureId || ev.creatureId
           const creature = finalCreatureId ? getCreatureById(finalCreatureId) : null
           if (!creature) { out.lines.push('⚠️ 召唤失败：未选择生物'); continue }
-          const summonHp = creature.hp?.formula ? evalHpFormula(creature.hp.formula, char) : (creature.hp?.max || 10)
+          const summonHp = parseCreatureHp(creature.hp)
           out.summonAdditions.push({ id: 'summon_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name: creature.name, type: 'summon', creatureId: finalCreatureId, hp: { current: summonHp, max: summonHp }, ac: creature.ac || 10, createdAt: Date.now() })
           out.lines.push(`📦 召唤: ${creature.name}（${summonHp}/${summonHp} HP, AC ${creature.ac || 10}）`)
         }
@@ -633,7 +608,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
 
     // 1. 资源消耗
     if (isSpellSlot) {
-      const ring = parseInt(norm.resourceType.replace('spell_slot_', ''), 10)
+      const ring = norm.slotLevel || 1
       const currentSlots = { ...(char.spellSlots || {}) }
       const current = currentSlots[ring] || 0
       const newCurrent = Math.max(0, current - amt)
@@ -721,7 +696,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
                 const healAmt = sNewHp - runningHp
                 const resourcePatch = {}
                 if (isSpellSlot) {
-                  const ring = parseInt(norm.resourceType.replace('spell_slot_', ''), 10)
+                  const ring = norm.slotLevel || 1
                   const cs = { ...(char.spellSlots || {}) }
                   const c = cs[ring] || 0; const nc = Math.max(0, c - amt)
                   if (nc !== c) { cs[ring] = nc; resourcePatch.spellSlots = cs }
@@ -804,7 +779,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
             const fcId = selectedCreatureId || sv.creatureId
             const creature = fcId ? getCreatureById(fcId) : null
             if (creature) {
-              const sHp = creature.hp?.formula ? evalHpFormula(creature.hp.formula, char) : creature.hp?.max || 10
+              const sHp = parseCreatureHp(creature.hp)
               const summonData = { id: 'summon_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name: creature.name, type: 'summon', creatureId: fcId, hp: { current: sHp, max: sHp }, ac: creature.ac || 10, createdAt: Date.now() }
               patch.summonedCreatures = [...(char.summonedCreatures || []), summonData]
               lines.push(`  📦 召唤: ${creature.name}（${sHp}/${sHp} HP, AC ${creature.ac || 10}）`)
@@ -859,7 +834,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
             // 预计算资源消耗
             const resourcePatch = {}
             if (isSpellSlot) {
-              const ring = parseInt(norm.resourceType.replace('spell_slot_', ''), 10)
+              const ring = norm.slotLevel || 1
               const currentSlots = { ...(char.spellSlots || {}) }
               const current = currentSlots[ring] || 0
               const newCurrent = Math.max(0, current - amt)
@@ -906,7 +881,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           if (norm.isStance) {
             // ── 架势模式：替换旧架势，缩放模块 ──
             const stanceFactor = isSpellSlot
-              ? parseInt(norm.resourceType.replace('spell_slot_', ''), 10)
+              ? norm.slotLevel || 1
               : amt
             const scaledModules = scaleStanceModules(modules, stanceFactor)
             const buffId = 'stance_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
@@ -1063,11 +1038,9 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
             continue
           }
           
-          // 计算召唤物 HP（使用生物库数据或公式）
-          const summonHp = creature.hp?.formula 
-            ? evalHpFormula(creature.hp.formula, char) 
-            : creature.hp?.max || 10
-          
+          // 计算召唤物 HP（兼容 数字 / 公式字符串 / 对象 三种格式）
+          const summonHp = parseCreatureHp(creature.hp)
+
           const summonData = {
             id: 'summon_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
             name: creature.name,
@@ -1092,7 +1065,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           const resourcePatch = {}
           let resourceLine = ''
           if (isSpellSlot) {
-            const ring = parseInt(norm.resourceType.replace('spell_slot_', ''), 10)
+            const ring = norm.slotLevel || 1
             const currentSlots = { ...(char.spellSlots || {}) }
             const current = currentSlots[ring] || 0
             const newCurrent = Math.max(0, current - amt)
@@ -1152,7 +1125,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
             const resourcePatch = {}
             let resourceLine = ''
             if (isSpellSlot) {
-              const ring = parseInt(norm.resourceType.replace('spell_slot_', ''), 10)
+              const ring = norm.slotLevel || 1
               const currentSlots = { ...(char.spellSlots || {}) }
               const current = currentSlots[ring] || 0
               const newCurrent = Math.max(0, current - amt)
@@ -1366,7 +1339,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
                 : isFreeSlot
                 ? `${amt}环法术位（剩余 ${(() => { const slots = char.spellSlots || {}; let total = 0; for (let r = 1; r <= 9; r++) total += (slots[r] || 0); return total })()}）`
                 : isSpellSlot
-                ? `${resLabel}（剩余 ${(() => { const ring = parseInt(norm.resourceType.replace('spell_slot_', ''), 10); return char.spellSlots?.[ring] ?? 0 })()}）`
+                ? `${resLabel}（剩余 ${(() => { const ring = norm.slotLevel || 1; return char.spellSlots?.[ring] ?? 0 })()}）`
                 : isClassResource
                 ? `${resLabel}（剩余 ${(() => { const res = (char.classResources || []).find((r) => r.resourceKey === norm.resourceType); return res ? `${res.current}/${res.max}` : '?' })()}）`
                 : `充能（总 ${norm.charges}）`

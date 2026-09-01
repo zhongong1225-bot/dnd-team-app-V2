@@ -19,7 +19,15 @@
  * - naturalWeapons: 天生武器数组 [{ name, attackBonus, damage }]
  * - traits: 特性描述数组
  * - actions: 动作描述数组
+ * 
+ * 存储：Supabase custom_library (lib_key='creature_library') + localStorage 回退
  */
+
+import { isSupabaseEnabled } from '../lib/supabase'
+import * as teamData from '../lib/teamDataSupabase'
+
+const CREATURE_LIB_KEY = 'creature_library'
+let creatureRemoteCache = null
 
 export const CREATURE_SIZES = [
   { value: 'tiny', label: '超小型' },
@@ -62,8 +70,40 @@ export const DEFAULT_CREATURE = {
   actions: [],
 }
 
-/** 从 localStorage 读取生物库 */
+/** 从 Supabase 加载生物库（异步）；远程为空时自动从 localStorage 迁移 */
+export async function loadCreatureLibraryFromSupabase() {
+  if (!isSupabaseEnabled()) return
+  try {
+    const list = await teamData.fetchCustomLibrary(CREATURE_LIB_KEY)
+    if (Array.isArray(list) && list.length > 0) {
+      creatureRemoteCache = list
+    } else {
+      // 远程为空，尝试从 localStorage 一次性迁移
+      let local = []
+      try {
+        const stored = localStorage.getItem('dnd_creature_library')
+        if (stored) {
+          const parsed = JSON.parse(stored)
+          if (Array.isArray(parsed) && parsed.length > 0) local = parsed
+        }
+      } catch { /* ignore */ }
+      if (local.length > 0) {
+        await teamData.saveCustomLibrary(CREATURE_LIB_KEY, local)
+        creatureRemoteCache = [...local]
+      } else {
+        creatureRemoteCache = []
+      }
+    }
+  } catch {
+    creatureRemoteCache = []
+  }
+}
+
+/** 读取生物库（同步：Supabase 用缓存，否则 localStorage） */
 export function loadCreatureLibrary() {
+  if (isSupabaseEnabled()) {
+    return Array.isArray(creatureRemoteCache) ? [...creatureRemoteCache] : []
+  }
   try {
     const stored = localStorage.getItem('dnd_creature_library')
     if (!stored) return []
@@ -74,13 +114,17 @@ export function loadCreatureLibrary() {
   }
 }
 
-/** 保存生物库到 localStorage */
-export function saveCreatureLibrary(creatures) {
+/** 保存生物库 */
+function persistCreatureLibrary(creatures) {
+  if (isSupabaseEnabled()) {
+    creatureRemoteCache = [...creatures]
+    return teamData.saveCustomLibrary(CREATURE_LIB_KEY, creatureRemoteCache)
+  }
   try {
     localStorage.setItem('dnd_creature_library', JSON.stringify(creatures))
-    return true
+    return Promise.resolve()
   } catch {
-    return false
+    return Promise.resolve()
   }
 }
 
@@ -93,7 +137,8 @@ export function addCreature(creature) {
     id: creature.id || `creature_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
   }
   library.push(newCreature)
-  saveCreatureLibrary(library)
+  const p = persistCreatureLibrary(library)
+  if (p && typeof p.then === 'function') return p.then(() => newCreature)
   return newCreature
 }
 
@@ -103,7 +148,8 @@ export function updateCreature(id, updates) {
   const index = library.findIndex(c => c.id === id)
   if (index === -1) return null
   library[index] = { ...library[index], ...updates }
-  saveCreatureLibrary(library)
+  const p = persistCreatureLibrary(library)
+  if (p && typeof p.then === 'function') return p.then(() => library[index])
   return library[index]
 }
 
@@ -112,7 +158,8 @@ export function deleteCreature(id) {
   const library = loadCreatureLibrary()
   const filtered = library.filter(c => c.id !== id)
   if (filtered.length === library.length) return false
-  saveCreatureLibrary(filtered)
+  const p = persistCreatureLibrary(filtered)
+  if (p && typeof p.then === 'function') return p.then(() => true)
   return true
 }
 
@@ -168,6 +215,19 @@ export function parseHpFormula(hp) {
   // 返回平均值（向上取整）
   const averagePerDie = Math.ceil(diceSides / 2)
   return diceCount * averagePerDie + modifier
+}
+
+/** 通用 HP 解析：兼容 数字 / 公式字符串 / { formula | max } 对象 三种格式 */
+export function parseCreatureHp(hp) {
+  if (typeof hp === 'number') return hp
+  if (typeof hp === 'string') {
+    return parseHpFormula(hp)
+  }
+  if (hp && typeof hp === 'object') {
+    if (hp.formula) return parseHpFormula(hp.formula)
+    if (hp.max) return hp.max
+  }
+  return 10
 }
 
 /** 将生物数据转换为角色卡可应用的格式 */
