@@ -31,6 +31,58 @@
 
 import { createEmptyContainedSpellSub } from './containedSpellModel'
 import { getDamageTypeLabel } from '../data/buffTypes'
+import { isFormulaValue, formatFormulaLabel, evaluateBuffValue } from './formulas'
+
+/* ── 随机库（random_table）常量 ── */
+export const DICE_TYPE_OPTIONS = [
+  { value: 'd4', label: 'D4' },
+  { value: 'd6', label: 'D6' },
+  { value: 'd8', label: 'D8' },
+  { value: 'd10', label: 'D10' },
+  { value: 'd12', label: 'D12' },
+  { value: 'd20', label: 'D20' },
+  { value: 'd100', label: 'D100' },
+]
+
+export const POKER_SUITS = ['hearts', 'diamonds', 'clubs', 'spades']
+export const POKER_RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
+export const POKER_JOKERS = ['big_joker', 'small_joker']
+
+export const POKER_SUIT_LABELS = {
+  hearts: '红桃', diamonds: '方块', clubs: '梅花', spades: '黑桃',
+}
+export const POKER_SUIT_SYMBOLS = {
+  hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠',
+}
+export const POKER_SUIT_COLORS = {
+  hearts: 'text-red-400', diamonds: 'text-red-400', clubs: 'text-gray-300', spades: 'text-gray-300',
+}
+
+export const RANDOM_MATCH_OPTIONS = [
+  { value: 'suit', label: '按花色' },
+  { value: 'rank', label: '按点数' },
+  { value: 'both', label: '组合' },
+  { value: 'any', label: '兜底' },
+]
+
+let _rtId = 1
+function genRtId() {
+  return 'rte_' + Date.now().toString(36) + '_' + (_rtId++).toString(36)
+}
+
+export function createEmptyRandomTableEntry(mode) {
+  const id = genRtId()
+  if (mode === 'poker') {
+    return { id, matchType: 'any', suits: [], ranks: [], effects: [] }
+  }
+  return { id, min: 1, max: 1, effects: [] }
+}
+
+/** 获取骰子类型的最大值 */
+export function getDiceMax(diceType) {
+  const map = { d4: 4, d6: 6, d8: 8, d10: 10, d12: 12, d20: 20, d100: 100 }
+  return map[diceType] || 6
+}
 
 export const ACTION_COST_OPTIONS = [
   { value: 'action', label: '动作' },
@@ -94,6 +146,7 @@ export const RESOURCE_TYPE_OPTIONS = [
   { value: 'spell_slot_7', label: '七环法术位' },
   { value: 'spell_slot_8', label: '八环法术位' },
   { value: 'spell_slot_9', label: '九环法术位' },
+  { value: 'spell_slot_free', label: '法术位（自由消耗）' },
 ]
 
 /** 不需要回能数量设置的方式 */
@@ -104,6 +157,8 @@ const DICE_ONLY_METHODS = new Set(['absorb_energy', 'reaction_absorb'])
 export function createEmptyChargeItemValue(overrides = {}) {
   return {
     resourceType: 'charges',
+    consumptionMode: 'fixed', // 'fixed' | 'free' - 固定消耗或自由消耗
+    maxSlotLevel: 1, // 自由消耗模式下的最大环位 (1-9)
     charges: 1,
     actionCost: 'action',
     movementFeet: 0,
@@ -122,36 +177,39 @@ function genId() {
 export function createChargeEffectEntry(type, overrides = {}) {
   const id = genId()
   if (type === 'spell') {
-    return { id, type, value: { ...createEmptyContainedSpellSub(), scalingEnabled: false, scalingPerUnit: { damageDiceCount: 0 } }, ...overrides }
+    return { id, type, applyMultiplier: true, value: { ...createEmptyContainedSpellSub(), scalingEnabled: false, scalingPerUnit: { damageDiceCount: 0 } }, ...overrides }
   }
   if (type === 'ability') {
-    return { id, type, value: { text: '', uses: 1, diceCount: 0, diceSides: 10, abilityMod: '', resultType: 'heal', scalingEnabled: false, scalingPerUnit: { diceCount: 0, flatBonus: 0 } }, ...overrides }
+    return { id, type, applyMultiplier: true, value: { text: '', uses: 1, diceCount: 0, diceSides: 10, abilityMod: '', resultType: 'heal', scalingEnabled: false, scalingPerUnit: { diceCount: 0, flatBonus: 0 } }, ...overrides }
   }
   if (type === 'shield') {
-    return { id, type, value: { amount: 1, scalingEnabled: false, scalingPerUnit: { amount: 0 } }, ...overrides }
+    return { id, type, applyMultiplier: true, value: { amount: 1, scalingEnabled: false, scalingPerUnit: { amount: 0 } }, ...overrides }
   }
   if (type === 'temp_buff') {
-    return { id, type, value: { buffName: '', modules: [] }, ...overrides }
+    return { id, type, applyMultiplier: true, value: { buffName: '', modules: [] }, ...overrides }
   }
   if (type === 'creature_transform') {
-    return { id, type, value: { creatureId: '', acMode: 'replace', acFormulaBase: 13, acFormulaAbility: '', hpMode: 'replace', hpFormula: null, keepAbilities: [], resourceCostType: '', resourceCostValue: 1, wildShapeMode: false, wildShapeSubclass: 'regular' }, ...overrides }
+    return { id, type, applyMultiplier: false, value: { creatureId: '', acMode: 'replace', acFormulaBase: 13, acFormulaAbility: '', hpMode: 'replace', hpFormula: null, keepAbilities: [], resourceCostType: '', resourceCostValue: 1, wildShapeMode: false, wildShapeSubclass: 'regular' }, ...overrides }
   }
   if (type === 'restore_spell_slots') {
-    return { id, type, value: { mode: 'single', ringLevel: 1, costPerSlot: 1, slots: [{ ringLevel: 1, cost: 1 }], scalingEnabled: false, scalingPerUnit: { slotsCount: 0 } }, ...overrides }
+    return { id, type, applyMultiplier: false, value: { mode: 'single', ringLevel: 1, costPerSlot: 1, slots: [{ ringLevel: 1, cost: 1 }], scalingEnabled: false, scalingPerUnit: { slotsCount: 0 } }, ...overrides }
   }
   if (type === 'summon') {
-    return { id, type, value: { preset: '', creatureId: '', sourceType: 'library', costType: '', costAmount: 0, costDice: '', note: '', scalingEnabled: false, scalingPerUnit: { creatureCount: 0 } }, ...overrides }
+    return { id, type, applyMultiplier: false, value: { preset: '', creatureId: '', sourceType: 'library', costType: '', costAmount: 0, costDice: '', note: '', scalingEnabled: false, scalingPerUnit: { creatureCount: 0 } }, ...overrides }
   }
   if (type === 'custom_logic') {
-    return { id, type, value: { title: '', description: '', triggerCondition: 'on_use' }, ...overrides }
+    return { id, type, applyMultiplier: false, value: { title: '', description: '', triggerCondition: 'on_use' }, ...overrides }
   }
   if (type === 'damage') {
-    return { id, type, value: { diceCount: 1, diceSides: 6, diceBonus: 0, damageType: 'fire', addWeaponDamage: false }, ...overrides }
+    return { id, type, applyMultiplier: true, value: { diceCount: 1, diceSides: 6, diceBonus: 0, damageType: 'fire', addWeaponDamage: false }, ...overrides }
   }
   if (type === 'heal') {
-    return { id, type, value: { mode: 'dice', diceCount: 1, diceSides: 8, diceBonus: 0 }, ...overrides }
+    return { id, type, applyMultiplier: true, value: { mode: 'dice', diceCount: 1, diceSides: 8, diceBonus: 0 }, ...overrides }
   }
-  return { id, type, value: {}, ...overrides }
+  if (type === 'random_table') {
+    return { id, type, applyMultiplier: false, value: { mode: 'dice', diceType: 'd6', includeJokers: false, entries: [] }, ...overrides }
+  }
+  return { id, type, applyMultiplier: true, value: {}, ...overrides }
 }
 
 /** 把任意旧 value 归一化为 charge_item 结构 */
@@ -162,6 +220,10 @@ export function normalizeChargeItemValue(value) {
   // resourceType：旧数据无此字段，默认 'charges'
   const validResourceTypes = RESOURCE_TYPE_OPTIONS.map((o) => o.value)
   const resourceType = validResourceTypes.includes(value.resourceType) ? value.resourceType : 'charges'
+  // consumptionMode: 'fixed' | 'free'
+  const consumptionMode = value.consumptionMode === 'free' ? 'free' : 'fixed'
+  // maxSlotLevel: 自由消耗模式下的最大环位 (1-9)
+  const maxSlotLevel = Math.max(1, Math.min(9, Number(value.maxSlotLevel) || 1))
   const charges = typeof value.charges === 'number'
     ? Math.max(0, value.charges)
     : (parseInt(value.charges, 10) || 0)
@@ -187,7 +249,7 @@ export function normalizeChargeItemValue(value) {
   const rawEffects = Array.isArray(value.effects) ? value.effects : []
   const effects = rawEffects.map((e) => {
     if (!e || typeof e !== 'object') return createChargeEffectEntry('spell')
-    const type = ['spell', 'ability', 'shield', 'temp_buff', 'creature_transform', 'restore_spell_slots', 'summon', 'custom_logic', 'damage', 'heal'].includes(e.type) ? e.type : 'spell'
+    const type = ['spell', 'ability', 'shield', 'temp_buff', 'creature_transform', 'restore_spell_slots', 'summon', 'custom_logic', 'damage', 'heal', 'random_table'].includes(e.type) ? e.type : 'spell'
     const id = e.id || genId()
     if (type === 'spell') {
       const rawSpellVal = e.value && typeof e.value === 'object' ? e.value : {}
@@ -196,12 +258,12 @@ export function normalizeChargeItemValue(value) {
       const rawSp = rawSpellVal.scalingPerUnit && typeof rawSpellVal.scalingPerUnit === 'object' ? rawSpellVal.scalingPerUnit : {}
       spVal.scalingEnabled = !!rawSpellVal.scalingEnabled
       spVal.scalingPerUnit = { damageDiceCount: Math.max(0, Number(rawSp.damageDiceCount) || 0) }
-      return { id, type, value: spVal }
+      return { id, type, applyMultiplier: e.applyMultiplier !== false, value: spVal }
     }
     if (type === 'ability') {
       const av = e.value && typeof e.value === 'object' ? e.value : {}
       const rawSU = av.scalingPerUnit && typeof av.scalingPerUnit === 'object' ? av.scalingPerUnit : {}
-      return { id, type, value: {
+      return { id, type, applyMultiplier: e.applyMultiplier !== false, value: {
         text: typeof av.text === 'string' ? av.text : '',
         uses: Math.max(1, Number(av.uses) || 1),
         diceCount: Math.max(0, Number(av.diceCount) || 0),
@@ -218,7 +280,7 @@ export function normalizeChargeItemValue(value) {
     if (type === 'shield') {
       const sv = e.value && typeof e.value === 'object' ? e.value : {}
       const rawSU = sv.scalingPerUnit && typeof sv.scalingPerUnit === 'object' ? sv.scalingPerUnit : {}
-      return { id, type, value: {
+      return { id, type, applyMultiplier: e.applyMultiplier !== false, value: {
         amount: Math.max(1, Number(sv.amount) || 1),
         scalingEnabled: !!sv.scalingEnabled,
         scalingPerUnit: {
@@ -228,14 +290,14 @@ export function normalizeChargeItemValue(value) {
     }
     if (type === 'temp_buff') {
       const tv = e.value && typeof e.value === 'object' ? e.value : {}
-      return { id, type, value: {
+      return { id, type, applyMultiplier: e.applyMultiplier !== false, value: {
         buffName: typeof tv.buffName === 'string' ? tv.buffName : '',
         modules: Array.isArray(tv.modules) ? tv.modules.map((m) => ({ ...m })) : [],
       } }
     }
     if (type === 'creature_transform') {
       const cv = e.value && typeof e.value === 'object' ? e.value : {}
-      return { id, type, value: {
+      return { id, type, applyMultiplier: e.applyMultiplier === true, value: {
         creatureId: String(cv.creatureId || ''),
         acMode: ['replace', 'add', 'max_formula'].includes(cv.acMode) ? cv.acMode : 'replace',
         acFormulaBase: Number(cv.acFormulaBase) || 13,
@@ -252,12 +314,13 @@ export function normalizeChargeItemValue(value) {
     if (type === 'restore_spell_slots') {
       const rv = e.value && typeof e.value === 'object' ? e.value : {}
       const rawSU = rv.scalingPerUnit && typeof rv.scalingPerUnit === 'object' ? rv.scalingPerUnit : {}
-      return { id, type, value: {
+      return { id, type, applyMultiplier: e.applyMultiplier === true, value: {
         mode: rv.mode === 'multi' ? 'multi' : 'single',
         ringLevel: Math.max(1, Math.min(9, Number(rv.ringLevel) || 1)),
         costPerSlot: Math.max(1, Number(rv.costPerSlot) || 1),
         maxRing: Math.max(1, Math.min(9, Number(rv.maxRing) || 3)),
         cost: Math.max(1, Number(rv.cost) || 1),
+        singleCostRing: Math.max(1, Math.min(9, Number(rv.singleCostRing) || Number(rv.maxRing) || 3)),
         slots: Array.isArray(rv.slots) ? rv.slots.map((s) => ({
           ringLevel: Math.max(1, Math.min(9, Number(s?.ringLevel) || 1)),
           cost: Math.max(1, Number(s?.cost) || 1),
@@ -269,7 +332,7 @@ export function normalizeChargeItemValue(value) {
     if (type === 'summon') {
       const sv = e.value && typeof e.value === 'object' ? e.value : {}
       const rawSU = sv.scalingPerUnit && typeof sv.scalingPerUnit === 'object' ? sv.scalingPerUnit : {}
-      return { id, type, value: {
+      return { id, type, applyMultiplier: e.applyMultiplier === true, value: {
         preset: sv.preset === 'stellar_double' ? 'stellar_double' : '',
         creatureId: String(sv.creatureId || ''),
         sourceType: sv.sourceType === 'attached_card' ? 'attached_card' : 'library',
@@ -283,7 +346,7 @@ export function normalizeChargeItemValue(value) {
     }
     if (type === 'custom_logic') {
       const clv = e.value && typeof e.value === 'object' ? e.value : {}
-      return { id, type, value: {
+      return { id, type, applyMultiplier: e.applyMultiplier === true, value: {
         title: typeof clv.title === 'string' ? clv.title : '',
         description: typeof clv.description === 'string' ? clv.description : '',
         triggerCondition: ['on_use', 'on_turn_start', 'on_damage_taken', 'on_save_failed'].includes(clv.triggerCondition) ? clv.triggerCondition : 'on_use',
@@ -291,26 +354,54 @@ export function normalizeChargeItemValue(value) {
     }
     if (type === 'damage') {
       const dv = e.value && typeof e.value === 'object' ? e.value : {}
-      return { id, type, value: {
+      return { id, type, applyMultiplier: e.applyMultiplier !== false, value: {
         diceCount: Math.max(1, Number(dv.diceCount) || 1),
         diceSides: [4, 6, 8, 10, 12, 20].includes(Number(dv.diceSides)) ? Number(dv.diceSides) : 6,
-        diceBonus: Number(dv.diceBonus) || 0,
+        diceBonus: isFormulaValue(dv.diceBonus) ? dv.diceBonus : (Number(dv.diceBonus) || 0),
         damageType: typeof dv.damageType === 'string' ? dv.damageType : 'fire',
         addWeaponDamage: !!dv.addWeaponDamage,
       } }
     }
     if (type === 'heal') {
       const hv = e.value && typeof e.value === 'object' ? e.value : {}
-      return { id, type, value: {
+      return { id, type, applyMultiplier: e.applyMultiplier !== false, value: {
         mode: hv.mode === 'max' ? 'max' : 'dice',
         diceCount: Math.max(1, Number(hv.diceCount) || 1),
         diceSides: [4, 6, 8, 10, 12, 20].includes(Number(hv.diceSides)) ? Number(hv.diceSides) : 8,
-        diceBonus: Number(hv.diceBonus) || 0,
+        diceBonus: isFormulaValue(hv.diceBonus) ? hv.diceBonus : (Number(hv.diceBonus) || 0),
       } }
     }
-    return { id, type, value: {} }
+    if (type === 'random_table') {
+      const rv = e.value && typeof e.value === 'object' ? e.value : {}
+      return { id, type, applyMultiplier: e.applyMultiplier === true, value: {
+        mode: rv.mode === 'poker' ? 'poker' : 'dice',
+        diceType: ['d4','d6','d8','d10','d12','d20','d100'].includes(rv.diceType) ? rv.diceType : 'd6',
+        includeJokers: !!rv.includeJokers,
+        entries: Array.isArray(rv.entries) ? rv.entries.map(entry => {
+          if (!entry || typeof entry !== 'object') return createEmptyRandomTableEntry('dice')
+          const entryId = entry.id || genId()
+          if (rv.mode === 'poker') {
+            return {
+              id: entryId,
+              matchType: ['suit','rank','both','any'].includes(entry.matchType) ? entry.matchType : 'any',
+              suits: Array.isArray(entry.suits) ? entry.suits.filter(s => POKER_SUITS.includes(s)) : [],
+              ranks: Array.isArray(entry.ranks) ? entry.ranks.filter(r => POKER_RANKS.includes(r)) : [],
+              effects: Array.isArray(entry.effects) ? entry.effects : [],
+            }
+          }
+          // dice
+          return {
+            id: entryId,
+            min: Math.max(1, Number(entry.min) || 1),
+            max: Math.max(1, Number(entry.max) || 1),
+            effects: Array.isArray(entry.effects) ? entry.effects : [],
+          }
+        }) : [],
+      } }
+    }
+    return { id, type, applyMultiplier: e.applyMultiplier !== false, value: {} }
   })
-  return { resourceType, charges, actionCost, movementFeet, recovery, effects, isStance: !!value.isStance }
+  return { resourceType, consumptionMode, maxSlotLevel, charges, actionCost, movementFeet, recovery, effects, isStance: !!value.isStance }
 }
 
 /** 回能方式是否支持自定义回能数量 */
@@ -387,7 +478,17 @@ export function formatChargeItemBrief(value) {
     if (dmgEffects.length > 0) {
       dmgEffects.forEach((e) => {
         const v = e.value || {}
-        const dice = `${v.diceCount || 1}d${v.diceSides || 6}${v.diceBonus ? '+' + v.diceBonus : ''}`
+        let bonusStr = ''
+        if (v.diceBonus) {
+          if (isFormulaValue(v.diceBonus)) {
+            const evalNum = evaluateBuffValue(v.diceBonus)
+            const formulaLabel = formatFormulaLabel(v.diceBonus)
+            bonusStr = !Number.isNaN(evalNum) ? `+${formulaLabel}（+${evalNum}）` : `+${formulaLabel}`
+          } else {
+            bonusStr = `+${v.diceBonus}`
+          }
+        }
+        const dice = `${v.diceCount || 1}d${v.diceSides || 6}${bonusStr}`
         const typeLabel = getDamageTypeLabel(v.damageType || 'fire')
         const scale = v.scaleWithSlot ? '（按环位缩放）' : ''
         effectLabels.push(`伤害 ${dice} ${typeLabel}${scale}`)
@@ -400,7 +501,17 @@ export function formatChargeItemBrief(value) {
         if (v.mode === 'max') {
           effectLabels.push(`生命值恢复至上限`)
         } else {
-          const dice = `${v.diceCount || 1}d${v.diceSides || 8}${v.diceBonus ? '+' + v.diceBonus : ''}`
+          let bonusStr = ''
+          if (v.diceBonus) {
+            if (isFormulaValue(v.diceBonus)) {
+              const evalNum = evaluateBuffValue(v.diceBonus)
+              const formulaLabel = formatFormulaLabel(v.diceBonus)
+              bonusStr = !Number.isNaN(evalNum) ? `+${formulaLabel}（+${evalNum}）` : `+${formulaLabel}`
+            } else {
+              bonusStr = `+${v.diceBonus}`
+            }
+          }
+          const dice = `${v.diceCount || 1}d${v.diceSides || 8}${bonusStr}`
           const scale = v.scaleWithSlot ? '（按环位缩放）' : ''
           effectLabels.push(`治疗 ${dice}${scale}`)
         }
@@ -413,6 +524,17 @@ export function formatChargeItemBrief(value) {
       clEffects.forEach((e) => {
         const title = (e.value?.title || '').trim()
         effectLabels.push(title || '特殊能力')
+      })
+    }
+    const rtEffects = norm.effects.filter((e) => e.type === 'random_table')
+    if (rtEffects.length > 0) {
+      rtEffects.forEach((e) => {
+        const rv = e.value || {}
+        if (rv.mode === 'poker') {
+          effectLabels.push(`扑克牌随机库 (${rv.entries?.length || 0} 条)`)
+        } else {
+          effectLabels.push(`${(rv.diceType || 'd6').toUpperCase()} 随机库 (${rv.entries?.length || 0} 条)`)
+        }
       })
     }
     if (effectLabels.length) parts.push(effectLabels.join('；'))
@@ -500,10 +622,36 @@ export function buildAbilityDiceExpr(abilityValue, character) {
  * @param {number} amount - 消耗资源数量（≥1）
  * @returns {object} 缩放后的数值
  */
-export function computeScaledEffect(effectValue, amount) {
+export function computeScaledEffect(effectValue, amount, freeMode = false) {
   const amt = Math.max(1, Math.floor(Number(amount) || 1))
-  const extra = amt - 1 // 基础 1 单位不叠加
   const scaling = effectValue?.scalingEnabled ? (effectValue?.scalingPerUnit || {}) : {}
+
+  // 自由消耗模式：最终值 = 基础值 × 消耗环位
+  if (freeMode) {
+    // ability (骰子/治疗/伤害)
+    if (effectValue && 'diceCount' in effectValue && 'resultType' in effectValue) {
+      return {
+        diceCount: (Math.max(0, Number(effectValue.diceCount) || 0)) * amt,
+        flatBonus: (Math.max(0, Number(effectValue.flatBonus ?? effectValue.diceBonus) || 0)) * amt,
+      }
+    }
+    // spell (伤害骰)
+    if (effectValue && 'damageDiceCount' in effectValue && 'hitResolution' in effectValue) {
+      return {
+        damageDiceCount: (Math.max(0, Number(effectValue.damageDiceCount) || 0)) * amt,
+      }
+    }
+    // shield / 通用数值
+    if (effectValue && 'amount' in effectValue && !('diceCount' in effectValue)) {
+      return {
+        amount: (Math.max(1, Number(effectValue.amount) || 1)) * amt,
+      }
+    }
+    return {}
+  }
+
+  // 固定消耗模式：原有增量缩放逻辑
+  const extra = amt - 1 // 基础 1 单位不叠加
 
   // ability
   if (effectValue && 'diceCount' in effectValue && 'resultType' in effectValue) {
@@ -561,6 +709,10 @@ export function getMaxSpendableAmount(norm, char) {
   if (norm.resourceType === 'none') return 1
   if (norm.resourceType === 'charges') {
     return Math.max(1, Math.floor(Number(norm.charges) || 1))
+  }
+  // 自由消耗法术位：最大可选环位 = maxSlotLevel
+  if (norm.resourceType === 'spell_slot_free') {
+    return Math.max(1, Math.min(9, Number(norm.maxSlotLevel) || 1))
   }
   // 法术位资源
   if (/^spell_slot_[1-9]$/.test(norm.resourceType)) {

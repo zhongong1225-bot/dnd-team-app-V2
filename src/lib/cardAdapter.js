@@ -18,7 +18,7 @@ import {
   getBuffsFromClassFeatures,
 } from './effects/effectMapping'
 import { createCard, normalizeCard, SLOT_KIND } from './cardModel'
-import { getRaceById } from '../data/races'
+import { getRaceById, getAllRaces } from '../data/races'
 
 /* ── BUFF 条目 → Card 映射 ───────────────────────────────────────── */
 
@@ -231,11 +231,17 @@ export function buildCardsFromCharacter(character, moduleId) {
 
   // 5.5 种族 → race 卡
   const raceCard = character.raceCard
-  if (raceCard?.raceId) {
+  // 兼容旧数据：raceId 不存在时按 customName 匹配种族
+  let resolvedRaceId = raceCard?.raceId
+  if (!resolvedRaceId && raceCard?.customName) {
+    const matched = getAllRaces().find(r => r.name === raceCard.customName.trim())
+    if (matched) resolvedRaceId = matched.id
+  }
+  if (raceCard && (resolvedRaceId || raceCard.raceBuffPatch?.effects?.length || raceCard.raceBaseInfo)) {
     // 从 raceBaseInfo 自动生成 BUFF 效果
     const autoEffects = buildRaceBaseInfoEffects(raceCard.raceBaseInfo)
     // 种族定义中的特性 BUFF 效果（trait.cards）
-    const raceDef = getRaceById(raceCard.raceId)
+    const raceDef = resolvedRaceId ? getRaceById(resolvedRaceId) : null
     const traitEffects = []
     if (raceDef) {
       // 主种族特性
@@ -261,12 +267,12 @@ export function buildCardsFromCharacter(character, moduleId) {
     const allEffects = [...autoEffects, ...traitEffects, ...manualEffects]
 
     if (allEffects.length > 0) {
-      const raceName = raceCard.customName || (raceCard.raceId === 'custom' ? 'custom-race' : raceCard.raceId)
+      const raceName = raceCard.customName || (resolvedRaceId === 'custom' ? 'custom-race' : resolvedRaceId)
       cards.push(normalizeCard(createCard(SLOT_KIND.race, {
-        id: `race-${raceCard.raceId}`,
+        id: `race-${resolvedRaceId || 'custom'}`,
         name: raceName,
         sourceType: 'race',
-        sourceKey: raceCard.raceId,
+        sourceKey: resolvedRaceId || '',
         buffEffects: allEffects,
         enabled: raceCard.raceBuffPatch?.enabled !== false,
       })))

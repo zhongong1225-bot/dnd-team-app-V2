@@ -29,12 +29,11 @@ export const INV_COL_QTY_WEIGHT = '8.5rem'
 export const INV_COL_ACTIONS = '6rem'
 
 /**
- * 统一网格：名称(1.6fr) | 充能(6rem) | 释放(4.5rem) | 空白(1fr×2) | 数量(3.5rem) | 重量(4rem) | 操作(3.5rem)
- * gap-x-2 让充能/释放紧跟名称但不贴死；空白列把数量/重量/操作推到右侧。
- * 替代旧的 inventoryItemRowGrid* 系列 class。
+ * 统一网格：名称(11rem) | 充能(5.5rem) | 释放(5.5rem) | 弹性间隔(1fr) | 数量(3.5rem) | 重量(4rem) | 操作(7rem)
+ * 名称固定 11rem = 步进器+释放按钮总宽，形成规整网格；1fr 间隔把数量/重量/操作推到右端。
  */
 export const inventoryItemRowGridUnified =
-  'grid grid-cols-[minmax(0,1.6fr)_6rem_4.5rem_0.5fr_0.5fr_3.5rem_4rem_7rem] gap-x-2 items-center min-w-0 shrink-0'
+  'grid grid-cols-[11rem_5.5rem_5.5rem_1fr_3.5rem_4rem_7rem] gap-x-2 items-center min-w-0 shrink-0'
 
 /** 充能步进器容器 */
 export const chargeStepperClass =

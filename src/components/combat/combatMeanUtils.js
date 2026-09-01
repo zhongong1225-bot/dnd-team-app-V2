@@ -2,7 +2,7 @@
  * 战斗手段共享工具：常量、武器/法术/组合技/增益 纯函数
  * 从 CombatStatus.jsx 抽出，供添加弹窗各步骤组件共用。
  */
-import { DAMAGE_TYPES, getDamageTypeLabel, normalizeScope, SCOPE_KIND, scopeMatchesCombatMean, parseDamageString, formatDamageForAttack } from '../../data/buffTypes'
+import { DAMAGE_TYPES, getDamageTypeLabel, normalizeScope, SCOPE_KIND, scopeMatchesCombatMean, parseDamageString, formatDamageForAttack, weaponProtoMatchesBuffWeaponCategories } from '../../data/buffTypes'
 import { getSpellById } from '../../data/spellDatabase'
 import { getItemById } from '../../data/itemDatabase'
 import { MARTIAL_TECHNIQUES, getMartialTechniqueById } from '../../data/martialTechniques'
@@ -369,6 +369,8 @@ export function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
   const buffAttackBonus = (isRangedWeapon ? (buffStats?.rangedAttackBonus ?? 0) : (buffStats?.meleeAttackBonus ?? 0)) + weaponCategoryAttackFlat
   const buffDamageBonus = (isRangedWeapon ? (buffStats?.rangedDamageBonus ?? 0) : (buffStats?.meleeDamageBonus ?? 0)) + weaponCategoryAttackFlat
   const weaponProficient = cm.weaponProficient !== false
+  const weaponExpertiseCategories = buffStats?.weaponExpertiseCategories ?? []
+  const weaponIsExpert = weaponProficient && weaponExpertiseCategories.length > 0 && weaponOpt?.proto && weaponProtoMatchesBuffWeaponCategories(weaponOpt.proto, weaponExpertiseCategories)
   const gains = getEnabledGains(cm)
   const gainAttackBonus = sumGainAttackBonus(gains)
   const gainDamageBonus = sumGainDamageBonus(gains)
@@ -388,7 +390,7 @@ export function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
   const weaponAbilityKind = resolvePhysicalWeaponAbilityKind(cm, weaponOpt, spellAbilityOverride)
   const abilityKey = weaponAbilityKind === 'spell' ? spellAbility : weaponAbilityKind
   const abilityMod = abilityModifier(effectiveAbilities?.[abilityKey] ?? 10)
-  const physicalAttackBonus = abilityMod + (weaponProficient ? prof : 0) + buffAttackBonus + gainAttackBonus
+  const physicalAttackBonus = abilityMod + (weaponProficient ? (weaponIsExpert ? prof * 2 : prof) : 0) + buffAttackBonus + gainAttackBonus
   const damageMod = cm.weaponVersatileMode === 'bonus_action' ? 0 : abilityMod
   const weaponExtraDiceStrings = [...getMergedWeaponExtraDiceStrings(cm, weaponOpt), ...gainExtraDice]
   const allWeaponDiceCount = (attackParsed.diceList || []).reduce((s, d) => s + (parseCombatDiceExpression(d)?.count || 0), 0) +
@@ -398,7 +400,7 @@ export function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
   const displayDamageType = rawDamageType ? getDamageTypeLabel(rawDamageType) : '—'
   return {
     weaponAbilityKind, abilityKey, abilityMod, isRangedWeapon, weaponCategoryAttackFlat,
-    buffAttackBonus, buffDamageBonus, weaponProficient, gains, gainAttackBonus, gainDamageBonus,
+    buffAttackBonus, buffDamageBonus, weaponProficient, weaponIsExpert, gains, gainAttackBonus, gainDamageBonus,
     gainPerDieBonus, gainExtraDice, gainAdvantage, gainDiceFloor2, attackParsed, rawDamageType,
     physicalAttackBonus, damageMod, weaponExtraDiceStrings, allWeaponDiceCount,
     weaponPerDieMod, totalDamageMod, displayDamageType,

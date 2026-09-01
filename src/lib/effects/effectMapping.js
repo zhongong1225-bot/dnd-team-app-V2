@@ -13,6 +13,7 @@ import { loadRuleTextOverrides, resolveRuleText, buildFeatNameKey } from '../rul
 import { loadDefaultBuffPatch, mergeWithDefaultPatch, buildClassFeatureBuffKey } from '../defaultBuffPatchStore'
 import { getAvailableFeatures } from '../../data/classDatabase'
 import { HARDCODED_FEAT_BUFFS } from '../../data/featDefaultBuffs'
+import { HARDCODED_CLASS_FEATURE_BUFFS } from '../../data/classFeatureDefaultBuffs'
 import { getChoiceEffects, CLASS_FEATURE_CHOICE_REGISTRY, CHOICE_ID_ALIASES } from '../../data/classFeatureChoiceRegistry'
 import { findShieldSlot } from '../equipmentLayers'
 import { getMergedBuffsViaCards } from '../cardAdapter'
@@ -471,6 +472,11 @@ export function getBuffsFromClassFeatures(character, moduleId) {
         const choiceResult = getChoiceEffects(buffKey, classFeatureChoices)
         if (choiceResult) effects = choiceResult.effects
       }
+      // 回退到硬编码职业特性 BUFF（如血肉堡垒）
+      if (effects.length === 0 && HARDCODED_CLASS_FEATURE_BUFFS[buffKey]) {
+        const hardcoded = HARDCODED_CLASS_FEATURE_BUFFS[buffKey]
+        effects = Array.isArray(hardcoded.effects) ? hardcoded.effects : []
+      }
       // 过滤掉没有实际数值的效果（如 ability_score_uncapped 值为 0 或全 0 对象）
       effects = effects.filter((e) => {
         if (!e || !e.effectType) return true // 保留无效结构，让下游处理
@@ -489,7 +495,9 @@ export function getBuffsFromClassFeatures(character, moduleId) {
       // 优先级：DM 补丁配置 > 空数组（不再依赖硬编码默认）
       const patchAbilities = Array.isArray(defaultPatch?.activeAbilities) ? defaultPatch.activeAbilities : []
       // 只有拥有被动效果或主动技能的特性才出现在 BUFF 栏
-      if (effects.length === 0 && patchAbilities.length === 0) return null
+      const hasChargeItemInEffects = effects.some(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
+      const hasShieldPoolInEffects = effects.some(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
+      if (effects.length === 0 && patchAbilities.length === 0 && !hasChargeItemInEffects && !hasShieldPoolInEffects) return null
       return {
         id: `classfeature_${f.sourceClass}_${f.sourceSubclass || ''}_${f.id}${optionId ? `_${optionId}` : ''}`,
         source: sourceLabel,
@@ -605,7 +613,31 @@ export function getEffectsFromItem(entry) {
  * 与 useBuffCalculator 原 getFlatEffectEntries 行为一致，统一入口
  * 保留 scope/scopeDetail/itemInventoryId，供 CombatStatus 等处的条件范围匹配使用。
  * 支持护盾池门控：当护盾池 current ≤ threshold 时，同卡其他效果全部过滤。
+ * 支持等级升级：当角色职业等级达到 upgrade.level 时，使用 upgrade.value 替换 value。
  */
+
+/** 获取角色某职业的等级（主职 + 兼职） */
+function getClassLevel(char, className) {
+  if (!char || !className) return 0
+  let level = 0
+  if (char['class'] === className) level += Number(char.classLevel) || 0
+  if (Array.isArray(char.multiclass)) {
+    for (const m of char.multiclass) {
+      if (m['class'] === className) level += Number(m.level) || 0
+    }
+  }
+  return level
+}
+
+/** 检查效果是否有等级升级配置，满足条件则返回升级后的 value */
+function resolveUpgradeValue(effect, char) {
+  const upg = effect.upgrade
+  if (!upg || !upg.className || !upg.level) return effect.value
+  const charLevel = getClassLevel(char, upg.className)
+  if (charLevel >= upg.level) return upg.value
+  return effect.value
+}
+
 export function getFlatEffectEntries(buffs, char) {
   const out = []
   const list = Array.isArray(buffs) ? buffs : []
@@ -616,44 +648,75 @@ export function getFlatEffectEntries(buffs, char) {
     // 检查护盾池门控
     const shieldPoolEffect = effects.find(e => e.effectType === 'shield_pool')
     let shieldPoolDepleted = false
+    let shieldPoolAboveThreshold = false
+    let shieldPoolBonusEffects = []
+    let shieldPoolCurrent = 0
     if (shieldPoolEffect && shieldPoolEffect.value && typeof shieldPoolEffect.value === 'object') {
       const spValue = shieldPoolEffect.value
       const max = Number(spValue.max) || 10
       const threshold = Number(spValue.threshold) || 0
-      
+
       // 从 char.shieldPoolStates 读取当前值
       let current = max
       if (char?.shieldPoolStates) {
         // 构建键：根据 buff 来源类型
-        const sourceType = b.fromItem ? 'equipment' 
+        const sourceType = b.fromItem ? 'equipment'
           : b.fromFeat ? 'feat'
           : b.fromClassFeature ? 'classFeature'
           : b.fromInvocation ? 'invocation'
           : b.fromFightingStyle ? 'fightingStyle'
           : 'manual'
-        
+
         const sourceKey = b.fromItem ? b.itemInventoryId
           : b.fromFeat ? b.featId
           : b.fromClassFeature ? `${b.sourceClass || ''}|${b.sourceSubclass || ''}|${b.featureId || ''}`
           : b.fromInvocation ? b.invocationId
           : b.fromFightingStyle ? b.styleId
           : b.source || b.id || 'unknown'
-        
+
         const key = `${sourceType}:${sourceKey}`
         if (key in char.shieldPoolStates) {
-          current = typeof char.shieldPoolStates[key].current === 'number' 
-            ? char.shieldPoolStates[key].current 
+          current = typeof char.shieldPoolStates[key].current === 'number'
+            ? char.shieldPoolStates[key].current
             : max
         }
       }
-      
+
+      shieldPoolCurrent = current
       shieldPoolDepleted = current <= threshold
+      shieldPoolAboveThreshold = current > threshold
+      shieldPoolBonusEffects = Array.isArray(spValue.bonusEffects) ? spValue.bonusEffects : []
     }
     
     for (const e of effects) {
       // 护盾池门控：如果护盾池已耗尽，只保留 shield_pool 自身
       if (shieldPoolDepleted && e.effectType !== 'shield_pool') {
         continue
+      }
+
+      // 护盾池 AC 加值：current 替换基础AC 10，所以注入 (current - 10)
+      if (e.effectType === 'shield_pool' && shieldPoolEffect && shieldPoolCurrent > 0) {
+        out.push({
+          effectType: 'ac_bonus',
+          value: shieldPoolCurrent - 10, // 替换基础10，不是额外叠加
+          scope: 'global',
+          scopeDetail: [],
+          itemInventoryId: b?.itemInventoryId,
+        })
+      }
+
+      // 护盾池高于阈值：注入增益效果
+      if (e.effectType === 'shield_pool' && shieldPoolAboveThreshold && shieldPoolBonusEffects.length > 0) {
+        for (const be of shieldPoolBonusEffects) {
+          out.push({
+            effectType: be.effectType ?? '',
+            value: be.value,
+            scope: be.scope,
+            scopeDetail: be.scopeDetail,
+            itemInventoryId: b?.itemInventoryId,
+            break20: be.break20,
+          })
+        }
       }
       
       // 选择型 BUFF：展开选中选项的效果
@@ -677,7 +740,7 @@ export function getFlatEffectEntries(buffs, char) {
       }
       out.push({
         effectType: e.effectType,
-        value: e.value,
+        value: resolveUpgradeValue(e, char),
         scope: e.scope,
         scopeDetail: e.scopeDetail,
         itemInventoryId: e.itemInventoryId ?? b?.itemInventoryId,
@@ -745,8 +808,9 @@ export function getBuffsFromEquipmentAndInventory(character) {
   const out = []
   for (const entry of inv) {
     if (!equippedIds.has(entry?.id)) continue
-    // 未同调装备不生效其 BUFF/效果
-    if (entry.isAttuned !== true) continue
+    // 未同调装备不生效其 BUFF/效果（但有 shield_pool 效果的物品除外，护盾池是固有能力）
+    const hasShieldPool = Array.isArray(entry.effects) && entry.effects.some(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
+    if (entry.isAttuned !== true && !hasShieldPool) continue
     let effects = getEffectsFromItem(entry)
     // Defensive body/shield slots already contribute AC via formulas.getAC (magicBonus etc).
     // Avoid counting the same AC enchantment again through item effect mapping.
@@ -759,6 +823,7 @@ export function getBuffsFromEquipmentAndInventory(character) {
     out.push({
       id: 'item_' + (entry.id || 'inv_' + (entry.itemId || 'unknown')),
       source: displayName,
+      itemInventoryId: entry.id,
       effects: effects.map((e) => ({ effectType: e.effectType, value: e.value, category: e.category, itemInventoryId: entry.id })),
       enabled: true,
       fromItem: true,

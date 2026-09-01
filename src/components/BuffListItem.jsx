@@ -125,8 +125,21 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
     if (v && typeof v === 'object' && !Array.isArray(v) && !isFormulaValue(v)) {
       const parts = []
       const add = (key, label) => {
-        const num = Number(v[key])
-        if (num) parts.push(`${label}速度${num >= 0 ? '+' : ''}${num}尺`)
+        const val = v[key]
+        if (val == null) return
+        if (isFormulaValue(val)) {
+          const evalNum = evaluateBuffValue(val, context)
+          const formulaLabel = formatFormulaLabel(val)
+          if (!Number.isNaN(evalNum)) {
+            const sign = evalNum >= 0 ? '+' : ''
+            parts.push(`${label}速度${formulaLabel}（${sign}${evalNum}尺）`)
+          } else {
+            parts.push(`${label}速度${formulaLabel}`)
+          }
+        } else {
+          const num = Number(val)
+          if (num) parts.push(`${label}速度${num >= 0 ? '+' : ''}${num}尺`)
+        }
       }
       add('walk', '步行')
       add('fly', '飞行')
@@ -297,7 +310,9 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       const max = Number(v.max) || 10
       const threshold = Number(v.threshold) || 0
       const recoverLabel = { short: '短休恢复', long: '长休恢复', dawn: '黎明恢复', manual: '手动恢复', none: '不恢复' }[v.recoverOn] || '手动恢复'
-      return `上限${max}，≤${threshold}失效，${recoverLabel}`
+      const bonusCount = Array.isArray(v.bonusEffects) ? v.bonusEffects.length : 0
+      const bonusText = bonusCount > 0 ? `，高于阈值+${bonusCount}增益` : ''
+      return `上限${max}，≤${threshold}失效，${recoverLabel}${bonusText}`
     }
     if ((buff.effectType === 'recharge_long_rest' || buff.effectType === 'recharge_dawn') && v != null) {
       const norm = normalizeChargeRecoveryValue(v)
@@ -351,9 +366,11 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       specific_tool_proficiency: TOOL_PROFICIENCY_OPTIONS,
       language_proficiency: LANGUAGE_PROFICIENCY_OPTIONS,
       weapon_mastery: WEAPON_MASTERY_OPTIONS,
+      weapon_expertise: WEAPON_PROFICIENCY_OPTIONS,
     }
     if (profOptMap[buff.effectType]) {
-      const labels = v.map((val) => profOptMap[buff.effectType].find((o) => o.value === val)?.label ?? val)
+      const suffix = buff.effectType === 'weapon_proficiency' ? '熟练' : buff.effectType === 'weapon_expertise' ? '专精' : ''
+      const labels = v.map((val) => (profOptMap[buff.effectType].find((o) => o.value === val)?.label ?? val) + suffix)
       return labels.join('、')
     }
   }
@@ -426,7 +443,13 @@ export function getBuffSummaryLine(buff, baseAbilities = {}, context = {}) {
   if (Array.isArray(buff.effects) && buff.effects.length) {
     buff.effects.forEach((e) => {
       const s = getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText, scope: e.scope, scopeDetail: e.scopeDetail }, context, baseContext)
-      if (s) effectParts.push(s)
+      if (s) {
+        let part = s
+        if (e.upgrade && e.upgrade.className && e.upgrade.level) {
+          part += `，${e.upgrade.className} ${e.upgrade.level}级↑`
+        }
+        effectParts.push(part)
+      }
     })
   } else {
     const s = getEffectSummaryShort(buff, context, baseContext)
@@ -462,7 +485,13 @@ export function getBuffEffectsList(buff, baseAbilities = {}, suppressedEffectTyp
   if (Array.isArray(buff.effects) && buff.effects.length) {
     buff.effects.forEach((e) => {
       const s = getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText, scope: e.scope, scopeDetail: e.scopeDetail }, context, baseContext)
-      if (s) effectParts.push({ text: s, suppressed: suppressedEffectTypes.has(e.effectType) })
+      if (s) {
+        let text = s
+        if (e.upgrade && e.upgrade.className && e.upgrade.level) {
+          text += `，${e.upgrade.className} ${e.upgrade.level}级↑`
+        }
+        effectParts.push({ text, suppressed: suppressedEffectTypes.has(e.effectType) })
+      }
     })
   } else {
     const s = getEffectSummaryShort(buff, context, baseContext)
@@ -587,7 +616,9 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
       const max = Number(v.max) || 10
       const threshold = Number(v.threshold) || 0
       const recoverLabel = { short: '短休恢复', long: '长休恢复', dawn: '黎明恢复', manual: '手动恢复', none: '不恢复' }[v.recoverOn] || '手动恢复'
-      return { label: effectLabel, value: `上限${max}，≤${threshold}失效，${recoverLabel}` }
+      const bonusCount = Array.isArray(v.bonusEffects) ? v.bonusEffects.length : 0
+      const bonusText = bonusCount > 0 ? `，高于阈值+${bonusCount}增益` : ''
+      return { label: effectLabel, value: `上限${max}，≤${threshold}失效，${recoverLabel}${bonusText}` }
     }
     if (buff.effectType === 'spell_damage_bonus' && v && typeof v === 'object' && !Array.isArray(v)) {
       const text = formatSpellDamageBonusValue(v)

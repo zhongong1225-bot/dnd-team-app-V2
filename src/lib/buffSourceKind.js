@@ -76,22 +76,6 @@ export function getBuffColumnLabel(key) {
   return LABEL_BY_KEY[key] ?? key
 }
 
-/**
- * 将 dragKey 插到 targetKey 之前（用于栏位排序）
- * @param {string[]} order
- * @param {string} dragKey
- * @param {string} targetKey
- */
-export function reorderBuffColumns(order, dragKey, targetKey) {
-  const norm = normalizeBuffColumnOrder(order)
-  if (dragKey === targetKey || !norm.includes(dragKey) || !norm.includes(targetKey)) return norm
-  const without = norm.filter((k) => k !== dragKey)
-  const idx = without.indexOf(targetKey)
-  if (idx < 0) return norm
-  without.splice(idx, 0, dragKey)
-  return without
-}
-
 /** @param {string | undefined} raw */
 export function normalizeBuffSourceKindKey(raw) {
   if (raw && VALID_KEYS.has(raw)) return raw

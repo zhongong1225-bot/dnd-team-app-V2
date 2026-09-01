@@ -289,7 +289,11 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
         for (const k of ABILITY_KEYS) {
           if (!(k in b.value)) continue
           const v = baseEvalVal(b.value[k])
-          if (!Number.isNaN(v)) abilityOverride[k] = v
+          if (!Number.isNaN(v)) {
+            abilityOverride[k] = v
+            // 属性值上限效果自动解除该项的 20 点封顶（可到 30）
+            abilityBreak20[k] = true
+          }
         }
       }
       // ability_score_uncapped：累加属性值（默认上限 20，勾选 break20 后可到 30）
@@ -299,6 +303,18 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
           if (!Number.isNaN(v)) abilityBonus[k] = (abilityBonus[k] || 0) + v
           if (b.break20 && b.break20[k]) abilityBreak20[k] = true
         }
+      }
+      // ability_score_bonus：专长属性加成（固定值自动生效，choice 型需用户手动配置；上限 20）
+      if (b.effectType === 'ability_score_bonus' && b.value && typeof b.value === 'object') {
+        const isChoice = b.value.choice !== undefined
+        if (!isChoice) {
+          for (const k of ABILITY_KEYS) {
+            const v = baseEvalVal(b.value[k])
+            if (!Number.isNaN(v)) abilityBonus[k] = (abilityBonus[k] || 0) + v
+          }
+        }
+        // choice 型（如 { choice: ['str','dex'], amount: 1 } 或 { choice: true, bonus: 1 }）
+        // 需要用户通过 BUFF 编辑器齿轮手动配置具体属性，此处不自动生效
       }
       // ability_score：授予豁免熟练（值为 true 或非零数字时生效）
       if (b.effectType === 'ability_score' && b.value && typeof b.value === 'object') {
@@ -494,9 +510,13 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
     // 7. 状态效果与力竭的减益（力竭规则参考 D&D 2024）
     // 先收集状态免疫（来自 BUFF 效果）
     const conditionImmunities = new Set()
+    const weaponExpertiseCategories = new Set()
     for (const b of entries) {
       if (b.effectType === 'condition_immunity' && Array.isArray(b.value)) {
         for (const c of b.value) conditionImmunities.add(String(c))
+      }
+      if (b.effectType === 'weapon_expertise' && Array.isArray(b.value)) {
+        for (const c of b.value) weaponExpertiseCategories.add(String(c))
       }
     }
     const rawConditions = Array.isArray(character?.conditions) ? character.conditions : []
@@ -560,6 +580,9 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       }
     }
 
+    // 检测是否有护盾池效果：护盾池current值替换基础AC 10，不叠加护甲AC
+    const hasShieldPool = entries.some(e => e.effectType === 'shield_pool')
+
     // 计算基础AC：变身效果 → armor_override → 默认 getAC
     let baseAC
     if (creatureTransformData && creatureTransformData.acMode === 'replace') {
@@ -599,6 +622,9 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
           : dexMod
       }
       baseAC = armorOverrideBase + acFromDex + armorOverrideExtra
+    } else if (hasShieldPool) {
+      // 护盾池效果：基础AC = 10（护盾池current通过ac_bonus注入，替换护甲AC）
+      baseAC = 10
     } else {
       baseAC = getAC(charWithBuffedAbilities)
     }
@@ -955,6 +981,7 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       deathSaveBonus,
       deathWard,
       conditionImmunities: [...conditionImmunities],
+      weaponExpertiseCategories: [...weaponExpertiseCategories],
       extraAttack,
       extraActionResource,
       // 变身效果相关信息

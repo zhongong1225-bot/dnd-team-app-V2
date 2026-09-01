@@ -73,7 +73,7 @@ export default function SpellNameAutocomplete({
   }
 
   return (
-    <div ref={wrapRef} className="relative inline-block" style={{ minWidth: '6rem' }}>
+    <div ref={wrapRef} className={`relative inline-block ${className ? 'min-w-0' : ''}`} style={className ? undefined : { minWidth: '6rem' }}>
       <input
         ref={inputRef}
         type="text"

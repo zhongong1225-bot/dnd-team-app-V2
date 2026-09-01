@@ -3,7 +3,7 @@
  * 显示：HP、AC、先攻、死亡豁免、状态效果、力竭、其它职业资源、战斗手段
  */
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Plus, Minus, Trash2, Dices } from 'lucide-react'
+import { Plus, Minus, Trash2, Dices, Shield } from 'lucide-react'
 import { useRoll } from '../contexts/RollContext'
 import { useModule } from '../contexts/ModuleContext'
 import {
@@ -63,7 +63,7 @@ import ActiveAbilityQuickBar from './combat/ActiveAbilityQuickBar'
 import SummonedCreaturesPanel from './combat/SummonedCreaturesPanel'
 import { isNewContainedSpellValue, normalizeContainedSpellValue, extractContainedSpellValueFromEntry } from '../lib/containedSpellModel'
 import { getFlatEffectEntries } from '../lib/effects/effectMapping'
-import { recoverShieldPoolsOnRest } from '../lib/shieldPoolUtils'
+import { recoverShieldPoolsOnRest, getShieldPoolCurrent, decrementShieldPool } from '../lib/shieldPoolUtils'
 
 /**
  * 计算条件范围命中/伤害加值（非 global 的 attack_bonus / damage_bonus / attack_damage_bonus）。
@@ -503,6 +503,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       char?.inventory,
       char?.equippedHeld,
       char?.equippedWorn,
+      char?.shieldPoolStates,
       combatModuleId,
     ],
   )
@@ -527,6 +528,29 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const flatBuffEffects = useMemo(() => getFlatEffectEntries(mergedBuffs, char), [mergedBuffs, char])
   const acResult = getAC(char)
   const acTotal = buffStats?.ac != null ? buffStats.ac : (acResult.total + (buffStats?.acBonus ?? 0))
+
+  // 获取身穿栏中带护盾池的护甲
+  const wornArmorWithShieldPool = useMemo(() => {
+    // 收集所有已装备槽位（身穿 + 手持）的 inventoryId
+    const equippedIds = new Set()
+    for (const s of (char?.equippedWorn || [])) { if (s?.inventoryId) equippedIds.add(s.inventoryId) }
+    for (const s of (char?.equippedHeld || [])) { if (s?.inventoryId) equippedIds.add(s.inventoryId) }
+    const inventory = char?.inventory ?? []
+    for (const entry of inventory) {
+      if (!entry?.id || !equippedIds.has(entry.id)) continue
+      const spEffect = Array.isArray(entry.effects)
+        ? entry.effects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
+        : null
+      if (spEffect) {
+        const spMax = Number(spEffect.value.max) || 10
+        const spThreshold = Number(spEffect.value.threshold) || 0
+        const spCurrent = getShieldPoolCurrent(char, 'equipment', entry.id, spMax)
+        return { entry, spMax, spThreshold, spCurrent }
+      }
+    }
+    return null
+  }, [char?.equippedWorn, char?.equippedHeld, char?.inventory, char?.shieldPoolStates])
+
   const acModeOptions = useMemo(() => getACModeOptionsForCharacter(char), [char?.['class'], char?.multiclass, char?.prestige])
   const acModeEffective = getEffectiveACCalculationMode(char)
   const showAcModeSelect = canEdit && acModeOptions.length > 1
@@ -1996,10 +2020,54 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     return detailLines.join('\n')
   }, [char, abilitiesForMaxHp, buffStats?.maxHpBonus, buffStats?.maxHpMultiplier, maxHpCalculated, mergedBuffs])
 
+  // 电弧能量场 CSS 动画（精致版）
+  const arcFieldStyles = `
+    @keyframes arc-pulse {
+      0%, 100% { opacity: 0.25; transform: scale(1); }
+      50% { opacity: 0.45; transform: scale(1.01); }
+    }
+    @keyframes arc-text-glow {
+      0%, 100% { text-shadow: 0 0 6px rgba(34, 211, 238, 0.4), 0 0 12px rgba(34, 211, 238, 0.2); }
+      50% { text-shadow: 0 0 8px rgba(34, 211, 238, 0.5), 0 0 16px rgba(34, 211, 238, 0.3); }
+    }
+    .arc-energy-border {
+      background: conic-gradient(from 0deg, #06b6d4, #8b5cf6, #06b6d4);
+      filter: blur(0.5px);
+    }
+    .arc-energy-border::before {
+      content: '';
+      position: absolute;
+      inset: 2px;
+      background: #1a2332;
+      border-radius: inherit;
+    }
+    .arc-pulse-glow {
+      animation: arc-pulse 4s ease-in-out infinite;
+    }
+    .arc-glow-blue {
+      box-shadow: 0 0 12px rgba(6, 182, 212, 0.3), 0 0 24px rgba(6, 182, 212, 0.15), inset 0 0 12px rgba(6, 182, 212, 0.08);
+    }
+    .arc-glow-red {
+      box-shadow: 0 0 10px rgba(239, 68, 68, 0.25), 0 0 20px rgba(239, 68, 68, 0.12), inset 0 0 10px rgba(239, 68, 68, 0.06);
+      animation: arc-pulse 5s ease-in-out infinite;
+    }
+    .arc-text-glow {
+      animation: arc-text-glow 4s ease-in-out infinite;
+    }
+    .arc-field-active {
+      position: relative;
+    }
+    .arc-field-depleted {
+      position: relative;
+    }
+  `
+
   return (
-    <div
-      className={`panel-highlight-top rounded-xl border border-white/10 bg-gradient-to-b from-[#243147]/35 to-[#1f2a3d]/30 p-3 space-y-3 ${COMBAT_ROOT_OUTER_SHADOW}`}
-    >
+    <>
+      <style>{arcFieldStyles}</style>
+      <div
+        className={`panel-highlight-top rounded-xl border border-white/10 bg-gradient-to-b from-[#243147]/35 to-[#1f2a3d]/30 p-3 space-y-3 ${COMBAT_ROOT_OUTER_SHADOW}`}
+      >
       <div
         className={`rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/28 to-[#222f45]/22 p-3 ${COMBAT_INNER_RIM_ONLY}`}
       >
@@ -2154,8 +2222,18 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <div
-          className={`rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-2 sm:p-3 min-h-[4rem] flex flex-row flex-nowrap items-center justify-center gap-1.5 sm:gap-2 min-w-0 ${COMBAT_INNER_RIM_ONLY}`}
+        {/* AC 卡片 - 带护盾池时显示电弧能量场效果 */}
+        <div className={`relative rounded-lg ${wornArmorWithShieldPool && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold ? 'arc-field-active' : wornArmorWithShieldPool ? 'arc-field-depleted' : ''}`}>
+          {/* 渐变边框层 */}
+          {wornArmorWithShieldPool && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold && (
+            <div className="arc-energy-border absolute -inset-[2px] rounded-lg opacity-40 pointer-events-none" />
+          )}
+          {/* 脉冲光晕层 */}
+          {wornArmorWithShieldPool && (
+            <div className={`arc-pulse-glow absolute -inset-1 rounded-xl pointer-events-none ${wornArmorWithShieldPool.spCurrent <= wornArmorWithShieldPool.spThreshold ? 'arc-glow-red' : 'arc-glow-blue'}`} />
+          )}
+          <div
+            className={`relative rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-2 sm:p-3 min-h-[4rem] flex flex-row flex-nowrap items-center justify-center gap-1.5 sm:gap-2 min-w-0 ${COMBAT_INNER_RIM_ONLY} ${wornArmorWithShieldPool && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold ? 'bg-[#1a2740]/40' : ''}`}
           title={[
             buffStats?.ac != null ? `由 Buff 计算器得出: ${acTotal}` : null,
             acResult.acFormulaNote ? `职业特性：${acResult.acFormulaNote}` : null,
@@ -2188,11 +2266,39 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               {acModeOptions.find((o) => o.value === acModeEffective)?.label ?? ''}
             </span>
           ) : null}
-          <div className="flex items-center justify-center gap-1 sm:gap-2 shrink-0">
-            <span className="text-gray-400 text-xl sm:text-2xl font-medium">AC</span>
-            <span className="text-gray-600 text-xl sm:text-2xl">|</span>
-            <span className="text-white font-bold text-3xl sm:text-4xl font-mono tabular-nums">{acTotal}</span>
+          <div className="flex flex-col items-center justify-center gap-1 sm:gap-1.5 shrink-0 min-h-[3rem]">
+            <div className="flex items-center justify-center gap-1 sm:gap-2">
+              <span className="text-gray-400 text-xl sm:text-2xl font-medium">AC</span>
+              <span className="text-gray-600 text-xl sm:text-2xl">|</span>
+              <span className={`font-bold text-3xl sm:text-4xl font-mono tabular-nums ${wornArmorWithShieldPool && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold ? 'text-cyan-100 arc-text-glow' : 'text-white'}`}>{acTotal}</span>
+            </div>
+            {/* 护盾池显示（身穿带护盾池的护甲时） */}
+            {wornArmorWithShieldPool && (
+              <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded border ${wornArmorWithShieldPool.spCurrent <= wornArmorWithShieldPool.spThreshold ? 'bg-red-500/10 border-red-500/30' : 'bg-cyan-500/10 border-cyan-500/30'}`}>
+                <Shield className={`w-3.5 h-3.5 ${wornArmorWithShieldPool.spCurrent <= wornArmorWithShieldPool.spThreshold ? 'text-red-400' : 'text-cyan-400'}`} />
+                <span className="text-[10px] text-gray-400 truncate max-w-[4rem]">
+                  {wornArmorWithShieldPool.entry.name || '护甲'}
+                </span>
+                <span className={`text-xs font-mono tabular-nums font-medium ${wornArmorWithShieldPool.spCurrent <= wornArmorWithShieldPool.spThreshold ? 'text-red-400' : 'text-cyan-300'}`}>
+                  {wornArmorWithShieldPool.spCurrent}/{wornArmorWithShieldPool.spMax}
+                </span>
+                {canEdit && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newState = decrementShieldPool(char, 'equipment', wornArmorWithShieldPool.entry.id, wornArmorWithShieldPool.spThreshold)
+                      if (newState) onSave({ shieldPoolStates: newState })
+                    }}
+                    className="w-4 h-4 flex items-center justify-center rounded bg-red-500/20 text-red-400 hover:bg-red-500/40 text-[10px] font-bold"
+                    title="扣减 1 层护盾"
+                  >
+                    -
+                  </button>
+                )}
+              </div>
+            )}
           </div>
+        </div>
         </div>
         <div
           className={`rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-3 min-h-[4rem] flex items-center justify-center gap-2 ${COMBAT_INNER_RIM_ONLY}`}
@@ -3021,8 +3127,37 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           const newSummons = currentSummons.filter(s => s.id !== summonId)
           onSave({ summonedCreatures: newSummons })
         }}
+        onSummon={() => {
+          if (!onSave || !char) return
+          const hp = char.hp ?? { current: 0, max: 0, temp: 0 }
+          const tempHp = Number(hp.temp) || 0
+          const realCur = Math.max(0, (Number(hp.current) || 0) - tempHp)
+          const hpCost = Math.floor(realCur / 2)
+          const cloneHp = Math.floor(realCur / 2)
+          const newHp = Math.max(0, (Number(hp.current) || 0) - hpCost)
+          const patch = { hp: { ...hp, current: newHp } }
+          const cloneData = {
+            id: 'stellar_double_' + Date.now(),
+            name: `${char.name || '角色'}的分身`,
+            type: 'stellar_double',
+            hp: { current: cloneHp, max: cloneHp },
+            createdAt: Date.now(),
+          }
+          const currentSummons = Array.isArray(char.summonedCreatures) ? char.summonedCreatures : []
+          patch.summonedCreatures = [...currentSummons, cloneData]
+          const cloneId = 'stellar_' + Date.now()
+          const currentStellar = Array.isArray(char.stellarClones) ? char.stellarClones : []
+          patch.stellarClones = [...currentStellar, { id: cloneId, name: '星辰分身', hp: { current: cloneHp, max: cloneHp } }]
+          const currentSlots = Array.isArray(char.summonSlots) ? char.summonSlots : [null, null, null, null]
+          const slotsCopy = currentSlots.slice(0, 4)
+          const emptyIdx = slotsCopy.findIndex(s => s == null)
+          if (emptyIdx >= 0) slotsCopy[emptyIdx] = { type: 'stellar', id: cloneId }
+          patch.summonSlots = slotsCopy
+          onSave(patch)
+        }}
       />
     </div>
+    </>
   )
 }
 

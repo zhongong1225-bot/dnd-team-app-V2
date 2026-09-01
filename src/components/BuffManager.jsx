@@ -33,7 +33,6 @@ export default function BuffManager({
   onStashChange,
   onApplyStashTemplate,
   buffColumnOrder,
-  onBuffColumnOrderChange,
   referenceData,
   baseReferenceData,
   formulaContext = {},
@@ -41,6 +40,7 @@ export default function BuffManager({
   subordinates = [],
   onEditRace,
   onEditBackground,
+  charClasses = [],
 }) {
   const { moduleLibrary, currentModuleId } = useModule()
   const [formState, setFormState] = useState(null)
@@ -530,6 +530,7 @@ export default function BuffManager({
                   baseReferenceData={baseReferenceData}
                   sourceNameOptions={sourceNameOptions}
                   subordinates={subordinates}
+                  charClasses={charClasses}
                 />
               </div>
             </div>

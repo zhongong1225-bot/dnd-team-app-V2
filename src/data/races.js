@@ -83,12 +83,23 @@ function persistCustomRaces(list) {
   return Promise.resolve()
 }
 
-/** 从 Supabase 加载自定义种族到远程缓存 */
+/** 从 Supabase 加载自定义种族到远程缓存；若 Supabase 无数据则回退到 localStorage */
 export async function loadCustomRacesFromSupabase() {
   if (!isSupabaseEnabled()) return
   try {
     const list = await teamData.fetchCustomLibrary('custom_races')
-    customRacesRemoteCache = Array.isArray(list) ? list : []
+    if (Array.isArray(list) && list.length > 0) {
+      customRacesRemoteCache = list
+    } else {
+      // Supabase 无数据，回退到 localStorage
+      try {
+        const raw = localStorage.getItem(CUSTOM_RACES_KEY)
+        const localList = raw ? JSON.parse(raw) : []
+        customRacesRemoteCache = Array.isArray(localList) ? localList : []
+      } catch {
+        customRacesRemoteCache = []
+      }
+    }
   } catch {
     customRacesRemoteCache = []
   }

@@ -66,7 +66,6 @@ import RaceEditorForm from '../components/RaceEditorForm'
 import { BACKGROUNDS, getBackgroundById } from '../data/backgrounds'
 import { SPECIAL_SENSES_OPTIONS } from '../data/buffTypes'
 import { CREATURE_SIZES } from '../data/creatureLibrary'
-import SummonedCreaturesPanel from '../components/combat/SummonedCreaturesPanel'
 import AbilityModule from '../components/AbilityModule'
 import AvatarCropModal from '../components/AvatarCropModal'
 import CharacterSheetTopBar from '../components/CharacterSheetTopBar'
@@ -78,7 +77,7 @@ import { loadDefaultBuffPatch, saveDefaultBuffPatch, clearDefaultBuffPatch, buil
 import { CLASS_FEATURE_CHOICE_REGISTRY, CHOICE_ID_ALIASES } from '../data/classFeatureChoiceRegistry'
 import { executeAbility, canUseAbility } from '../lib/activeAbilityEngine'
 import { buildCardsFromCharacter, findActiveAbilityInCards, findAllActiveAbilitiesInCards } from '../lib/cardAdapter'
-import { getShieldPoolCurrent, decrementShieldPool, resetShieldPool } from '../lib/shieldPoolUtils'
+import { getShieldPoolCurrent, setShieldPoolCurrent, decrementShieldPool, resetShieldPool } from '../lib/shieldPoolUtils'
 import { formatRecoveryBrief, RESOURCE_TYPE_OPTIONS } from '../lib/chargeItemModel'
 import AbilityUseModal from '../components/AbilityUseModal'
 import { SCOPE_TYPE_OPTIONS } from '../lib/cardModel'
@@ -125,7 +124,7 @@ function findActiveAbilityFromCard(sourceKey, cards, slotKind = null) {
     ? chargeValue.effects[0]
     : null
 
-  if (!mainEffect) return null
+  if (!mainEffect) return card.activeAbility || null
 
   // 构造主动技能对象（与 activeAbilityEngine 兼容）
   return {
@@ -492,9 +491,15 @@ function hasRaceBaseInfo(info) {
 }
 
 /** 整合到外观区的种族/背景选择器 + 基础信息 + BUFF 编辑器 */
-function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRaceBuffEditorOpen, backgroundBuffEditorOpen, setBackgroundBuffEditorOpen, showTraitsOnly }) {
+function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRaceBuffEditorOpen, backgroundBuffEditorOpen, setBackgroundBuffEditorOpen, showTraitsOnly, referenceData, baseReferenceData, formulaContext }) {
   const raceCard = char?.raceCard || {}
   const backgroundCard = char?.backgroundCard || {}
+
+  // 职业列表（供 BUFF 编辑器使用）
+  const charClasses = [
+    ...(char?.['class'] ? [{ className: char['class'], level: char.classLevel || 1 }] : []),
+    ...(Array.isArray(char?.multiclass) ? char.multiclass.filter(m => m['class']).map(m => ({ className: m['class'], level: m.level || 0 })) : []),
+  ]
 
   const raceBaseInfo = raceCard.raceBaseInfo || {}
   const updateRaceBaseInfo = (patch) => {
@@ -511,7 +516,16 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
   const asi = raceBaseInfo.abilityScoreIncrease || defaultASI
   const ASI_LABELS = { str: '力', dex: '敏', con: '体', int: '智', wis: '感', cha: '魅' }
 
-  const selectedRace = useMemo(() => getRaceById(raceCard.raceId), [raceCard.raceId])
+  const selectedRace = useMemo(() => {
+    const byId = getRaceById(raceCard.raceId)
+    if (byId) return byId
+    // 旧数据兼容：raceId 不存在时按 customName 匹配
+    if (raceCard.customName) {
+      const name = raceCard.customName.trim()
+      return getAllRaces().find(r => r.name === name) || null
+    }
+    return null
+  }, [raceCard.raceId, raceCard.customName])
   const selectedBackground = useMemo(() => getBackgroundById(backgroundCard.backgroundId), [backgroundCard.backgroundId])
 
   const handleRaceChange = (raceId) => {
@@ -861,6 +875,10 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
               hideDuration: true,
               charResources: char?.classResources,
               spellSlots: char?.spellSlots,
+              charClasses,
+              referenceData,
+              baseReferenceData,
+              formulaContext,
               initial: { source: backgroundCard.backgroundId === 'custom' ? (bgEditName || 'custom-background') : `background-${backgroundCard.backgroundId}`, effects: initialEffects, enabled: backgroundCard.backgroundBuffPatch?.enabled !== false },
               onSave: handleBackgroundBuffSave,
               onClear: handleBackgroundBuffClear,
@@ -1608,103 +1626,62 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
   const [useActiveAbility, setUseActiveAbility] = useState(null)
 
   const buffKey = buildClassFeatureBuffKey(feature.sourceClass, feature.sourceSubclass, feature.id)
-  const defaultPatch = loadDefaultBuffPatch(moduleId, 'classFeature', buffKey)
-  const effects = Array.isArray(defaultPatch?.effects) ? defaultPatch.effects : []
-  const chargeEffects = effects.filter((e) => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
 
-  /* ── 主动技能（从卡查找，支持多个，仅当有主动释放效果时）── */
+  /* ── 主动释放按钮（统一从 card.buffEffects 读取 charge_item）── */
   const classes = getCharacterClasses(char)
   const cls = classes.find((c) => c.name === feature.sourceClass)
   const classLevel = cls?.level || 1
   const subclass = cls?.subclass || ''
   const cards = buildCardsFromCharacter(char, moduleId)
-  // 查找对应的卡，检查是否有 charge_item 效果
-  const featureCard = cards.find(c => 
-    c.slotKind === 'class' && 
+  // 查找对应的卡
+  const featureCard = cards.find(c =>
+    c.slotKind === 'class' &&
     c.sourceKey === `${feature.sourceClass}|${feature.sourceSubclass || ''}|${feature.id}`
   )
-  const hasChargeItemEffect = featureCard && Array.isArray(featureCard.buffEffects) && 
-    featureCard.buffEffects.some(e => e.type === 'charge_item')
-  // 只有有主动释放效果时才显示主动技能按钮
-  const abilities = hasChargeItemEffect 
-    ? findAllActiveAbilitiesInCards(cards, feature.sourceClass, feature.id, { level: classLevel, subclass })
+  // 优先从卡读取 charge_item 效果
+  let chargeEffects = featureCard && Array.isArray(featureCard.buffEffects)
+    ? featureCard.buffEffects.filter((e) => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
     : []
-  const abilityChecks = abilities.map((ab) => ({ ability: ab, check: canUseAbility(ab, char) }))
-  const getAbilityCostText = (ab) => {
-    if (ab?.cost?.type === 'class_resource') {
-      const shortLabels = { wild_shape: '变', second_wind: '气', lay_on_hands: '疗', focus_points: '专注' }
-      const label = shortLabels[ab.cost.resourceKey] || ''
-      return `${ab.cost.amount}${label}`
-    }
-    return ab?.cost?.type === 'none' ? '免费' : ''
+  // 回退：卡没有时从 defaultPatch 读取（兼容旧数据）
+  if (chargeEffects.length === 0) {
+    const defaultPatch = loadDefaultBuffPatch(moduleId, 'classFeature', buffKey)
+    const effects = Array.isArray(defaultPatch?.effects) ? defaultPatch.effects : []
+    chargeEffects = effects.filter((e) => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
   }
-
-  useEffect(() => {
-    if (!lastResult) return
-    const timer = setTimeout(() => setLastResult(null), 4000)
-    return () => clearTimeout(timer)
-  }, [lastResult])
 
   const getResourceLabel = (resourceType) => {
     return RESOURCE_TYPE_OPTIONS.find((o) => o.value === resourceType)?.label ?? resourceType
   }
 
-  if (abilityChecks.length === 0 && chargeEffects.length === 0) return null
+  if (chargeEffects.length === 0) return null
 
   return (
     <div className="mt-2 space-y-1.5">
-      {/* 主动技能按钮（支持多个） */}
-      {abilityChecks.map(({ ability: ab, check }) => (
-        <button
-          key={ab.id}
-          type="button"
-          disabled={!check.usable}
-          onClick={(e) => {
-            e.stopPropagation()
-            setUseActiveAbility(ab)
-          }}
-          className={`w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-all active:scale-[0.98] ${
-            check.usable
-              ? 'bg-dnd-gold/10 text-dnd-gold-light border-dnd-gold/30 hover:bg-dnd-gold/20 hover:border-dnd-gold/50'
-              : 'bg-gray-800/50 text-gray-500 border-gray-600/50 cursor-not-allowed'
-          }`}
-          title={check.usable ? `点击使用${ab.name}` : check.reason}
-        >
-          <Zap className="w-3.5 h-3.5" />
-          <span>{ab.name}</span>
-          {getAbilityCostText(ab) && <span className="text-[10px] opacity-70">{getAbilityCostText(ab)}</span>}
-        </button>
-      ))}
-
       {/* 充能/BUFF 效果按钮 */}
-      {chargeEffects.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {chargeEffects.map((chargeEff, idx) => {
-            const cv = chargeEff.value
-            const charges = cv.charges ?? 0
-            const recovery = cv.recovery
-            const recoveryLabel = recovery ? formatRecoveryBrief(recovery) : ''
-            const resourceType = cv.resourceType || 'charges'
-            const resLabel = getResourceLabel(resourceType)
+      {chargeEffects.map((chargeEff, idx) => {
+        const cv = chargeEff.value
+        const charges = cv.charges ?? 0
+        const recovery = cv.recovery
+        const recoveryLabel = recovery ? formatRecoveryBrief(recovery) : ''
+        const resourceType = cv.resourceType || 'charges'
+        const resLabel = getResourceLabel(resourceType)
 
-            return (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => setUseChargeValue(cv)}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors"
-                title={resourceType === 'charges' ? `${charges} 充能 | ${recoveryLabel}` : `消耗: ${resLabel}`}
-              >
-                <Zap className="w-3 h-3" />
-                使用 {feature.name}
-                {resourceType === 'charges' && charges > 0 && (
-                  <span className="text-[10px] opacity-70">({charges})</span>
-                )}
-              </button>
-            )
-          })}
-        </div>
-      )}
+        return (
+          <button
+            key={idx}
+            type="button"
+            onClick={() => setUseChargeValue(cv)}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors"
+            title={resourceType === 'charges' ? `${charges} 充能 | ${recoveryLabel}` : `消耗: ${resLabel}`}
+          >
+            <Zap className="w-3 h-3" />
+            使用 {feature.name}
+            {resourceType === 'charges' && charges > 0 && (
+              <span className="text-[10px] opacity-70">({charges})</span>
+            )}
+          </button>
+        )
+      })}
       {lastResult && (
         <div className="w-full mt-1 text-[11px] text-gray-300 space-y-0.5">
           {lastResult.lines.map((line, i) => (
@@ -1875,7 +1852,7 @@ const SUBCLASS_SELECTION_FEATURE_IDS = new Set([
 ])
 
 /** 职业特性：根据当前职业与等级自动展示，不可手动增删 */
-function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
+function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, baseReferenceData, formulaContext, sheetModuleId, buffPatchRev }) {
   const { currentModuleId } = useModule()
   const moduleId = currentModuleId || 'default'
   const overridesMap = useRuleTextOverridesMap(moduleId)
@@ -1889,6 +1866,10 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
   const [editOptionCardDesc, setEditOptionCardDesc] = useState('')
   const [optionDescEditing, setOptionDescEditing] = useState(false)
   const [choiceModalFeature, setChoiceModalFeature] = useState(null)
+  const charClasses = [
+    ...(char?.['class'] ? [{ className: char['class'], level: char.classLevel || 1 }] : []),
+    ...(Array.isArray(char?.multiclass) ? char.multiclass.filter(m => m['class']).map(m => ({ className: m['class'], level: m.level || 0 })) : []),
+  ]
   // 卡名称/描述编辑初始化
   useEffect(() => {
     if (!buffEditorFeature) { setEditCardName(''); setEditCardDesc(''); setDescEditing(false); return }
@@ -1921,6 +1902,7 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
     // 过滤掉子职选择占位特性（职业等级区域已有子职选择器，此处冗余）
     return feats.filter((f) => !SUBCLASS_SELECTION_FEATURE_IDS.has(f.id))
   }, [char])
+  const classFeatureCards = useMemo(() => buildCardsFromCharacter(char, sheetModuleId || moduleId), [char, sheetModuleId, moduleId, buffPatchRev])
   if (available.length === 0) return null
   return (
     <SlotPanel
@@ -1952,9 +1934,12 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
           const cfScopeLabel = cfScope?.type && cfScope.type !== 'global'
             ? (SCOPE_TYPE_OPTIONS.find(o => o.value === cfScope.type)?.label || cfScope.type)
             : null
-          // 护盾池检测
-          const cfShieldPoolEffect = Array.isArray(cfPatch?.effects)
-            ? cfPatch.effects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
+          // 护盾池检测（统一从 card.buffEffects 查找，包含所有来源的效果）
+          const cfCard = classFeatureCards.find(c =>
+            c.slotKind === 'class' && c.sourceKey === `${f.sourceClass}|${f.sourceSubclass || ''}|${f.id}`
+          )
+          const cfShieldPoolEffect = cfCard && Array.isArray(cfCard.buffEffects)
+            ? cfCard.buffEffects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
             : null
           const cfShieldPoolKey = `classFeature:${cfBuffKey}`
           const cfShieldCurrent = cfShieldPoolEffect
@@ -2004,12 +1989,8 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
                           max={spMax}
                           threshold={spThreshold}
                           compact
-                          onDecrement={() => {
-                            const newState = decrementShieldPool(char, 'classFeature', cfBuffKey, 0)
-                            if (newState) onSave({ shieldPoolStates: newState })
-                          }}
-                          onReset={() => {
-                            const newState = resetShieldPool(char, 'classFeature', cfBuffKey, spMax)
+                          onChange={(v) => {
+                            const newState = setShieldPoolCurrent(char, 'classFeature', cfBuffKey, v)
                             onSave({ shieldPoolStates: newState })
                           }}
                         />
@@ -2155,6 +2136,10 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
             hideDuration: true,
             charResources: char?.classResources,
             spellSlots: char?.spellSlots,
+            charClasses,
+            referenceData,
+            baseReferenceData,
+            formulaContext,
             initial: {
               source: `${buffEditorFeature.sourceClass}-${buffEditorFeature.name}`,
               cardName: editCardName,
@@ -2285,6 +2270,10 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin }) {
             hideDuration: true,
             charResources: char?.classResources,
             spellSlots: char?.spellSlots,
+            charClasses,
+            referenceData,
+            baseReferenceData,
+            formulaContext,
             initial: {
               source: `${buffEditorOption.feature.sourceClass}-${buffEditorOption.feature.name}（${buffEditorOption.optionLabel}）`,
               cardName: editOptionCardName,
@@ -2379,13 +2368,17 @@ function formatFeatAcquisitionSentence(sourceClass, level, category) {
 }
 
 /** 专长：按自动计算的槽位展示，每个槽位从指定分类中选取；额外传奇专长可自由添加 */
-function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModuleId, buffPatchRev }) {
+function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModuleId, buffPatchRev, referenceData, baseReferenceData }) {
   const { currentModuleId } = useModule()
   const moduleId = currentModuleId || 'default'
   const overridesMap = useRuleTextOverridesMap(moduleId)
   const [expandedFeatIds, setExpandedFeatIds] = useState(new Set())
   const [featBuffEditor, setFeatBuffEditor] = useState(null) // { row, slot } for feat BUFF editor
   const [featActiveAbility, setFeatActiveAbility] = useState(null) // active ability for AbilityUseModal
+  const charClasses = [
+    ...(char?.['class'] ? [{ className: char['class'], level: char.classLevel || 1 }] : []),
+    ...(Array.isArray(char?.multiclass) ? char.multiclass.filter(m => m['class']).map(m => ({ className: m['class'], level: m.level || 0 })) : []),
+  ]
   const toggleFeatExpand = (featId) => {
     setExpandedFeatIds((prev) => {
       const next = new Set(prev)
@@ -2585,9 +2578,10 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                 ? '该条目原属于战斗风格专长，现已迁移到「战斗风格」选择器中。'
                 : ''
 
-            // 护盾池检测
-            const featShieldPoolEffect = row?.featId && Array.isArray(row?.featBuffPatch?.effects)
-              ? row.featBuffPatch.effects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
+            // 护盾池检测（统一从 card.buffEffects 查找，包含所有来源的效果）
+            const featCard = row?.featId ? featCards.find(c => c.slotKind === 'feat' && c.sourceKey === row.featId) : null
+            const featShieldPoolEffect = featCard && Array.isArray(featCard.buffEffects)
+              ? featCard.buffEffects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
               : null
             const featShieldCurrent = featShieldPoolEffect
               ? getShieldPoolCurrent(char, 'feat', row.featId, featShieldPoolEffect.value.max || 10)
@@ -2651,12 +2645,8 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                               max={spMax}
                               threshold={spThreshold}
                               compact
-                              onDecrement={() => {
-                                const newState = decrementShieldPool(char, 'feat', row.featId, 0)
-                                if (newState) onSave({ shieldPoolStates: newState })
-                              }}
-                              onReset={() => {
-                                const newState = resetShieldPool(char, 'feat', row.featId, spMax)
+                              onChange={(v) => {
+                                const newState = setShieldPoolCurrent(char, 'feat', row.featId, v)
                                 onSave({ shieldPoolStates: newState })
                               }}
                             />
@@ -2898,6 +2888,8 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
               hideDuration: true,
               charResources: char?.classResources,
               spellSlots: char?.spellSlots,
+              charClasses,
+              referenceData, baseReferenceData, formulaContext,
               initial: {
                 source: editRow?.featBuffPatch?.source || `feat-${editFeatId}`,
                 effects: initialEffects,
@@ -2952,7 +2944,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
 }
 
 /** 职业：起始职业、兼职、进阶、施法等级汇总、职业特性（等级上限由经验等级决定） */
-function ClassSection({ char, level, canEdit, onSave, moduleId }) {
+function ClassSection({ char, level, canEdit, onSave, moduleId, referenceData, baseReferenceData, formulaContext }) {
   const maxLevel = Math.max(1, level)
   const [classVal, setClassVal] = useState(char?.['class'] ?? '')
   const [subclass, setSubclass] = useState(char?.subclass ?? '')
@@ -2983,6 +2975,10 @@ function ClassSection({ char, level, canEdit, onSave, moduleId }) {
   const prestigeLevelSum = prestige.reduce((s, p) => s + (p.level || 0), 0)
   const totalClassLevels = classLevel + multiclass.reduce((s, m) => s + (m.level || 0), 0) + prestigeLevelSum
   const overCap = totalClassLevels > maxLevel
+  const charClasses = [
+    ...(classVal ? [{ className: classVal, level: classLevel }] : []),
+    ...multiclass.filter(m => m['class']).map(m => ({ className: m['class'], level: m.level || 0 })),
+  ]
 
   // 子职特性 BUFF 编辑器
   const [subclassFeatureEditor, setSubclassFeatureEditor] = useState(null) // { feature }
@@ -3340,6 +3336,8 @@ function ClassSection({ char, level, canEdit, onSave, moduleId }) {
               hideDuration: true,
               charResources: char?.classResources,
               spellSlots: char?.spellSlots,
+              charClasses,
+              referenceData, baseReferenceData, formulaContext,
               initial: {
                 source: `${scClassName}-${feature.name}`,
                 cardName: editSubclassCardName,
@@ -3449,6 +3447,7 @@ export default function CharacterSheet() {
   const isCreatureTemplate = char?.subordinateTemplate === 'creature'
 
   const characterClasses = useMemo(() => (char ? getCharacterClasses(char) : []), [char])
+  const charClasses = useMemo(() => characterClasses.map(c => ({ className: c.name, level: c.level })), [characterClasses])
   const classLevels = useMemo(() => {
     const map = {}
     for (const c of characterClasses) map[c.name] = c.level
@@ -3832,11 +3831,17 @@ export default function CharacterSheet() {
                     <AppearanceGrid char={char} canEdit={canEdit} onSave={persist} noBorder compact />
                     <RaceBackgroundInline char={char} canEdit={canEdit} onSave={persist}
                       raceBuffEditorOpen={raceBuffEditorOpen} setRaceBuffEditorOpen={setRaceBuffEditorOpen}
-                      backgroundBuffEditorOpen={backgroundBuffEditorOpen} setBackgroundBuffEditorOpen={setBackgroundBuffEditorOpen} />
+                      backgroundBuffEditorOpen={backgroundBuffEditorOpen} setBackgroundBuffEditorOpen={setBackgroundBuffEditorOpen}
+                      referenceData={referenceData} baseReferenceData={baseReferenceData} formulaContext={buffFormulaContext} />
 
                     {/* 种族特性展示 */}
                     {(() => {
-                      const selRace = getRaceById(char.raceCard?.raceId)
+                      let selRace = getRaceById(char.raceCard?.raceId)
+                      // 旧数据兼容：raceId 不存在时按 customName 匹配种族
+                      if (!selRace && char.raceCard?.customName) {
+                        const name = char.raceCard.customName.trim()
+                        selRace = getAllRaces().find(r => r.name === name) || null
+                      }
                       if (!selRace) return null
                       const allTraits = []
                       ;(selRace.traits || []).forEach(t => allTraits.push({ ...t, _isSubrace: false }))
@@ -3908,7 +3913,7 @@ export default function CharacterSheet() {
               <div className="module-panel p-3">
                 <ExperienceLevelSection char={char} level={level} canEdit={canEdit} onSave={persist} />
                 <div id="sheet-class" className="mt-2 border-t border-white/10 pt-2">
-                  <ClassSection char={char} level={level} canEdit={canEdit} onSave={persist} moduleId={sheetModuleId} />
+                  <ClassSection char={char} level={level} canEdit={canEdit} onSave={persist} moduleId={sheetModuleId} referenceData={referenceData} baseReferenceData={baseReferenceData} formulaContext={buffFormulaContext} />
                 </div>
               </div>
             </section>
@@ -3936,6 +3941,7 @@ export default function CharacterSheet() {
               baseAbilities={char.abilities ?? {}}
               sourceNameOptions={sourceNameOptions}
               subordinates={subordinates}
+              charClasses={charClasses}
               onSave={(buffsList) => {
                 const manual = buffsList.filter(
                   (b) => !b.fromItem && !b.fromFeat && !b.fromInvocation && !b.fromFightingStyle && !b.fromClassFeature,
@@ -3960,7 +3966,6 @@ export default function CharacterSheet() {
                   : undefined
               }
               buffColumnOrder={char.buffColumnOrder}
-              onBuffColumnOrderChange={canEdit ? (order) => persist({ buffColumnOrder: order }) : undefined}
               canEdit={canEdit}
               referenceData={referenceData}
               baseReferenceData={baseReferenceData}
@@ -4011,26 +4016,15 @@ export default function CharacterSheet() {
           </section>
           )}
           {!isCreatureTemplate && (
-          <section id="sheet-summons" className="character-sheet-section-anchor mt-6">
-            <SummonedCreaturesPanel
-              char={char}
-              onDelete={(summonId) => {
-                const newSummons = (char.summonedCreatures || []).filter(s => s.id !== summonId)
-                persist({ summonedCreatures: newSummons })
-              }}
-            />
-          </section>
-          )}
-          {!isCreatureTemplate && (
             <section id="sheet-features" className="character-sheet-section-anchor mt-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="min-w-0">
                   <h3 className="section-title">职业特性</h3>
-                  <ClassFeaturesSection char={char} canEdit={canEdit} onSave={persist} isAdmin={isAdmin} />
+                  <ClassFeaturesSection char={char} canEdit={canEdit} onSave={persist} isAdmin={isAdmin} referenceData={referenceData} baseReferenceData={baseReferenceData} formulaContext={buffFormulaContext} sheetModuleId={sheetModuleId} buffPatchRev={buffPatchRev} />
                 </div>
                 <div className="min-w-0">
                   <h3 className="section-title">专长</h3>
-                  <FeatsSection char={char} level={level} canEdit={canEdit} onSave={persist} formulaContext={buffFormulaContext} sheetModuleId={sheetModuleId} buffPatchRev={buffPatchRev} />
+                  <FeatsSection char={char} level={level} canEdit={canEdit} onSave={persist} formulaContext={buffFormulaContext} sheetModuleId={sheetModuleId} buffPatchRev={buffPatchRev} referenceData={referenceData} baseReferenceData={baseReferenceData} />
                 </div>
               </div>
             </section>

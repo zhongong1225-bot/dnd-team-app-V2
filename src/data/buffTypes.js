@@ -193,6 +193,7 @@ export const ARMOR_PROFICIENCY_OPTIONS = [
 export const WEAPON_PROFICIENCY_OPTIONS = [
   { value: 'simple', label: '简易武器' },
   { value: 'martial', label: '军用武器' },
+  { value: 'firearm', label: '火器' },
 ]
 
 /** 载具熟练选项 */
@@ -378,6 +379,7 @@ export const BUFF_TYPES = {
       { key: 'ability_score', label: '属性熟练调整', dataType: 'object', subSelect: 'abilityProficiency' },
       { key: 'ability_override', label: '属性值上限', dataType: 'object', subSelect: 'abilityScores' },
       { key: 'ability_score_uncapped', label: '属性增加', dataType: 'object', subSelect: 'abilityScores' },
+      { key: 'ability_score_bonus', label: '专长属性加成', dataType: 'object', subSelect: 'abilityScores' },
       { key: 'extra_attunement_slots', label: '额外同调位', dataType: 'number' },
       // 豁免检定增强：数值加值+优势配置
       { key: 'save_bonus', label: '豁免检定增强', dataType: 'object', subSelect: 'abilityScoresAndAdvantage' },
@@ -526,6 +528,7 @@ export const BUFF_TYPES = {
       { key: 'instrument_proficiency', label: '乐器熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'instrument', hidden: true },
       { key: 'armor_proficiency', label: '护甲熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'armor' },
       { key: 'weapon_proficiency', label: '武器熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'weapon' },
+      { key: 'weapon_expertise', label: '武器专精', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'weapon' },
       { key: 'language_proficiency', label: '语言熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'language' },
       { key: 'vehicle_proficiency', label: '各类载具熟练', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'vehicle' },
       { key: 'weapon_mastery', label: '精通武器', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'weaponMastery' },
@@ -941,7 +944,7 @@ export function scopeMatchesCombatMean(effect, ctx = {}) {
       const k = String(key).trim()
       if (k === '近战武器') return ctx.weaponProto.类型 === '近战武器'
       if (k === '远程武器') return ctx.weaponProto.类型 === '远程武器' || ctx.weaponProto.子类型 === '远程'
-      if (k === '枪械') return ctx.weaponProto.类型 === '枪械'
+      if (k === '枪械' || k === '火器') return ctx.weaponProto.类型 === '枪械'
       if (k === '触及武器') return isReachWeaponProto(ctx.weaponProto)
       if (k === '简易武器') return isSimpleWeaponProto(ctx.weaponProto)
       if (k === '军用武器') return isMartialWeaponProto(ctx.weaponProto)

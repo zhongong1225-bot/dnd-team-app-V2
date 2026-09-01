@@ -11,6 +11,7 @@
 
 import { useState, memo } from 'react'
 import { ChevronDown, ChevronUp, Settings, Zap, Shield } from 'lucide-react'
+import { NumberStepper } from './BuffForm'
 
 /* ── CardView ─────────────────────────────────────────────────── */
 
@@ -183,57 +184,36 @@ export function SlotPanel({ title, count, headerActions, children, className = '
   )
 }
 
-/* ── ShieldPoolCounter ────────────────────────────────────────── */
+/* ─ ShieldPoolCounter ────────────────────────────────────────── */
 
 /**
  * 护盾池计数器组件。
- * 显示当前值/上限，提供递减和重置按钮。
- * 
+ * 使用 NumberStepper 步进器直接修改当前值，保留护盾图标与颜色提示。
+ *
  * @param {object} props
  * @param {number} props.current - 当前值
  * @param {number} props.max - 上限
  * @param {number} [props.threshold=0] - 阈值（低于此值显示红色）
- * @param {function} props.onDecrement - 递减回调
- * @param {function} props.onReset - 重置回调
+ * @param {function} props.onChange - 值变化回调 (newValue) => void
  * @param {boolean} [props.compact=false] - 紧凑模式（更小尺寸）
  */
-export function ShieldPoolCounter({ current, max, threshold = 0, onDecrement, onReset, compact = false }) {
+export function ShieldPoolCounter({ current, max, threshold = 0, onChange, compact = false }) {
   const isDepleted = current <= threshold
-  const canDecrement = current > 0
-  const canReset = current < max
-  
-  const sizeClass = compact ? 'text-xs' : 'text-sm'
   const iconSize = compact ? 'w-3 h-3' : 'w-3.5 h-3.5'
-  
+
   return (
     <div className="inline-flex items-center gap-1">
       <Shield className={`${iconSize} ${isDepleted ? 'text-red-400' : 'text-dnd-gold'}`} />
-      <span className={`${sizeClass} font-medium ${isDepleted ? 'text-red-400' : 'text-dnd-gold-light'}`}>
-        {current}/{max}
-      </span>
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); onDecrement?.() }}
-        disabled={!canDecrement}
-        className={`w-5 h-5 flex items-center justify-center rounded text-xs font-bold transition-all active:scale-90 ${
-          canDecrement
-            ? 'bg-dnd-gold/20 text-dnd-gold-light hover:bg-dnd-gold/30'
-            : 'bg-gray-700/30 text-gray-600 cursor-not-allowed'
-        }`}
-        title="减少（受击时点击）"
-      >
-        −
-      </button>
-      {canReset && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onReset?.() }}
-          className="w-5 h-5 flex items-center justify-center rounded text-xs text-gray-400 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-90"
-          title="重置到上限"
-        >
-          <ChevronDown className="w-3 h-3 rotate-180" />
-        </button>
-      )}
+      <NumberStepper
+        value={current}
+        min={0}
+        max={max}
+        compact
+        pill
+        unifiedColor
+        onChange={(v) => onChange?.(v)}
+        className={isDepleted ? '[&_input]:!text-red-400 [&_button]:!text-red-400' : ''}
+      />
     </div>
   )
 }

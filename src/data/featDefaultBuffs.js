@@ -306,6 +306,20 @@ export const HARDCODED_FEAT_BUFFS = {
     ],
   },
   
+  // 云端漫步者：PB×5飞行移动
+  cloud_hopper: {
+    source: '云端漫步者',
+    effects: [
+      {
+        category: 'mobility_casting',
+        effectType: 'base_speed_increment',
+        scope: 'global',
+        scopeDetail: [],
+        value: { fly: { ref: 'proficiency', mult: 5 } },
+      },
+    ],
+  },
+  
   // 冲锋手：力量/敏捷+1+进阶疾走+冲锋攻击
   charger: {
     source: '冲锋手',

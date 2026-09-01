@@ -22,8 +22,12 @@ import DurationEditor from './DurationEditor'
  * 规则：充能数始终可用 + 角色实际拥有的职业资源 + 有法术位时显示环位。
  */
 function buildResourceOptions(charResources, spellSlots) {
-  const opts = [{ value: 'none', label: '无消耗' }, { value: 'charges', label: '充能数' }]
-  const seen = new Set(['none', 'charges'])
+  const opts = [
+    { value: 'none', label: '无消耗' },
+    { value: 'charges', label: '充能数' },
+    { value: 'star_points', label: '星辰点' },
+  ]
+  const seen = new Set(['none', 'charges', 'star_points'])
 
   // 从角色职业资源中添加
   if (Array.isArray(charResources)) {

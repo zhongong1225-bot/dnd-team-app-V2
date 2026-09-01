@@ -266,8 +266,10 @@ export function executeAbility(ability, char, options = {}) {
           }
         }
       } else if (result.mode === 'multi') {
-        // 多资源恢复：恢复 1 到 maxRing 所有环位到最大值
-        for (let ring = 1; ring <= result.maxRing; ring++) {
+        // 多资源恢复：消耗1点时只恢复到 singleCostRing，否则恢复到 maxRing
+        const actualCost = options.customCostAmount || result.cost || 1
+        const effectiveMaxRing = (actualCost === 1) ? (result.singleCostRing || result.maxRing) : result.maxRing
+        for (let ring = 1; ring <= effectiveMaxRing; ring++) {
           const max = maxSlots[ring] || 0
           if (max > 0) {
             newSlots[ring] = max
@@ -436,6 +438,7 @@ function computeEffect(effect, ctx, options) {
         ringLevel: effect.ringLevel || 1,
         maxRing: effect.maxRing || 3,
         cost: effect.cost || 1,
+        singleCostRing: effect.singleCostRing || effect.maxRing || 3,
       }
     case 'summon':
       return { type: 'summon', description: effect.description, duration: effect.duration || '1分钟', raw: effect }

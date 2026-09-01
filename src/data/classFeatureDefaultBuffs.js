@@ -30,4 +30,31 @@ export function initializeClassFeatureDefaultBuffs(moduleId) {
 }
 
 /* ════════════════════════════════════════════════════════════════════ */
-export const HARDCODED_CLASS_FEATURE_BUFFS = {}
+export const HARDCODED_CLASS_FEATURE_BUFFS = {
+  // 血肉堡垒：火铳手等级×3 生命值上限
+  '火铳手|敢死先锋|gunslinger_daredevil_fortress': {
+    source: '血肉堡垒',
+    effects: [
+      {
+        category: 'ability',
+        effectType: 'max_hp_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { bonus: { ref: 'classLevel', className: '火铳手', mult: 3 } },
+      },
+    ],
+  },
+  // AC加值：贤者之剑将感知调整值加到AC上
+  '武道家|贤者之剑|sage_ac_bonus': {
+    source: 'AC加值',
+    effects: [
+      {
+        category: 'defense',
+        effectType: 'ac_bonus',
+        scope: 'global',
+        scopeDetail: [],
+        value: { ref: 'abilityModifier', ability: 'wis' },
+      },
+    ],
+  },
+}

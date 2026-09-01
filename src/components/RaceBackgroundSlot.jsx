@@ -18,6 +18,10 @@ import BuffEditorModal from './BuffEditorModal'
 export default function RaceBackgroundSlot({ char, canEdit, onSave }) {
   const raceCard = char?.raceCard || {}
   const backgroundCard = char?.backgroundCard || {}
+  const charClasses = [
+    ...(char?.['class'] ? [{ className: char['class'], level: Number(char.classLevel) || 1 }] : []),
+    ...(Array.isArray(char?.multiclass) ? char.multiclass.filter(m => m['class']).map(m => ({ className: m['class'], level: m.level || 0 })) : []),
+  ]
 
   const [raceBuffEditor, setRaceBuffEditor] = useState(false)
   const [backgroundBuffEditor, setBackgroundBuffEditor] = useState(false)
@@ -41,8 +45,16 @@ export default function RaceBackgroundSlot({ char, canEdit, onSave }) {
   const defaultASI = { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 }
   const asi = raceBaseInfo.abilityScoreIncrease || defaultASI
 
-  // 种族数据
-  const selectedRace = useMemo(() => getRaceById(raceCard.raceId), [raceCard.raceId])
+  // 种族数据（旧数据兼容：raceId 不存在时按 customName 匹配）
+  const selectedRace = useMemo(() => {
+    const byId = getRaceById(raceCard.raceId)
+    if (byId) return byId
+    if (raceCard.customName) {
+      const name = raceCard.customName.trim()
+      return getAllRaces().find(r => r.name === name) || null
+    }
+    return null
+  }, [raceCard.raceId, raceCard.customName])
   const selectedSubrace = useMemo(() => {
     if (!selectedRace || !raceCard.subraceId) return null
     return selectedRace.subraces.find((s) => s.id === raceCard.subraceId) || null
@@ -409,6 +421,7 @@ export default function RaceBackgroundSlot({ char, canEdit, onSave }) {
               hideDuration: true,
               charResources: char?.classResources,
               spellSlots: char?.spellSlots,
+              charClasses,
               initial: {
                 source: raceCard.raceId === 'custom' ? (raceCard.customName || 'custom-race') : `race-${raceCard.raceId}`,
                 effects: initialEffects,
@@ -441,6 +454,7 @@ export default function RaceBackgroundSlot({ char, canEdit, onSave }) {
               hideDuration: true,
               charResources: char?.classResources,
               spellSlots: char?.spellSlots,
+              charClasses,
               initial: {
                 source: backgroundCard.backgroundId === 'custom' ? (backgroundCard.customName || 'custom-background') : `background-${backgroundCard.backgroundId}`,
                 effects: initialEffects,

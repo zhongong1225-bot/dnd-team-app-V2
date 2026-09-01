@@ -304,6 +304,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
   const officialTemplateGroups = useMemo(() => {
     const byType = {}
     for (const item of officialTemplates) {
+      if (type && item.类型 !== type) continue
       const t = item.类型
       if (!byType[t]) byType[t] = []
       byType[t].push(item)
@@ -311,7 +312,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     return Object.entries(byType)
       .map(([type, items]) => ({ type, items }))
       .sort((a, b) => a.type.localeCompare(b.type, 'zh-Hans-CN'))
-  }, [officialTemplates])
+  }, [officialTemplates, type])
 
   const selectedPrototype = itemId ? getItemById(itemId) : null
   const weightDisplay = selectedPrototype?.重量 ?? '—'
@@ -810,32 +811,38 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
             </div>
           )}
 
-          {!isEdit && officialTemplateGroups.length > 0 && (
+          {!isEdit && (officialTemplates.length > 0 || !type) && (
             <div className="min-w-0 max-w-full">
               <label className="block text-dnd-text-muted text-xs mb-0.5">官方非魔法物品模板</label>
-              <select
-                value={officialTemplateId}
-                onChange={(e) => {
-                  const id = e.target.value
-                  setOfficialTemplateId(id)
-                  if (id) {
-                    setModuleTemplateId('')
-                    loadEntryData({ itemId: id, name: '', qty: 1, rarity: '', isAttuned: false })
-                  } else {
-                    resetForm()
-                  }
-                }}
-                className={inputClass + ' w-full h-8 text-xs'}
-              >
-                <option value="">— 选择官方物品模板 —</option>
-                {officialTemplateGroups.map((g) => (
-                  <optgroup key={g.type} label={g.type}>
-                    {g.items.map((item) => (
-                      <option key={item.id} value={item.id}>{getItemDisplayName(item)}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+              {officialTemplateGroups.length === 0 && type ? (
+                <div className={inputClass + ' w-full h-8 text-xs flex items-center text-gray-500 px-2'}>
+                  「{type}」无官方非魔法物品模板，可手动填写下方信息
+                </div>
+              ) : (
+                <select
+                  value={officialTemplateId}
+                  onChange={(e) => {
+                    const id = e.target.value
+                    setOfficialTemplateId(id)
+                    if (id) {
+                      setModuleTemplateId('')
+                      loadEntryData({ itemId: id, name: '', qty: 1, rarity: '', isAttuned: false })
+                    } else {
+                      resetForm()
+                    }
+                  }}
+                  className={inputClass + ' w-full h-8 text-xs'}
+                >
+                  <option value="">— 选择官方物品模板 —</option>
+                  {officialTemplateGroups.map((g) => (
+                    <optgroup key={g.type} label={g.type}>
+                      {g.items.map((item) => (
+                        <option key={item.id} value={item.id}>{getItemDisplayName(item)}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              )}
             </div>
           )}
 
@@ -854,7 +861,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                   <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider shrink-0">类型</label>
                   <select
                     value={type}
-                    onChange={(e) => { setType(e.target.value) }}
+                    onChange={(e) => { setType(e.target.value); setOfficialTemplateId('') }}
                     className={inputClass + ' h-8 min-w-0 w-[7rem] text-sm shrink-0'}
                   >
                     <option value="">— 类型 —</option>
@@ -862,7 +869,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                       <option key={g.type} value={g.type}>{g.type}</option>
                     ))}
                   </select>
-                  <span className="text-dnd-text-muted text-xs truncate">从上方选择模板，或选择类型自定义</span>
+                  <span className="text-dnd-text-muted text-xs truncate">选类型后模板自动筛选，或下方直接选模板</span>
                 </>
               )}
               <div className="ml-auto flex shrink-0 items-center gap-1.5">

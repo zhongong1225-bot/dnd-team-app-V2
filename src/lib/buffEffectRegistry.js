@@ -98,6 +98,7 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   language_proficiency: 'metadata',
   vehicle_proficiency: 'metadata',
   weapon_mastery: 'metadata',
+  weapon_expertise: 'calculator',
   // custom
   custom_condition: 'metadata',
   // deprecated（旧存档兼容，不再出现在 BUFF_TYPES 中）

@@ -60,7 +60,7 @@ import { appendContainedSpellsBrief } from '../lib/containedSpellBrief'
 import { hasContainedSpellEffect } from '../lib/containedSpellModel'
 import ContainedSpellUseButton from './ContainedSpellUseButton'
 import { ShieldPoolCounter } from './CardView'
-import { getShieldPoolCurrent, decrementShieldPool, resetShieldPool, buildShieldPoolKey } from '../lib/shieldPoolUtils'
+import { getShieldPoolCurrent, setShieldPoolCurrent, decrementShieldPool, resetShieldPool, buildShieldPoolKey } from '../lib/shieldPoolUtils'
 import { BagModuleSection, parseDragInventoryIndex, deliverBagDrop } from './BagOfHoldingPanel'
 import { normalizeBagOfHoldingVisibility } from '../lib/bagOfHoldingVisibility'
 import {
@@ -139,6 +139,30 @@ function EquipSlotBadge({ Icon, label }) {
       <Icon className="h-3.5 w-3.5 text-dnd-gold-light/55" strokeWidth={1.75} />
       <span className="text-[9px] font-medium text-gray-500 leading-tight">{label}</span>
     </div>
+  )
+}
+
+/** 装备护盾池计数器：从 entry.effects 检测 shield_pool 效果并渲染 */
+function EquipmentShieldPoolCounter({ entry, character, onSave, compact = true }) {
+  if (!entry) return <div />
+  const spEffect = Array.isArray(entry.effects)
+    ? entry.effects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
+    : null
+  if (!spEffect) return <div />
+  const spMax = Number(spEffect.value.max) || 10
+  const spThreshold = Number(spEffect.value.threshold) || 0
+  const spCurrent = getShieldPoolCurrent(character, 'equipment', entry.id, spMax)
+  return (
+    <ShieldPoolCounter
+      current={spCurrent}
+      max={spMax}
+      threshold={spThreshold}
+      compact={compact}
+      onChange={(v) => {
+        const newState = setShieldPoolCurrent(character, 'equipment', entry.id, v)
+        onSave({ shieldPoolStates: newState })
+      }}
+    />
   )
 }
 
@@ -479,33 +503,6 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   }
 
   /** 更新身穿身体槽条目上的魔法装备强化加值 */
-
-  /** 瓦石甲 AC 递减（最低 12） */
-  const decrementStoneArmorAC = (inventoryId) => {
-    const entryIdx = inv.findIndex((e) => e.id === inventoryId)
-    if (entryIdx < 0) return
-    const entry = inv[entryIdx]
-    const currentAC = typeof entry.stoneArmorAC === 'number' ? entry.stoneArmorAC : 21
-    if (currentAC <= 12) return
-    const nextInv = inv.map((e, i) => (i === entryIdx ? { ...e, stoneArmorAC: currentAC - 1 } : e))
-    onSave({ inventory: nextInv })
-  }
-
-  /** 瓦石甲 AC 重置回 21 */
-  const resetStoneArmorAC = (inventoryId) => {
-    const entryIdx = inv.findIndex((e) => e.id === inventoryId)
-    if (entryIdx < 0) return
-    const nextInv = inv.map((e, i) => (i === entryIdx ? { ...e, stoneArmorAC: 21 } : e))
-    onSave({ inventory: nextInv })
-  }
-
-  /** 判断是否为瓦石甲（通过 stoneArmorAC 字段或物品名） */
-  const isStoneArmor = (entry) => {
-    if (!entry) return false
-    if (typeof entry.stoneArmorAC === 'number') return true
-    const name = getEntryDisplayName(entry) || ''
-    return name.includes('瓦石甲')
-  }
 
   const addWornSlot = () => {
     const used = new Set(wornAddable.map((a) => a.slotId).filter(Boolean))
@@ -1346,6 +1343,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                             maxAttunementSlots={maxAttunementSlots}
                             onToggle={toggleAttunedForEntry}
                           />
+                          <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
                         </>
                       ) : (
                         <>
@@ -1359,6 +1357,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                           {i === 1 && isShield && shieldMagicBonus > 0 && (
                             <span className="text-dnd-gold-light/90 text-xs font-mono shrink-0" title="盾牌增强加值">+{shieldMagicBonus}</span>
                           )}
+                          <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
                         </>
                       )}
                     </div>
@@ -1410,6 +1409,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                               maxAttunementSlots={maxAttunementSlots}
                               onToggle={toggleAttunedForEntry}
                             />
+                            <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
                           </>
                         ) : (
                           <>
@@ -1420,6 +1420,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                 同调
                               </span>
                             )}
+                            <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
                           </>
                         )}
                       </div>
@@ -1463,63 +1464,8 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                     </select>
                     {bodySlot.inventoryId && (() => {
                       const entry = inv.find((e) => e.id === bodySlot.inventoryId)
-                      const stoneAC = isStoneArmor(entry) ? (typeof entry.stoneArmorAC === 'number' ? entry.stoneArmorAC : 21) : null
                       return (
-                        <>
-                          {stoneAC !== null && entry && (
-                            <div className="flex items-center gap-1 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => decrementStoneArmorAC(entry.id)}
-                                disabled={stoneAC <= 12}
-                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono font-bold border transition-colors active:scale-[0.96] disabled:opacity-40 disabled:cursor-not-allowed"
-                                title={stoneAC <= 12 ? 'AC 已降至最低 12' : '受击 AC-1'}
-                                style={{
-                                  borderColor: stoneAC <= 12 ? 'rgba(239,68,68,0.4)' : 'rgba(199,154,66,0.5)',
-                                  backgroundColor: stoneAC <= 12 ? 'rgba(239,68,68,0.1)' : 'rgba(199,154,66,0.12)',
-                                  color: stoneAC <= 12 ? 'rgb(239,68,68)' : 'rgb(220,190,120)',
-                                }}
-                              >
-                                <Shield className="w-3 h-3" />
-                                AC {stoneAC}
-                              </button>
-                              {stoneAC < 21 && (
-                                <button
-                                  type="button"
-                                  onClick={() => resetStoneArmorAC(entry.id)}
-                                  className="w-5 h-5 flex items-center justify-center rounded text-gray-600 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-colors active:scale-95"
-                                  title="重置 AC 到 21"
-                                >
-                                  <ChevronDown className="w-3 h-3 rotate-180" />
-                                </button>
-                              )}
-                            </div>
-                          )}
-                          {(() => {
-                            const spEffect = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'shield_pool') : null
-                            if (!spEffect || !spEffect.value || typeof spEffect.value !== 'object') return null
-                            const spMax = Number(spEffect.value.max) || 10
-                            const spThreshold = Number(spEffect.value.threshold) || 0
-                            const spKey = buildShieldPoolKey('equipment', entry.id)
-                            const spCurrent = getShieldPoolCurrent(character, 'equipment', entry.id, spMax)
-                            return (
-                              <ShieldPoolCounter
-                                current={spCurrent}
-                                max={spMax}
-                                threshold={spThreshold}
-                                compact
-                                onDecrement={() => {
-                                  const newState = decrementShieldPool(character, 'equipment', entry.id, 0)
-                                  if (newState) onSave({ shieldPoolStates: newState })
-                                }}
-                                onReset={() => {
-                                  const newState = resetShieldPool(character, 'equipment', entry.id, spMax)
-                                  onSave({ shieldPoolStates: newState })
-                                }}
-                              />
-                            )
-                          })()}
-                        </>
+                        <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
                       )
                     })()}
                     <AttuneToggle
@@ -1540,27 +1486,8 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                     )}
                     {bodySlot.inventoryId && (() => {
                       const entry = inv.find((e) => e.id === bodySlot.inventoryId)
-                      const stoneAC = isStoneArmor(entry) ? (typeof entry.stoneArmorAC === 'number' ? entry.stoneArmorAC : 21) : null
                       return (
-                        <>
-                          {stoneAC !== null && (
-                            <button
-                              type="button"
-                              onClick={() => decrementStoneArmorAC(entry.id)}
-                              disabled={stoneAC <= 12}
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono font-bold border transition-colors active:scale-[0.96] disabled:opacity-40 disabled:cursor-not-allowed"
-                              title={stoneAC <= 12 ? 'AC 已降至最低 12' : '受击 AC-1'}
-                              style={{
-                                borderColor: stoneAC <= 12 ? 'rgba(239,68,68,0.4)' : 'rgba(199,154,66,0.5)',
-                                backgroundColor: stoneAC <= 12 ? 'rgba(239,68,68,0.1)' : 'rgba(199,154,66,0.12)',
-                                color: stoneAC <= 12 ? 'rgb(239,68,68)' : 'rgb(220,190,120)',
-                              }}
-                            >
-                              <Shield className="w-3 h-3" />
-                              AC {stoneAC}
-                            </button>
-                          )}
-                        </>
+                        <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
                       )
                     })()}
                   </>
@@ -1633,6 +1560,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                               maxAttunementSlots={maxAttunementSlots}
                               onToggle={toggleAttunedForEntry}
                             />
+                            <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
                           </>
                         ) : (
                           <>
@@ -1647,6 +1575,20 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                             {entry && isArmorOrShield && magicBonus > 0 && (
                               <span className="text-dnd-gold-light/90 text-xs font-mono shrink-0">+{magicBonus}</span>
                             )}
+                            {(() => {
+                              const spEffect = Array.isArray(entry?.effects)
+                                ? entry.effects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
+                                : null
+                              if (!spEffect) return null
+                              const spMax = Number(spEffect.value.max) || 10
+                              const spCurrent = getShieldPoolCurrent(character, 'equipment', entry.id, spMax)
+                              return (
+                                <span className="text-dnd-gold-light/90 text-xs font-mono shrink-0" title="护盾池层数">
+                                  {spCurrent}层
+                                </span>
+                              )
+                            })()}
+                            <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
                           </>
                         )}
                       </div>
@@ -1869,6 +1811,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                     </button>
                                   )
                                 })()}
+                                <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
                               </div>
                               {/* inline visibility */}
                               <span
@@ -2037,11 +1980,10 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                 )
                               })()}
 
-                              {/* Col 4-5: Blank */}
-                              <div></div>
-                              <div></div>
+                              {/* Col 4: Shield pool counter or spacer (1fr) */}
+                              <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
 
-                              {/* Col 6: Quantity (3.5rem) */}
+                              {/* Col 5: Quantity (3.5rem) */}
                               <div className="text-center text-xs tabular-nums" onMouseDown={(e) => e.stopPropagation()}>
                                 {canEdit && !entry?.walletCurrencyId ? (
                                   <NumberStepper value={qty} onChange={(v) => setQty(i, v)} min={1} compact pill subtle />
@@ -2247,11 +2189,10 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                         )
                                       })()}
 
-                                      {/* Col 4-5: Blank */}
-                                      <div></div>
+                                      {/* Col 4: Spacer (1fr) */}
                                       <div></div>
 
-                                      {/* Col 6: Quantity */}
+                                      {/* Col 5: Quantity */}
                                       <div className="text-center text-xs tabular-nums" onMouseDown={(e) => e.stopPropagation()}>
                                         {canEdit ? (
                                           <NumberStepper
