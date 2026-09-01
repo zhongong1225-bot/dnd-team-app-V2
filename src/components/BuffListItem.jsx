@@ -1,5 +1,6 @@
 import { Trash2, Pencil } from 'lucide-react'
 import { getBuffSourceKindLabel, getBuffSourceKindTitle } from '../lib/buffSourceKind'
+import { getCreatureById } from '../data/creatureLibrary'
 import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue, formatDamageForAttack, formatScopeBrief, normalizeScope, formatSpellDamageBonusValue, ARMOR_PROFICIENCY_OPTIONS, WEAPON_PROFICIENCY_OPTIONS, VEHICLE_PROFICIENCY_OPTIONS, INSTRUMENT_PROFICIENCY_OPTIONS, TOOL_PROFICIENCY_OPTIONS, LANGUAGE_PROFICIENCY_OPTIONS, WEAPON_MASTERY_OPTIONS, SPECIAL_SENSES_OPTIONS, VISUAL_EFFECT_OPTIONS } from '../data/buffTypes'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { formatContainedSpellBrief } from '../lib/containedSpellBrief'
@@ -245,13 +246,9 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
     if (info.effect.subSelect === 'creatureTransform' && v && typeof v === 'object' && !Array.isArray(v)) {
       const creatureId = v.creatureId
       if (!creatureId) return ''
-      // 从生物库获取生物名称
-      let creatureName = creatureId
-      try {
-        const lib = JSON.parse(localStorage.getItem('dnd_creature_library') || '[]')
-        const found = lib.find((c) => c.id === creatureId)
-        if (found) creatureName = found.name || creatureId
-      } catch {}
+      // 从生物库获取生物名称（getCreatureById 兼容 Supabase 与 localStorage 两种模式）
+      const creature = getCreatureById(creatureId)
+      const creatureName = creature?.name || creatureId
       return `变身（${creatureName}）`
     }
     if (info.effect.subSelect === 'choice' && v && typeof v === 'object' && !Array.isArray(v)) {
@@ -429,11 +426,8 @@ export function getBuffSummaryLine(buff, baseAbilities = {}, context = {}) {
     const ctValue = buff.effectType === 'creature_transform' ? buff.value : buff.effects[0]?.value
     if (ctValue && typeof ctValue === 'object' && !Array.isArray(ctValue) && ctValue.creatureId) {
       let creatureName = ctValue.creatureId
-      try {
-        const lib = JSON.parse(localStorage.getItem('dnd_creature_library') || '[]')
-        const found = lib.find((c) => c.id === ctValue.creatureId)
-        if (found) creatureName = found.name || ctValue.creatureId
-      } catch {}
+      const creature = getCreatureById(ctValue.creatureId)
+      creatureName = creature?.name || ctValue.creatureId
       const subclassLabel = ctValue.wildShapeSubclass === 'moon' ? '月亮结社' : '荒野变形'
       return `${source} | 变身（${subclassLabel}：${creatureName}）`
     }
@@ -471,11 +465,8 @@ export function getBuffEffectsList(buff, baseAbilities = {}, suppressedEffectTyp
     const ctValue = buff.effectType === 'creature_transform' ? buff.value : buff.effects[0]?.value
     if (ctValue && typeof ctValue === 'object' && !Array.isArray(ctValue) && ctValue.creatureId) {
       let creatureName = ctValue.creatureId
-      try {
-        const lib = JSON.parse(localStorage.getItem('dnd_creature_library') || '[]')
-        const found = lib.find((c) => c.id === ctValue.creatureId)
-        if (found) creatureName = found.name || ctValue.creatureId
-      } catch {}
+      const creature = getCreatureById(ctValue.creatureId)
+      creatureName = creature?.name || ctValue.creatureId
       const subclassLabel = ctValue.wildShapeSubclass === 'moon' ? '月亮结社' : '荒野变形'
       return [{ text: `变身（${subclassLabel}：${creatureName}）`, suppressed: false }]
     }
