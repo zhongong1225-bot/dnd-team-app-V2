@@ -341,6 +341,24 @@ export default function CreatureLibraryManager() {
     patch('legendaryActions', actions)
   }
 
+  // ── 法术 编辑 ──────────────────────────────────────────────
+  const addSpell = () => {
+    patch('spells', [
+      ...(editing.spells || []),
+      { name: '', castMode: 'at-will', timesPerDay: 1, slotLevel: 1, description: '' },
+    ])
+  }
+  const updateSpell = (idx, key, value) => {
+    const spells = [...(editing.spells || [])]
+    spells[idx] = { ...spells[idx], [key]: value }
+    patch('spells', spells)
+  }
+  const removeSpell = (idx) => {
+    const spells = [...(editing.spells || [])]
+    spells.splice(idx, 1)
+    patch('spells', spells)
+  }
+
   // ── 截图录入 ──────────────────────────────────────────────────────
   const handleImageFile = useCallback(async (file) => {
     if (!file || !file.type.startsWith('image/')) return
@@ -830,6 +848,101 @@ export default function CreatureLibraryManager() {
                 />
               </div>
             ))}
+          </div>
+
+          {/* 法术 */}
+          <div className="rounded-lg bg-dnd-card border border-white/10 p-3 space-y-2">
+            <div className="text-[10px] text-dnd-text-muted">法术</div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className={labelCls}>施法属性</label>
+                <select
+                  className={inputCls}
+                  value={editing.spellcastingAbility || ''}
+                  onChange={e => patch('spellcastingAbility', e.target.value || null)}
+                >
+                  <option value="">无</option>
+                  <option value="int">智力</option>
+                  <option value="wis">感知</option>
+                  <option value="cha">魅力</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>法术豁免 DC</label>
+                <input
+                  type="number"
+                  className={inputCls}
+                  value={editing.spellSaveDC ?? 0}
+                  onChange={e => patch('spellSaveDC', Number(e.target.value) || 0)}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>法术攻击加值</label>
+                <input
+                  type="number"
+                  className={inputCls}
+                  value={editing.spellAttackBonus ?? 0}
+                  onChange={e => patch('spellAttackBonus', Number(e.target.value) || 0)}
+                />
+              </div>
+            </div>
+
+            {(editing.spells || []).length === 0 && <div className="text-[10px] text-gray-600">无法术</div>}
+            {(editing.spells || []).map((spell, idx) => (
+              <div key={idx} className="space-y-1 border-t border-white/5 pt-2">
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-dnd-text-muted w-5 shrink-0">{idx + 1}.</span>
+                  <input
+                    className={`${inputCls} flex-1`}
+                    placeholder="法术名称"
+                    value={spell.name || ''}
+                    onChange={e => updateSpell(idx, 'name', e.target.value)}
+                  />
+                  <select
+                    className={`${inputCls} w-24 shrink-0`}
+                    value={spell.castMode || 'at-will'}
+                    onChange={e => updateSpell(idx, 'castMode', e.target.value)}
+                  >
+                    <option value="at-will">随意</option>
+                    <option value="per-day">每天 N 次</option>
+                    <option value="slot">需要法术位</option>
+                  </select>
+                  {(spell.castMode === 'per-day') && (
+                    <input
+                      type="number"
+                      className={`${inputCls} w-14 shrink-0`}
+                      value={spell.timesPerDay || 1}
+                      onChange={e => updateSpell(idx, 'timesPerDay', Number(e.target.value) || 1)}
+                      min="1"
+                    />
+                  )}
+                  {(spell.castMode === 'slot') && (
+                    <select
+                      className={`${inputCls} w-16 shrink-0`}
+                      value={spell.slotLevel || 1}
+                      onChange={e => updateSpell(idx, 'slotLevel', Number(e.target.value))}
+                    >
+                      {[1,2,3,4,5,6,7,8,9].map(l => <option key={l} value={l}>{l} 环</option>)}
+                    </select>
+                  )}
+                  <button
+                    onClick={() => removeSpell(idx)}
+                    className="text-dnd-red/60 hover:text-dnd-red shrink-0 px-1"
+                    title="删除"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+                <textarea
+                  className={`${inputCls} resize-none`}
+                  rows={2}
+                  placeholder="法术描述（可选）"
+                  value={spell.description || ''}
+                  onChange={e => updateSpell(idx, 'description', e.target.value)}
+                />
+              </div>
+            ))}
+            <button onClick={addSpell} className="text-dnd-gold text-xs hover:text-dnd-gold-light">+ 添加法术</button>
           </div>
 
           {/* 操作按钮 */}
