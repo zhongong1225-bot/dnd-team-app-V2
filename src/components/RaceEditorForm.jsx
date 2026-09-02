@@ -399,15 +399,15 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
 
           {/* Row1 Col3: 速度 */}
           <div className={sectionCls}>
-            <div className="text-[10px] text-dnd-text-muted">速度（尺）</div>
-            <div className="grid grid-cols-5 gap-1.5 mt-1">
+            <div className="text-[10px] text-dnd-text-muted mb-1">速度（尺）</div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
               {Object.entries(SPEED_LABELS).map(([key, label]) => (
-                <div key={key}>
-                  <label className={labelCls}>{label}</label>
+                <div key={key} className="flex items-center gap-1">
+                  <span className="text-[10px] text-dnd-text-muted shrink-0">{label}</span>
                   <input
-                    className={inputCls}
+                    className="w-10 bg-transparent border-b border-white/20 text-white text-xs text-center focus:outline-none focus:border-dnd-gold/50 py-0.5"
                     type="number"
-                    value={race.speed?.[key] || ''}
+                    value={race.speed?.[key] ?? ''}
                     onChange={e => patchSpeed(key, e.target.value)}
                     placeholder="—"
                   />
