@@ -44,6 +44,12 @@ export default function BuffManager({
 }) {
   const { moduleLibrary, currentModuleId } = useModule()
   const [formState, setFormState] = useState(null)
+
+  // 包装 setFormState，记录所有调用
+  const setFormStateTracked = (value) => {
+    console.trace('[BuffManager] setFormState called with:', value)
+    setFormState(value)
+  }
   const [editorFullscreen, setEditorFullscreen] = useState(false)
   const [showModuleLibrary, setShowModuleLibrary] = useState(false)
   const [importSearch, setImportSearch] = useState('')
@@ -54,8 +60,10 @@ export default function BuffManager({
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
   const [expandedIds, setExpandedIds] = useState(new Set())
 
-  // ── 下拉面板基于 BUFF 面板定位 ──
+  // ─ 下拉面板基于 BUFF 面板定位 ──
   const panelRef = useRef(null)
+  const editorPanelRef = useRef(null)
+  const editorOpenTimeRef = useRef(0)
   const [editorPos, setEditorPos] = useState({ top: 0, left: 0, width: 0, maxHeight: 400 })
 
   useLayoutEffect(() => {
@@ -82,25 +90,40 @@ export default function BuffManager({
 
 
   const handleAddActive = () => {
-    setFormState({ mode: 'active', id: null })
+    editorOpenTimeRef.current = Date.now()
+    setFormStateTracked({ mode: 'active', id: null })
   }
 
   const handleSaveActive = (buff) => {
     const source = buff.source?.trim() ?? ''
     const isEdit = !!formState?.id
+    
+    // 查找原始 BUFF 以检查来源类型
+    const originalBuff = formState?.id ? list.find((b) => b.id === formState.id) : null
+    const isVirtualBuff = originalBuff && (originalBuff.fromItem || originalBuff.fromFeat || originalBuff.fromInvocation || originalBuff.fromFightingStyle || originalBuff.fromClassFeature || originalBuff.fromRace || originalBuff.fromBackground)
+    
+    // 虚拟 BUFF（职业特性/专长/装备等）不应保存到 character.buffs，直接返回
+    if (isVirtualBuff) {
+      console.log('[BuffManager] Skipping save for virtual buff:', originalBuff?.source)
+      return
+    }
+    
     const duplicate = source
       ? list.find((b) => b.source?.trim() === source && b.id !== formState?.id)
       : null
+    console.log('[BuffManager] handleSaveActive', { isEdit, duplicate: !!duplicate, source, formStateId: formState?.id })
     if (!isEdit && duplicate) {
       // 同名 BUFF 已存在，不重复挂载
-      setFormState(null)
+      console.log('[BuffManager] Closing editor due to duplicate')
+      // setFormStateTracked(null)  // 暂时注释，调试用
       return
     }
     const next = isEdit
       ? list.map((b) => (b.id === formState.id ? { ...buff, id: b.id } : b))
       : [...list, { ...buff, id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}` }]
     onSave(next)
-    setFormState(null)
+    // console.log('[BuffManager] Closing editor after save')
+    // setFormStateTracked(null)  // 暂时注释，让编辑器保持打开
   }
 
   const handleEdit = (id) => {
@@ -109,7 +132,10 @@ export default function BuffManager({
     // 冒险/临时栏中的 buff 直接打开编辑器（用户可见即可编辑）
     const col = getColumnKeyForBuff(b)
     if (col === 'adventure' || col === 'temporary') {
-      if (b) setFormState({ mode: 'active', id })
+      if (b) {
+        editorOpenTimeRef.current = Date.now()
+        setFormStateTracked({ mode: 'active', id })
+      }
       return
     }
     if (b?.fromRace) {
@@ -121,7 +147,8 @@ export default function BuffManager({
       return
     }
     if (b) {
-      setFormState({ mode: 'active', id })
+      editorOpenTimeRef.current = Date.now()
+      setFormStateTracked({ mode: 'active', id })
     }
   }
 
@@ -143,11 +170,13 @@ export default function BuffManager({
   }
 
   const handleAddStash = () => {
-    setFormState({ mode: 'stash', id: null })
+    editorOpenTimeRef.current = Date.now()
+    setFormStateTracked({ mode: 'stash', id: null })
   }
 
   const handleEditStash = (id) => {
-    setFormState({ mode: 'stash', id })
+    editorOpenTimeRef.current = Date.now()
+    setFormStateTracked({ mode: 'stash', id })
   }
 
   const handleSaveStash = (buff) => {
@@ -163,7 +192,7 @@ export default function BuffManager({
       ? stash.map((b) => (b.id === formState.id ? { ...clean, id: b.id } : b))
       : [...stash, { ...clean, id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}` }]
     onStashChange(next)
-    setFormState(null)
+    setFormStateTracked(null)
   }
 
   const handleDeleteStash = (id) => {
@@ -238,6 +267,15 @@ export default function BuffManager({
   /** 自动保存：只同步数据到父组件，不关闭编辑器 */
   const formOnAutoSave = useCallback((buff) => {
     if (!formState) return
+    
+    // 检查是否为虚拟BUFF（职业特性/专长/装备等），虚拟BUFF不应触发自动保存到character.buffs
+    const originalBuff = formState.id ? list.find((b) => b.id === formState.id) : null
+    const isVirtualBuff = originalBuff && (originalBuff.fromItem || originalBuff.fromFeat || originalBuff.fromInvocation || originalBuff.fromFightingStyle || originalBuff.fromClassFeature || originalBuff.fromRace || originalBuff.fromBackground)
+    if (isVirtualBuff) {
+      console.log('[BuffManager] Skipping auto-save for virtual buff:', originalBuff?.source)
+      return
+    }
+    
     if (formState.mode === 'stash') {
       const clean = {
         source: buff.source,
@@ -514,14 +552,15 @@ export default function BuffManager({
     {/* ── 悬浮 BUFF 编辑器按钮 + 下拉面板 ── */}
     {canEdit && formState && (
       <>
-        {/* 点击外部关闭 - 使用更高 z-index 确保在所有内容之上 */}
+        {/* 点击外部关闭 - 已禁用，避免原生 select 交互误触 */}
         <div 
-          className="fixed inset-0 z-[9998] bg-black/20" 
-          onClick={() => setFormState(null)} 
+          className="fixed inset-0 z-[9998]" 
           aria-hidden 
         />
         {/* 下拉面板（基于 BUFF 面板定位） */}
-        <div className={`fixed z-[9999] border border-dnd-gold/30 bg-gradient-to-b from-[#2c384c] via-[#242f42] to-[#1b2433] shadow-[0_12px_40px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col transition-all ${
+        <div 
+          ref={editorPanelRef}
+          className={`fixed z-[9999] border border-dnd-gold/30 bg-gradient-to-b from-[#2c384c] via-[#242f42] to-[#1b2433] shadow-[0_12px_40px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col transition-all ${
           editorFullscreen
             ? 'inset-0'
             : 'rounded-xl'
@@ -533,6 +572,7 @@ export default function BuffManager({
           maxHeight: editorPos.maxHeight,
         } : undefined}
         onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
         >
               <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 shrink-0">
                 <div className="flex items-center gap-2">
@@ -546,7 +586,7 @@ export default function BuffManager({
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setFormState(null); setEditorFullscreen(false) }}
+                    onClick={() => { setFormStateTracked(null); setEditorFullscreen(false) }}
                     className="text-gray-500 hover:text-gray-300 text-xs transition-colors"
                   >
                     关闭
@@ -560,7 +600,7 @@ export default function BuffManager({
                   defaultSourceKind={formState.mode === 'stash' ? 'temporary' : 'adventure'}
                   onSave={formOnSave}
                   onAutoSave={formOnAutoSave}
-                  onCancel={() => { setFormState(null); setEditorFullscreen(false) }}
+                  onCancel={() => { setFormStateTracked(null); setEditorFullscreen(false) }}
                   referenceData={referenceData}
                   baseReferenceData={baseReferenceData}
                   sourceNameOptions={sourceNameOptions}

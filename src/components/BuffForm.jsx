@@ -5749,8 +5749,8 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
   const updateModule = (id, patch) => {
     setEffectModules(prev => {
       const next = prev.map(m => m.id === id ? { ...m, ...patch } : m)
-      // 模块更新后触发自动保存
-      setTimeout(() => triggerAutoSave(), 0)
+      // 模块更新后触发自动保存 - 已禁用以避免虚拟BUFF编辑器关闭问题
+      // setTimeout(() => triggerAutoSave(), 0)
       return next
     })
   }
@@ -5760,10 +5760,19 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
     if (editingModuleId === id) setEditingModuleId(null)
   }
 
+  // 监控 initial 变化，用于调试编辑器关闭问题
+  useEffect(() => {
+    console.log('[BuffForm] initial changed', initial)
+    if (!initial) {
+      console.warn('[BuffForm] initial is undefined, editor may close')
+    }
+  }, [initial])
+
   // 组件卸载时清理自动保存定时器
   useEffect(() => {
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
+      console.log('[BuffForm] Unmounting')
     }
   }, [])
 
