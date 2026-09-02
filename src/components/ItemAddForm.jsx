@@ -247,6 +247,7 @@ function effectModuleToEntryParts(mod, currentEffect, context = {}) {
   if (key === 'dmg_bonus_ranged') return { 附注Part: num > 0 ? '远程伤害+' + num : '' }
   if (key === 'crit_extra_dice') return { 附注Part: num >= 2 ? '暴击×' + num : '' }
   if (key === 'crit_range_expand') return { 附注Part: text.trim() ? '暴击范围 ' + text.trim() : '' }
+  if (key === 'crit_range_reduction') return { 附注Part: typeof val === 'number' && val > 0 ? `重击-${val}` : '' }
   if (key?.startsWith('custom_')) return { 附注Part: text.trim() }
   return {}
 }
