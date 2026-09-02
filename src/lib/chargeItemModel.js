@@ -25,6 +25,7 @@
  *     { id: string, type: 'restore_spell_slots', value: { ringLevel: number, ... } },
  *     { id: string, type: 'summon',     value: { preset: string, creatureId: string, ... } },
  *     { id: string, type: 'custom_logic', value: { title: string, description: string, triggerCondition: string } },
+ *     { id: string, type: 'consume_spell_slot_to_restore_charges', value: { slotLevel: number, restoreAmount: number } },
  *   ]
  * }
  */
@@ -235,11 +236,17 @@ export function createChargeEffectEntry(type, overrides = {}) {
   if (type === 'custom_logic') {
     return { id, type, applyMultiplier: false, value: { title: '', description: '', triggerCondition: 'on_use' }, ...overrides }
   }
+  if (type === 'consume_spell_slot_to_restore_charges') {
+    return { id, type, applyMultiplier: false, value: { slotLevel: 2, restoreAmount: 1 }, ...overrides }
+  }
   if (type === 'damage') {
     return { id, type, applyMultiplier: true, value: { diceCount: 1, diceSides: 6, diceBonus: 0, damageType: 'fire', addWeaponDamage: false }, ...overrides }
   }
   if (type === 'heal') {
     return { id, type, applyMultiplier: true, value: { mode: 'dice', diceCount: 1, diceSides: 8, diceBonus: 0 }, ...overrides }
+  }
+  if (type === 'attack_buff') {
+    return { id, type, applyMultiplier: true, value: { hitBonusPerUnit: 0, damageBonusPerUnit: 0, extraDicePerUnit: 0, diceSides: 10, damageType: 'fire' }, ...overrides }
   }
   if (type === 'random_table') {
     return { id, type, applyMultiplier: false, value: { mode: 'dice', diceType: 'd6', includeJokers: false, entries: [] }, ...overrides }
@@ -296,7 +303,7 @@ export function normalizeChargeItemValue(value) {
   const rawEffects = Array.isArray(value.effects) ? value.effects : []
   const effects = rawEffects.map((e) => {
     if (!e || typeof e !== 'object') return createChargeEffectEntry('spell')
-    const type = ['spell', 'ability', 'shield', 'temp_buff', 'creature_transform', 'restore_spell_slots', 'summon', 'custom_logic', 'damage', 'heal', 'random_table'].includes(e.type) ? e.type : 'spell'
+    const type = ['spell', 'ability', 'shield', 'temp_buff', 'creature_transform', 'restore_spell_slots', 'summon', 'custom_logic', 'damage', 'heal', 'random_table', 'attack_buff'].includes(e.type) ? e.type : 'spell'
     const id = e.id || genId()
     if (type === 'spell') {
       const rawSpellVal = e.value && typeof e.value === 'object' ? e.value : {}
@@ -405,6 +412,13 @@ export function normalizeChargeItemValue(value) {
         damageDiceSides: Math.max(1, Number(clv.damageDiceSides) || 6),
       } }
     }
+    if (type === 'consume_spell_slot_to_restore_charges') {
+      const csv = e.value && typeof e.value === 'object' ? e.value : {}
+      return { id, type, applyMultiplier: false, value: {
+        slotLevel: Math.max(1, Math.min(9, Number(csv.slotLevel) || 2)),
+        restoreAmount: Math.max(1, Number(csv.restoreAmount) || 1),
+      } }
+    }
     if (type === 'damage') {
       const dv = e.value && typeof e.value === 'object' ? e.value : {}
       return { id, type, applyMultiplier: e.applyMultiplier !== false, value: {
@@ -422,6 +436,16 @@ export function normalizeChargeItemValue(value) {
         diceCount: Math.max(1, Number(hv.diceCount) || 1),
         diceSides: [4, 6, 8, 10, 12, 20].includes(Number(hv.diceSides)) ? Number(hv.diceSides) : 8,
         diceBonus: isFormulaValue(hv.diceBonus) ? hv.diceBonus : (Number(hv.diceBonus) || 0),
+      } }
+    }
+    if (type === 'attack_buff') {
+      const av = e.value && typeof e.value === 'object' ? e.value : {}
+      return { id, type, applyMultiplier: e.applyMultiplier !== false, value: {
+        hitBonusPerUnit: Math.max(0, Number(av.hitBonusPerUnit) || 0),
+        damageBonusPerUnit: Math.max(0, Number(av.damageBonusPerUnit) || 0),
+        extraDicePerUnit: Math.max(0, Number(av.extraDicePerUnit) || 0),
+        diceSides: [4, 6, 8, 10, 12, 20].includes(Number(av.diceSides)) ? Number(av.diceSides) : 10,
+        damageType: typeof av.damageType === 'string' ? av.damageType : 'fire',
       } }
     }
     if (type === 'random_table') {
@@ -678,6 +702,17 @@ export function buildAbilityDiceExpr(abilityValue, character) {
 export function computeScaledEffect(effectValue, amount, freeMode = false) {
   const amt = Math.max(1, Math.floor(Number(amount) || 1))
   const scaling = effectValue?.scalingEnabled ? (effectValue?.scalingPerUnit || {}) : {}
+
+  // attack_buff: 根据消耗环位动态计算加值
+  if (effectValue && 'hitBonusPerUnit' in effectValue && 'damageBonusPerUnit' in effectValue && 'extraDicePerUnit' in effectValue) {
+    return {
+      hitBonus: (Math.max(0, Number(effectValue.hitBonusPerUnit) || 0)) * amt,
+      damageBonus: (Math.max(0, Number(effectValue.damageBonusPerUnit) || 0)) * amt,
+      extraDiceCount: (Math.max(0, Number(effectValue.extraDicePerUnit) || 0)) * amt,
+      diceSides: effectValue.diceSides || 10,
+      damageType: effectValue.damageType || 'fire',
+    }
+  }
 
   // 自由消耗模式：最终值 = 基础值 × 消耗环位
   if (freeMode) {

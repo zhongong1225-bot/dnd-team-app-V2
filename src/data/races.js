@@ -20,8 +20,43 @@ import { isSupabaseEnabled } from '../lib/supabase'
 import * as teamData from '../lib/teamDataSupabase'
 import { DEFAULT_RACE, normalizeRace, migrateOldRace } from './raceModel'
 
-/** 内置种族列表（已清空，全部由用户手动创建） */
-export const RACES = []
+/** 内置种族列表 */
+export const RACES = [
+  {
+    id: 'human',
+    name: '人类',
+    description: '在整个多元宇宙中，人类因其数量庞大而各具特色。\n\n人类是多元宇宙中最年轻的主要种族之一。虽然他们建立的城市和帝国绵延千古，但人类个体的寿命却远短于精灵、龙裔等其他种族。人类在多元宇宙中分布最广，几乎在所有文明中都占据主导地位。\n\n人类的文化和外貌千差万别。他们的服饰、建筑、法律和风俗各不相同，反映出极强的适应力和多样性。人类的体型差异也很大，从矮小粗壮到高大瘦长，肤色从深棕到苍白，头发和眼睛的颜色更是五花八门。许多人类男性会留各种风格的胡须。\n\n人类的服饰风格从简朴的农装到华丽的宫廷礼服应有尽有，但他们普遍喜欢在衣着上点缀能展示个人成就或家族纹章的饰品。',
+    source: '',
+    creatureType: 'humanoid',
+    sizeOptions: ['Medium', 'Small'],
+    sizeDefault: 'Medium',
+    speed: { walk: 30, climb: null, swim: null, fly: null, burrow: null },
+    darkvision: null,
+    abilityScoreBonuses: [],
+    traits: [
+      {
+        id: 'human_adaptability',
+        name: '适应力',
+        description: '你获得两项技能熟练。此外，你获得以下一项实用技能：额外生命骰（+1 生命骰）、一项你选择语言的熟练、或两项工具熟练。',
+        cards: [],
+      },
+      {
+        id: 'human_skills',
+        name: '技能熟练',
+        description: '你的技能熟练加值获得 +2 加值。',
+        cards: [],
+      },
+      {
+        id: 'human_versatility',
+        description: '你获得以下两项加值，每项可选不同类别：技能熟练加值 +1、工具熟练加值 +1、豁免熟练加值 +1、或武器与徒手攻击伤害 +1。',
+        name: '多才多艺',
+        cards: [],
+      },
+    ],
+    tables: [],
+    subraces: [],
+  },
+]
 
 /** 旧版硬编码种族兼容表（仅用于回退显示，不会出现在选择列表中） */
 const LEGACY_RACES = {
@@ -154,6 +189,10 @@ export function addCustomRace(race) {
     name: race?.name?.trim() || '新种族',
   })
   list.push(newRace)
+  if (race?.id) {
+    persistCustomRaces(list)
+    return newRace
+  }
   const p = persistCustomRaces(list)
   if (p && typeof p.then === 'function') return p.then(() => newRace)
   return newRace

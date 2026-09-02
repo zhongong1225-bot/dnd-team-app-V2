@@ -235,6 +235,36 @@ export default function BuffManager({
 
   const formOnSave = formState?.mode === 'stash' ? handleSaveStash : handleSaveActive
 
+  /** 自动保存：只同步数据到父组件，不关闭编辑器 */
+  const formOnAutoSave = useCallback((buff) => {
+    if (!formState) return
+    if (formState.mode === 'stash') {
+      const clean = {
+        source: buff.source,
+        duration: buff.duration,
+        effects: buff.effects,
+        enabled: buff.enabled !== false,
+        sourceKind: normalizeBuffSourceKindKey(buff.sourceKind ?? 'temporary'),
+        cardScope: buff.cardScope,
+      }
+      const next = formState.id
+        ? stash.map((b) => (b.id === formState.id ? { ...clean, id: b.id } : b))
+        : [...stash, { ...clean, id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}` }]
+      onStashChange(next)
+    } else {
+      const source = buff.source?.trim() ?? ''
+      const isEdit = !!formState.id
+      const duplicate = source
+        ? list.find((b) => b.source?.trim() === source && b.id !== formState.id)
+        : null
+      if (!isEdit && duplicate) return
+      const next = isEdit
+        ? list.map((b) => (b.id === formState.id ? { ...buff, id: b.id } : b))
+        : [...list, { ...buff, id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}` }]
+      onSave(next)
+    }
+  }, [formState, list, stash, onSave, onStashChange])
+
   const buffBuckets = useMemo(() => {
     const m = { feat: [], adventure: [], class: [], race: [], equipment: [], temporary: [] }
     for (const b of list) {
@@ -524,6 +554,7 @@ export default function BuffManager({
                   initial={formInitial}
                   defaultSourceKind={formState.mode === 'stash' ? 'temporary' : 'adventure'}
                   onSave={formOnSave}
+                  onAutoSave={formOnAutoSave}
                   onCancel={() => { setFormState(null); setEditorFullscreen(false) }}
                   referenceData={referenceData}
                   baseReferenceData={baseReferenceData}

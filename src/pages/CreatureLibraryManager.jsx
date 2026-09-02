@@ -15,6 +15,8 @@ import {
 } from '../data/creatureLibrary'
 import { Trash2 } from 'lucide-react'
 import BuffForm from '../components/BuffForm'
+import { normalizeSpellName } from '../components/combat/combatMeanUtils'
+import { getMergedSpells } from '../data/spellDatabase'
 
 const CREATURE_TYPES = [
   { value: 'beast', label: '野兽' },
@@ -94,6 +96,14 @@ function mapParsedToCreature(parsed) {
   if (Array.isArray(parsed.actions)) base.actions = normalizeActions(parsed.actions)
   if (Array.isArray(parsed.reactions)) base.reactions = parsed.reactions
   if (Array.isArray(parsed.legendaryActions)) base.legendaryActions = parsed.legendaryActions
+  
+  // Spells — normalize names
+  if (Array.isArray(parsed.spells)) {
+    base.spells = parsed.spells.map(s => ({
+      ...s,
+      name: normalizeSpellName(s.name),
+    }))
+  }
 
   return base
 }
@@ -111,11 +121,21 @@ export default function CreatureLibraryManager() {
   const [supabaseLoading, setSupabaseLoading] = useState(false)
   const [duplicateDialog, setDuplicateDialog] = useState(null) // { pending, existing }
   const [duplicateSaving, setDuplicateSaving] = useState(false)
+  const [spellNameDialog, setSpellNameDialog] = useState(null) // { spellIdx, userInput, matchedSpell }
   const fileInputRef = useRef(null)
   const listFileInputRef = useRef(null)
 
   const refresh = useCallback(() => {
-    setCreatures(loadCreatureLibrary())
+    const loaded = loadCreatureLibrary()
+    // 标准化所有生物的法术名称
+    const normalized = loaded.map(c => ({
+      ...c,
+      spells: (c.spells || []).map(s => ({
+        ...s,
+        name: normalizeSpellName(s.name),
+      })),
+    }))
+    setCreatures(normalized)
   }, [])
 
   useEffect(() => {
@@ -146,6 +166,11 @@ export default function CreatureLibraryManager() {
       speed: { ...creature.speed },
       traits: normalizeTraits(creature.traits),
       actions: normalizeActions(creature.actions),
+      // 标准化法术名称
+      spells: (creature.spells || []).map(s => ({
+        ...s,
+        name: normalizeSpellName(s.name),
+      })),
     })
   }
 
@@ -176,18 +201,26 @@ export default function CreatureLibraryManager() {
 
   const handleSave = () => {
     if (!editing.name.trim()) return
+    // 保存前确保法术名称已标准化
+    const normalizedEditing = {
+      ...editing,
+      spells: (editing.spells || []).map(s => ({
+        ...s,
+        name: normalizeSpellName(s.name),
+      })),
+    }
     // 新建时检测重复（编辑已有生物不检测）
-    if (!editing.id) {
-      const dup = findDuplicateCreature(editing)
+    if (!normalizedEditing.id) {
+      const dup = findDuplicateCreature(normalizedEditing)
       if (dup) {
-        setDuplicateDialog({ pending: { ...editing }, existing: dup })
+        setDuplicateDialog({ pending: { ...normalizedEditing }, existing: dup })
         return
       }
     }
-    if (editing.id) {
-      updateCreature(editing.id, editing)
+    if (normalizedEditing.id) {
+      updateCreature(normalizedEditing.id, normalizedEditing)
     } else {
-      addCreature(editing)
+      addCreature(normalizedEditing)
     }
     setEditing(null)
     refresh()
@@ -350,8 +383,47 @@ export default function CreatureLibraryManager() {
   }
   const updateSpell = (idx, key, value) => {
     const spells = [...(editing.spells || [])]
+    // 如果是名称字段，检查是否有匹配的标准翻译
+    if (key === 'name' && value && value.trim()) {
+      const trimmed = value.trim()
+      const allSpells = getMergedSpells()
+      
+      // 精确匹配
+      let matched = allSpells.find(s => s.name === trimmed)
+      
+      // 模糊匹配：去除括号、空格后比较
+      if (!matched) {
+        const normalize = (n) => n.replace(/[\s（）()]/g, '').toLowerCase()
+        const normalizedInput = normalize(trimmed)
+        matched = allSpells.find(s => normalize(s.name) === normalizedInput)
+      }
+      
+      // 如果找到匹配项且与输入不同，弹出确认对话框
+      if (matched && matched.name !== trimmed) {
+        setSpellNameDialog({ spellIdx: idx, userInput: trimmed, matchedSpell: matched })
+        // 先不更新，等待用户确认
+        return
+      }
+      
+      // 没有匹配或完全相同，直接更新
+      value = normalizeSpellName(value)
+    }
     spells[idx] = { ...spells[idx], [key]: value }
     patch('spells', spells)
+  }
+  
+  // 处理法术名称确认对话框
+  const handleSpellNameConfirm = (useStandard) => {
+    if (!spellNameDialog) return
+    const { spellIdx, userInput, matchedSpell } = spellNameDialog
+    
+    const spells = [...(editing.spells || [])]
+    // 用户选择使用标准翻译
+    const finalName = useStandard ? matchedSpell.name : normalizeSpellName(userInput)
+    spells[spellIdx] = { ...spells[spellIdx], name: finalName }
+    patch('spells', spells)
+    
+    setSpellNameDialog(null)
   }
   const removeSpell = (idx) => {
     const spells = [...(editing.spells || [])]
@@ -1115,6 +1187,34 @@ export default function CreatureLibraryManager() {
                 className="px-3 py-1.5 rounded-lg bg-dnd-red/80 hover:bg-dnd-red text-white text-xs disabled:opacity-50"
               >
                 取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 法术名称校对对话框 */}
+      {spellNameDialog && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-[#1a2332] rounded-xl border border-white/10 p-4 max-w-sm w-full space-y-3">
+            <h3 className="text-white font-semibold text-sm">法术名称标准化建议</h3>
+            <div className="text-xs text-dnd-text-muted space-y-2">
+              <div>你输入的名称：<span className="text-yellow-400">{spellNameDialog.userInput}</span></div>
+              <div>系统标准翻译：<span className="text-green-400">{spellNameDialog.matchedSpell.name}</span></div>
+              <div className="text-gray-400 mt-2">是否使用标准翻译以确保一致性？</div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleSpellNameConfirm(true)}
+                className="flex-1 py-1.5 rounded-lg bg-dnd-gold text-black text-xs font-medium"
+              >
+                使用标准翻译
+              </button>
+              <button
+                onClick={() => handleSpellNameConfirm(false)}
+                className="flex-1 py-1.5 rounded-lg border border-white/20 text-dnd-text-muted text-xs"
+              >
+                保持原样
               </button>
             </div>
           </div>

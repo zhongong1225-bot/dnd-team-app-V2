@@ -19,7 +19,7 @@ import DurationEditor from './DurationEditor'
 
 /**
  * 从角色数据动态生成可用资源选项。
- * 规则：充能数始终可用 + 角色实际拥有的职业资源 + 有法术位时显示环位。
+ * 规则：充能数始终可用 + 角色实际拥有的职业资源 + 有法术位时显示"法术位"。
  */
 function buildResourceOptions(charResources, spellSlots) {
   const opts = [
@@ -41,17 +41,12 @@ function buildResourceOptions(charResources, spellSlots) {
     })
   }
 
-  // 法术位：有任何法术位时添加
+  // 法术位：有任何法术位时添加（使用新格式 spell_slot，具体环位在编辑器中选择）
   if (spellSlots && typeof spellSlots === 'object') {
     const hasSlots = Object.values(spellSlots).some((v) => (typeof v === 'number' ? v > 0 : true))
-    if (hasSlots) {
-      for (let level = 1; level <= 9; level++) {
-        const key = `spell_slot_${level}`
-        if (!seen.has(key)) {
-          opts.push({ value: key, label: `${level}环法术位` })
-          seen.add(key)
-        }
-      }
+    if (hasSlots && !seen.has('spell_slot')) {
+      opts.push({ value: 'spell_slot', label: '法术位' })
+      seen.add('spell_slot')
     }
   }
 
@@ -110,6 +105,38 @@ export default function ActiveCardEditor({
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
+          {/* 法术位：消耗模式 + 环位 */}
+          {chargeData.resourceType === 'spell_slot' && (
+            <>
+              <select
+                value={chargeData.consumptionMode || 'fixed'}
+                onChange={(e) => patch({ consumptionMode: e.target.value })}
+                className={compactInput + ' w-[5rem] shrink-0 cursor-pointer'}
+              >
+                <option value="fixed">固定消耗</option>
+                <option value="free">自由消耗</option>
+              </select>
+              {(chargeData.consumptionMode || 'fixed') === 'fixed' ? (
+                <>
+                  <span className="text-[10px] text-dnd-text-muted shrink-0">环位</span>
+                  <NumberStepper
+                    value={chargeData.slotLevel || 1}
+                    onChange={(v) => patch({ slotLevel: Math.max(1, Math.min(9, v)) })}
+                    min={1} max={9} compact narrow className="!h-7"
+                  />
+                </>
+              ) : (
+                <>
+                  <span className="text-[10px] text-dnd-text-muted shrink-0">最大环位</span>
+                  <NumberStepper
+                    value={chargeData.maxSlotLevel || 1}
+                    onChange={(v) => patch({ maxSlotLevel: Math.max(1, Math.min(9, v)) })}
+                    min={1} max={9} compact narrow className="!h-7"
+                  />
+                </>
+              )}
+            </>
+          )}
           {isCharges && (
             <>
               <span className="text-[10px] text-dnd-text-muted shrink-0">总充能</span>
@@ -179,7 +206,7 @@ export default function ActiveCardEditor({
               )}
             </>
           )}
-          {!isCharges && !isNone && (
+          {!isCharges && !isNone && chargeData.resourceType !== 'spell_slot' && (
             <span className="text-gray-500 text-[10px]">次数与恢复由职业资源管理</span>
           )}
           {isNone && (

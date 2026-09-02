@@ -19,6 +19,7 @@ import {
 } from './effects/effectMapping'
 import { createCard, normalizeCard, SLOT_KIND } from './cardModel'
 import { getRaceById, getAllRaces } from '../data/races'
+import { normalizeAbilityScoreBonuses, inferAsiAssignmentsFromLegacy } from '../data/raceModel'
 
 /* ── BUFF 条目 → Card 映射 ───────────────────────────────────────── */
 
@@ -129,23 +130,21 @@ function buffEntryToCard(buffEntry) {
   }))
 }
 
-/* ── 种族基础信息 → BUFF 效果 ──────────────────────────────────── */
+/* ── 种族 → BUFF 效果 ─────────────────────────────────────────────── */
 
 /**
- * 从 raceBaseInfo 生成 BUFF 效果数组
- * 将结构化的种族基础信息转换为 BUFF 系统可消费的 effect 对象
+ * 旧版回退：从 raceBaseInfo 生成 BUFF 效果数组。
+ * 仅在种族定义无法解析时使用（如种族被删除、旧预设种族缺少结构化数据）。
  */
-function buildRaceBaseInfoEffects(raceBaseInfo) {
+function buildLegacyRaceBaseInfoEffects(raceBaseInfo) {
   if (!raceBaseInfo || typeof raceBaseInfo !== 'object') return []
   const effects = []
 
-  // 移速 → base_speed_increment（存储差值，默认 30）
   const speed = Number(raceBaseInfo.speed)
   if (!Number.isNaN(speed) && speed > 0 && speed !== 30) {
     effects.push({ effectType: 'base_speed_increment', value: speed - 30 })
   }
 
-  // 视觉 → special_senses
   if (raceBaseInfo.vision && raceBaseInfo.vision.type) {
     effects.push({
       effectType: 'special_senses',
@@ -156,7 +155,6 @@ function buildRaceBaseInfoEffects(raceBaseInfo) {
     })
   }
 
-  // 属性提高 → ability_score_uncapped
   const asi = raceBaseInfo.abilityScoreIncrease
   if (asi && typeof asi === 'object') {
     const hasAny = Object.values(asi).some((v) => Number(v) > 0)
@@ -172,6 +170,80 @@ function buildRaceBaseInfoEffects(raceBaseInfo) {
           cha: Number(asi.cha) || 0,
         },
       })
+    }
+  }
+
+  return effects
+}
+
+/**
+ * 从种族定义数据生成 BUFF 效果数组（新系统）。
+ * 速度、暗视从 raceDef/subrace 直接读取；属性加值从 raceCard.asiAssignments 映射。
+ *
+ * @param {object} raceDef - normalizeRace 后的种族定义
+ * @param {object|null} subrace - 子种族定义（可为 null）
+ * @param {object} raceCard - 角色上的 raceCard
+ * @returns {Array} BUFF 效果数组
+ */
+export function buildRaceDefinitionEffects(raceDef, subrace, raceCard) {
+  if (!raceDef) return []
+  const effects = []
+
+  // ── 速度 → base_speed_increment（对象格式） ──
+  const raceSpeed = raceDef.speed || {}
+  const subSpeed = subrace?.speed || {}
+  const walk = Number(subSpeed.walk ?? raceSpeed.walk ?? 30)
+  const climb = Number(subSpeed.climb ?? raceSpeed.climb ?? 0)
+  const swim = Number(subSpeed.swim ?? raceSpeed.swim ?? 0)
+  const fly = Number(subSpeed.fly ?? raceSpeed.fly ?? 0)
+
+  const walkDelta = walk - 30
+  if (walkDelta !== 0 || climb > 0 || swim > 0 || fly > 0) {
+    effects.push({
+      effectType: 'base_speed_increment',
+      value: { walk: walkDelta, climb, swim, fly },
+    })
+  }
+
+  // ── 暗视 → special_senses ──
+  const darkvision = Number(subrace?.darkvision ?? raceDef.darkvision ?? 0)
+  if (darkvision > 0) {
+    effects.push({
+      effectType: 'special_senses',
+      value: { senses: ['darkvision'], range: darkvision },
+    })
+  }
+
+  // ── 属性加值 → ability_score_uncapped（每槽一条） ──
+  const raceBonuses = normalizeAbilityScoreBonuses(raceDef.abilityScoreBonuses, [])
+  const subraceBonuses = subrace ? normalizeAbilityScoreBonuses(subrace.abilityScoreBonuses, []) : []
+
+  let assignments = Array.isArray(raceCard?.asiAssignments) ? raceCard.asiAssignments : null
+
+  // 旧数据降级：无 asiAssignments 键时尝试推断
+  if (assignments === null && raceCard) {
+    const inferred = inferAsiAssignmentsFromLegacy(raceDef, subrace, raceCard.raceBaseInfo?.abilityScoreIncrease)
+    if (inferred) assignments = inferred
+  }
+
+  if (Array.isArray(assignments)) {
+    const allBonuses = [
+      ...raceBonuses.map((b, i) => ({ ...b, source: 'race', index: i })),
+      ...subraceBonuses.map((b, i) => ({ ...b, source: 'subrace', index: i })),
+    ]
+
+    for (const assignment of assignments) {
+      if (!assignment.ability) continue
+      const matchingBonus = allBonuses.find(
+        b => b.source === assignment.source && !b._matched
+      )
+      if (matchingBonus) {
+        matchingBonus._matched = true
+        effects.push({
+          effectType: 'ability_score_uncapped',
+          value: { [assignment.ability]: matchingBonus.amount },
+        })
+      }
     }
   }
 
@@ -238,28 +310,39 @@ export function buildCardsFromCharacter(character, moduleId) {
     if (matched) resolvedRaceId = matched.id
   }
   if (raceCard && (resolvedRaceId || raceCard.raceBuffPatch?.effects?.length || raceCard.raceBaseInfo)) {
-    // 从 raceBaseInfo 自动生成 BUFF 效果
-    const autoEffects = buildRaceBaseInfoEffects(raceCard.raceBaseInfo)
-    // 种族定义中的特性 BUFF 效果（trait.cards）
     const raceDef = resolvedRaceId ? getRaceById(resolvedRaceId) : null
+    const subrace = (raceDef && raceCard.subraceId && raceDef.subraces)
+      ? raceDef.subraces.find(s => s.id === raceCard.subraceId) || null
+      : null
+
+    // 优先从种族定义生成效果（新系统），无法解析时回退旧字段
+    const autoEffects = raceDef
+      ? buildRaceDefinitionEffects(raceDef, subrace, raceCard)
+      : buildLegacyRaceBaseInfoEffects(raceCard.raceBaseInfo)
+
+    // 种族定义中的特性 BUFF 效果（trait.cards），支持选择型特性
+    const traitChoices = raceCard.traitChoices || {}
     const traitEffects = []
     if (raceDef) {
-      // 主种族特性
       ;(raceDef.traits || []).forEach(t => {
-        if (Array.isArray(t.cards) && t.cards.length > 0) {
-          t.cards.forEach(c => traitEffects.push({ ...c, _traitName: t.name }))
+        const isChoice = Array.isArray(t.choiceOptions) && t.choiceOptions.length > 0
+        const cards = isChoice
+          ? ((t.choiceOptions || []).find(o => o.id === traitChoices[t.id])?.cards || [])
+          : (t.cards || [])
+        if (cards.length > 0) {
+          cards.forEach(c => traitEffects.push({ ...c, _traitName: t.name }))
         }
       })
-      // 亚种特性
-      if (raceCard.subraceId && raceDef.subraces) {
-        const subrace = raceDef.subraces.find(s => s.id === raceCard.subraceId)
-        if (subrace) {
-          ;(subrace.traits || []).forEach(t => {
-            if (Array.isArray(t.cards) && t.cards.length > 0) {
-              t.cards.forEach(c => traitEffects.push({ ...c, _traitName: t.name }))
-            }
-          })
-        }
+      if (subrace) {
+        ;(subrace.traits || []).forEach(t => {
+          const isChoice = Array.isArray(t.choiceOptions) && t.choiceOptions.length > 0
+          const cards = isChoice
+            ? ((t.choiceOptions || []).find(o => o.id === traitChoices[t.id])?.cards || [])
+            : (t.cards || [])
+          if (cards.length > 0) {
+            cards.forEach(c => traitEffects.push({ ...c, _traitName: t.name }))
+          }
+        })
       }
     }
     // 手动编辑的 BUFF 效果（优先级最高，放在最后）

@@ -27,7 +27,7 @@ import {
 import { rollDice } from '../data/weaponDatabase'
 import { proficiencyBonus, abilityModifier, calcMaxHP, getHPBuffSum } from '../lib/formulas'
 import { getCharacterClasses, getPrimarySpellcastingAbility, getMaxSpellSlotsByRing } from '../data/classDatabase'
-import { getCreatureById, parseCreatureHp } from '../data/creatureLibrary'
+import { getCreatureById, parseCreatureHp, listCreatures } from '../data/creatureLibrary'
 import CreatureSelectorModal from './CreatureSelectorModal'
 
 /**
@@ -37,9 +37,21 @@ import CreatureSelectorModal from './CreatureSelectorModal'
 function activeAbilityToChargeValue(ability) {
   let resourceType = 'none'
   let charges = 0
+  let consumptionMode = 'fixed'
+  let slotLevel = 1
+  let maxSlotLevel = 1
+
   if (ability.cost?.type === 'class_resource') {
     resourceType = ability.cost.resourceKey || 'none'
     charges = ability.cost.amount || 1
+  } else if (ability.cost?.type === 'spell_slot') {
+    resourceType = 'spell_slot'
+    consumptionMode = ability.cost.consumptionMode || 'fixed'
+    if (consumptionMode === 'fixed') {
+      slotLevel = ability.cost.slotLevel || 1
+    } else {
+      maxSlotLevel = ability.cost.maxSlotLevel || 1
+    }
   }
 
   const cooldownMap = {
@@ -49,6 +61,9 @@ function activeAbilityToChargeValue(ability) {
 
   return {
     resourceType,
+    consumptionMode,
+    slotLevel,
+    maxSlotLevel,
     charges,
     actionCost: ability.actionType || 'action',
     movementFeet: 0,
@@ -100,6 +115,12 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
   const [selectedCreatureId, setSelectedCreatureId] = useState(null)
   const [showSummonConfirm, setShowSummonConfirm] = useState(false)
   const [pendingSummonData, setPendingSummonData] = useState(null)
+  
+  // 获取可用生物列表（用于下拉选择）
+  const availableCreatures = useMemo(() => {
+    if (!needsCreatureSelection) return []
+    return listCreatures()
+  }, [needsCreatureSelection])
   
   // custom_logic 效果二次确认（如慈悲关怀询问是否对自己回满血）
   const [showCustomLogicConfirm, setShowCustomLogicConfirm] = useState(false)
@@ -473,6 +494,29 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
               const restored = []; for (let r = 1; r <= 9; r++) { const d = (newSlots[r] || 0) - (curSlots[r] || 0); if (d > 0) restored.push(`${r}环+${d}`) }
               out.lines.push(`  🔮 恢复法术位: ${restored.join(', ')}`)
             }
+          } else if (subEff.type === 'consume_spell_slot_to_restore_charges') {
+            // 消耗法术位来恢复充能
+            const slotLevel = sv.slotLevel || 2
+            const restoreAmount = sv.restoreAmount || 1
+            const currentSlots = { ...(char.spellSlots || {}) }
+            const availableInSlot = (currentSlots[slotLevel] || 0)
+            
+            if (availableInSlot > 0) {
+              // 消耗一个指定环位的法术位
+              const newSlots = { ...currentSlots, [slotLevel]: availableInSlot - 1 }
+              out.spellSlotPatch = newSlots
+              
+              // 恢复充能（需要找到对应的物品并增加充能数）
+              // 这里通过 itemInventoryId 找到物品，然后更新其充能数
+              if (card?.itemInventoryId) {
+                out.chargeRestore = { itemInventoryId: card.itemInventoryId, amount: restoreAmount }
+                out.lines.push(`  ⚡ 消耗${slotLevel}环法术位，恢复 ${restoreAmount} 点充能`)
+              } else {
+                out.lines.push(`  ⚡ 消耗${slotLevel}环法术位（未找到关联物品）`)
+              }
+            } else {
+              out.lines.push(`  ⚠️ ${slotLevel}环法术位不足，无法恢复充能`)
+            }
           }
         }
       } else if (eff.type === 'ability') {
@@ -548,6 +592,28 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           out.lines.push(`🔮 恢复法术位: ${restored.join(', ')}`)
         } else {
           out.lines.push(`🔮 法术位已满，无需恢复`)
+        }
+      } else if (eff.type === 'consume_spell_slot_to_restore_charges') {
+        // 消耗法术位来恢复充能
+        const slotLevel = ev.slotLevel || 2
+        const restoreAmount = ev.restoreAmount || 1
+        const currentSlots = { ...(char.spellSlots || {}) }
+        const availableInSlot = (currentSlots[slotLevel] || 0)
+        
+        if (availableInSlot > 0) {
+          // 消耗一个指定环位的法术位
+          const newSlots = { ...currentSlots, [slotLevel]: availableInSlot - 1 }
+          out.spellSlotPatch = newSlots
+          
+          // 恢复充能（需要找到对应的物品并增加充能数）
+          if (card?.itemInventoryId) {
+            out.chargeRestore = { itemInventoryId: card.itemInventoryId, amount: restoreAmount }
+            out.lines.push(`⚡ 消耗${slotLevel}环法术位，恢复 ${restoreAmount} 点充能`)
+          } else {
+            out.lines.push(`⚡ 消耗${slotLevel}环法术位（未找到关联物品）`)
+          }
+        } else {
+          out.lines.push(`⚠️ ${slotLevel}环法术位不足，无法恢复充能`)
         }
       } else if (eff.type === 'summon') {
         if (ev.preset === 'stellar_double') {
@@ -669,7 +735,30 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
       const ev = eff.value || {}
       const scaled = computeScaledEffect(ev, amt, isFreeSlot && eff.applyMultiplier !== false)
 
-      if (eff.type === 'spell') {
+      if (eff.type === 'attack_buff') {
+        // 攻击加成：根据消耗环位计算动态加值
+        const hitBonus = scaled.hitBonus || 0
+        const damageBonus = scaled.damageBonus || 0
+        const extraDiceCount = scaled.extraDiceCount || 0
+        const diceSides = scaled.diceSides || 10
+        const damageType = scaled.damageType || 'fire'
+
+        // 生成命中加值和伤害加值的掷骰结果（用于动画）
+        if (hitBonus > 0 || damageBonus > 0) {
+          const parts = []
+          if (hitBonus > 0) parts.push(`命中+${hitBonus}`)
+          if (damageBonus > 0) parts.push(`伤害+${damageBonus}`)
+          if (extraDiceCount > 0) parts.push(`${extraDiceCount}d${diceSides}${damageType}`)
+          lines.push(`🎯 奥术之怒: ${parts.join(', ')}`)
+        }
+
+        // 如果有额外骰子，立即掷出并记录
+        if (extraDiceCount > 0) {
+          const diceExpr = `${extraDiceCount}d${diceSides}`
+          const { total, rolls } = rollDice(diceExpr)
+          lines.push(`  额外伤害: ${rolls.join('+')} = ${total} ${damageType}`)
+        }
+      } else if (eff.type === 'spell') {
         const spellName = ev.spellName || '(未命名法术)'
         const scaledDice = scaled.damageDiceCount ?? (ev.damageDiceCount || 0)
 
@@ -1191,6 +1280,60 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
             lines.push(`✨ ${desc}`)
           }
         }
+      } else if (eff.type === 'damage') {
+        // 直接伤害效果：掷骰并记录
+        const diceCount = scaled.diceCount ?? (ev.diceCount || 1)
+        const diceSides = ev.diceSides || 6
+        const diceBonus = scaled.flatBonus ?? (ev.diceBonus || 0)
+        const damageType = ev.damageType || 'fire'
+        
+        if (diceCount > 0) {
+          const diceExpr = `${diceCount}d${diceSides}`
+          const { total, rolls } = rollDice(diceExpr)
+          const bonusStr = diceBonus > 0 ? `+${diceBonus}` : ''
+          const totalWithBonus = total + diceBonus
+          lines.push(`⚔️ ${ev.title || '伤害'}: ${rolls.join('+')}${bonusStr} = ${totalWithBonus} ${damageType}`)
+          
+          // 扣减HP
+          const newHp = Math.max(0, runningHp - totalWithBonus)
+          patch.hp = { ...char.hp, current: newHp }
+          runningHp = newHp
+        }
+      } else if (eff.type === 'heal') {
+        // 直接治疗效果：掷骰并恢复HP
+        const diceCount = scaled.diceCount ?? (ev.diceCount || 1)
+        const diceSides = ev.diceSides || 8
+        const diceBonus = scaled.flatBonus ?? (ev.diceBonus || 0)
+        const healMode = ev.mode || 'dice'
+        
+        if (healMode === 'max') {
+          // 恢复到满血
+          const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
+          const healedAmount = maxHp - runningHp
+          if (healedAmount > 0) {
+            patch.hp = { ...char.hp, current: maxHp }
+            runningHp = maxHp
+            lines.push(`💚 ${ev.title || '治疗'}: 恢复至满血 (${maxHp})`)
+          } else {
+            lines.push(`💚 ${ev.title || '治疗'}: 已满血`)
+          }
+        } else if (diceCount > 0) {
+          const diceExpr = `${diceCount}d${diceSides}`
+          const { total, rolls } = rollDice(diceExpr)
+          const bonusStr = diceBonus > 0 ? `+${diceBonus}` : ''
+          const totalWithBonus = total + diceBonus
+          const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
+          const newHp = Math.min(maxHp, runningHp + totalWithBonus)
+          const healedAmount = newHp - runningHp
+          
+          if (healedAmount > 0) {
+            patch.hp = { ...char.hp, current: newHp }
+            runningHp = newHp
+            lines.push(`💚 ${ev.title || '治疗'}: ${rolls.join('+')}${bonusStr} = ${totalWithBonus}（实际恢复 ${healedAmount}）`)
+          } else {
+            lines.push(`💚 ${ev.title || '治疗'}: ${rolls.join('+')}${bonusStr} = ${totalWithBonus}（已满血）`)
+          }
+        }
       } else if (eff.type === 'random_table') {
         const rv = ev
         const entries = rv.entries || []
@@ -1346,30 +1489,58 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
             </button>
           </div>
 
-          {/* 消耗数量选择 */}
+          {/* 消耗信息 */}
           <div className="flex items-center gap-x-2 mb-3">
-            <span className="text-xs text-gray-300">消耗数量</span>
-            <div className="flex items-center gap-1">
-              <button type="button" onClick={() => setAmt(Math.max(1, amt - 1))}
-                className="w-6 h-6 rounded bg-gray-700/60 text-gray-300 hover:bg-gray-600/80 flex items-center justify-center text-sm font-bold transition-colors"
-              >−</button>
-              <span className="w-8 text-center text-sm font-bold text-dnd-gold-light tabular-nums">{amt}</span>
-              <button type="button" onClick={() => setAmt(Math.min(maxAmount, amt + 1))}
-                className="w-6 h-6 rounded bg-gray-700/60 text-gray-300 hover:bg-gray-600/80 flex items-center justify-center text-sm font-bold transition-colors"
-              >+</button>
-            </div>
-            <span className="text-[10px] text-gray-500">
-              {isNone
-                ? '无消耗'
-                : isFreeSlot
-                ? `${amt}环法术位（剩余 ${(() => { const slots = char.spellSlots || {}; let total = 0; for (let r = 1; r <= 9; r++) total += (slots[r] || 0); return total })()}）`
-                : isSpellSlot
-                ? `${resLabel}（剩余 ${(() => { const ring = norm.slotLevel || 1; return char.spellSlots?.[ring] ?? 0 })()}）`
-                : isClassResource
-                ? `${resLabel}（剩余 ${(() => { const res = (char.classResources || []).find((r) => r.resourceKey === norm.resourceType); return res ? `${res.current}/${res.max}` : '?' })()}）`
-                : `充能（总 ${norm.charges}）`
-              }
-            </span>
+            {isSpellSlot || isFreeSlot ? (
+              // 法术位：显示环位信息和剩余数量
+              <>
+                <span className="text-xs text-gray-300">消耗</span>
+                {isFreeSlot && (
+                  <>
+                    <select
+                      value={amt}
+                      onChange={(e) => setAmt(Number(e.target.value))}
+                      className="h-7 px-1.5 rounded bg-gray-700/60 border border-gray-600 text-xs text-dnd-gold-light cursor-pointer"
+                    >
+                      {Array.from({ length: (norm.maxSlotLevel || 1) }, (_, i) => i + 1).map((level) => (
+                        <option key={level} value={level}>{level}环</option>
+                      ))}
+                    </select>
+                    <span className="text-[10px] text-gray-500">
+                      法术位（剩余 {(() => { const slots = char.spellSlots || {}; let total = 0; for (let r = 1; r <= 9; r++) total += (slots[r] || 0); return total })()}）
+                    </span>
+                  </>
+                )}
+                {isSpellSlot && (
+                  <span className="text-[10px] text-gray-500">
+                    {norm.slotLevel || 1}环法术位（剩余 {(() => { const ring = norm.slotLevel || 1; return char.spellSlots?.[ring] ?? 0 })()}）
+                  </span>
+                )}
+              </>
+            ) : isNone ? (
+              // 无消耗
+              <span className="text-xs text-gray-500">无消耗</span>
+            ) : (
+              // 充能数/职业资源：显示数量选择器
+              <>
+                <span className="text-xs text-gray-300">消耗数量</span>
+                <div className="flex items-center gap-1">
+                  <button type="button" onClick={() => setAmt(Math.max(1, amt - 1))}
+                    className="w-6 h-6 rounded bg-gray-700/60 text-gray-300 hover:bg-gray-600/80 flex items-center justify-center text-sm font-bold transition-colors"
+                  >−</button>
+                  <span className="w-8 text-center text-sm font-bold text-dnd-gold-light tabular-nums">{amt}</span>
+                  <button type="button" onClick={() => setAmt(Math.min(maxAmount, amt + 1))}
+                    className="w-6 h-6 rounded bg-gray-700/60 text-gray-300 hover:bg-gray-600/80 flex items-center justify-center text-sm font-bold transition-colors"
+                  >+</button>
+                </div>
+                <span className="text-[10px] text-gray-500">
+                  {isClassResource
+                    ? `${resLabel}（剩余 ${(() => { const res = (char.classResources || []).find((r) => r.resourceKey === norm.resourceType); return res ? `${res.current}/${res.max}` : '?' })()}）`
+                    : `充能（总 ${norm.charges}）`
+                  }
+                </span>
+              </>
+            )}
           </div>
 
           {/* 效果列表（显示缩放后的数值） */}
@@ -1456,6 +1627,14 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
                     </div>
                   )
                 }
+                if (eff.type === 'consume_spell_slot_to_restore_charges') {
+                  return (
+                    <div key={i} className="text-xs text-gray-300 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-purple-400/60 shrink-0" />
+                      <span className="text-purple-300">消耗{ev.slotLevel || 2}环法术位，恢复 {ev.restoreAmount || 1} 点充能</span>
+                    </div>
+                  )
+                }
                 if (eff.type === 'summon') {
                   if (ev.preset === 'stellar_double') {
                     return (
@@ -1493,8 +1672,89 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
                     </div>
                   )
                 }
+                if (eff.type === 'attack_buff') {
+                  const hitBonus = scaled.hitBonus || 0
+                  const damageBonus = scaled.damageBonus || 0
+                  const extraDiceCount = scaled.extraDiceCount || 0
+                  const diceSides = scaled.diceSides || 10
+                  const damageType = scaled.damageType || 'fire'
+                  const parts = []
+                  if (hitBonus > 0) parts.push(`命中+${hitBonus}`)
+                  if (damageBonus > 0) parts.push(`伤害+${damageBonus}`)
+                  if (extraDiceCount > 0) parts.push(`${extraDiceCount}d${diceSides}${damageType}`)
+                  return (
+                    <div key={i} className="text-xs text-gray-300 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400/60 shrink-0" />
+                      <span className="text-amber-300">奥术之怒: {parts.length > 0 ? parts.join(', ') : '(无加成)'}</span>
+                      {isFreeSlot && amt > 1 && eff.applyMultiplier !== false && (
+                        <span className="text-[9px] text-amber-400/80">×{amt}环</span>
+                      )}
+                    </div>
+                  )
+                }
+                if (eff.type === 'damage') {
+                  const diceCount = scaled.diceCount ?? (ev.diceCount || 1)
+                  const diceSides = ev.diceSides || 6
+                  const diceBonus = scaled.flatBonus ?? (ev.diceBonus || 0)
+                  const damageType = ev.damageType || 'fire'
+                  const bonusStr = diceBonus > 0 ? `+${diceBonus}` : ''
+                  return (
+                    <div key={i} className="text-xs text-gray-300 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-400/60 shrink-0" />
+                      <span className="text-red-300">{ev.title || '伤害'}: {diceCount}d{diceSides}{bonusStr} {damageType}</span>
+                      {isFreeSlot && amt > 1 && eff.applyMultiplier !== false && (
+                        <span className="text-[9px] text-red-400/80">×{amt}环</span>
+                      )}
+                    </div>
+                  )
+                }
+                if (eff.type === 'heal') {
+                  const healMode = ev.mode || 'dice'
+                  if (healMode === 'max') {
+                    return (
+                      <div key={i} className="text-xs text-gray-300 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-400/60 shrink-0" />
+                        <span className="text-green-300">{ev.title || '治疗'}: 恢复至满血</span>
+                      </div>
+                    )
+                  }
+                  const diceCount = scaled.diceCount ?? (ev.diceCount || 1)
+                  const diceSides = ev.diceSides || 8
+                  const diceBonus = scaled.flatBonus ?? (ev.diceBonus || 0)
+                  const bonusStr = diceBonus > 0 ? `+${diceBonus}` : ''
+                  return (
+                    <div key={i} className="text-xs text-gray-300 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-400/60 shrink-0" />
+                      <span className="text-green-300">{ev.title || '治疗'}: {diceCount}d{diceSides}{bonusStr}</span>
+                      {isFreeSlot && amt > 1 && eff.applyMultiplier !== false && (
+                        <span className="text-[9px] text-green-400/80">×{amt}环</span>
+                      )}
+                    </div>
+                  )
+                }
                 return null
               })}
+            </div>
+          )}
+
+          {/* 生物选择下拉菜单（荒野变形/召唤时需要选择目标生物） */}
+          {needsCreatureSelection && availableCreatures.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-gray-700/50">
+              <label className="block text-xs text-gray-400 mb-1.5">
+                选择{norm.effects.some(e => e.type === 'creature_transform') ? '变身' : '召唤'}目标生物：
+              </label>
+              <select
+                value={selectedCreatureId || ''}
+                onChange={(e) => setSelectedCreatureId(e.target.value || null)}
+                className="w-full px-2 py-1.5 rounded-md text-xs bg-gray-800 text-gray-200 border border-gray-600 focus:border-dnd-gold/50 focus:ring-1 focus:ring-dnd-gold/30 outline-none"
+              >
+                <option value="">— 请选择生物 —</option>
+                {availableCreatures.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}（CR {c.cr || '?'}，{c.size || '中型'}）
+                  </option>
+                ))}
+              </select>
             </div>
           )}
 
@@ -1521,15 +1781,13 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
                     charName: char.name
                   })
                   setShowSummonConfirm(true)
-                } else if (needsCreatureSelection && !selectedCreatureId) {
-                  setShowCreatureSelector(true)
                 } else {
                   handleConfirm()
                 }
               }}
-              disabled={amt < 1 || amt > maxAmount}
+              disabled={amt < 1 || amt > maxAmount || (needsCreatureSelection && !selectedCreatureId)}
               className="px-3 py-1.5 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/40 hover:bg-dnd-gold/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >{hasStellarDouble ? '召唤替身' : needsCreatureSelection && !selectedCreatureId ? '选择生物' : `确认使用${amt > 1 ? ` (${amt})` : ''}`}</button>
+            >{hasStellarDouble ? '召唤替身' : `确认使用${amt > 1 ? ` (${amt})` : ''}`}</button>
           </div>
         </div>
       </div>

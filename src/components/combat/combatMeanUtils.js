@@ -409,11 +409,32 @@ export function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
 
 /* ═══════════════════ 法术工具 ═══════════════════ */
 
+/** 法术名称别名映射（生物库名称 → 数据库标准名称） */
+const SPELL_NAME_ALIASES = {
+  '冰刀术': '冰刃',
+  '冰刀': '冰刃',
+  '诚实区域': '诚实之域',
+  // 后续可添加更多别名
+}
+
+/** 标准化法术名称（处理别名） */
+export function normalizeSpellName(name) {
+  if (!name) return ''
+  const trimmed = name.trim()
+  // 先查别名表
+  if (SPELL_NAME_ALIASES[trimmed]) return SPELL_NAME_ALIASES[trimmed]
+  // 再查模糊别名（去除"术"后缀等）
+  const withoutSuffix = trimmed.replace(/(术|法)$/g, '')
+  if (SPELL_NAME_ALIASES[withoutSuffix]) return SPELL_NAME_ALIASES[withoutSuffix]
+  return trimmed
+}
+
 /** 从法术描述中解析伤害 */
 export function parseSpellDamageFromDescription(desc) {
   if (!desc || typeof desc !== 'string') return []
   const results = []
-  const re = /(\d+d\d+)\s*点?\s*(\S+)\s*伤害/g
+  // 匹配 "2d8点钝击伤害" 或 "4d6 寒冷 伤害"，类型只取单个词
+  const re = /(\d+d\d+)\s*点?\s*([^\s,，。、和与及]+)\s*伤害/g
   let m
   while ((m = re.exec(desc))) results.push({ dice: m[1], type: m[2] })
   return results

@@ -12,6 +12,7 @@
 import { getBuffsFromClassFeatures, getBuffsFromSelectedFeats } from './effects/effectMapping.js'
 import { getCharacterClasses, getMaxSpellSlotsByRing } from '../data/classDatabase.js'
 import { buildCardsFromCharacter } from './cardAdapter.js'
+import { normalizeChargeItemValue } from './chargeItemModel.js'
 
 /* ─────────────────────────────────────────────────────────
  * 查询
@@ -154,6 +155,42 @@ export function canUseAbility(ability, char) {
     }
   }
 
+  // 3. charge_item 中的法术位消耗检查
+  for (const eff of (ability.effects || [])) {
+    if (eff.effectType === 'charge_item' && eff.value) {
+      const norm = normalizeChargeItemValue(eff.value)
+      if (norm?.resourceType === 'spell_slot') {
+        const maxSlots = getMaxSpellSlotsByRing(char)
+        const currentSlots = char.spellSlots || {}
+
+        if (norm.consumptionMode === 'fixed') {
+          // 固定消耗：检查指定环位是否有剩余
+          const ring = norm.slotLevel || 1
+          const max = maxSlots[ring] || 0
+          const current = currentSlots[ring] || 0
+          if (max > 0 && current <= 0) {
+            return { usable: false, reason: `${ring}环法术位已耗尽` }
+          }
+        } else if (norm.consumptionMode === 'free') {
+          // 自由消耗：检查从 slotLevel 向下是否有任何环位有剩余
+          const startRing = norm.slotLevel || 1
+          let hasAvailableSlot = false
+          for (let ring = startRing; ring >= 1; ring--) {
+            const max = maxSlots[ring] || 0
+            const current = currentSlots[ring] || 0
+            if (max > 0 && current > 0) {
+              hasAvailableSlot = true
+              break
+            }
+          }
+          if (!hasAvailableSlot) {
+            return { usable: false, reason: '所有法术位已耗尽' }
+          }
+        }
+      }
+    }
+  }
+
   return { usable: true }
 }
 
@@ -213,6 +250,43 @@ export function executeAbility(ability, char, options = {}) {
       return { ...r, current: Math.max(0, r.current - (options.customCostAmount || ability.cost.amount)) }
     })
     resourcePatchNeeded = true
+  }
+
+  // ── 扣减法术位（charge_item 中的 spell_slot 消耗）──
+  for (const eff of ability.effects) {
+    if (eff.effectType === 'charge_item' && eff.value) {
+      const norm = normalizeChargeItemValue(eff.value)
+      if (norm?.resourceType === 'spell_slot') {
+        const maxSlots = getMaxSpellSlotsByRing(char)
+        const currentSlots = { ...(char.spellSlots || {}) }
+        const newSlots = { ...currentSlots }
+
+        if (norm.consumptionMode === 'fixed') {
+          // 固定消耗：扣减指定环位
+          const ring = norm.slotLevel || 1
+          const current = currentSlots[ring] || 0
+          if (current > 0) {
+            newSlots[ring] = current - 1
+          }
+        } else if (norm.consumptionMode === 'free') {
+          // 自由消耗：从 slotLevel 向下找第一个有空位的环位扣减
+          const startRing = options.slotLevel || norm.slotLevel || 1
+          for (let ring = startRing; ring >= 1; ring--) {
+            const max = maxSlots[ring] || 0
+            const current = currentSlots[ring] || 0
+            if (max > 0 && current > 0) {
+              newSlots[ring] = current - 1
+              break
+            }
+          }
+        }
+
+        // 只有实际改变了才写入 patch
+        if (JSON.stringify(newSlots) !== JSON.stringify(currentSlots)) {
+          patch.spellSlots = newSlots
+        }
+      }
+    }
   }
 
   // ── 标记独立冷却 ──

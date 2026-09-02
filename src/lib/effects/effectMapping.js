@@ -694,6 +694,32 @@ export function getFlatEffectEntries(buffs, char) {
         continue
       }
 
+      // 效果条件门控：检查 effectCondition 是否满足
+      if (e.effectCondition === 'creature_transform_active') {
+        // 检查角色是否有 active 的 creature_transform buff
+        const hasTransformBuff = Array.isArray(char?.buffs) && char.buffs.some(b => 
+          b.enabled !== false && Array.isArray(b.effects) && b.effects.some(eff => eff?.effectType === 'creature_transform')
+        )
+        if (!hasTransformBuff) {
+          continue // 没有变身状态，跳过此效果
+        }
+      }
+      
+      if (e.effectCondition === 'wild_shape_active') {
+        // 检查角色是否有 active 的 creature_transform buff 且是野兽类型
+        const hasWildShapeBuff = Array.isArray(char?.buffs) && char.buffs.some(b => {
+          if (b.enabled === false || !Array.isArray(b.effects)) return false
+          const transformEffect = b.effects.find(eff => eff?.effectType === 'creature_transform')
+          if (!transformEffect || !transformEffect.value) return false
+          // 检查是否是野兽类型（通过 creatureId 或 creatureType 判断）
+          const creatureType = transformEffect.value.creatureType || ''
+          return creatureType.toLowerCase().includes('beast') || creatureType.toLowerCase().includes('野兽')
+        })
+        if (!hasWildShapeBuff) {
+          continue // 没有荒野变形状态，跳过此效果
+        }
+      }
+
       // 护盾池 AC 加值：current 替换基础AC 10，所以注入 (current - 10)
       if (e.effectType === 'shield_pool' && shieldPoolEffect && shieldPoolCurrent > 0) {
         out.push({

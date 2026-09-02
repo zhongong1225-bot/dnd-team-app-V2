@@ -54,6 +54,13 @@ export function normalizeBuffColumnOrder(order) {
   return out
 }
 
+/** 判断 BUFF 是否含变身效果（兼容旧版顶层 effectType 与 effects 数组两种形态） */
+export function hasCreatureTransform(buff) {
+  if (!buff) return false
+  if (buff.effectType === 'creature_transform') return true
+  return Array.isArray(buff.effects) && buff.effects.some(e => e && e.effectType === 'creature_transform')
+}
+
 /**
  * @param {object | undefined} buff
  * @returns {string} 所属分栏 key（专长/装备由系统决定）
@@ -64,6 +71,10 @@ export function getColumnKeyForBuff(buff) {
   if (buff.fromClassFeature) return 'class'
   if (buff.fromItem) return 'equipment'
   if (buff.fromRace || buff.fromBackground) return 'race'
+  // 房规：变身 BUFF 一律归临时栏（冒险栏留给摔断腿/奇遇等剧情条目）
+  if (hasCreatureTransform(buff)) return 'temporary'
+  // 含主动释放效果（charge_item）的 BUFF 归临时栏（法术/技能效果非剧情状态）
+  if (Array.isArray(buff.effects) && buff.effects.some(e => e && e.effectType === 'charge_item')) return 'temporary'
   const sk = normalizeBuffSourceKindKey(buff.sourceKind)
   if (sk !== 'adventure') return sk
   // 名称兜底：source 含"临时"的归入临时栏（修复历史误分类）
@@ -95,6 +106,7 @@ export function getBuffSourceKindLabel(buff) {
   if (buff.fromItem) return '装备'
   if (buff.fromRace) return '种族'
   if (buff.fromBackground) return '背景'
+  if (hasCreatureTransform(buff)) return '临时'
   return LABEL_BY_KEY[normalizeBuffSourceKindKey(buff.sourceKind)] ?? '冒险'
 }
 
@@ -112,6 +124,7 @@ export function getBuffSourceKindTitle(buff) {
   if (buff.fromRace) return '种族：来自种族特性'
   if (buff.fromBackground) return '背景：来自背景特性'
   if (buff.fromMartialTechnique) return '武技架势：来自武技面板激活的架势，效果由 DM 配置'
+  if (hasCreatureTransform(buff)) return '临时：变身 BUFF 自动归入临时栏'
   const key = normalizeBuffSourceKindKey(buff.sourceKind)
   const label = LABEL_BY_KEY[key] ?? '冒险'
   const hint = {

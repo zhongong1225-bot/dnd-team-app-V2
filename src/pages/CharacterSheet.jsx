@@ -61,11 +61,9 @@ import CombatStatus from '../components/CombatStatus'
 import EquipmentAndInventory from '../components/EquipmentAndInventory'
 import MartialTechniquesPanel from '../components/MartialTechniquesPanel'
 import { getAllRaces, getRaceById, addCustomRace, updateCustomRace, removeCustomRace, migrateLegacyRace, isLegacyRace } from '../data/races'
-import { normalizeRace } from '../data/raceModel'
+import { normalizeRace, normalizeAbilityScoreBonuses, inferAsiAssignmentsFromLegacy, isRaceDefinitionIncomplete, RACE_SIZES } from '../data/raceModel'
 import RaceEditorForm from '../components/RaceEditorForm'
 import { BACKGROUNDS, getBackgroundById } from '../data/backgrounds'
-import { SPECIAL_SENSES_OPTIONS } from '../data/buffTypes'
-import { CREATURE_SIZES } from '../data/creatureLibrary'
 import AbilityModule from '../components/AbilityModule'
 import AvatarCropModal from '../components/AvatarCropModal'
 import CharacterSheetTopBar from '../components/CharacterSheetTopBar'
@@ -479,17 +477,6 @@ function AppearanceGrid({ char, canEdit, onSave, noBorder, compact }) {
   )
 }
 
-/** 判断 raceBaseInfo 是否有有效数据 */
-function hasRaceBaseInfo(info) {
-  if (!info) return false
-  if (info.speed && info.speed !== 30) return true
-  if (info.size && info.size !== 'medium') return true
-  if (info.vision?.type) return true
-  const asi = info.abilityScoreIncrease
-  if (asi && Object.values(asi).some((v) => Number(v) > 0)) return true
-  return false
-}
-
 /** 整合到外观区的种族/背景选择器 + 基础信息 + BUFF 编辑器 */
 function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRaceBuffEditorOpen, backgroundBuffEditorOpen, setBackgroundBuffEditorOpen, showTraitsOnly, referenceData, baseReferenceData, formulaContext }) {
   const raceCard = char?.raceCard || {}
@@ -501,38 +488,39 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
     ...(Array.isArray(char?.multiclass) ? char.multiclass.filter(m => m['class']).map(m => ({ className: m['class'], level: m.level || 0 })) : []),
   ]
 
-  const raceBaseInfo = raceCard.raceBaseInfo || {}
-  const updateRaceBaseInfo = (patch) => {
-    const next = { ...raceCard, raceBaseInfo: { ...raceBaseInfo, ...patch } }
-    onSave({ raceCard: next })
-  }
-  const clearRaceBaseInfo = () => {
-    const next = { ...raceCard }
-    delete next.raceBaseInfo
-    onSave({ raceCard: next })
-  }
-
-  const defaultASI = { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 }
-  const asi = raceBaseInfo.abilityScoreIncrease || defaultASI
-  const ASI_LABELS = { str: '力', dex: '敏', con: '体', int: '智', wis: '感', cha: '魅' }
-
   const selectedRace = useMemo(() => {
     const byId = getRaceById(raceCard.raceId)
     if (byId) return byId
-    // 旧数据兼容：raceId 不存在时按 customName 匹配
     if (raceCard.customName) {
       const name = raceCard.customName.trim()
       return getAllRaces().find(r => r.name === name) || null
     }
     return null
   }, [raceCard.raceId, raceCard.customName])
+  const selectedSubrace = useMemo(() => {
+    if (!selectedRace?.subraces || !raceCard.subraceId) return null
+    return selectedRace.subraces.find(s => s.id === raceCard.subraceId) || null
+  }, [selectedRace, raceCard.subraceId])
   const selectedBackground = useMemo(() => getBackgroundById(backgroundCard.backgroundId), [backgroundCard.backgroundId])
 
-  const handleRaceChange = (raceId) => {
-    const race = getRaceById(raceId)
-    onSave({ raceCard: { ...raceCard, raceId, subraceId: race?.subraces?.[0]?.id || '' } })
+  // 旧数据一次性迁移：asiAssignments 键不存在时尝试从旧格式推断
+  useEffect(() => {
+    if (!char?.id || !raceCard.raceId || !selectedRace) return
+    if ('asiAssignments' in raceCard) return
+    const inferred = inferAsiAssignmentsFromLegacy(selectedRace, selectedSubrace, raceCard.raceBaseInfo?.abilityScoreIncrease)
+    onSave({ raceCard: { ...raceCard, asiAssignments: inferred || [] } })
+  }, [char?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSubraceChange = (subraceId) => {
+    const kept = (raceCard.asiAssignments || []).filter(a => a.source !== 'subrace')
+    onSave({ raceCard: { ...raceCard, subraceId, asiAssignments: kept } })
   }
-  const handleSubraceChange = (subraceId) => onSave({ raceCard: { ...raceCard, subraceId } })
+  const [raceTraitChoiceModal, setRaceTraitChoiceModal] = useState(null)
+  const handleTraitChoiceSelect = (traitId, optionId) => {
+    const choices = { ...(raceCard.traitChoices || {}), [traitId]: optionId }
+    onSave({ raceCard: { ...raceCard, traitChoices: choices } })
+    setRaceTraitChoiceModal(null)
+  }
   const handleBackgroundChange = (backgroundId) => onSave({ backgroundCard: { ...backgroundCard, backgroundId } })
 
   // 背景编辑器中的名称/描述编辑状态
@@ -550,9 +538,8 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
     if (!editingRaceData?.name?.trim()) return
     let finalRaceId = editingRaceId
     if (isNewRaceRef.current || !getRaceById(editingRaceId)) {
-      const toSave = { ...editingRaceData }
-      delete toSave.id
-      const created = addCustomRace(toSave)
+      const preId = editingRaceId || `race_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+      const created = addCustomRace({ ...editingRaceData, id: preId })
       if (created) finalRaceId = created.id
     } else {
       if (isLegacyRace(editingRaceId)) migrateLegacyRace(editingRaceId)
@@ -613,26 +600,40 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
 
   // 仅展示特性效果模式（用于顶层全宽布局）
   if (showTraitsOnly) {
+    const allTraits = []
+    if (selectedRace) {
+      ;(selectedRace.traits || []).forEach(t => allTraits.push({ ...t, _isSubrace: false }))
+      if (raceCard.subraceId && selectedRace.subraces) {
+        const sub = selectedRace.subraces.find(s => s.id === raceCard.subraceId)
+        if (sub) (sub.traits || []).forEach(t => allTraits.push({ ...t, _isSubrace: true }))
+      }
+    }
+    const choiceTrait = raceTraitChoiceModal ? allTraits.find(t => t.id === raceTraitChoiceModal) : null
     return selectedRace ? (
+      <>
       <div className="mt-3 space-y-1.5">
-        {(() => {
-          const allTraits = []
-          ;(selectedRace.traits || []).forEach(t => allTraits.push({ ...t, _isSubrace: false }))
-          if (raceCard.subraceId && selectedRace.subraces) {
-            const sub = selectedRace.subraces.find(s => s.id === raceCard.subraceId)
-            if (sub) (sub.traits || []).forEach(t => allTraits.push({ ...t, _isSubrace: true }))
-          }
-          if (allTraits.length === 0) return null
-          return allTraits.map((t) => {
-            const traitCards = Array.isArray(t.cards) ? t.cards : []
-            const effectSummaries = traitCards.map(c =>
+        {allTraits.length > 0 && allTraits.map((t) => {
+            const isChoice = Array.isArray(t.choiceOptions) && t.choiceOptions.length > 0
+            const chosenOpt = isChoice ? (t.choiceOptions || []).find(o => o.id === raceCard.traitChoices?.[t.id]) : null
+            const activeCards = isChoice ? (chosenOpt?.cards || []) : (t.cards || [])
+            const activeSpells = isChoice ? (chosenOpt?.spells || []) : (t.spells || [])
+            const effectSummaries = activeCards.map(c =>
               getEffectSummaryShort({ effectType: c.effectType, value: c.value, customText: c.customText, scope: c.scope, scopeDetail: c.scopeDetail }, {})
             ).filter(Boolean)
             return (
               <div key={t.id} className="bg-white/[0.03] rounded-md border border-gray-700/40 px-3 py-2">
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{t._isSubrace ? '亚种特性' : '种族特性'}</span>
                   <span className="text-xs font-semibold text-gray-200">{t.name}</span>
+                  {isChoice && (
+                    <button
+                      onClick={() => setRaceTraitChoiceModal(t.id)}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-amber-300/80 hover:text-amber-200 hover:bg-amber-500/15 border border-amber-400/20"
+                    >
+                      {chosenOpt ? chosenOpt.label : '未选择'}
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+                  )}
                 </div>
                 {t.description && <p className="text-[11px] text-gray-400 leading-relaxed mb-1">{t.description}</p>}
                 {effectSummaries.length > 0 && (
@@ -642,11 +643,55 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                     ))}
                   </div>
                 )}
+                {activeSpells.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {activeSpells.map((sp, si) => (
+                      <span key={si} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20 text-[10px] text-purple-300/80">
+                        <span>{sp.name}</span>
+                        <span className="text-purple-400/60">
+                          {sp.castMode === 'at-will' ? '随意' : sp.castMode === 'per-day' ? `${sp.timesPerDay || 1}次/天` : `${sp.slotLevel || 1}环位`}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             )
-          })
-        })()}
+          })}
       </div>
+      {choiceTrait && Array.isArray(choiceTrait.choiceOptions) && (
+        <>
+          <div className="fixed inset-0 bg-black/60 z-[300]" onClick={() => setRaceTraitChoiceModal(null)} />
+          <div className="fixed inset-x-4 top-[20%] z-[301] max-w-lg mx-auto bg-[#1a2332] border border-white/10 rounded-lg shadow-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-semibold text-gray-200">选择：{choiceTrait.name}</h4>
+              <button onClick={() => setRaceTraitChoiceModal(null)} className="text-gray-500 hover:text-gray-300 text-lg leading-none">&times;</button>
+            </div>
+            {choiceTrait.description && <p className="text-[11px] text-gray-400">{choiceTrait.description}</p>}
+            <div className="space-y-2">
+              {choiceTrait.choiceOptions.map(opt => {
+                const isSelected = raceCard.traitChoices?.[choiceTrait.id] === opt.id
+                return (
+                  <button
+                    key={opt.id}
+                    onClick={() => handleTraitChoiceSelect(choiceTrait.id, opt.id)}
+                    className={`w-full text-left px-3 py-2 rounded border transition-colors ${isSelected ? 'border-amber-400/50 bg-amber-500/10' : 'border-white/10 bg-white/[0.03] hover:border-white/20'}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${isSelected ? 'border-amber-400' : 'border-gray-500'}`}>
+                        {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
+                      </div>
+                      <span className="text-xs font-medium text-gray-200">{opt.label}</span>
+                    </div>
+                    {opt.description && <p className="text-[10px] text-gray-400 mt-1 ml-5.5">{opt.description}</p>}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </>
+      )}
+      </>
     ) : null
   }
 
@@ -689,52 +734,121 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
       {/* 基础信息行 — 仅在选了种族后渲染，占满 14 列 */}
       {raceCard.raceId && (
         <>
-          {/* 移速 / 体型 / 视觉 — 4 + 4 + 6 = 14 */}
-          <label className="col-span-4 flex items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">
-            <span className="shrink-0 w-8 text-right text-[11px] text-gray-400 font-medium">移速</span>
-            <input type="text" inputMode="numeric" value={raceBaseInfo.speed ?? 30}
-              onChange={(e) => updateRaceBaseInfo({ speed: Number(e.target.value) || 0 })}
-              className="w-12 px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 text-center focus:outline-none focus:border-dnd-gold/50" />
-            <span className="text-gray-500 shrink-0 text-[11px]">尺</span>
-          </label>
-          <label className="col-span-4 flex items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">
+          {/* 体型 / 移速 / 感官 — 只读展示 — 4 + 4 + 6 = 14 */}
+          <div className="col-span-4 flex items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">
             <span className="shrink-0 w-8 text-right text-[11px] text-gray-400 font-medium">体型</span>
-            <select value={raceBaseInfo.size || 'medium'} onChange={(e) => updateRaceBaseInfo({ size: e.target.value })}
-              className="flex-1 px-1 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
-              {CREATURE_SIZES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
-          </label>
-          <div className="col-span-6 flex items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">
-            <span className="shrink-0 w-8 text-right text-[11px] text-gray-400 font-medium">视觉</span>
-            <select value={raceBaseInfo.vision?.type || ''}
-              onChange={(e) => updateRaceBaseInfo({ vision: e.target.value ? { type: e.target.value, range: raceBaseInfo.vision?.range || 60 } : null })}
-              className="flex-1 px-1 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
-              <option value="">无</option>
-              {SPECIAL_SENSES_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
-            {raceBaseInfo.vision?.type && (
-              <>
-                <input type="text" inputMode="numeric" value={raceBaseInfo.vision.range ?? 60}
-                  onChange={(e) => updateRaceBaseInfo({ vision: { ...raceBaseInfo.vision, range: Number(e.target.value) || 0 } })}
-                  className="w-12 px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 text-center focus:outline-none focus:border-dnd-gold/50" />
-                <span className="text-gray-500 shrink-0 text-[11px]">尺</span>
-              </>
+            {(selectedRace?.sizeOptions || []).length > 1 ? (
+              <select
+                value={raceCard.sizeSelected || selectedRace?.sizeDefault || ''}
+                onChange={e => onSave({ raceCard: { ...raceCard, sizeSelected: e.target.value } })}
+                className="flex-1 min-w-0 bg-transparent border-none text-xs text-gray-200 focus:outline-none focus:ring-0 cursor-pointer"
+              >
+                {(selectedRace.sizeOptions || []).map(sv => (
+                  <option key={sv} value={sv}>{RACE_SIZES.find(s => s.value === sv)?.label || sv}</option>
+                ))}
+              </select>
+            ) : (
+              <span className="text-xs text-gray-200">{RACE_SIZES.find(s => s.value === (raceCard.sizeSelected || selectedRace?.sizeDefault))?.label || selectedRace?.sizeDefault || '—'}</span>
             )}
           </div>
+          <div className="col-span-4 flex items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">
+            <span className="shrink-0 w-8 text-right text-[11px] text-gray-400 font-medium">移速</span>
+            <span className="text-xs text-gray-200">
+              {(() => {
+                const sp = selectedRace?.speed || {}
+                const subSp = selectedSubrace?.speed || {}
+                const walk = Number(subSp.walk ?? sp.walk ?? 30)
+                const parts = [`${walk}尺`]
+                if (subSp.climb || sp.climb) parts.push(`攀爬 ${subSp.climb ?? sp.climb}尺`)
+                if (subSp.swim || sp.swim) parts.push(`游泳 ${subSp.swim ?? sp.swim}尺`)
+                if (subSp.fly || sp.fly) parts.push(`飞行 ${subSp.fly ?? sp.fly}尺`)
+                return parts.join(' ')
+              })()}
+            </span>
+          </div>
+          <div className="col-span-6 flex items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">
+            <span className="shrink-0 w-8 text-right text-[11px] text-gray-400 font-medium">感官</span>
+            <span className="text-xs text-gray-200">
+              {(() => {
+                const dv = Number(selectedSubrace?.darkvision ?? selectedRace?.darkvision ?? 0)
+                return dv > 0 ? `黑暗视觉 ${dv}尺` : '无'
+              })()}
+            </span>
+          </div>
 
-          {/* 属性提高 — 标签 2 列 + 6 个属性各 2 列 = 14 */}
-          <span className="col-span-2 text-right text-[11px] text-gray-400 font-medium bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">属性提高</span>
-          {['str', 'dex', 'con', 'int', 'wis', 'cha'].map((key) => (
-            <label key={key} className="col-span-2 flex items-center gap-1 bg-white/[0.03] rounded-md border border-gray-700/40 px-1.5 py-1.5">
-              <span className="w-4 text-center text-[10px] font-semibold text-gray-300 shrink-0">{ASI_LABELS[key]}</span>
-              <input type="text" inputMode="numeric" value={asi[key] || 0}
-                onChange={(e) => updateRaceBaseInfo({ abilityScoreIncrease: { ...asi, [key]: Number(e.target.value) || 0 } })}
-                className="flex-1 min-w-0 px-1 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 text-center focus:outline-none focus:border-dnd-gold/50" />
-            </label>
-          ))}
+          {/* 属性加值分配 — 从种族定义的加值槽生成下拉菜单 */}
+          {(() => {
+            const raceBonuses = normalizeAbilityScoreBonuses(selectedRace?.abilityScoreBonuses, [])
+            const subraceBonuses = normalizeAbilityScoreBonuses(selectedSubrace?.abilityScoreBonuses, [])
+            const allSlots = [
+              ...raceBonuses.map((b, i) => ({ ...b, source: 'race', slotKey: `race-${i}` })),
+              ...subraceBonuses.map((b, i) => ({ ...b, source: 'subrace', slotKey: `sub-${i}` })),
+            ]
+            if (allSlots.length === 0) return null
+            const assignments = raceCard.asiAssignments || []
+            const ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha']
+            const handleAsiChange = (slotSource, slotIndex, ability) => {
+              const existing = [...assignments]
+              const slotEntries = existing.filter(a => a.source === slotSource)
+              const otherEntries = existing.filter(a => a.source !== slotSource)
+              slotEntries[slotIndex] = { source: slotSource, ability }
+              onSave({ raceCard: { ...raceCard, asiAssignments: [...otherEntries, ...slotEntries] } })
+            }
+            return (
+              <>
+                <span className="col-span-2 text-right text-[11px] text-gray-400 font-medium bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">属性加值</span>
+                <div className="col-span-12 flex flex-wrap items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">
+                  {raceBonuses.length > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-gray-500">种族</span>
+                      {raceBonuses.map((b, i) => {
+                        const current = (assignments.filter(a => a.source === 'race') || [])[i]?.ability || ''
+                        const takenByOthers = assignments.filter(a => a.source === 'race').map((a, idx) => idx !== i ? a.ability : null).filter(Boolean)
+                        return (
+                          <select key={i} value={current} onChange={e => handleAsiChange('race', i, e.target.value)}
+                            className="px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+                            <option value="">+{b.amount} → ?</option>
+                            {ABILITY_KEYS.map(k => (
+                              <option key={k} value={k} disabled={takenByOthers.includes(k)}>
+                                +{b.amount} → {ABILITY_NAMES_ZH[k]}
+                              </option>
+                            ))}
+                          </select>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {subraceBonuses.length > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-gray-500">亚种</span>
+                      {subraceBonuses.map((b, i) => {
+                        const subAssignments = assignments.filter(a => a.source === 'subrace')
+                        const current = subAssignments[i]?.ability || ''
+                        const takenByOthers = subAssignments.map((a, idx) => idx !== i ? a.ability : null).filter(Boolean)
+                        return (
+                          <select key={i} value={current} onChange={e => handleAsiChange('subrace', i, e.target.value)}
+                            className="px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+                            <option value="">+{b.amount} → ?</option>
+                            {ABILITY_KEYS.map(k => (
+                              <option key={k} value={k} disabled={takenByOthers.includes(k)}>
+                                +{b.amount} → {ABILITY_NAMES_ZH[k]}
+                              </option>
+                            ))}
+                          </select>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </>
+            )
+          })()}
 
-          {canEdit && hasRaceBaseInfo(raceBaseInfo) && (
-            <button type="button" onClick={clearRaceBaseInfo} className="col-span-14 text-[11px] text-gray-500 hover:text-red-400 transition-colors">清除基础信息</button>
+          {/* 不完整种族提示 */}
+          {isRaceDefinitionIncomplete(selectedRace) && (
+            <div className="text-[10px] text-amber-400/80 bg-amber-500/5 rounded px-2 py-1" style={{ gridColumn: '1 / -1' }}>
+              该种族缺少速度/暗视/加值数据，请在种族编辑器中补全
+            </div>
           )}
         </>
       )}
@@ -749,11 +863,12 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
               <div className="w-full max-w-3xl rounded-xl border border-white/10 bg-[#1a2332] p-4">
                 <div className="flex gap-3" style={{ minHeight: 400 }}>
                   {/* 左栏：种族列表 */}
-                  <div className="shrink-0 flex flex-col border-r border-white/10 pr-3" style={{ width: 180 }}>
+                  <div className="shrink-0 self-stretch flex flex-col border-r border-white/10 pr-3" style={{ width: 180 }}>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs font-semibold text-dnd-gold-light/80">种族列表</span>
                       <button type="button" onClick={() => {
-                        const r = addCustomRace({ name: '' })
+                        const preId = `race_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+                        const r = addCustomRace({ name: '', id: preId })
                         if (r) {
                           isNewRaceRef.current = true
                           setEditingRaceId(r.id)
@@ -764,7 +879,7 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                         <Plus className="w-3.5 h-3.5" />
                       </button>
                     </div>
-                    <div key={raceListKey} className="flex-1 overflow-y-auto space-y-0.5" style={{ maxHeight: 500 }}>
+                    <div key={raceListKey} className="flex-1 overflow-y-auto space-y-0.5">
                       {allRaces.length === 0 && (
                         <p className="text-[11px] text-gray-500 text-center py-4">暂无种族<br />点击上方 + 添加</p>
                       )}
@@ -1656,7 +1771,7 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
   if (chargeEffects.length === 0) return null
 
   return (
-    <div className="mt-2 space-y-1.5">
+    <div className="space-y-1.5">
       {/* 充能/BUFF 效果按钮 */}
       {chargeEffects.map((chargeEff, idx) => {
         const cv = chargeEff.value
@@ -1671,13 +1786,13 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
             key={idx}
             type="button"
             onClick={() => setUseChargeValue(cv)}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors"
+            className="inline-flex items-center justify-center gap-2 px-5 py-2 rounded-md text-sm font-medium bg-dnd-gold/20 hover:bg-dnd-gold/30 text-dnd-gold-light border border-dnd-gold/40 transition-all active:scale-[0.98]"
             title={resourceType === 'charges' ? `${charges} 充能 | ${recoveryLabel}` : `消耗: ${resLabel}`}
           >
-            <Zap className="w-3 h-3" />
+            <Zap className="w-4 h-4" />
             使用 {feature.name}
             {resourceType === 'charges' && charges > 0 && (
-              <span className="text-[10px] opacity-70">({charges})</span>
+              <span className="text-xs opacity-80">({charges})</span>
             )}
           </button>
         )
@@ -1934,6 +2049,12 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
           const cfScopeLabel = cfScope?.type && cfScope.type !== 'global'
             ? (SCOPE_TYPE_OPTIONS.find(o => o.value === cfScope.type)?.label || cfScope.type)
             : null
+          // 选择型特性的已选选项（用于在标题区显示）
+          const choiceRegistryEntry = isChoiceType ? CLASS_FEATURE_CHOICE_REGISTRY[cfBuffKey] : null
+          const chosenOptionId = char?.classFeatureChoices?.[f.id] || null
+          const chosenOption = choiceRegistryEntry && chosenOptionId
+            ? choiceRegistryEntry.options.find((o) => o.id === chosenOptionId)
+            : null
           // 护盾池检测（统一从 card.buffEffects 查找，包含所有来源的效果）
           const cfCard = classFeatureCards.find(c =>
             c.slotKind === 'class' && c.sourceKey === `${f.sourceClass}|${f.sourceSubclass || ''}|${f.id}`
@@ -1948,12 +2069,7 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
           return (
             <li key={key}>
               <CardView
-                name={name}
-                subtitle={`${f.sourceClass}${f.sourceSubclass ? `（${f.sourceSubclass}）` : ''} · ${f.level} 级`}
-                description={descText}
-                expanded={isExpanded}
-                onToggleExpand={() => toggleFeatureExpand(key)}
-                headerLeft={
+                name={
                   <InfoTooltip
                     content={
                       <ClassFeatureTooltipContent
@@ -1967,15 +2083,32 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
                         }}
                       />
                     }
-                    triggerClassName="inline"
+                    triggerClassName="block"
                   >
-                    <span
-                      className="text-base font-bold text-white cursor-pointer select-none hover:text-gray-100 transition-colors truncate block"
-                      onClick={() => toggleFeatureExpand(key)}
-                    >
-                      {name}
+                    <span className="text-base font-bold text-white hover:text-gray-100 transition-colors truncate inline-flex items-center gap-2">
+                      {isChoiceType && chosenOption ? (
+                        <>
+                          {name}
+                          <span className="shrink-0 inline-flex items-center px-3 py-0.5 rounded border border-white/30 bg-transparent text-white text-sm font-medium">
+                            {chosenOption.label}
+                          </span>
+                        </>
+                      ) : (
+                        name
+                      )}
                     </span>
                   </InfoTooltip>
+                }
+                subtitle={`${f.sourceClass}${f.sourceSubclass ? `（${f.sourceSubclass}）` : ''} · ${f.level} 级`}
+                description={descText}
+                expanded={isExpanded}
+                onToggleExpand={() => toggleFeatureExpand(key)}
+                gridLayout={true}
+                headerLeft={
+                  <div className="text-left">
+                    <div className="text-[11px] text-gray-500 leading-tight">{f.level}级获得</div>
+                    <div className="text-[11px] text-gray-500 leading-tight truncate">{f.sourceSubclass || f.sourceClass}</div>
+                  </div>
                 }
                 headerRight={
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -3420,6 +3553,12 @@ export default function CharacterSheet() {
   // 种族/背景 BUFF 编辑器状态（从 RaceBackgroundInline 提升）
   const [raceBuffEditorOpen, setRaceBuffEditorOpen] = useState(false)
   const [backgroundBuffEditorOpen, setBackgroundBuffEditorOpen] = useState(false)
+  const [profileTraitChoiceModal, setProfileTraitChoiceModal] = useState(null)
+  const handleProfileTraitChoiceSelect = (traitId, optionId) => {
+    const choices = { ...(char.raceCard?.traitChoices || {}), [traitId]: optionId }
+    persist({ ...char, raceCard: { ...char.raceCard, traitChoices: choices } })
+    setProfileTraitChoiceModal(null)
+  }
   const mergedBuffs = useMemo(
     () => getMergedBuffsForCalculator(char, sheetModuleId),
     [
@@ -3837,7 +3976,6 @@ export default function CharacterSheet() {
                     {/* 种族特性展示 */}
                     {(() => {
                       let selRace = getRaceById(char.raceCard?.raceId)
-                      // 旧数据兼容：raceId 不存在时按 customName 匹配种族
                       if (!selRace && char.raceCard?.customName) {
                         const name = char.raceCard.customName.trim()
                         selRace = getAllRaces().find(r => r.name === name) || null
@@ -3850,18 +3988,32 @@ export default function CharacterSheet() {
                         if (sub) (sub.traits || []).forEach(t => allTraits.push({ ...t, _isSubrace: true }))
                       }
                       if (allTraits.length === 0) return null
+                      const choiceTrait = profileTraitChoiceModal ? allTraits.find(t => t.id === profileTraitChoiceModal) : null
                       return (
+                        <>
                         <div className="mt-2 space-y-1.5">
                           {allTraits.map((t) => {
-                            const traitCards = Array.isArray(t.cards) ? t.cards : []
-                            const effectSummaries = traitCards.map(c =>
+                            const isChoice = Array.isArray(t.choiceOptions) && t.choiceOptions.length > 0
+                            const chosenOpt = isChoice ? (t.choiceOptions || []).find(o => o.id === char.raceCard?.traitChoices?.[t.id]) : null
+                            const activeCards = isChoice ? (chosenOpt?.cards || []) : (t.cards || [])
+                            const activeSpells = isChoice ? (chosenOpt?.spells || []) : (t.spells || [])
+                            const effectSummaries = activeCards.map(c =>
                               getEffectSummaryShort({ effectType: c.effectType, value: c.value, customText: c.customText, scope: c.scope, scopeDetail: c.scopeDetail }, {})
                             ).filter(Boolean)
                             return (
                               <div key={t.id} className="bg-white/[0.03] rounded-md border border-gray-700/40 px-3 py-2">
-                                <div className="flex items-center gap-2 mb-1">
+                                <div className="flex items-center gap-2 mb-1 flex-wrap">
                                   <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{t._isSubrace ? '亚种特性' : '种族特性'}</span>
                                   <span className="text-xs font-semibold text-gray-200">{t.name}</span>
+                                  {isChoice && (
+                                    <button
+                                      onClick={() => setProfileTraitChoiceModal(t.id)}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-amber-300/80 hover:text-amber-200 hover:bg-amber-500/15 border border-amber-400/20"
+                                    >
+                                      {chosenOpt ? chosenOpt.label : '未选择'}
+                                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                                    </button>
+                                  )}
                                 </div>
                                 {t.description && <p className="text-[11px] text-gray-400 leading-relaxed mb-1">{t.description}</p>}
                                 {effectSummaries.length > 0 && (
@@ -3871,10 +4023,55 @@ export default function CharacterSheet() {
                                     ))}
                                   </div>
                                 )}
+                                {activeSpells.length > 0 && (
+                                  <div className="flex flex-wrap gap-1.5 mt-1">
+                                    {activeSpells.map((sp, si) => (
+                                      <span key={si} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20 text-[10px] text-purple-300/80">
+                                        <span>{sp.name}</span>
+                                        <span className="text-purple-400/60">
+                                          {sp.castMode === 'at-will' ? '随意' : sp.castMode === 'per-day' ? `${sp.timesPerDay || 1}次/天` : `${sp.slotLevel || 1}环位`}
+                                        </span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             )
                           })}
                         </div>
+                        {choiceTrait && Array.isArray(choiceTrait.choiceOptions) && (
+                          <>
+                            <div className="fixed inset-0 bg-black/60 z-[300]" onClick={() => setProfileTraitChoiceModal(null)} />
+                            <div className="fixed inset-x-4 top-[20%] z-[301] max-w-lg mx-auto bg-[#1a2332] border border-white/10 rounded-lg shadow-xl p-4 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <h4 className="text-sm font-semibold text-gray-200">选择：{choiceTrait.name}</h4>
+                                <button onClick={() => setProfileTraitChoiceModal(null)} className="text-gray-500 hover:text-gray-300 text-lg leading-none">&times;</button>
+                              </div>
+                              {choiceTrait.description && <p className="text-[11px] text-gray-400">{choiceTrait.description}</p>}
+                              <div className="space-y-2">
+                                {choiceTrait.choiceOptions.map(opt => {
+                                  const isSelected = char.raceCard?.traitChoices?.[choiceTrait.id] === opt.id
+                                  return (
+                                    <button
+                                      key={opt.id}
+                                      onClick={() => handleProfileTraitChoiceSelect(choiceTrait.id, opt.id)}
+                                      className={`w-full text-left px-3 py-2 rounded border transition-colors ${isSelected ? 'border-amber-400/50 bg-amber-500/10' : 'border-white/10 bg-white/[0.03] hover:border-white/20'}`}
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${isSelected ? 'border-amber-400' : 'border-gray-500'}`}>
+                                          {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
+                                        </div>
+                                        <span className="text-xs font-medium text-gray-200">{opt.label}</span>
+                                      </div>
+                                      {opt.description && <p className="text-[10px] text-gray-400 mt-1 ml-5.5">{opt.description}</p>}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                        </>
                       )
                     })()}
 

@@ -30,6 +30,7 @@ function CardView({
   onToggleExpand,
   onConfigure,
   configureTitle,
+  gridLayout = false, // 是否使用8列网格布局
 }) {
   const hasDescription = Boolean(description || descriptionNode)
   const hasChildren = Boolean(children)
@@ -59,6 +60,104 @@ function CardView({
     })()
     : null
 
+  // 8列网格布局模式
+  if (gridLayout) {
+    const isExpanded = expanded && (hasDescription || hasChildren)
+    
+    return (
+      <div className={`panel-card-compact ${disabled ? 'opacity-50' : ''} ${className}`}>
+        {/* 8列网格标题行 - 收起态固定高度52px，展开态自适应 */}
+        {!isExpanded ? (
+          /* 收起态：单行 grid，严格 52px，内容垂直居中 */
+          <div 
+            className="grid grid-cols-[repeat(7,minmax(0,1fr))_0.5fr] items-center" 
+            style={{ height: '52px', gridTemplateRows: '1fr' }}
+          >
+            {/* 第1列：等级+来源（两行小字） */}
+            <div className="col-span-1">
+              {headerLeft}
+            </div>
+            
+            {/* 第2-3列：名称+选项标签 */}
+            <div className="col-span-2 min-w-0">
+              {name && (
+                typeof name === 'string' ? (
+                  <span
+                    className="text-base font-bold text-white cursor-pointer select-none hover:text-gray-100 transition-colors truncate block"
+                    onClick={toggleExpand}
+                  >
+                    {name}
+                  </span>
+                ) : (
+                  <div onClick={toggleExpand}>
+                    {name}
+                  </div>
+                )
+              )}
+            </div>
+            
+            {/* 第4-7列：释放按钮区域 */}
+            <div className="col-span-4 flex justify-end gap-2">
+              {footer}
+            </div>
+            
+            {/* 第8列：编辑按钮 - 0.5格宽，齿轮在格内居中 */}
+            <div className="col-span-1 flex justify-center">
+              {headerRight !== undefined ? headerRight : defaultRight}
+            </div>
+          </div>
+        ) : (
+          /* 展开态：用 grid 三行自适应 */
+          <div 
+            className="grid grid-cols-[repeat(7,minmax(0,1fr))_0.5fr]" 
+            style={{ gridTemplateRows: 'auto auto auto' }}
+          >
+            <div className="col-span-1 row-start-2 flex flex-col justify-center">
+              {headerLeft}
+            </div>
+            <div className="col-span-2 row-start-2 min-w-0 flex items-center">
+              {name && (typeof name === 'string' ? (
+                <span className="text-base font-bold text-white cursor-pointer select-none hover:text-gray-100 transition-colors truncate block" onClick={toggleExpand}>{name}</span>
+              ) : (
+                <div className="flex items-center h-full" onClick={toggleExpand}>{name}</div>
+              ))}
+            </div>
+            <div className="col-span-4 row-start-2 flex items-center justify-end gap-2">{footer}</div>
+            <div className="col-span-1 row-start-2 flex items-center justify-center">{headerRight !== undefined ? headerRight : defaultRight}</div>
+          </div>
+        )}
+
+        {/* 展开后的内容 */}
+        {expanded && (
+          <>
+            {hasDescription && (
+              <div className="mt-2 pt-2 border-t border-gray-700/40">
+                {descriptionNode || (
+                  <p className="text-sm text-gray-400 leading-relaxed whitespace-pre-line">
+                    {description}
+                  </p>
+                )}
+              </div>
+            )}
+            {hasChildren && (
+              <div className="mt-2">
+                {children}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* 无描述时子内容始终显示 */}
+        {!hasDescription && hasChildren && (
+          <div className="mt-2">
+            {children}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // 原有flex布局模式
   return (
     <div className={`panel-card-compact ${disabled ? 'opacity-50' : ''} ${className}`}>
       {/* 标题行 */}

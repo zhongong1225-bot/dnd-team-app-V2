@@ -19,6 +19,7 @@ export function RollProvider({ children }) {
       advantage: options.advantage ?? null, // 'advantage' | 'disadvantage' | 'normal' from buffs
       quickRoll: !!options.quickRoll,
       critThreatMinNatural: ctm != null && Number.isFinite(Number(ctm)) ? Math.max(1, Math.min(20, Math.floor(Number(ctm)))) : undefined,
+      onResult: options.onResult || null, // 攻击检定完成后的回调函数
     })
     setOpen(true)
   }, [])

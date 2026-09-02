@@ -418,6 +418,7 @@ export default function BottomNav() {
   const { user, isAdmin } = useAuth()
   const { currentModuleId } = useModule()
   const { pendingCheck, setPendingCheck } = useRoll()
+  const pendingCheckOnResultRef = useRef(null) // 保存 onResult 回调
   const defaultId = getDefaultCharacterId(user?.name, currentModuleId)
   const lastEditedId = getLastEditedCharacterId(user?.name, isAdmin, currentModuleId)
   const preferredId = defaultId || lastEditedId
@@ -666,6 +667,11 @@ export default function BottomNav() {
           critThreatMinNatural: options.critThreatMinNatural,
           category: rollCat,
         })
+        // 调用攻击检定的 onResult 回调（用于多步交互流程）
+        if (pendingCheckOnResultRef.current && typeof pendingCheckOnResultRef.current === 'function') {
+          pendingCheckOnResultRef.current(prepared.finalTotal)
+          pendingCheckOnResultRef.current = null
+        }
         setFormulaMeta(null)
       }, RESULT_HOLD_MS)
     }, ROLL_ANIM_MS)
@@ -676,6 +682,8 @@ export default function BottomNav() {
     const mod = Number(pendingCheck.modifier) || 0
     const nextFormula = `1d20${mod >= 0 ? '+' : ''}${mod}`
     if (pendingCheck.quickRoll) {
+      // 保存 onResult 回调到 ref，以便在结果出来后调用
+      pendingCheckOnResultRef.current = pendingCheck.onResult
       setPendingCheck(null)
       performFormulaRoll(nextFormula, {
         label: pendingCheck.label,
