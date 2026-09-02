@@ -514,22 +514,26 @@ export default function BuffManager({
     {/* ── 悬浮 BUFF 编辑器按钮 + 下拉面板 ── */}
     {canEdit && formState && (
       <>
-        {/* 点击外部关闭 */}
-        <div className="fixed inset-0 z-[295]" onClick={() => setFormState(null)} aria-hidden />
-            {/* 下拉面板（基于 BUFF 面板定位） */}
-            <div className={`fixed z-[300] border border-dnd-gold/30 bg-gradient-to-b from-[#2c384c] via-[#242f42] to-[#1b2433] shadow-[0_12px_40px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col transition-all ${
-              editorFullscreen
-                ? 'inset-0'
-                : 'rounded-xl'
-            }`}
-            style={!editorFullscreen ? {
-              top: editorPos.top,
-              left: editorPos.left,
-              width: editorPos.width || 'auto',
-              maxHeight: editorPos.maxHeight,
-            } : undefined}
-            onClick={(e) => e.stopPropagation()}
-            >
+        {/* 点击外部关闭 - 使用更高 z-index 确保在所有内容之上 */}
+        <div 
+          className="fixed inset-0 z-[9998] bg-black/20" 
+          onClick={() => setFormState(null)} 
+          aria-hidden 
+        />
+        {/* 下拉面板（基于 BUFF 面板定位） */}
+        <div className={`fixed z-[9999] border border-dnd-gold/30 bg-gradient-to-b from-[#2c384c] via-[#242f42] to-[#1b2433] shadow-[0_12px_40px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col transition-all ${
+          editorFullscreen
+            ? 'inset-0'
+            : 'rounded-xl'
+        }`}
+        style={!editorFullscreen ? {
+          top: editorPos.top,
+          left: editorPos.left,
+          width: editorPos.width || 'auto',
+          maxHeight: editorPos.maxHeight,
+        } : undefined}
+        onClick={(e) => e.stopPropagation()}
+        >
               <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 shrink-0">
                 <div className="flex items-center gap-2">
                   <button
