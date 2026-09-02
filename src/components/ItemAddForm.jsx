@@ -7,12 +7,21 @@
  * 生成新物品条目，由调用方写入背包或仓库
  */
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { Trash2, Plus } from 'lucide-react'
-import { getItemListGrouped, getItemById, getItemDisplayName, parseWeaponNoteToTraits, buildWeaponNoteFromTraits, WEAPON_TRAIT_OPTIONS, WEAPON_MASTERY_OPTIONS, itemRequiresAttunement } from '../data/itemDatabase'
-import { inputClass, inputClassInline, textareaClass } from '../lib/inputStyles'
+import { Pencil, X } from 'lucide-react'
+import { getItemListGrouped, getItemById, getItemDisplayName, parseWeaponNoteToTraits, buildWeaponNoteFromTraits, WEAPON_TRAIT_OPTIONS, WEAPON_MASTERY_OPTIONS, itemRequiresAttunement, addCustomItem, getOfficialNonMagicalItemTemplates } from '../data/itemDatabase'
+import { inputClass, textareaClass } from '../lib/inputStyles'
 import { useModule } from '../contexts/ModuleContext'
 import { BUFF_TYPES, getCategories, normalizeEffectCategory, parseDamageString, formatDamageForAttack, ITEM_STORAGE_DEFAULT_ITEM_IDS } from '../data/buffTypes'
-import { EffectValueEditor, isComplexValueType, DamageDiceInlineRow, NumberStepper, normalizeAttackDamageBonusModuleValue, AttackDamageBonusFields, newWeaponBonusRow } from './BuffForm'
+import { DamageDiceInlineRow, NumberStepper } from './BuffForm'
+import BuffForm from './BuffForm'
+import BuffEditorModal from './BuffEditorModal'
+import { getEffectSummaryShort } from './BuffListItem'
+import { evaluateBuffValue, isFormulaValue } from '../lib/formulas'
+import {
+  normalizeContainedSpellValue,
+  mergeContainedSpellEffects,
+  getContainedSpellTotalCharges,
+} from '../lib/containedSpellModel'
 
 /** 从护甲/衣服附注解析为可编辑字段（先匹配护甲基础再匹配盾牌，与 formulas 一致） */
 function parseArmorNoteToFields(note) {
@@ -59,6 +68,50 @@ function buildArmorNoteFromFields(fields) {
   return `${acPart}；力量${strPart}；隐匿${stealthPart}`
 }
 
+/** 武器基础/多用伤害不应包含固定加值（加值来自能力调整、熟练、魔法加值等 Buff），去掉 legacy 中的 flat mod（兼容 1d8 + 0 空格） */
+function stripDiceFlatMod(plus) {
+  if (!plus || typeof plus !== 'string') return plus
+  const m = plus.trim().match(/^(\d+)d(\d+)\s*([+-])\s*(\d+)$/i)
+  if (!m) return plus
+  return `${m[1]}d${m[2]}`
+}
+
+/** 解析武器伤害字符串，将「1d8/1d10 钝击」拆分为基础与多用（双手）伤害 */
+function splitVersatileDamage(str) {
+  const parsed = parseDamageString(str)
+  const base = { minus: parsed.minus ?? '', plus: stripDiceFlatMod(parsed.plus) ?? '', o1: '', o2: '', type: parsed.type ?? '', o3: parsed.o3 ?? '' }
+  const versa = { minus: '', plus: '', o1: '', o2: '', type: parsed.type ?? '', o3: '' }
+  if (base.plus.includes('/')) {
+    const [p1, p2] = base.plus.split('/')
+    base.plus = stripDiceFlatMod(p1.trim()) ?? ''
+    versa.plus = stripDiceFlatMod(p2.trim()) ?? ''
+  }
+  return { base, versa }
+}
+
+/** 根据基础伤害与多用伤害对象构建「攻击」字段；类型相同时合并为「1d8/1d10 钝击」。武器基础伤害不带固定加值。 */
+function buildWeaponAttack(baseObj, versaObj) {
+  const basePlus = stripDiceFlatMod(baseObj?.plus || '')
+  const versaPlus = stripDiceFlatMod(versaObj?.plus || '')
+  const base = { ...baseObj, plus: basePlus }
+  const versa = { ...versaObj, plus: versaPlus }
+  const baseStr = formatDamageForAttack(base)
+  const versaStr = formatDamageForAttack(versa)
+  if (!versaStr || !versaPlus) return baseStr
+  const baseType = base.type || ''
+  const versaType = versa.type || baseType
+  const sameType = baseType && versaType === baseType
+  const note = base.o3 || versa.o3 || ''
+  let out = ''
+  if (sameType) {
+    out = `${basePlus}/${versaPlus} ${baseType}`
+  } else {
+    out = `${basePlus}${baseType ? ' ' + baseType : ''}/${versaPlus}${versaType ? ' ' + versaType : ''}`.trim()
+  }
+  if (note) out = `${out} #${note}`
+  return out
+}
+
 function createEmptyModule() {
   const firstCat = getCategories()[0]?.key ?? 'ability'
   const firstEffect = BUFF_TYPES[firstCat]?.effects?.[0]?.key ?? 'ability_score'
@@ -67,6 +120,7 @@ function createEmptyModule() {
     category: firstCat,
     effectType: firstEffect,
     value: 0,
+    break20: {},
     customText: '',
     collapsed: false,
   }
@@ -95,28 +149,41 @@ function entryToEffectModules(entry, proto) {
   const isShield = proto?.子类型 === '盾牌'
   const shieldBaseMatch = isShield && (entry?.附注 ?? proto?.附注 ?? '').match(/AC\s*\+\s*(\d+)/i)
   const shieldBaseAC = shieldBaseMatch ? parseInt(shieldBaseMatch[1], 10) : null
-  // 若条目已有 effects（含空数组），优先从中还原；空数组表示用户已删光附魔效果，不再从其它字段推断
-  if (Array.isArray(entry?.effects)) {
-    if (entry.effects.length === 0) {
+  // 若条目已有 effects（含空数组），优先从中还原；否则尝试从基础物品原型 effects 还原。
+  // 空数组表示用户已删光附魔效果，不再从其它字段推断。
+  const entryEffects = Array.isArray(entry?.effects)
+    ? entry.effects
+    : (Array.isArray(proto?.effects) ? proto.effects : null)
+  if (entryEffects) {
+    if (entryEffects.length === 0) {
       // 次元袋/秘藏箱等默认储物物品强制保留容器效果
       return isDefaultStorageItem(entry) ? [createItemStorageModule()] : []
     }
+    // 迁移：多个独立 contained_spell effect 合并为一个多法术共享总充能池
+    let effects = entryEffects
+    const mergedCS = mergeContainedSpellEffects(effects, entry?.charge)
+    if (mergedCS) {
+      effects = effects.filter((e) => e.effectType !== 'contained_spell')
+      effects.push({
+        category: normalizeEffectCategory('contained_spell', 'charge'),
+        effectType: 'contained_spell',
+        value: mergedCS,
+        customText: '',
+      })
+    }
     const toRestore = isShield && shieldBaseAC != null
-      ? entry.effects.filter((e) => (e.effectType ?? '') !== 'ac_bonus' || (Number(e.value) || 0) !== shieldBaseAC)
-      : entry.effects
+      ? effects.filter((e) => (e.effectType ?? '') !== 'ac_bonus' || (Number(e.value) || 0) !== shieldBaseAC)
+      : effects
     toRestore.forEach((e) => {
       let val = e.value ?? 0
-      /** 内含法术「充能数」与背包表格外层 entry.charge 同一套数；列表步进器改的是 entry.charge，打开编辑时必须以之为准 */
+      /** 内含法术统一归一化为新结构，总能量与 entry.charge 保持一致 */
       if (e.effectType === 'contained_spell' && typeof val === 'object' && val && !Array.isArray(val)) {
-        const top = entry.charge
-        if (top != null && top !== '') {
-          val = { ...val, charges: Math.max(0, Number(top) || 0) }
-        } else if (val.charges === undefined) {
-          val = { ...val, charges: 0 }
-        }
+        val = normalizeContainedSpellValue(val, entry?.charge)
       }
+      const break20 = e.break20 && typeof e.break20 === 'object' && !Array.isArray(e.break20) ? e.break20 : {}
       add(normalizeEffectCategory(e.effectType ?? '', e.category), e.effectType ?? '', {
         value: val,
+        break20,
         customText: typeof e.value === 'string' ? e.value : (e.customText ?? ''),
       })
     })
@@ -136,6 +203,7 @@ function entryToEffectModules(entry, proto) {
   const acMatch = 附注.match(/AC\s*\+\s*(\d+)/i)
   if (acMatch && !isShield) add('defense', 'ac_bonus', { value: parseInt(acMatch[1], 10) || 0 })
   if (entry.spellDC != null && entry.spellDC !== '') add('mobility_casting', 'save_dc_bonus', { value: { val: Number(entry.spellDC) || 0, advantage: '' } })
+  if (entry.spellAttackBonus != null && entry.spellAttackBonus !== '') add('mobility_casting', 'spell_attack_bonus', { value: { val: Number(entry.spellAttackBonus) || 0, advantage: '' } })
   const 攻击距离 = (entry.攻击距离 ?? '').trim()
   const reachNum = 攻击距离.match(/(\d+)/)?.[1]
   if (reachNum) add('offense', 'reach_bonus', { value: parseInt(reachNum, 10) || 0 })
@@ -147,25 +215,39 @@ function entryToEffectModules(entry, proto) {
   return mods
 }
 
+/** 从效果模块值中提取可用数字：支持纯数字、公式对象、以及 { val: ... } / { speed: ... } 包装对象 */
+function resolveModuleNumericValue(val, context = {}) {
+  if (isFormulaValue(val)) return evaluateBuffValue(val, context)
+  if (typeof val === 'number' && !Number.isNaN(val)) return val
+  if (val && typeof val === 'object' && !Array.isArray(val)) {
+    if (isFormulaValue(val.val)) return evaluateBuffValue(val.val, context)
+    if (val.val != null) return Number(val.val) || 0
+    if (val.speed != null) return Number(val.speed) || 0
+  }
+  return 0
+}
+
 /** 从 BUFF 效果模块写出到物品条目的字段（附注片段、magicBonus、攻击距离等） */
-function effectModuleToEntryParts(mod, currentEffect) {
+function effectModuleToEntryParts(mod, currentEffect, context = {}) {
   if (!currentEffect) return {}
   const key = currentEffect.key
   const val = mod.value
   const text = mod.customText ?? ''
-  const num = typeof val === 'number' ? val : (typeof val === 'object' && val && !Array.isArray(val) && (val.val != null || val.speed != null) ? (val.val ?? val.speed ?? 0) : 0)
+  const num = resolveModuleNumericValue(val, context)
   if (key === 'ac_bonus') return { 附注Part: (num > 0 ? 'AC+' + num : '') }
   if (key === 'damage_reduction') return { 附注Part: num !== 0 ? `伤害减免${num}` : '' }
   if (key === 'attack_melee' || key === 'attack_ranged' || key === 'attack_all') return { magicBonus: num }
-  if (key === 'attack_bonus') return { magicBonus: typeof val === 'object' && val && val.val != null ? Number(val.val) : 0 }
+  if (key === 'attack_bonus') return { magicBonus: evaluateBuffValue(val?.val, context) || 0 }
   if (key === 'reach_bonus') return { 攻击距离: num > 0 ? num + '尺' : '' }
   if (key === 'attack_range') return { 攻击范围: text.trim() || '' }
   if (key === 'charge') return { charge: num }
-  if (key === 'save_dc_bonus' || key === 'spell_attack_bonus') return { spellDC: typeof val === 'object' && val && val.val != null ? Number(val.val) : 0 }
+  if (key === 'save_dc_bonus') return { spellDC: evaluateBuffValue(val?.val, context) || 0 }
+  if (key === 'spell_attack_bonus') return { spellAttackBonus: evaluateBuffValue(val?.val, context) || 0 }
   if (key === 'dmg_bonus_melee') return { 附注Part: num > 0 ? '近战伤害+' + num : '' }
   if (key === 'dmg_bonus_ranged') return { 附注Part: num > 0 ? '远程伤害+' + num : '' }
   if (key === 'crit_extra_dice') return { 附注Part: num >= 2 ? '暴击×' + num : '' }
   if (key === 'crit_range_expand') return { 附注Part: text.trim() ? '暴击范围 ' + text.trim() : '' }
+  if (key === 'crit_range_reduction') return { 附注Part: typeof val === 'number' && val > 0 ? `重击-${val}` : '' }
   if (key?.startsWith('custom_')) return { 附注Part: text.trim() }
   return {}
 }
@@ -181,8 +263,8 @@ const RARITY_OPTIONS = [
   { value: '神器', label: '神器' },
 ]
 
-export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确认加入', editEntry = null, inventory = [], spellDC, spellAttackBonus, referenceData }) {
-  const { customLibraryEpoch } = useModule()
+export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确认加入', editEntry = null, inventory = [], spellDC, spellAttackBonus, referenceData, templateMode = false, onItemSelect }) {
+  const { customLibraryEpoch, moduleLibrary, syncModuleItemTemplates } = useModule()
   const grouped = useMemo(() => getItemListGrouped(), [customLibraryEpoch])
   const ammoOptionsFromInv = useMemo(() => {
     const cats = new Set()
@@ -200,8 +282,9 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
   const [intro, setIntro] = useState('')
   const [qty, setQty] = useState(1)
   const [effectModules, setEffectModules] = useState(() => [])
-  const [armorFields, setArmorFields] = useState(() => ({ isShield: false, baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' }))
+  const [armorFields, setArmorFields] = useState(() => ({ isShield: false, armorSubtype: '', baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' }))
   const [weaponDamage, setWeaponDamage] = useState(() => ({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' }))
+  const [weaponVersatileDamage, setWeaponVersatileDamage] = useState(() => ({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' }))
   const [weaponTraits, setWeaponTraits] = useState(() => [])
   const [weaponRange, setWeaponRange] = useState(() => '')
   const [weaponAmmoCategory, setWeaponAmmoCategory] = useState(() => '')
@@ -210,23 +293,50 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
   const [explosiveRadius, setExplosiveRadius] = useState(() => 0)
   const [explosiveDamage, setExplosiveDamage] = useState(() => ({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' }))
   const introRef = useRef(null)
+  const isTemplateLoadRef = useRef(false)
+  const [moduleTemplateId, setModuleTemplateId] = useState('')
+  const [officialTemplateId, setOfficialTemplateId] = useState('')
+  /** 编辑卡弹窗：替代旧的逐条效果编辑 */
+  const [buffFormOpen, setBuffFormOpen] = useState(false)
+  const [buffFormInitial, setBuffFormInitial] = useState(null)
 
-  const typeGroup = grouped.find((g) => g.type === type)
-  const subTypeGroups = typeGroup?.subTypes ?? []
-  const items = subTypeGroups.flatMap((s) => s.items ?? [])
+  const itemTemplates = moduleLibrary?.itemTemplates ?? []
+  const officialTemplates = useMemo(() => getOfficialNonMagicalItemTemplates(), [])
+  const officialTemplateGroups = useMemo(() => {
+    const byType = {}
+    for (const item of officialTemplates) {
+      if (type && item.类型 !== type) continue
+      const t = item.类型
+      if (!byType[t]) byType[t] = []
+      byType[t].push(item)
+    }
+    return Object.entries(byType)
+      .map(([type, items]) => ({ type, items }))
+      .sort((a, b) => a.type.localeCompare(b.type, 'zh-Hans-CN'))
+  }, [officialTemplates, type])
+
   const selectedPrototype = itemId ? getItemById(itemId) : null
   const weightDisplay = selectedPrototype?.重量 ?? '—'
   const isEdit = !!editEntry
-  const isArmorOrClothing = selectedPrototype && (selectedPrototype.类型 === '盔甲' || selectedPrototype.类型 === '衣服')
-  const isArmor = selectedPrototype?.类型 === '盔甲'
-  const isWeapon = selectedPrototype && (selectedPrototype.类型 === '近战武器' || selectedPrototype.类型 === '远程武器' || selectedPrototype.类型 === '枪械')
-  const isExplosive = selectedPrototype && (selectedPrototype.类型 === '爆炸物' || (selectedPrototype.类型 === '消耗品' && selectedPrototype.子类型 === '爆炸品'))
-  const isShield = isArmor && selectedPrototype?.子类型 === '盾牌'
+  const resolvedType = selectedPrototype?.类型 || type
+  const isArmorOrClothing = resolvedType === '盔甲' || resolvedType === '衣服'
+  const isArmor = resolvedType === '盔甲'
+  const isWeapon = resolvedType === '近战武器' || resolvedType === '远程武器' || resolvedType === '枪械'
+  const isExplosive = resolvedType === '爆炸物' || (resolvedType === '消耗品' && selectedPrototype?.子类型 === '爆炸品')
+  const isShield = isArmor && (selectedPrototype?.子类型 === '盾牌' || armorFields.isShield)
   /** 魔杖/卷轴使用固定法强表（按环阶），不沿用角色法术DC/攻击加值 */
   const useWandScrollTable = (() => {
     const p = isEdit ? getItemById(editEntry?.itemId) : selectedPrototype
     return !!(p && (/魔杖|卷轴/.test(p.类别 || '') || p.子类型 === '卷轴'))
   })()
+
+  /** 用于效果简写求值与内含法术 DC/法攻/充能显示 */
+  const effectSummaryContext = useMemo(() => ({
+    ...(referenceData || {}),
+    spellDC,
+    spellAttackBonus,
+    useWandScrollTable,
+  }), [referenceData, spellDC, spellAttackBonus, useWandScrollTable])
 
   const autoResizeIntro = () => {
     const el = introRef.current
@@ -235,73 +345,103 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     el.style.height = `${el.scrollHeight}px`
   }
 
-  useEffect(() => {
-    if (!open) return
-    if (editEntry) {
-      const proto = editEntry.itemId ? getItemById(editEntry.itemId) : null
-      const typeFromProto = proto ? (grouped.find((g) => g.type === proto.类型)?.type ?? proto.类型 ?? '') : ''
-      setType(typeFromProto)
-      setItemId(editEntry.itemId ?? '')
-      setRarity(editEntry.rarity ?? '')
-      setIsAttuned(!!editEntry.isAttuned)
-      setName((editEntry.name && editEntry.name.trim()) || (proto ? getItemDisplayName(proto) : '') || '')
-      setIntro((editEntry.详细介绍 != null && editEntry.详细介绍 !== '') ? String(editEntry.详细介绍) : (proto?.详细介绍 ?? '') || '')
-      setQty(Math.max(1, Number(editEntry.qty) ?? 1))
-      setEffectModules(entryToEffectModules(editEntry, proto))
-      const note = (editEntry.附注 != null && editEntry.附注 !== '') ? String(editEntry.附注) : (proto?.附注 ?? '')
-      if (proto && proto.类型 === '盔甲') {
-        let f = parseArmorNoteToFields(note)
-        setArmorFields(f)
-      } else {
-        setArmorFields({ isShield: false, baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' })
-      }
-      if (proto && (proto.类型 === '近战武器' || proto.类型 === '远程武器' || proto.类型 === '枪械')) {
-        setWeaponDamage(parseDamageString(editEntry?.攻击 ?? proto?.攻击 ?? ''))
-        const { traits, range, ammoCategory } = parseWeaponNoteToTraits(editEntry?.附注 ?? proto?.附注 ?? '')
-        setWeaponTraits(traits)
-        setWeaponRange((editEntry?.攻击距离 ?? range ?? proto?.攻击距离 ?? '').trim())
-        setWeaponAmmoCategory(ammoCategory ?? '')
-        setWeaponMastery((editEntry?.精通 != null && editEntry?.精通 !== '') ? String(editEntry.精通) : (proto?.精通 ?? ''))
-      } else {
-        setWeaponDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
-        setWeaponTraits([])
-        setWeaponRange('')
-        setWeaponAmmoCategory('')
-        setWeaponMastery('')
-      }
-      if (proto && (proto.类型 === '爆炸物' || (proto.类型 === '消耗品' && proto.子类型 === '爆炸品'))) {
-        const rangeStr = (editEntry?.攻击距离 ?? proto?.攻击距离 ?? '').trim()
-        setExplosiveAttackDistance(rangeStr || '')
-        setExplosiveRadius(typeof editEntry?.爆炸半径 === 'number' ? editEntry.爆炸半径 : (proto?.爆炸半径 ?? 0))
-        setExplosiveDamage(parseDamageString(editEntry?.攻击 ?? proto?.攻击 ?? ''))
-      } else {
-        setExplosiveAttackDistance('')
-        setExplosiveRadius(0)
-        setExplosiveDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
-      }
+  const resetForm = () => {
+    setType('')
+    setItemId('')
+    setRarity('')
+    setIsAttuned(false)
+    setName('')
+    setIntro('')
+    setQty(1)
+    setEffectModules([])
+    setArmorFields({ isShield: false, armorSubtype: '', baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' })
+    setWeaponDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
+    setWeaponVersatileDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
+    setWeaponTraits([])
+    setWeaponRange('')
+    setWeaponAmmoCategory('')
+    setWeaponMastery('')
+    setExplosiveAttackDistance('')
+    setExplosiveRadius(0)
+    setExplosiveDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
+    setModuleTemplateId('')
+    setOfficialTemplateId('')
+  }
+
+  const loadEntryData = (entry) => {
+    const proto = entry?.itemId ? getItemById(entry.itemId) : null
+    const typeFromProto = proto ? (grouped.find((g) => g.type === proto.类型)?.type ?? proto.类型 ?? '') : ''
+    const nextItemId = entry?.itemId ?? ''
+    if (nextItemId && nextItemId !== itemId) {
+      isTemplateLoadRef.current = true
+    }
+    setType(typeFromProto)
+    setItemId(nextItemId)
+    setRarity(entry?.rarity ?? '')
+    setIsAttuned(!!entry?.isAttuned)
+    setName((entry?.name && entry.name.trim()) || (proto ? getItemDisplayName(proto) : '') || '')
+    setIntro((entry?.详细介绍 != null && entry.详细介绍 !== '') ? String(entry.详细介绍) : (proto?.详细介绍 ?? '') || '')
+    setQty(Math.max(1, Number(entry?.qty) ?? 1))
+    setEffectModules(entryToEffectModules(entry, proto))
+    const note = (entry?.附注 != null && entry.附注 !== '') ? String(entry.附注) : (proto?.附注 ?? '')
+    if (proto && proto.类型 === '盔甲') {
+      let f = parseArmorNoteToFields(note)
+      setArmorFields({ ...f, armorSubtype: proto.子类型 || '' })
     } else {
-      setType('')
-      setItemId('')
-      setRarity('')
-      setIsAttuned(false)
-      setName('')
-      setIntro('')
-      setQty(1)
-      setEffectModules([])
-      setArmorFields({ isShield: false, baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' })
+      setArmorFields({ isShield: false, armorSubtype: '', baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' })
+    }
+    if (proto && (proto.类型 === '近战武器' || proto.类型 === '远程武器' || proto.类型 === '枪械')) {
+      const { base, versa } = splitVersatileDamage(entry?.攻击 ?? proto?.攻击 ?? '')
+      setWeaponDamage(base)
+      setWeaponVersatileDamage(versa)
+      const { traits, range, ammoCategory } = parseWeaponNoteToTraits(entry?.附注 ?? proto?.附注 ?? '')
+      setWeaponTraits(traits)
+      setWeaponRange((entry?.攻击距离 ?? range ?? proto?.攻击距离 ?? '').trim())
+      setWeaponAmmoCategory(ammoCategory ?? '')
+      setWeaponMastery((entry?.精通 != null && entry?.精通 !== '') ? String(entry.精通) : (proto?.精通 ?? ''))
+    } else {
       setWeaponDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
+      setWeaponVersatileDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
       setWeaponTraits([])
       setWeaponRange('')
       setWeaponAmmoCategory('')
       setWeaponMastery('')
+    }
+    if (proto && (proto.类型 === '爆炸物' || (proto.类型 === '消耗品' && proto.子类型 === '爆炸品'))) {
+      const rangeStr = (entry?.攻击距离 ?? proto?.攻击距离 ?? '').trim()
+      setExplosiveAttackDistance(rangeStr || '')
+      setExplosiveRadius(typeof entry?.爆炸半径 === 'number' ? entry.爆炸半径 : (proto?.爆炸半径 ?? 0))
+      setExplosiveDamage(parseDamageString(entry?.攻击 ?? proto?.攻击 ?? ''))
+    } else {
       setExplosiveAttackDistance('')
       setExplosiveRadius(0)
       setExplosiveDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
     }
+  }
+
+  useEffect(() => {
+    if (!open) return
+    setModuleTemplateId('')
+    setOfficialTemplateId('')
+    if (editEntry) {
+      loadEntryData(editEntry)
+    } else {
+      resetForm()
+    }
   }, [open, editEntry, grouped])
+
+  // 新建模式打开弹窗时，自动把当前模组所有角色卡里的物品汇总到模组库
+  useEffect(() => {
+    if (!open || isEdit) return
+    syncModuleItemTemplates()
+  }, [open, isEdit, syncModuleItemTemplates])
 
   useEffect(() => {
     if (!itemId || isEdit) return
+    if (isTemplateLoadRef.current) {
+      isTemplateLoadRef.current = false
+      return
+    }
     const proto = getItemById(itemId)
     setName(proto ? getItemDisplayName(proto) : '')
     setIntro(proto?.详细介绍 ?? '')
@@ -312,10 +452,12 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     }
     if (proto && proto.类型 === '盔甲') {
       let f = parseArmorNoteToFields(proto.附注 ?? '')
-      setArmorFields(f)
+      setArmorFields({ ...f, armorSubtype: proto.子类型 || '' })
     }
     if (proto && (proto.类型 === '近战武器' || proto.类型 === '远程武器' || proto.类型 === '枪械')) {
-      setWeaponDamage(parseDamageString(proto.攻击 ?? ''))
+      const { base, versa } = splitVersatileDamage(proto.攻击 ?? '')
+      setWeaponDamage(base)
+      setWeaponVersatileDamage(versa)
       const { traits, range, ammoCategory } = parseWeaponNoteToTraits(proto.附注 ?? '')
       setWeaponTraits(traits)
       setWeaponRange((proto.攻击距离 ?? range ?? '').trim())
@@ -331,6 +473,13 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       setExplosiveRadius(0)
       setExplosiveDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
     }
+    if (onItemSelect) {
+      onItemSelect({
+        itemId,
+        name: proto ? getItemDisplayName(proto) : '',
+        intro: proto?.详细介绍 ?? '',
+      })
+    }
   }, [itemId, isEdit])
 
   useEffect(() => {
@@ -338,28 +487,66 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     autoResizeIntro()
   }, [open, intro])
 
-  const addModule = () => {
-    setEffectModules((prev) => [...prev, createEmptyModule()])
+  /** 删除单个附魔效果模块 */
+  const removeEffectModule = (modId) => {
+    setEffectModules((prev) => prev.filter((m) => m.id !== modId))
   }
 
-  const updateModule = (id, next) => {
-    setEffectModules((prev) => prev.map((m) => (m.id === id ? (typeof next === 'function' ? next(m) : { ...m, ...next }) : m)))
+  /** 打开编辑卡弹窗：将当前 effectModules 转为 BuffForm 格式 */
+  const openBuffFormEditor = () => {
+    const effectsForForm = effectModules.map((m) => ({
+      category: m.category,
+      effectType: m.effectType,
+      value: m.value,
+      customText: m.customText ?? '',
+      ...(m.break20 && typeof m.break20 === 'object' && Object.keys(m.break20).length ? { break20: m.break20 } : {}),
+    }))
+    setBuffFormInitial({ source: name?.trim() || editEntry?.name || 'item', effects: effectsForForm, modeSelected: true })
+    setBuffFormOpen(true)
   }
 
-  const removeModule = (id) => {
-    setEffectModules((prev) => prev.filter((m) => m.id !== id))
+  /** 编辑卡保存：将 BuffForm 输出转回 effectModules 格式 */
+  const handleBuffFormSave = (buffPayload) => {
+    const newModules = (buffPayload.effects || []).map((eff) => ({
+      id: 'm_' + Math.random().toString(36).slice(2),
+      category: eff.category,
+      effectType: eff.effectType,
+      value: eff.value,
+      break20: eff.break20 && typeof eff.break20 === 'object' ? eff.break20 : {},
+      customText: typeof eff.value === 'string' ? eff.value : (eff.customText ?? ''),
+      collapsed: false,
+    }))
+    setEffectModules(newModules)
+    setBuffFormOpen(false)
+    setBuffFormInitial(null)
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!itemId && !editEntry) return
+    if (templateMode && !itemId) return
+    if (!isEdit && !itemId && !type) return
     const proto = itemId ? getItemById(itemId) : (editEntry?.itemId ? getItemById(editEntry.itemId) : null)
+    // 合并多个 contained_spell 模块为一个，保证一个物品只有一条内含法术效果
+    let workingModules = effectModules
+    const csModules = workingModules.filter((m) => m.effectType === 'contained_spell')
+    if (csModules.length > 1) {
+      const mergedValue = mergeContainedSpellEffects(
+        csModules.map((m) => ({ effectType: 'contained_spell', value: m.value })),
+        editEntry?.charge,
+      )
+      const firstId = csModules[0].id
+      const dropIds = new Set(csModules.slice(1).map((m) => m.id))
+      workingModules = workingModules
+        .filter((m) => !dropIds.has(m.id))
+        .map((m) => (m.id === firstId ? { ...m, value: mergedValue } : m))
+    }
     let 攻击 = (editEntry?.攻击 ?? proto?.攻击 ?? '').trim() || undefined
     let 伤害 = (editEntry?.伤害 ?? proto?.伤害 ?? '').trim() || undefined
     let 攻击距离 = (editEntry?.攻击距离 ?? proto?.攻击距离 ?? '').trim() || undefined
     let 攻击范围 = (editEntry?.攻击范围 ?? '').trim() || undefined
     if (isWeapon && weaponDamage) {
-      攻击 = formatDamageForAttack(weaponDamage).trim() || 攻击
+      const versa = weaponTraits.includes('多用') ? weaponVersatileDamage : { ...weaponVersatileDamage, plus: '' }
+      攻击 = buildWeaponAttack(weaponDamage, versa).trim() || 攻击
       伤害 = weaponDamage.type || 伤害
       const r = String(weaponRange ?? '').trim()
       if (r) 攻击距离 = r
@@ -377,8 +564,9 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     let magicBonus = 0
     let charge = 0
     let spellDC = undefined
+    let itemSpellAttackBonus = undefined
     const effectsForSave = []
-    effectModules.forEach((mod) => {
+    workingModules.forEach((mod) => {
       const catData = BUFF_TYPES[mod.category]
       const effects = catData?.effects ?? []
       const currentEffect = effects.find((e) => e.key === mod.effectType)
@@ -387,31 +575,37 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       let saveVal = mod.value ?? 0
       if (currentEffect.dataType === 'text') saveVal = typeof mod.value === 'string' ? mod.value : (mod.customText ?? '')
       else if (currentEffect.dataType === 'boolean') saveVal = !!(mod.value === true || mod.value === 'true' || mod.value === 1)
-      const parts = effectModuleToEntryParts(mod, currentEffect)
+      // 内含法术统一归一化为新结构，并让总能量与 entry.charge 同步
+      if (currentEffect.key === 'contained_spell') {
+        saveVal = normalizeContainedSpellValue(saveVal, editEntry?.charge)
+        charge = getContainedSpellTotalCharges(saveVal)
+      }
+      const parts = effectModuleToEntryParts(mod, currentEffect, referenceData)
       // 盔甲/衣服：AC 加值写入 magicBonus，用于 AC 计算；不拼进附注
       if (isArmorOrClothing && currentEffect.key === 'ac_bonus') {
-        const val = typeof mod.value === 'number'
-          ? mod.value
-          : (typeof mod.value === 'object' && mod.value && !Array.isArray(mod.value) && (mod.value.val != null)
-            ? mod.value.val
-            : 0)
-        if (val != null) magicBonus = Number(val) || 0
+        const bonus = evaluateBuffValue(mod.value, referenceData)
+        magicBonus = Number.isNaN(Number(bonus)) ? 0 : Number(bonus)
         return
       }
-      effectsForSave.push({
+      const effectEntry = {
         category: mod.category,
         effectType: currentEffect.key,
         value: saveVal,
         customText: mod.customText ?? '',
-      })
+      }
+      if (currentEffect.key === 'ability_score_uncapped' && mod.break20 && typeof mod.break20 === 'object' && Object.keys(mod.break20).length) {
+        effectEntry.break20 = mod.break20
+      }
+      effectsForSave.push(effectEntry)
       if (!isArmorOrClothing && parts.附注Part) 附注 = (附注 ? 附注 + '；' : '') + parts.附注Part
       if (parts.magicBonus != null) magicBonus = parts.magicBonus
       if (parts.charge != null) charge = parts.charge
-      if (currentEffect.key === 'contained_spell' && typeof mod.value === 'object' && mod.value && 'charges' in mod.value) {
-        const c = Number(mod.value.charges)
-        if (!Number.isNaN(c) && c >= 0) charge = c
+      // charge_item 效果：从 value.charges 提取充能数
+      if (currentEffect.key === 'charge_item' && mod.value && typeof mod.value === 'object') {
+        charge = Number(mod.value.charges) || 0
       }
       if (parts.spellDC != null) spellDC = parts.spellDC
+      if (parts.spellAttackBonus != null) itemSpellAttackBonus = parts.spellAttackBonus
       if (parts.攻击距离 !== undefined) 攻击距离 = parts.攻击距离 || undefined
       if (parts.攻击范围 !== undefined) 攻击范围 = parts.攻击范围 || undefined
     })
@@ -419,10 +613,78 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     if (isDefaultStorageItem(itemId || editEntry) && !effectsForSave.some((e) => e.effectType === 'item_storage')) {
       effectsForSave.push({ category: 'container', effectType: 'item_storage', value: true, customText: '' })
     }
+
+    if (templateMode) {
+      const entry = {
+        itemId: itemId || editEntry?.itemId || '',
+        isAttuned,
+        ...(rarity ? { rarity } : {}),
+        name: (name?.trim()) || editEntry?.name || proto?.类别 || (proto ? getItemDisplayName(proto) : '') || '—',
+        攻击: 攻击 || undefined,
+        伤害: 伤害 || undefined,
+        攻击距离: 攻击距离 || undefined,
+        攻击范围: 攻击范围 || undefined,
+        详细介绍: intro != null ? String(intro).trim() : '',
+        附注: 附注 != null ? String(附注).trim() : '',
+        ...(isWeapon && 精通 ? { 精通 } : {}),
+        重量: proto?.重量,
+        qty: Math.max(1, qty),
+        magicBonus,
+        charge,
+        ...(spellDC != null ? { spellDC } : {}),
+        ...(itemSpellAttackBonus != null ? { spellAttackBonus: itemSpellAttackBonus } : {}),
+        effects: effectsForSave,
+        ...(isExplosive ? { 爆炸半径: Number(explosiveRadius) || 0 } : {}),
+      }
+      onSave(entry)
+      onClose()
+      return
+    }
+
+    if (!isEdit) {
+      // 新建模式：把修改后的数据保存为新的自定义基础物品，再生成一条干净的库存引用条目
+      const baseItem = {
+        类型: proto?.类型 || type || '近战武器',
+        子类型: isArmor ? (armorFields.armorSubtype || proto?.子类型 || '') : (proto?.子类型 || ''),
+        类别: proto?.类别 || '自定义',
+        名称: name?.trim() || '',
+        攻击: 攻击 || '',
+        附注: 附注 != null ? String(附注).trim() : '',
+        精通: isWeapon && 精通 ? 精通 : (proto?.精通 || ''),
+        伤害: 伤害 || '',
+        重量: proto?.重量 || '',
+        价格: proto?.价格 || '',
+        详细介绍: intro != null ? String(intro).trim() : '',
+        需要同调: proto?.需要同调 || itemRequiresAttunement({ magicBonus, effects: effectsForSave }),
+        rarity: rarity || '',
+        effects: effectsForSave,
+        magicBonus,
+        charge,
+        spellDC,
+        spellAttackBonus,
+        攻击距离: 攻击距离 || '',
+        爆炸半径: isExplosive ? (Number(explosiveRadius) || 0) : 0,
+      }
+      const newBaseItem = await addCustomItem(baseItem)
+      // 通知依赖自定义物品库的组件刷新（如数据维护页、物品选择器）
+      window.dispatchEvent(new CustomEvent('dnd-realtime-custom-library'))
+      const entry = {
+        id: 'inv_' + Date.now(),
+        itemId: newBaseItem.id,
+        isAttuned,
+        qty: Math.max(1, qty),
+        ...(rarity ? { rarity } : {}),
+      }
+      onSave(entry)
+      onClose()
+      return
+    }
+
+    // 编辑模式：保持原有库存条目覆盖逻辑
     const entry = {
-      id: editEntry ? editEntry.id : 'inv_' + Date.now(),
+      id: editEntry.id,
       isAttuned,
-      itemId: itemId || editEntry?.itemId || '',
+      itemId: editEntry?.itemId || '',
       ...(rarity ? { rarity } : {}),
       name: (name?.trim()) || editEntry?.name || proto?.类别 || (proto ? getItemDisplayName(proto) : '') || '—',
       攻击: 攻击 || undefined,
@@ -437,6 +699,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       magicBonus,
       charge,
       ...(spellDC != null ? { spellDC } : {}),
+      ...(itemSpellAttackBonus != null ? { spellAttackBonus: itemSpellAttackBonus } : {}),
       effects: effectsForSave,
       ...(isExplosive ? { 爆炸半径: Number(explosiveRadius) || 0 } : {}),
       // 保留容器内的嵌套物品（若编辑的是已有容器）
@@ -446,6 +709,54 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     onClose()
   }
 
+  const renderEffectCardSection = (title = '附魔效果', wrapperClassName = '') => (
+    <div className={`${wrapperClassName}`}>
+      <div className="flex items-center justify-between mb-0.5">
+        <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">{title}</label>
+        <button
+          type="button"
+          onClick={openBuffFormEditor}
+          className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-dnd-gold text-dnd-gold-light hover:bg-dnd-gold/20 text-[10px] font-medium"
+        >
+          <Pencil className="w-3 h-3" />
+          编辑效果卡
+        </button>
+      </div>
+      {effectModules.length === 0 ? (
+        <p className="text-gray-500 text-xs text-center py-2">暂无附魔效果</p>
+      ) : (
+        <div className="flex flex-wrap gap-1">
+          {effectModules.map((mod) => {
+            const catData = BUFF_TYPES[mod.category]
+            const currentEffect = catData?.effects?.find((e) => e.key === mod.effectType)
+            const label = currentEffect ? (currentEffect.label ?? mod.effectType) : '—'
+            const summary = currentEffect
+              ? getEffectSummaryShort({ effectType: mod.effectType, value: mod.value, customText: mod.customText }, effectSummaryContext)
+              : ''
+            return (
+              <span
+                key={mod.id}
+                className="inline-flex items-center rounded bg-[#1a2333]/60 border border-white/[0.08] px-1.5 py-0.5 text-xs text-gray-300 gap-1"
+                title={summary}
+              >
+                <span className="text-dnd-gold-light/80">{label}</span>
+                {summary && <span className="text-gray-400 truncate max-w-[120px]">{summary}</span>}
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); removeEffectModule(mod.id) }}
+                  className="text-gray-500 hover:text-red-400 transition-colors shrink-0 leading-none"
+                  title="删除此效果"
+                >
+                  ×
+                </button>
+              </span>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+
   if (!open) return null
 
   return (
@@ -453,86 +764,139 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       <div className="fixed inset-0 z-[200] bg-black/50" onClick={onClose} aria-hidden />
       <div className="fixed inset-4 sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:max-w-5xl sm:w-full z-[201] overflow-auto max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
         <form onSubmit={handleSubmit} className="space-y-2.5 p-3 bg-gray-800 rounded-xl border border-gray-600 min-w-0 w-full max-w-full">
-          {isEdit && <h4 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">编辑物品</h4>}
+          {templateMode && (
+            <h4 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">
+              {editEntry?.itemId ? '编辑物品模板' : '新建物品模板'}
+            </h4>
+          )}
+          {isEdit && !templateMode && <h4 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">编辑物品</h4>}
 
-          {/* 选择物品类型 → 获得基础信息（编辑时为只读） */}
+          {!isEdit && (
+            <div className="min-w-0 max-w-full">
+              <label className="block text-dnd-text-muted text-xs mb-0.5">从模组库导入</label>
+              <select
+                value={moduleTemplateId}
+                onChange={(e) => {
+                  const id = e.target.value
+                  setModuleTemplateId(id)
+                  if (id) {
+                    const tpl = itemTemplates.find((t) => t.id === id)
+                    if (tpl) {
+                      setOfficialTemplateId('')
+                      loadEntryData({
+                        itemId: tpl.itemId,
+                        name: tpl.name || '',
+                        qty: tpl.qty ?? 1,
+                        rarity: tpl.rarity ?? '',
+                        isAttuned: !!tpl.isAttuned,
+                      })
+                    }
+                  } else {
+                    resetForm()
+                  }
+                }}
+                className={inputClass + ' w-full h-8 text-xs'}
+              >
+                <option value="">— 选择模组物品模板 —</option>
+                {itemTemplates.length === 0 && (
+                  <option value="" disabled>暂无模组物品模板</option>
+                )}
+                {itemTemplates.map((tpl) => {
+                  const proto = tpl.itemId ? getItemById(tpl.itemId) : null
+                  const display = tpl.name || getItemDisplayName(proto) || tpl.itemId || '未命名模板'
+                  return (
+                    <option key={tpl.id} value={tpl.id}>{display}{tpl.qty > 1 ? ` ×${tpl.qty}` : ''}{tpl.rarity ? ` · ${tpl.rarity}` : ''}</option>
+                  )
+                })}
+              </select>
+            </div>
+          )}
+
+          {!isEdit && (officialTemplates.length > 0 || !type) && (
+            <div className="min-w-0 max-w-full">
+              <label className="block text-dnd-text-muted text-xs mb-0.5">官方非魔法物品模板</label>
+              {officialTemplateGroups.length === 0 && type ? (
+                <div className={inputClass + ' w-full h-8 text-xs flex items-center text-gray-500 px-2'}>
+                  「{type}」无官方非魔法物品模板，可手动填写下方信息
+                </div>
+              ) : (
+                <select
+                  value={officialTemplateId}
+                  onChange={(e) => {
+                    const id = e.target.value
+                    setOfficialTemplateId(id)
+                    if (id) {
+                      setModuleTemplateId('')
+                      loadEntryData({ itemId: id, name: '', qty: 1, rarity: '', isAttuned: false })
+                    } else {
+                      resetForm()
+                    }
+                  }}
+                  className={inputClass + ' w-full h-8 text-xs'}
+                >
+                  <option value="">— 选择官方物品模板 —</option>
+                  {officialTemplateGroups.map((g) => (
+                    <optgroup key={g.type} label={g.type}>
+                      {g.items.map((item) => (
+                        <option key={item.id} value={item.id}>{getItemDisplayName(item)}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+
+          {/* 类型与稀有度/同调/重量（编辑或选择模板后为只读，否则提供类型下拉来自定义） */}
           <div className="min-w-0 max-w-full">
-            {!isEdit && <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-0.5">选择物品类型</label>}
-            {isEdit ? (
-              <div className="flex flex-wrap items-center gap-1.5 min-w-0 max-w-full">
-                <span className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">类型</span>
-                <span className="text-gray-400 text-sm">{type || '—'}</span>
-                <span className="text-gray-500 text-sm">/</span>
-                <span className="text-sm text-dnd-text-body">{selectedPrototype ? (getItemDisplayName(selectedPrototype) || itemId) : itemId || '—'}</span>
-                <div className="flex-1 min-w-0" />
+            <div className="flex flex-nowrap items-center gap-1.5 min-w-0 max-w-full overflow-hidden">
+              {(isEdit || itemId) && <span className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider shrink-0">类型</span>}
+              {isEdit || itemId ? (
+                <span className="min-w-0 truncate text-sm text-dnd-text-body">
+                  <span className="text-gray-400">{type || '—'}</span>
+                  <span className="text-gray-500 mx-0.5">/</span>
+                  {selectedPrototype ? (getItemDisplayName(selectedPrototype) || itemId) : itemId || '—'}
+                </span>
+              ) : (
+                <>
+                  <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider shrink-0">类型</label>
+                  <select
+                    value={type}
+                    onChange={(e) => { setType(e.target.value); setOfficialTemplateId('') }}
+                    className={inputClass + ' h-8 min-w-0 w-[7rem] text-sm shrink-0'}
+                  >
+                    <option value="">— 类型 —</option>
+                    {grouped.map((g) => (
+                      <option key={g.type} value={g.type}>{g.type}</option>
+                    ))}
+                  </select>
+                  <span className="text-dnd-text-muted text-xs truncate">选类型后模板自动筛选，或下方直接选模板</span>
+                </>
+              )}
+              <div className="ml-auto flex shrink-0 items-center gap-1.5">
                 <select
                   value={rarity}
                   onChange={(e) => setRarity(e.target.value)}
-                  className={inputClass + ' h-7 min-w-0 w-24 text-xs shrink-0'}
+                  className={inputClass + ' h-8 min-w-0 w-24 text-sm shrink-0'}
                 >
                   {RARITY_OPTIONS.map((o) => (
                     <option key={o.value || '_'} value={o.value}>{o.label}</option>
                   ))}
                 </select>
-                <label className="shrink-0 inline-flex items-center gap-1.5 h-7 px-2 rounded-lg border border-gray-600 bg-gray-800 text-gray-300 text-xs cursor-pointer whitespace-nowrap">
-                  <input
-                    type="checkbox"
-                    checked={isAttuned}
-                    onChange={(e) => setIsAttuned(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-gray-500 bg-black/30 text-dnd-gold focus:ring-dnd-gold/40"
-                  />
-                  同调
-                </label>
-                <span className="text-dnd-text-muted text-xs whitespace-nowrap">重量：{weightDisplay}</span>
+                {(isEdit || (selectedPrototype && itemRequiresAttunement(selectedPrototype)) || (!isEdit && effectModules.length > 0)) && (
+                  <label className="shrink-0 inline-flex items-center gap-1.5 h-8 px-2 rounded-lg border border-gray-600 bg-gray-800 text-gray-300 text-xs cursor-pointer whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      checked={isAttuned}
+                      onChange={(e) => setIsAttuned(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-gray-500 bg-black/30 text-dnd-gold focus:ring-dnd-gold/40"
+                    />
+                    同调
+                  </label>
+                )}
+                <span className="text-dnd-text-muted text-xs whitespace-nowrap shrink-0">重量：{weightDisplay}</span>
               </div>
-            ) : (
-              <div className="flex flex-wrap gap-1.5 min-w-0 max-w-full">
-                <select
-                  value={type}
-                  onChange={(e) => { setType(e.target.value); setItemId(''); }}
-                  className={inputClass + ' h-8 min-w-0 w-[7rem] text-sm shrink-0'}
-                >
-                  <option value="">— 类型 —</option>
-                  {grouped.map((g) => (
-                    <option key={g.type} value={g.type}>{g.type}</option>
-                  ))}
-                </select>
-                <div className="flex flex-1 min-w-0 gap-1.5 flex-nowrap max-w-full overflow-hidden">
-                  <select
-                    value={itemId}
-                    onChange={(e) => setItemId(e.target.value)}
-                    className={inputClass + ' h-8 flex-1 min-w-0 text-sm max-w-full'}
-                    disabled={!type}
-                  >
-                    <option value="">— 选择物品 —</option>
-                    {items.map((x) => (
-                      <option key={x.id} value={x.id}>{x._display || getItemDisplayName(x) || x.类别}</option>
-                    ))}
-                  </select>
-                  {/* 稀有度宽度固定为 30%，请勿改为全宽或其它比例 */}
-                  <select
-                    value={rarity}
-                    onChange={(e) => setRarity(e.target.value)}
-                    className={inputClass + ' h-8 text-sm flex-[0_0_30%] max-w-[30%]'}
-                  >
-                    {RARITY_OPTIONS.map((o) => (
-                      <option key={o.value || '_'} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
-                  {selectedPrototype && itemRequiresAttunement(selectedPrototype) && (
-                    <label className="shrink-0 inline-flex items-center gap-1.5 h-8 px-2 rounded-lg border border-gray-600 bg-gray-800 text-gray-300 text-xs cursor-pointer whitespace-nowrap">
-                      <input
-                        type="checkbox"
-                        checked={isAttuned}
-                        onChange={(e) => setIsAttuned(e.target.checked)}
-                        className="h-3.5 w-3.5 rounded border-gray-500 bg-black/30 text-dnd-gold focus:ring-dnd-gold/40"
-                      />
-                      同调
-                    </label>
-                  )}
-                </div>
-              </div>
-            )}
+            </div>
           </div>
 
           {/* 名字（可修改） */}
@@ -563,7 +927,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
           </div>
 
           {/* 爆炸物：三模块 — 左+中占 1/2 弹窗，右占 1/2；模块内内容均分平铺 */}
-          {isExplosive && selectedPrototype ? (
+          {isExplosive ? (
             <div className="w-full rounded border border-gray-600 bg-gray-700/30 px-2 py-1">
               <div className="flex flex-nowrap items-baseline gap-0 min-w-0 w-full text-gray-200 text-xs">
                 {/* 左半：抛投距离 | 分隔符 | 爆炸半径，共占 50% */}
@@ -628,11 +992,17 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
           ) : null}
 
           {/* 武器基本属性：伤害、词条、精通（选择物品时从基础数据自动填入）；下方为附魔效果 */}
-          {isWeapon && selectedPrototype ? (
+          {isWeapon ? (
             <div className="w-full rounded border border-gray-600 bg-gray-700/30 px-2 py-1.5 space-y-1.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">武器基本属性</span>
-                <button type="button" onClick={() => setWeaponDamage(parseDamageString(selectedPrototype.攻击 ?? ''))} className="text-xs px-1.5 py-0.5 rounded border border-gray-500 text-gray-400 hover:bg-gray-600">使用模版</button>
+                {selectedPrototype && (
+                  <button type="button" onClick={() => {
+                    const { base, versa } = splitVersatileDamage(selectedPrototype.攻击 ?? '')
+                    setWeaponDamage(base)
+                    setWeaponVersatileDamage(versa)
+                  }} className="text-xs px-1.5 py-0.5 rounded border border-gray-500 text-gray-400 hover:bg-gray-600">使用模版</button>
+                )}
               </div>
               <div>
                 <DamageDiceInlineRow
@@ -640,7 +1010,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                   onChange={(next) => next.value != null && setWeaponDamage(next.value)}
                   module={{ id: 'weapon-dmg', effectType: 'extra_damage_dice', value: weaponDamage }}
                   compact
-                  minusStepper
+                  hideFlatMod
                   leftLabel="伤害"
                   trailing={
                     <>
@@ -655,6 +1025,24 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                   }
                 />
               </div>
+              {weaponTraits.includes('多用') && (
+                <div>
+                  <DamageDiceInlineRow
+                    value={weaponVersatileDamage}
+                    onChange={(next) => {
+                      if (next.value == null) return
+                      setWeaponVersatileDamage((prev) => ({
+                        ...next.value,
+                        type: next.value.type || prev.type || weaponDamage.type || '',
+                      }))
+                    }}
+                    module={{ id: 'weapon-versatile-dmg', effectType: 'extra_damage_dice', value: weaponVersatileDamage }}
+                    compact
+                    hideFlatMod
+                    leftLabel="双手"
+                  />
+                </div>
+              )}
               <div>
                 <span className="text-dnd-text-muted text-xs block mb-0.5">词条</span>
                 <div className="flex flex-wrap gap-x-2 gap-y-1">
@@ -701,156 +1089,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                   })}
                 </div>
               </div>
-              <div className="w-full pt-1.5 border-t border-gray-600/80">
-                <div className="flex items-center justify-between mb-0.5">
-                  <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">附魔效果（可多条）</label>
-                  <button type="button" onClick={addModule} className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-dnd-gold text-dnd-gold-light hover:bg-dnd-gold/20 text-[10px] font-medium">
-                    <Plus className="w-3 h-3" />
-                    添加效果
-                  </button>
-                </div>
-                <div className="space-y-1">
-                  {effectModules.map((mod) => {
-                    const catData = BUFF_TYPES[mod.category]
-                    const effects = catData?.effects ?? []
-                    const visibleEffects = effects.filter((e) => !e.hidden)
-                    const hasCategory = !!mod.category && !!catData
-                    const effectTypeValid = hasCategory && effects.some((e) => e.key === mod.effectType)
-                    const effectiveEffectType = hasCategory && effectTypeValid ? mod.effectType : ''
-                    const currentEffect = effects.find((e) => e.key === effectiveEffectType)
-                    const complexValue = currentEffect ? isComplexValueType(currentEffect) : false
-                    const isAttackDamageBonus = effectiveEffectType === 'attack_damage_bonus'
-                    const categorySelect = (
-                      <select
-                        value={mod.category || ''}
-                        onChange={(e) => {
-                          const newCat = e.target.value
-                          const newEffects = BUFF_TYPES[newCat]?.effects ?? []
-                          updateModule(mod.id, { ...mod, category: newCat, effectType: newCat ? (newEffects[0]?.key ?? '') : '' })
-                        }}
-                        className={inputClass + ' h-7 text-xs w-full min-w-0'}
-                      >
-                        <option value="">&lt;效果大类&gt;</option>
-                        {getCategories().map((c) => (
-                          <option key={c.key} value={c.key}>{c.label}</option>
-                        ))}
-                      </select>
-                    )
-                    const effectTypeSelect = (
-                      <select
-                        value={effectiveEffectType}
-                        onChange={(e) => {
-                          const nextType = e.target.value
-                          const patch = { ...mod, effectType: nextType }
-                          if (nextType === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
-                          if (nextType === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(mod.value)
-                          updateModule(mod.id, patch)
-                        }}
-                        className={inputClass + ' h-7 text-xs w-full min-w-0'}
-                        disabled={!hasCategory}
-                      >
-                        <option value="">&lt;具体效果&gt;</option>
-                        {visibleEffects.map((e) => (
-                          <option key={e.key} value={e.key}>{e.label}</option>
-                        ))}
-                      </select>
-                    )
-                    const removeBtn = (
-                      <button
-                        type="button"
-                        onClick={() => removeModule(mod.id)}
-                        className="h-7 w-7 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 hover:border-red-600 flex items-center justify-center shrink-0"
-                        title="删除此效果"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )
-                    const inlineEditor = (
-                      <EffectValueEditor referenceData={referenceData}
-                        module={{ ...mod, effectType: effectiveEffectType }}
-                        onChange={(next) => updateModule(mod.id, next)}
-                        catData={catData}
-                        inline
-                        spellDC={spellDC}
-                        spellAttackBonus={spellAttackBonus}
-                        useWandScrollTable={useWandScrollTable}
-                      />
-                    )
-                    return (
-                      <div key={mod.id} className="rounded border border-gray-600 bg-gray-700/30 p-1.5 space-y-1">
-                        {isAttackDamageBonus ? (
-                          <div className="flex flex-col gap-2.5 w-full min-w-0">
-                            <div className="flex flex-wrap items-center gap-1 w-full min-w-0 overflow-x-hidden">
-                              <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{categorySelect}</div>
-                              <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{effectTypeSelect}</div>
-                              <AttackDamageBonusFields referenceData={referenceData}
-                                module={{ ...mod, effectType: effectiveEffectType }}
-                                onChange={(next) => updateModule(mod.id, next)}
-                                compactClass={inputClassInline + ' h-7 text-xs'}
-                                inline
-                                variant="global"
-                              />
-                              <div className="ml-auto flex items-center gap-1 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const obj = normalizeAttackDamageBonusModuleValue(mod.value)
-                                    updateModule(mod.id, {
-                                      ...mod,
-                                      value: { ...obj, categoryRows: [...(obj.categoryRows || []), newWeaponBonusRow('', 0)] },
-                                    })
-                                  }}
-                                  className="shrink-0 rounded border border-amber-500/60 bg-gray-800/90 px-2 py-0.5 text-[10px] font-medium text-amber-400/95 hover:bg-amber-500/15 h-7 flex items-center"
-                                  title="添加一条按武器类型/类别的额外加值"
-                                >
-                                  局部生效
-                                </button>
-                                {removeBtn}
-                              </div>
-                            </div>
-                            <div className="w-full min-w-0 overflow-x-hidden border-t border-gray-600/50 pt-2.5">
-                              <AttackDamageBonusFields referenceData={referenceData}
-                                module={{ ...mod, effectType: effectiveEffectType }}
-                                onChange={(next) => updateModule(mod.id, next)}
-                                compactClass={inputClassInline + ' h-7 text-xs'}
-                                inline
-                                variant="weapons"
-                                hideWeaponAddButtons
-                              />
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center gap-1 w-full min-w-0">
-                              <div className="min-w-0">{categorySelect}</div>
-                              <div className="min-w-0">{effectTypeSelect}</div>
-                              {!complexValue && (
-                                <div className="col-span-3 min-w-0 flex flex-nowrap items-center gap-1 overflow-hidden">
-                                  {inlineEditor}
-                                </div>
-                              )}
-                              {complexValue && <div className="col-span-3" />}
-                              {removeBtn}
-                            </div>
-                            {complexValue && (
-                              <div className="pt-0.5 border-t border-gray-600/80">
-                                <EffectValueEditor referenceData={referenceData}
-                                  module={{ ...mod, effectType: effectiveEffectType }}
-                                  onChange={(next) => updateModule(mod.id, next)}
-                                  catData={catData}
-                                  spellDC={spellDC}
-                                  spellAttackBonus={spellAttackBonus}
-                                  useWandScrollTable={useWandScrollTable}
-                                />
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
+              {renderEffectCardSection('附魔效果（可多条）', 'w-full pt-1.5 border-t border-gray-600/80')}
             </div>
           ) : null}
 
@@ -860,6 +1099,31 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
               <div className="rounded border border-gray-600 bg-gray-700/30 px-2 py-1.5 space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">{isShield ? '盾牌基本属性' : '盔甲基本属性'}</span>
+                  <div className="flex items-center gap-2">
+                    {!isShield && (
+                      <select
+                        value={armorFields.armorSubtype}
+                        onChange={(e) => setArmorFields((f) => ({ ...f, armorSubtype: e.target.value }))}
+                        className={inputClass + ' h-7 text-xs w-20'}
+                      >
+                        <option value="">—</option>
+                        <option value="轻甲">轻甲</option>
+                        <option value="中甲">中甲</option>
+                        <option value="重甲">重甲</option>
+                      </select>
+                    )}
+                    {!selectedPrototype && isArmor && (
+                      <label className="inline-flex items-center gap-1 text-xs text-gray-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={armorFields.isShield}
+                          onChange={(e) => setArmorFields((f) => ({ ...f, isShield: e.target.checked }))}
+                          className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                        />
+                        盾牌
+                      </label>
+                    )}
+                  </div>
                 </div>
                 {isShield ? (
                   <div className="flex items-center gap-2">
@@ -925,154 +1189,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                 )}
               </div>
               <div className="rounded border border-gray-600 bg-gray-700/30 px-2 py-1.5 space-y-1.5">
-                <div className="flex items-center justify-between mb-0.5">
-                  <span className="text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">附魔效果（可多条）</span>
-                  <button type="button" onClick={addModule} className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-dnd-gold text-dnd-gold-light hover:bg-dnd-gold/20 text-[10px] font-medium">
-                    <Plus className="w-3 h-3" />
-                    添加效果
-                  </button>
-                </div>
-                <div className="space-y-1">
-                  {effectModules.map((mod) => {
-                    const catData = BUFF_TYPES[mod.category]
-                    const effects = catData?.effects ?? []
-                    const visibleEffects = effects.filter((e) => !e.hidden)
-                    const hasCategory = !!mod.category && !!catData
-                    const effectTypeValid = hasCategory && effects.some((e) => e.key === mod.effectType)
-                    const effectiveEffectType = hasCategory && effectTypeValid ? mod.effectType : ''
-                    const currentEffect = effects.find((e) => e.key === effectiveEffectType)
-                    const complexValue = currentEffect ? isComplexValueType(currentEffect) : false
-                    const isAttackDamageBonus = effectiveEffectType === 'attack_damage_bonus'
-                    const categorySelect = (
-                      <select
-                        value={mod.category || ''}
-                        onChange={(e) => {
-                          const newCat = e.target.value
-                          const newEffects = BUFF_TYPES[newCat]?.effects ?? []
-                          updateModule(mod.id, { ...mod, category: newCat, effectType: newCat ? (newEffects[0]?.key ?? '') : '' })
-                        }}
-                        className={inputClass + ' h-7 text-xs w-full min-w-0'}
-                      >
-                        <option value="">&lt;效果大类&gt;</option>
-                        {getCategories().map((c) => (
-                          <option key={c.key} value={c.key}>{c.label}</option>
-                        ))}
-                      </select>
-                    )
-                    const effectTypeSelect = (
-                      <select
-                        value={effectiveEffectType}
-                        onChange={(e) => {
-                          const nextType = e.target.value
-                          const patch = { ...mod, effectType: nextType }
-                          if (nextType === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
-                          if (nextType === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(mod.value)
-                          updateModule(mod.id, patch)
-                        }}
-                        className={inputClass + ' h-7 text-xs w-full min-w-0'}
-                        disabled={!hasCategory}
-                      >
-                        <option value="">&lt;具体效果&gt;</option>
-                        {visibleEffects.map((e) => (
-                          <option key={e.key} value={e.key}>{e.label}</option>
-                        ))}
-                      </select>
-                    )
-                    const removeBtn = (
-                      <button
-                        type="button"
-                        onClick={() => removeModule(mod.id)}
-                        className="h-7 w-7 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 hover:border-red-600 flex items-center justify-center shrink-0"
-                        title="删除此效果"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )
-                    const inlineEditor = (
-                      <EffectValueEditor referenceData={referenceData}
-                        module={{ ...mod, effectType: effectiveEffectType }}
-                        onChange={(next) => updateModule(mod.id, next)}
-                        catData={catData}
-                        inline
-                        spellDC={spellDC}
-                        spellAttackBonus={spellAttackBonus}
-                        useWandScrollTable={useWandScrollTable}
-                      />
-                    )
-                    return (
-                      <div key={mod.id} className="rounded border border-gray-600 bg-gray-700/30 p-1.5 space-y-1">
-                        {isAttackDamageBonus ? (
-                          <div className="flex flex-col gap-2.5 w-full min-w-0">
-                            <div className="flex flex-wrap items-center gap-1 w-full min-w-0 overflow-x-hidden">
-                              <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{categorySelect}</div>
-                              <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{effectTypeSelect}</div>
-                              <AttackDamageBonusFields referenceData={referenceData}
-                                module={{ ...mod, effectType: effectiveEffectType }}
-                                onChange={(next) => updateModule(mod.id, next)}
-                                compactClass={inputClassInline + ' h-7 text-xs'}
-                                inline
-                                variant="global"
-                              />
-                              <div className="ml-auto flex items-center gap-1 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const obj = normalizeAttackDamageBonusModuleValue(mod.value)
-                                    updateModule(mod.id, {
-                                      ...mod,
-                                      value: { ...obj, categoryRows: [...(obj.categoryRows || []), newWeaponBonusRow('', 0)] },
-                                    })
-                                  }}
-                                  className="shrink-0 rounded border border-amber-500/60 bg-gray-800/90 px-2 py-0.5 text-[10px] font-medium text-amber-400/95 hover:bg-amber-500/15 h-7 flex items-center"
-                                  title="添加一条按武器类型/类别的额外加值"
-                                >
-                                  局部生效
-                                </button>
-                                {removeBtn}
-                              </div>
-                            </div>
-                            <div className="w-full min-w-0 overflow-x-hidden border-t border-gray-600/50 pt-2.5">
-                              <AttackDamageBonusFields referenceData={referenceData}
-                                module={{ ...mod, effectType: effectiveEffectType }}
-                                onChange={(next) => updateModule(mod.id, next)}
-                                compactClass={inputClassInline + ' h-7 text-xs'}
-                                inline
-                                variant="weapons"
-                                hideWeaponAddButtons
-                              />
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center gap-1 w-full min-w-0">
-                              <div className="min-w-0">{categorySelect}</div>
-                              <div className="min-w-0">{effectTypeSelect}</div>
-                              {!complexValue && (
-                                <div className="col-span-3 min-w-0 flex flex-nowrap items-center gap-1 overflow-hidden">
-                                  {inlineEditor}
-                                </div>
-                              )}
-                              {complexValue && <div className="col-span-3" />}
-                              {removeBtn}
-                            </div>
-                            {complexValue && (
-                              <div className="pt-0.5 border-t border-gray-600/80">
-                                <EffectValueEditor referenceData={referenceData}
-                                  module={{ ...mod, effectType: effectiveEffectType }}
-                                  onChange={(next) => updateModule(mod.id, next)}
-                                  catData={catData}
-                                  spellDC={spellDC}
-                                  spellAttackBonus={spellAttackBonus}
-                                  useWandScrollTable={useWandScrollTable}
-                                />
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
+                {renderEffectCardSection()}
               </div>
             </>
           )}
@@ -1080,154 +1197,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
           {/* 非武器且非盔甲/衣服：仅附魔效果 */}
           {!isWeapon && !isArmor && (
             <div className="w-full rounded border border-gray-600 bg-gray-700/30 px-2 py-1.5 space-y-1.5">
-              <div className="flex items-center justify-between mb-0.5">
-                <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">附魔效果（可多条）</label>
-                <button type="button" onClick={addModule} className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-dnd-gold text-dnd-gold-light hover:bg-dnd-gold/20 text-[10px] font-medium">
-                  <Plus className="w-3 h-3" />
-                  添加效果
-                </button>
-              </div>
-              <div className="space-y-1">
-                {effectModules.map((mod) => {
-                  const catData = BUFF_TYPES[mod.category]
-                  const effects = catData?.effects ?? []
-                  const visibleEffects = effects.filter((e) => !e.hidden)
-                  const hasCategory = !!mod.category && !!catData
-                  const effectTypeValid = hasCategory && effects.some((e) => e.key === mod.effectType)
-                  const effectiveEffectType = hasCategory && effectTypeValid ? mod.effectType : ''
-                  const currentEffect = effects.find((e) => e.key === effectiveEffectType)
-                  const complexValue = currentEffect ? isComplexValueType(currentEffect) : false
-                  const isAttackDamageBonus = effectiveEffectType === 'attack_damage_bonus'
-                  const categorySelect = (
-                    <select
-                      value={mod.category || ''}
-                      onChange={(e) => {
-                        const newCat = e.target.value
-                        const newEffects = BUFF_TYPES[newCat]?.effects ?? []
-                        updateModule(mod.id, { ...mod, category: newCat, effectType: newCat ? (newEffects[0]?.key ?? '') : '' })
-                      }}
-                      className={inputClass + ' h-7 text-xs w-full min-w-0'}
-                    >
-                      <option value="">&lt;效果大类&gt;</option>
-                      {getCategories().map((c) => (
-                        <option key={c.key} value={c.key}>{c.label}</option>
-                      ))}
-                    </select>
-                  )
-                  const effectTypeSelect = (
-                    <select
-                      value={effectiveEffectType}
-                      onChange={(e) => {
-                        const nextType = e.target.value
-                        const patch = { ...mod, effectType: nextType }
-                        if (nextType === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
-                        if (nextType === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(mod.value)
-                        updateModule(mod.id, patch)
-                      }}
-                      className={inputClass + ' h-7 text-xs w-full min-w-0'}
-                      disabled={!hasCategory}
-                    >
-                      <option value="">&lt;具体效果&gt;</option>
-                      {visibleEffects.map((e) => (
-                        <option key={e.key} value={e.key}>{e.label}</option>
-                      ))}
-                    </select>
-                  )
-                  const removeBtn = (
-                    <button
-                      type="button"
-                      onClick={() => removeModule(mod.id)}
-                      className="h-7 w-7 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 hover:border-red-600 flex items-center justify-center shrink-0"
-                      title="删除此效果"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )
-                  const inlineEditor = (
-                    <EffectValueEditor referenceData={referenceData}
-                      module={{ ...mod, effectType: effectiveEffectType }}
-                      onChange={(next) => updateModule(mod.id, next)}
-                      catData={catData}
-                      inline
-                      spellDC={spellDC}
-                      spellAttackBonus={spellAttackBonus}
-                      useWandScrollTable={useWandScrollTable}
-                    />
-                  )
-                  return (
-                    <div key={mod.id} className="rounded border border-gray-600 bg-gray-700/30 p-1.5 space-y-1">
-                      {isAttackDamageBonus ? (
-                        <div className="flex flex-col gap-2.5 w-full min-w-0">
-                          <div className="flex flex-wrap items-center gap-1 w-full min-w-0 overflow-x-hidden">
-                            <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{categorySelect}</div>
-                            <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{effectTypeSelect}</div>
-                            <AttackDamageBonusFields referenceData={referenceData}
-                              module={{ ...mod, effectType: effectiveEffectType }}
-                              onChange={(next) => updateModule(mod.id, next)}
-                              compactClass={inputClassInline + ' h-7 text-xs'}
-                              inline
-                              variant="global"
-                            />
-                            <div className="ml-auto flex items-center gap-1 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const obj = normalizeAttackDamageBonusModuleValue(mod.value)
-                                  updateModule(mod.id, {
-                                    ...mod,
-                                    value: { ...obj, categoryRows: [...(obj.categoryRows || []), newWeaponBonusRow('', 0)] },
-                                  })
-                                }}
-                                className="shrink-0 rounded border border-amber-500/60 bg-gray-800/90 px-2 py-0.5 text-[10px] font-medium text-amber-400/95 hover:bg-amber-500/15 h-7 flex items-center"
-                                title="添加一条按武器类型/类别的额外加值"
-                              >
-                                局部生效
-                              </button>
-                              {removeBtn}
-                            </div>
-                          </div>
-                          <div className="w-full min-w-0 overflow-x-hidden border-t border-gray-600/50 pt-2.5">
-                            <AttackDamageBonusFields referenceData={referenceData}
-                              module={{ ...mod, effectType: effectiveEffectType }}
-                              onChange={(next) => updateModule(mod.id, next)}
-                              compactClass={inputClassInline + ' h-7 text-xs'}
-                              inline
-                              variant="weapons"
-                              hideWeaponAddButtons
-                            />
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center gap-1 w-full min-w-0">
-                            <div className="min-w-0">{categorySelect}</div>
-                            <div className="min-w-0">{effectTypeSelect}</div>
-                            {!complexValue && (
-                              <div className="col-span-3 min-w-0 flex flex-nowrap items-center gap-1 overflow-hidden">
-                                {inlineEditor}
-                              </div>
-                            )}
-                            {complexValue && <div className="col-span-3" />}
-                            {removeBtn}
-                          </div>
-                          {complexValue && (
-                            <div className="pt-0.5 border-t border-gray-600/80">
-                              <EffectValueEditor referenceData={referenceData}
-                                module={{ ...mod, effectType: effectiveEffectType }}
-                                onChange={(next) => updateModule(mod.id, next)}
-                                catData={catData}
-                                spellDC={spellDC}
-                                spellAttackBonus={spellAttackBonus}
-                                useWandScrollTable={useWandScrollTable}
-                              />
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
+              {renderEffectCardSection()}
             </div>
           )}
 
@@ -1251,12 +1221,30 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
             <button type="button" onClick={onClose} className="px-3 py-1.5 rounded border border-gray-600 text-gray-300 hover:bg-gray-700 text-sm">
               取消
             </button>
-            <button type="submit" disabled={!itemId && !isEdit} className="px-3 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white font-medium text-sm disabled:opacity-50">
+            <button type="submit" disabled={(templateMode && !itemId) || (!isEdit && !itemId && !type)} className="px-3 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white font-medium text-sm disabled:opacity-50">
               {submitLabel}
             </button>
           </div>
         </form>
       </div>
+
+      <BuffEditorModal
+        open={buffFormOpen && !!buffFormInitial}
+        onClose={() => setBuffFormOpen(false)}
+        title="编辑物品效果"
+        buffFormProps={{
+          key: 'item-buff-form',
+          compact: true,
+          hideDuration: true,
+          initial: buffFormInitial,
+          onSave: handleBuffFormSave,
+          referenceData,
+          baseReferenceData: referenceData,
+          spellDC,
+          spellAttackBonus,
+          useWandScrollTable,
+        }}
+      />
     </>
   )
 }

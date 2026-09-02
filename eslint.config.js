@@ -16,7 +16,6 @@ export default [
         ecmaFeatures: { jsx: true },
         sourceType: 'module',
       },
-      ...react.configs.flat.recommended.languageOptions,
     },
     plugins: {
       'react-hooks': reactHooks,
@@ -25,12 +24,13 @@ export default [
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      ...react.configs.flat.recommended.rules,
       'react-refresh/only-export-components': [
         'warn',
         { allowConstantExport: true },
       ],
       'react/prop-types': 'off',
+      'react/react-in-jsx-scope': 'off',
     },
-    ...react.configs.flat.recommended,
   },
 ]

@@ -1,5 +1,5 @@
 import { useState, useEffect, Fragment, useMemo } from 'react'
-import { ArrowDownToLine, ArrowUpFromLine, Pencil, Trash2, Package, Dices, Sparkles } from 'lucide-react'
+import { ArrowDownToLine, ArrowUpFromLine, Pencil, Trash2, Package, Dices, Sparkles, Moon, Sunrise } from 'lucide-react'
 import DragHandleIcon from './DragHandleIcon'
 import { getItemById, getItemDisplayName, itemRequiresAttunement } from '../data/itemDatabase'
 import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
@@ -19,10 +19,14 @@ import { useModule } from '../contexts/ModuleContext'
 import { getMergedBuffsForCalculator } from '../lib/effects/effectMapping'
 import { useBuffCalculator } from '../hooks/useBuffCalculator'
 import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
+import { getCharacterClasses, getClassDisplayName } from '../data/classDatabase'
 import { rollDice } from '../data/weaponDatabase'
+import { restoreChargesForEvent } from '../lib/chargeRecovery'
 import { inputClass, textareaClass, labelClass } from '../lib/inputStyles'
 import { NumberStepper } from './BuffForm'
 import { appendContainedSpellsBrief } from '../lib/containedSpellBrief'
+import { hasContainedSpellEffect } from '../lib/containedSpellModel'
+import ContainedSpellUseButton from './ContainedSpellUseButton'
 import BagOfHoldingPanel from './BagOfHoldingPanel'
 import {
   getNormalizedBagModules,
@@ -107,6 +111,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
   const mergedBuffs = useMemo(() => getMergedBuffsForCalculator(character, moduleId), [
     character?.buffs,
     character?.selectedFeats,
+    character?.classFeatureChoices,
     character?.inventory,
     character?.equippedHeld,
     character?.equippedWorn,
@@ -115,6 +120,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
   const buffStats = useBuffCalculator(character, mergedBuffs)
   const abilities = buffStats?.abilities ?? character?.abilities ?? {}
   const { spellAttackBonus, spellDC, prof } = getSpellcastingCombatStats(character, buffStats, level)
+  const characterClasses = useMemo(() => getCharacterClasses(character), [character])
   const referenceData = useMemo(() => {
     const arr = []
     Object.entries(abilities).forEach(([k, v]) => {
@@ -126,10 +132,14 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
     })
     arr.push({ label: '熟练加值', value: prof, ref: 'proficiency' })
     arr.push({ label: '等级', value: level, ref: 'level' })
+    for (const c of characterClasses) {
+      const displayName = getClassDisplayName(c.name) || c.name
+      arr.push({ label: `${displayName}等级`, value: c.level, ref: 'classLevel', className: c.name })
+    }
     if (spellDC != null) arr.push({ label: '法术DC', value: spellDC, ref: 'spellDc' })
     if (spellAttackBonus != null) arr.push({ label: '法术攻击', value: spellAttackBonus, ref: 'spellAttack' })
     return arr
-  }, [abilities, prof, level, spellDC, spellAttackBonus])
+  }, [abilities, prof, level, spellDC, spellAttackBonus, characterClasses])
   const bagModules = useMemo(
     () => getNormalizedBagModules(character),
     [character?.id, character?.bagOfHoldingModules, character?.bagOfHoldingSlots, character?.bagOfHoldingCount, character?.bagOfHoldingVisibility],
@@ -183,8 +193,8 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
     if (!canEdit) return
     if (!inv.some((e) => !e?.inBagOfHolding && !e?.id)) return
     onSave({
-      inventory: inv.map((e) =>
-        !e?.inBagOfHolding && !e?.id ? { ...e, id: `inv_${crypto.randomUUID()}` } : e,
+      inventory: inv.map((e, idx) =>
+        !e?.inBagOfHolding && !e?.id ? { ...e, id: `inv_${idx}_${(e.name || 'item').replace(/\s+/g, '_')}` } : e,
       ),
     })
   }, [canEdit, inv, onSave])
@@ -612,6 +622,20 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
     onSave({ inventory: next })
   }
 
+  const handleRestoreCharges = (eventType) => {
+    const label = eventType === 'dawn' ? '黎明' : '长休'
+    const { inventory: next, logs } = restoreChargesForEvent(inv, eventType)
+    if (!logs.length) {
+      window.alert(`没有物品需要${label}恢复充能。`)
+      return
+    }
+    const summary = logs
+      .map((l) => `${l.name}：${l.from} → ${l.to}（恢复 ${l.restored}${l.expression ? '，' + l.expression : ''}）`)
+      .join('\n')
+    onSave({ inventory: next })
+    window.alert(`${label}恢复结果：\n${summary}`)
+  }
+
   /** 次元袋面板行内编辑（下标为背包 inventory 全局下标）；钱币堆数量不在此修改 */
   const patchBagItem = (globalIndex, patch) => {
     const prev = inv[globalIndex]
@@ -730,9 +754,25 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
         <div className="min-w-0">
           <h3 className={labelClass}>物品栏</h3>
           {canEdit && (
-            <div className="mb-3">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => setAddFormOpen(true)} className="h-10 px-4 rounded-lg border border-dnd-red text-dnd-red hover:bg-dnd-red hover:text-white text-sm font-medium transition-colors">
                 添加物品
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRestoreCharges('long_rest')}
+                className="h-10 px-3 rounded-lg border border-gray-500 text-gray-200 hover:bg-gray-700 hover:text-white text-sm font-medium transition-colors inline-flex items-center gap-1.5"
+              >
+                <Moon className="w-4 h-4" />
+                长休恢复
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRestoreCharges('dawn')}
+                className="h-10 px-3 rounded-lg border border-amber-500/80 text-amber-300 hover:bg-amber-500/20 hover:text-amber-200 text-sm font-medium transition-colors inline-flex items-center gap-1.5"
+              >
+                <Sunrise className="w-4 h-4" />
+                黎明恢复
               </button>
               <ItemAddForm open={addFormOpen} onClose={() => setAddFormOpen(false)} onSave={(entry) => { onSave({ inventory: [...inv, entry] }); setAddFormOpen(false); }} submitLabel="确认加入" referenceData={referenceData} />
               <ItemAddForm
@@ -851,29 +891,28 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                             })()}
                             {invDisplayName(entry)}
                             {(() => {
-                              const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
-                              const stoneVal = stoneEffect != null && stoneEffect.value != null ? Number(stoneEffect.value) : null
-                              if (stoneVal != null && !Number.isNaN(stoneVal) && stoneVal > 0) {
-                                return <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0" title="瓦石层">{stoneVal}层</span>
-                              }
                               return (Number(entry.magicBonus) || 0) > 0
                                 ? <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>
                                 : null
                             })()}
+                            {hasContainedSpellEffect(entry) && (
+                              <ContainedSpellUseButton
+                                entry={entry}
+                                onChargeChange={(v) => setCharge(i, v)}
+                              />
+                            )}
                           </span>
                         </td>
                         <td className="py-1 px-2 align-middle border-l border-gray-600 text-center overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
                           {canEdit ? (
-                            <div className="flex justify-center">
-                              <NumberStepper
-                                value={Number(entry.charge) || 0}
-                                onChange={(v) => setCharge(i, v)}
-                                min={0}
-                                compact
-                                pill
-                              />
-                            </div>
-                          ) : (Number(entry.charge) || 0) > 0 ? (
+                            <NumberStepper
+                              value={Number(entry.charge) || 0}
+                              onChange={(v) => setCharge(i, v)}
+                              min={0}
+                              compact
+                              pill
+                            />
+                          ) : (Number(entry.charge) || 0) > 0 || hasContainedSpellEffect(entry) ? (
                             <span className="tabular-nums text-dnd-text-body text-xs">{entry.charge}</span>
                           ) : null}
                         </td>

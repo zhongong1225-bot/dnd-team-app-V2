@@ -1,0 +1,153 @@
+[
+  {
+    "id": "creature_1788249296586_e3etx8k",
+    "name": "成年银龙",
+    "size": "large",
+    "type": "dragon",
+    "cr": 16,
+    "abilities": { "str": 27, "dex": 10, "con": 25, "int": 16, "wis": 13, "cha": 22 },
+    "hp": 216,
+    "hitDice": "16d12+112",
+    "ac": 19,
+    "speed": { "walk": 40, "fly": 80, "swim": null, "climb": null },
+    "resistances": [],
+    "immunities": ["寒冷"],
+    "vulnerabilities": [],
+    "conditionImmunities": [],
+    "naturalWeapons": [
+      { "name": "啃咬", "attackBonus": 13, "damage": "2d10+8 穿刺" },
+      { "name": "爪击", "attackBonus": 13, "damage": "2d6+8 挥砍" },
+      { "name": "尾击", "attackBonus": 13, "damage": "2d8+8 钝击" }
+    ],
+    "traits": [
+      {
+        "id": "t_restore_silver_legend",
+        "name": "传奇抗性（每日3次，在巢穴中每日4次）。如果银龙豁免失败，可以选择改为成功。",
+        "description": "",
+        "effects": []
+      }
+    ],
+    "actions": [
+      { "id": "a_restore_silver_multi", "name": "多重攻击。巨龙发动三次爪击，可将其中一次替换为吐息武器或施放冰刀术。", "description": "" },
+      { "id": "a_restore_silver_rend", "name": "撕裂。近战武器攻击：命中+13，触及10尺，一个目标。命中：17(2d8+8)挥砍伤害加4(1d8)寒冷伤害。", "description": "" },
+      { "id": "a_restore_silver_cold", "name": "寒冷吐息（充能5-6）。巨龙在60尺锥形范围内喷出寒霜。豁免DC 20。区域内每个生物必须进行DC 20体质豁免，失败受到54(12d8)寒冷伤害，成功则伤害减半。", "description": "" },
+      { "id": "a_restore_silver_para", "name": "麻痹吐息。巨龙在60尺锥形范围内喷出寒霜。豁免DC 20。区域内每个生物必须进行DC 20体质豁免。失败时目标被麻痹直到其下一回合结束，然后在其下一回合开始时重复豁免。第二次失败则继续麻痹直到其下一回合结束并再次重复豁免。成功则效果结束。1分钟后效果自动结束。", "description": "" },
+      { "id": "a_restore_silver_cast", "name": "施法。巨龙作为17级施法者使用魔法，以魅力为施法属性（法术豁免DC 19，法术攻击+11）。已知法术：侦测魔法、禁锢怪物、冰刀术、变形术（仅能变为野兽或人形生物；不会从此法术中获得临时生命值，但无需维持临时生命值即可保持专注）。", "description": "" },
+      { "id": "a_restore_silver_atwill", "name": "随意施放：冰风暴（五杖版本）、诚实区域", "description": "" }
+    ],
+    "reactions": [],
+    "legendaryActions": [],
+    "legendaryActionPoints": 0,
+    "spellcastingAbility": "cha",
+    "spellSaveDC": 19,
+    "spellAttackBonus": 11,
+    "spells": [
+      { "name": "侦测魔法", "castMode": "slot", "slotLevel": 1, "description": "" },
+      { "name": "冰刀术", "castMode": "slot", "slotLevel": 1, "description": "" },
+      { "name": "变形术", "castMode": "slot", "slotLevel": 4, "description": "仅能变为野兽或人形生物；不会从此法术中获得临时生命值，但无需维持临时生命值即可保持专注" },
+      { "name": "禁锢怪物", "castMode": "slot", "slotLevel": 5, "description": "" },
+      { "name": "冰风暴（五环版）", "castMode": "at-will", "description": "" },
+      { "name": "诚实区域", "castMode": "at-will", "description": "" }
+    ]
+  },
+  {
+    "id": "__GEN__",
+    "name": "棕熊",
+    "size": "large",
+    "type": "beast",
+    "cr": 1,
+    "abilities": { "str": 17, "dex": 12, "con": 15, "int": 2, "wis": 13, "cha": 7 },
+    "hp": 22,
+    "hitDice": "3d10+6",
+    "ac": 11,
+    "speed": { "walk": 40, "fly": null, "swim": null, "climb": 30 },
+    "resistances": [],
+    "immunities": [],
+    "vulnerabilities": [],
+    "conditionImmunities": [],
+    "naturalWeapons": [
+      { "name": "啃咬", "attackBonus": 5, "damage": "1d8+3 穿刺" },
+      { "name": "爪击", "attackBonus": 5, "damage": "2d6+3 挥砍" }
+    ],
+    "traits": [
+      { "id": "t_restore_bear_smell", "name": "敏锐嗅觉", "description": "熊在依靠嗅觉进行的感知（察觉）检定上具有优势。", "effects": [] }
+    ],
+    "actions": [
+      { "id": "a_restore_bear_multi", "name": "多重攻击", "description": "棕熊发动两次攻击：一次啃咬和一次爪击。" },
+      { "id": "a_restore_bear_bite", "name": "啃咬", "description": "近战武器攻击：命中+5，触及5尺，一个目标。命中：5(1d8+3)穿刺伤害。" },
+      { "id": "a_restore_bear_claw", "name": "爪击", "description": "近战武器攻击：命中+5，触及5尺，一个目标。命中：10(2d6+3)挥砍伤害。" }
+    ],
+    "reactions": [],
+    "legendaryActions": [],
+    "legendaryActionPoints": 0,
+    "spellcastingAbility": null,
+    "spellSaveDC": 0,
+    "spellAttackBonus": 0,
+    "spells": []
+  },
+  {
+    "id": "__GEN__",
+    "name": "恐狼",
+    "size": "large",
+    "type": "beast",
+    "cr": 1,
+    "abilities": { "str": 17, "dex": 14, "con": 15, "int": 3, "wis": 12, "cha": 7 },
+    "hp": 22,
+    "hitDice": "3d10+6",
+    "ac": 14,
+    "speed": { "walk": 50, "fly": null, "swim": null, "climb": null },
+    "resistances": [],
+    "immunities": [],
+    "vulnerabilities": [],
+    "conditionImmunities": [],
+    "naturalWeapons": [
+      { "name": "啃咬", "attackBonus": 5, "damage": "2d6+3 穿刺" }
+    ],
+    "traits": [
+      { "id": "t_restore_wolf_senses", "name": "敏锐听觉与嗅觉", "description": "狼在依靠听觉或嗅觉进行的感知（察觉）检定上具有优势。", "effects": [] },
+      { "id": "t_restore_wolf_pack", "name": "群体战术", "description": "只要狼的5尺范围内有一个未陷入失能的盟友，狼对生物的攻击检定就具有优势。", "effects": [] }
+    ],
+    "actions": [
+      { "id": "a_restore_wolf_bite", "name": "啃咬", "description": "近战武器攻击：命中+5，触及5尺，一个目标。命中：10(2d6+3)穿刺伤害。若目标是生物，则它必须成功通过一次DC 13力量豁免，否则被击至倒地。" }
+    ],
+    "reactions": [],
+    "legendaryActions": [],
+    "legendaryActionPoints": 0,
+    "spellcastingAbility": null,
+    "spellSaveDC": 0,
+    "spellAttackBonus": 0,
+    "spells": []
+  },
+  {
+    "id": "__GEN__",
+    "name": "巨猿",
+    "size": "large",
+    "type": "beast",
+    "cr": 7,
+    "abilities": { "str": 23, "dex": 14, "con": 18, "int": 7, "wis": 12, "cha": 7 },
+    "hp": 168,
+    "hitDice": "16d12+64",
+    "ac": 12,
+    "speed": { "walk": 40, "fly": null, "swim": null, "climb": 40 },
+    "resistances": [],
+    "immunities": [],
+    "vulnerabilities": [],
+    "conditionImmunities": [],
+    "naturalWeapons": [
+      { "name": "挥击", "attackBonus": 9, "damage": "3d10+6 钝击" }
+    ],
+    "traits": [],
+    "actions": [
+      { "id": "a_restore_ape_multi", "name": "多重攻击", "description": "巨猿发动两次挥击攻击。它可以用一次掷石攻击替换其中一次挥击。" },
+      { "id": "a_restore_ape_fist", "name": "挥击", "description": "近战武器攻击：命中+9，触及10尺，一个目标。命中：22(3d10+6)钝击伤害。" },
+      { "id": "a_restore_ape_rock", "name": "掷石", "description": "远程武器攻击：命中+9，射程50/100尺，一个目标。命中：22(3d10+6)钝击伤害。" }
+    ],
+    "reactions": [],
+    "legendaryActions": [],
+    "legendaryActionPoints": 0,
+    "spellcastingAbility": null,
+    "spellSaveDC": 0,
+    "spellAttackBonus": 0,
+    "spells": []
+  }
+]

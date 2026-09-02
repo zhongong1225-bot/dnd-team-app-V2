@@ -40,6 +40,31 @@ function damageDetailRowClass(damageTypeLabel) {
   return byLabel[t] || 'text-slate-300'
 }
 
+/** 根据标签文本自动识别投掷类别 */
+function detectRollCategory(label) {
+  const s = String(label || '')
+  if (s.includes('攻击')) return 'attack'
+  if (s.includes('豁免')) return 'save'
+  if (s.includes('伤害') || s.includes('投掷')) return 'damage'
+  return 'check'
+}
+
+const CATEGORY_TAG = {
+  attack: { text: '攻击', cls: 'bg-red-900/60 text-red-200 border-red-700/50' },
+  damage: { text: '伤害', cls: 'bg-amber-900/60 text-amber-200 border-amber-700/50' },
+  save: { text: '豁免', cls: 'bg-blue-900/60 text-blue-200 border-blue-700/50' },
+  check: { text: '检定', cls: 'bg-gray-700/60 text-gray-300 border-gray-600/50' },
+}
+
+function RollCategoryTag({ category }) {
+  const cfg = CATEGORY_TAG[category] || CATEGORY_TAG.check
+  return (
+    <span className={`shrink-0 text-[9px] leading-none px-1 py-[1px] rounded border ${cfg.cls}`}>
+      {cfg.text}
+    </span>
+  )
+}
+
 function roll(sides) {
   return Math.floor(Math.random() * sides) + 1
 }
@@ -393,6 +418,7 @@ export default function BottomNav() {
   const { user, isAdmin } = useAuth()
   const { currentModuleId } = useModule()
   const { pendingCheck, setPendingCheck } = useRoll()
+  const pendingCheckOnResultRef = useRef(null) // 保存 onResult 回调
   const defaultId = getDefaultCharacterId(user?.name, currentModuleId)
   const lastEditedId = getLastEditedCharacterId(user?.name, isAdmin, currentModuleId)
   const preferredId = defaultId || lastEditedId
@@ -444,6 +470,7 @@ export default function BottomNav() {
         key: Date.now(),
         label: '伤害',
         result: totalValue,
+        category: 'damage',
       })
       const joined = detailParts.join(', ')
       setCheckResult({
@@ -454,6 +481,7 @@ export default function BottomNav() {
         total: totalValue,
         details: `${joined}, 伤害总值 ${totalValue}`,
         damageByType,
+        category: 'damage',
       })
       return
     }
@@ -468,6 +496,7 @@ export default function BottomNav() {
       key: Date.now(),
       label: detail.label || diceExpr,
       result: totalValue,
+      category: 'damage',
     })
     setCheckResult({
       key: Date.now(),
@@ -476,6 +505,7 @@ export default function BottomNav() {
       mode: 'normal',
       total: totalValue,
       details: typeTag ? `${typeTag}:${coreDetail}` : coreDetail,
+      category: 'damage',
       ...(typeTag
         ? {
             damageByType: [{ type: typeTag, line: `${typeTag}:${coreDetail}`, subtotal: totalValue }],
@@ -611,6 +641,8 @@ export default function BottomNav() {
         setRollingPreview(null)
 
         setFormulaError('')
+        const rollLabel = options.label || formulaMeta?.label || '通用投掷'
+        const rollCat = detectRollCategory(rollLabel)
         setLastRoll({
           sides: prepared.parsed?.kind === 'dice' ? prepared.parsed.sides : 0,
           count: prepared.parsed?.kind === 'dice' ? prepared.parsed.count : 0,
@@ -620,9 +652,10 @@ export default function BottomNav() {
           rolls: prepared.rolls,
           key: Date.now(),
           label: prepared.normalizedFormula,
+          category: rollCat,
         })
         setCheckResult({
-          label: options.label || formulaMeta?.label || '通用投掷',
+          label: rollLabel,
           modifier: prepared.parsed?.kind === 'dice' ? prepared.parsed.modifier : 0,
           d20Result: prepared.d20Result ?? null,
           rolls: prepared.rolls,
@@ -632,7 +665,13 @@ export default function BottomNav() {
           mode: prepared.parsed?.kind === 'dice' && prepared.parsed.count === 1 && prepared.parsed.sides === 20 ? prepared.mode : 'normal',
           details: prepared.segmentDetails.join(' ; '),
           critThreatMinNatural: options.critThreatMinNatural,
+          category: rollCat,
         })
+        // 调用攻击检定的 onResult 回调（用于多步交互流程）
+        if (pendingCheckOnResultRef.current && typeof pendingCheckOnResultRef.current === 'function') {
+          pendingCheckOnResultRef.current(prepared.finalTotal)
+          pendingCheckOnResultRef.current = null
+        }
         setFormulaMeta(null)
       }, RESULT_HOLD_MS)
     }, ROLL_ANIM_MS)
@@ -643,6 +682,8 @@ export default function BottomNav() {
     const mod = Number(pendingCheck.modifier) || 0
     const nextFormula = `1d20${mod >= 0 ? '+' : ''}${mod}`
     if (pendingCheck.quickRoll) {
+      // 保存 onResult 回调到 ref，以便在结果出来后调用
+      pendingCheckOnResultRef.current = pendingCheck.onResult
       setPendingCheck(null)
       performFormulaRoll(nextFormula, {
         label: pendingCheck.label,
@@ -771,6 +812,9 @@ export default function BottomNav() {
                   ))}
                 </div>
                 <div className="flex h-6 min-w-0 items-center gap-0.5 overflow-hidden rounded border border-dashed border-white/25 bg-[#1E293B]/45 px-1.5 text-[11px]">
+                  {(checkResult?.category || lastRoll?.category) && !formulaError && !(isRolling && rollingPreview) && (
+                    <RollCategoryTag category={checkResult?.category || lastRoll?.category} />
+                  )}
                   <div
                     className={`min-w-0 flex-1 ${checkResult?.damageByType?.length ? 'overflow-x-auto overflow-y-hidden' : 'overflow-hidden'}`}
                     title={

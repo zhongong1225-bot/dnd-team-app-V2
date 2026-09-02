@@ -1,9 +1,19 @@
-import { useMemo } from 'react'
-import { abilityModifier, getAC, proficiencyBonus, evaluateBuffValue, isFormulaValue } from '../lib/formulas'
-import { getPrimarySpellcastingAbility } from '../data/classDatabase'
+import { useMemo, useSyncExternalStore } from 'react'
+import { abilityModifier, getAC, proficiencyBonus, evaluateBuffValue, isFormulaValue, calcMaxHP, getHPBuffSum } from '../lib/formulas'
+import { getPrimarySpellcastingAbility, getCharacterClasses } from '../data/classDatabase'
 import { levelFromXP } from '../lib/xp5e'
-import { ABILITY_KEYS, getDamageTypeValue, weaponProtoMatchesBuffWeaponCategories, protoMatchesWeaponBuffKey } from '../data/buffTypes'
+import {
+  ABILITY_KEYS,
+  getDamageTypeValue,
+  weaponProtoMatchesBuffWeaponCategories,
+  protoMatchesWeaponBuffKey,
+  SCOPE_KIND,
+  normalizeScope,
+  scopeMatchesCombatMean,
+} from '../data/buffTypes'
 import { getFlatEffectEntries } from '../lib/effects/effectMapping'
+import { getActiveShieldEffects } from '../lib/shieldEngine'
+import { loadCreatureLibrary, getCreatureById, parseHpFormula, subscribeCreatureLibraryVersion, getCreatureLibraryVersion } from '../data/creatureLibrary'
 
 /**
  * BUFF 计算引擎
@@ -42,45 +52,195 @@ export function getCritDamageDiceMultiplierFromItemEntry(entry, context = {}) {
 }
 
 /** 按武器 proto 累加「分武器加值」条目（categoryRows 每行单独数值；兼容旧 weaponCategories + 统一 val） */
-export function sumWeaponCategoryAttackDamageBonus(entries, proto) {
+export function sumWeaponCategoryAttackDamageBonus(entries, proto, context = {}) {
   if (!Array.isArray(entries) || entries.length === 0 || !proto) return 0
   let sum = 0
   for (const e of entries) {
     const rows = Array.isArray(e.categoryRows) ? e.categoryRows : []
     if (rows.length > 0) {
       for (const r of rows) {
-        if (protoMatchesWeaponBuffKey(proto, r.key)) sum += Number(r.val) || 0
+        if (protoMatchesWeaponBuffKey(proto, r.key)) {
+          const n = evaluateBuffValue(r.val, context)
+          if (!Number.isNaN(n)) sum += n
+        }
       }
     } else {
       const cats = Array.isArray(e.weaponCategories) ? e.weaponCategories : []
-      if (weaponProtoMatchesBuffWeaponCategories(proto, cats)) sum += Number(e.val) || 0
+      if (weaponProtoMatchesBuffWeaponCategories(proto, cats)) {
+        const n = evaluateBuffValue(e.val, context)
+        if (!Number.isNaN(n)) sum += n
+      }
     }
   }
   return sum
 }
 
 /** 仅从单件物品 effects 读取重击威胁下限（含）；默认仅自然 20 */
-export function getCritThreatMinNaturalFromItemEntry(entry) {
+export function getCritThreatMinNaturalFromItemEntry(entry, context = {}) {
   let min = 20
+  let increment = 0
   const arr = entry?.effects
   if (!Array.isArray(arr)) return min
   for (const e of arr) {
     if (e?.effectType === 'crit_range_expand') {
       const mn = parseCritRangeThreatMin(e.value)
       if (mn != null) min = Math.min(min, mn)
+    } else if (e?.effectType === 'crit_range_override') {
+      const n = evaluateBuffValue(e.value, context)
+      if (!Number.isNaN(n) && n >= 1 && n <= 20) min = Math.min(min, Math.floor(n))
+    } else if (e?.effectType === 'crit_range_increment') {
+      const n = evaluateBuffValue(e.value, context)
+      if (!Number.isNaN(n) && n >= 1) increment += Math.floor(n)
+    } else if (e?.effectType === 'crit_range_reduction') {
+      // 火铳手"致命专注"专属机制：暴击范围-N
+      const n = evaluateBuffValue(e.value, context)
+      if (!Number.isNaN(n) && n >= 1) increment += Math.floor(n)
     }
   }
-  return min
+  // 增量从覆盖结果中再扩展
+  return Math.max(1, min - increment)
+}
+
+/** 解析「施法距离延伸」的倍率与固定增量，兼容旧文本/纯数字/公式/对象 */
+function parseSpellRangeExtension(raw, evalVal) {
+  let multiplier = 1
+  let bonus = 0
+  if (raw == null) return { multiplier, bonus }
+  if (typeof raw === 'number' || isFormulaValue(raw)) {
+    const n = evalVal(raw)
+    if (!Number.isNaN(n)) bonus += n
+  } else if (typeof raw === 'object' && !Array.isArray(raw)) {
+    const m = raw.multiplier ?? raw.mult
+    if (m === 2 || m === '2' || (typeof m === 'string' && /x\s*2|2\s*倍|×\s*2/i.test(m))) multiplier = 2
+    const val = raw.bonus ?? raw.val ?? raw.value
+    const n = evalVal(val)
+    if (!Number.isNaN(n)) bonus += n
+  } else if (typeof raw === 'string') {
+    const s = String(raw)
+    if (/x\s*2|2\s*倍|×\s*2/i.test(s)) multiplier = 2
+    const plusMatch = s.match(/[+＋]?(\d+)/)
+    if (plusMatch) bonus += (parseInt(plusMatch[1], 10) || 0)
+  }
+  return { multiplier, bonus }
+}
+
+/** 解析「速度增加」为 { walk, fly, swim, climb }，兼容旧文本/对象/公式 */
+function parseBaseSpeedIncrement(raw, evalVal) {
+  const result = { walk: 0, fly: 0, swim: 0, climb: 0 }
+  if (raw == null) return result
+  if (typeof raw === 'number' || isFormulaValue(raw)) {
+    const n = evalVal(raw)
+    if (!Number.isNaN(n)) result.walk = n
+    return result
+  }
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    const read = (key) => {
+      const v = raw[key]
+      if (v == null) return 0
+      if (typeof v === 'number' || isFormulaValue(v)) {
+        const n = evalVal(v)
+        return Number.isNaN(n) ? 0 : n
+      }
+      const s = String(v)
+      const m = s.match(/[+＋]?(\d+)/)
+      return m ? parseInt(m[1], 10) || 0 : 0
+    }
+    result.walk = read('val') || read('speed') || read('walk') || 0
+    result.fly = read('fly') || read('flight') || 0
+    result.swim = read('swim') || 0
+    result.climb = read('climb') || 0
+    return result
+  }
+  if (typeof raw === 'string') {
+    const s = String(raw)
+    const typeRe = (word) => new RegExp(`${word}(?:速度)?\\s*[+＋]?\\s*(\\d+)`, 'i')
+    const walkMatch = s.match(typeRe('行走'))
+    const flyMatch = s.match(typeRe('飞行'))
+    const swimMatch = s.match(typeRe('游泳'))
+    const climbMatch = s.match(typeRe('攀爬'))
+    if (walkMatch) result.walk = parseInt(walkMatch[1], 10) || 0
+    if (flyMatch) result.fly = parseInt(flyMatch[1], 10) || 0
+    if (swimMatch) result.swim = parseInt(swimMatch[1], 10) || 0
+    if (climbMatch) result.climb = parseInt(climbMatch[1], 10) || 0
+    if (result.walk === 0 && result.fly === 0 && result.swim === 0 && result.climb === 0) {
+      const plainMatch = s.match(/[+＋]?(\d+)/)
+      if (plainMatch) result.walk = parseInt(plainMatch[1], 10) || 0
+    }
+  }
+  return result
 }
 
 /**
  * 纯函数版 BUFF 计算（与 useBuffCalculator 结果一致），供单元测试与效果覆盖校验。
  */
-export function computeBuffStats(character, activeBuffs) {
+export function computeBuffStats(character, activeBuffs, shieldEffects) {
   const buffs = (activeBuffs || []).filter((b) => b.enabled !== false)
-    const rawEntries = getFlatEffectEntries(buffs)
+    const rawEntries = getFlatEffectEntries(buffs, character)
+    // 注入活跃护盾效果
+    if (Array.isArray(shieldEffects) && shieldEffects.length > 0) {
+      rawEntries.push(...shieldEffects.filter((e) => e?.effectType))
+    }
     const entries = rawEntries.filter((e) => !DISPLAY_ONLY_EFFECT_TYPES.includes(e.effectType))
-    const baseAbilities = character?.abilities ?? { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }
+
+    // ── 生物变身效果：收集所有 creature_transform，只取第一个有效的（不叠加）──
+    let creatureTransformData = null
+    const creatureLibrary = loadCreatureLibrary()
+    
+    for (const b of entries) {
+      if (b.effectType === 'creature_transform' && b.value && typeof b.value === 'object' && !Array.isArray(b.value)) {
+        const ct = b.value
+        if (ct.creatureId) {
+          const creature = getCreatureById(ct.creatureId)
+          if (creature) {
+            creatureTransformData = {
+              creature,
+              acMode: ct.acMode || 'replace',
+              acFormulaBase: Number(ct.acFormulaBase) || 13,
+              acFormulaAbility: ct.acFormulaAbility || '',
+              hpMode: ct.hpMode || 'replace',
+              hpFormula: ct.hpFormula || null,
+              keepAbilities: Array.isArray(ct.keepAbilities) ? ct.keepAbilities : [],
+              resourceCostType: ct.resourceCostType || '',
+              resourceCostValue: Number(ct.resourceCostValue) || 1,
+              wildShapeMode: !!ct.wildShapeMode,
+              wildShapeSubclass: ct.wildShapeSubclass || 'regular',
+            }
+            // ── 荒野变形模式：根据德鲁伊子职自动覆盖设置 ──
+            if (creatureTransformData.wildShapeMode) {
+              creatureTransformData.keepAbilities = ['int', 'wis', 'cha']
+              creatureTransformData.acMode = 'max_formula'
+              creatureTransformData.acFormulaBase = 13
+              creatureTransformData.acFormulaAbility = 'wis'
+              creatureTransformData.hpMode = 'keep_plus_temp'
+              const isMoon = creatureTransformData.wildShapeSubclass === 'moon'
+              creatureTransformData.hpFormula = {
+                ref: 'classLevel',
+                className: '德鲁伊',
+                mult: isMoon ? 3 : 1,
+                add: 0,
+              }
+              creatureTransformData.resourceCostType = 'wild_shape_uses'
+              creatureTransformData.resourceCostValue = 1
+            }
+            break // 只取第一个有效的变身效果
+          }
+        }
+      }
+    }
+    
+    // 如果存在变身效果，使用生物的六维属性作为基础；否则用角色原始属性
+    const baseAbilities = creatureTransformData?.creature?.abilities 
+      ? { ...creatureTransformData.creature.abilities }
+      : (character?.abilities ?? { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 })
+
+    // 变身保留属性：将原角色对应属性覆盖回 baseAbilities（如荒野变形保留心智属性）
+    if (creatureTransformData && Array.isArray(creatureTransformData.keepAbilities) && character?.abilities) {
+      for (const key of creatureTransformData.keepAbilities) {
+        if (character.abilities[key] != null) {
+          baseAbilities[key] = character.abilities[key]
+        }
+      }
+    }
 
     const xpVal = character?.xp
     const charLevel = xpVal != null && Number(xpVal) >= 0
@@ -88,10 +248,13 @@ export function computeBuffStats(character, activeBuffs) {
       : Math.max(1, Math.min(20, Number(character?.level) || 1))
     const baseProf = proficiencyBonus(charLevel)
     const spellAbility = getPrimarySpellcastingAbility(character)
+    const characterClasses = getCharacterClasses(character)
+    const classLevels = {}
+    for (const c of characterClasses) classLevels[c.name] = c.level
 
     // 预先扫描 proficiency_override，供后续公式上下文使用
     let profOverride = null
-    const minimalContext = { level: charLevel, abilities: baseAbilities, prof: baseProf, spellDC: 0, spellAttack: 0 }
+    const minimalContext = { level: charLevel, abilities: baseAbilities, prof: baseProf, spellDC: 0, spellAttack: 0, classLevels, speed: character?.speed ?? 30 }
     for (const b of entries) {
       if (b.effectType === 'proficiency_override') {
         const v = evaluateBuffValue(b.value, minimalContext)
@@ -107,26 +270,59 @@ export function computeBuffStats(character, activeBuffs) {
       prof: contextProf,
       spellDC: spellAbility ? 8 + contextProf + baseSpellMod : 0,
       spellAttack: spellAbility ? contextProf + baseSpellMod : 0,
+      classLevels,
+      speed: character?.speed ?? 30,
     }
     const baseEvalVal = (raw) => evaluateBuffValue(raw, baseFormulaContext)
 
-    // 1. 属性：override 优先，否则 base + ability_score
+    // 1. 属性：override 优先，否则 base + ability_score_uncapped
+    // ability_score 现在表示「属性熟练调整」：授予豁免熟练，不再修改属性值
     let hasAbilityOverride = false
     const abilityOverride = {}
     const abilityBonus = { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 }
+    const abilityBreak20 = { str: false, dex: false, con: false, int: false, wis: false, cha: false }
+    const saveProficiencyGranted = { str: false, dex: false, con: false, int: false, wis: false, cha: false }
 
     for (const b of entries) {
       if (b.effectType === 'ability_override' && b.value && typeof b.value === 'object') {
         hasAbilityOverride = true
         for (const k of ABILITY_KEYS) {
+          if (!(k in b.value)) continue
           const v = baseEvalVal(b.value[k])
-          if (!Number.isNaN(v)) abilityOverride[k] = v
+          if (!Number.isNaN(v)) {
+            abilityOverride[k] = v
+            // 属性值上限效果自动解除该项的 20 点封顶（可到 30）
+            abilityBreak20[k] = true
+          }
         }
       }
-      if ((b.effectType === 'ability_score' || b.effectType === 'ability_score_uncapped') && b.value && typeof b.value === 'object') {
+      // ability_score_uncapped：累加属性值（默认上限 20，勾选 break20 后可到 30）
+      if (b.effectType === 'ability_score_uncapped' && b.value && typeof b.value === 'object') {
         for (const k of ABILITY_KEYS) {
           const v = baseEvalVal(b.value[k])
           if (!Number.isNaN(v)) abilityBonus[k] = (abilityBonus[k] || 0) + v
+          if (b.break20 && b.break20[k]) abilityBreak20[k] = true
+        }
+      }
+      // ability_score_bonus：专长属性加成（固定值自动生效，choice 型需用户手动配置；上限 20）
+      if (b.effectType === 'ability_score_bonus' && b.value && typeof b.value === 'object') {
+        const isChoice = b.value.choice !== undefined
+        if (!isChoice) {
+          for (const k of ABILITY_KEYS) {
+            const v = baseEvalVal(b.value[k])
+            if (!Number.isNaN(v)) abilityBonus[k] = (abilityBonus[k] || 0) + v
+          }
+        }
+        // choice 型（如 { choice: ['str','dex'], amount: 1 } 或 { choice: true, bonus: 1 }）
+        // 需要用户通过 BUFF 编辑器齿轮手动配置具体属性，此处不自动生效
+      }
+      // ability_score：授予豁免熟练（值为 true 或非零数字时生效）
+      if (b.effectType === 'ability_score' && b.value && typeof b.value === 'object') {
+        for (const k of ABILITY_KEYS) {
+          const v = b.value[k]
+          // 支持布尔值或旧数字值（非零视为 true）
+          const granted = typeof v === 'boolean' ? v : (typeof v === 'number' ? v !== 0 : !!v)
+          if (granted) saveProficiencyGranted[k] = true
         }
       }
     }
@@ -134,12 +330,15 @@ export function computeBuffStats(character, activeBuffs) {
     const finalAbilities = {}
     for (const k of ABILITY_KEYS) {
       let score
-      if (hasAbilityOverride && abilityOverride[k] != null) {
-        score = abilityOverride[k]
+      // override 设定基础值，uncapped 增量仍然叠加
+      if (abilityOverride[k] != null) {
+        score = abilityOverride[k] + (abilityBonus[k] || 0)
       } else {
         score = (baseAbilities[k] ?? 10) + (abilityBonus[k] || 0)
       }
-      finalAbilities[k] = Math.max(1, Math.min(30, score))
+      // 默认属性增加不能超过 20；仅勾选了「可突破20」的属性才能到达 30
+      const cap = abilityBreak20[k] ? 30 : 20
+      finalAbilities[k] = Math.max(1, Math.min(cap, score))
     }
 
     // 后续 AC 加值、豁免/技能/法术等公式统一使用 BUFF 后有效属性求值
@@ -150,10 +349,14 @@ export function computeBuffStats(character, activeBuffs) {
       prof: contextProf,
       spellDC: spellAbility ? 8 + contextProf + finalSpellMod : 0,
       spellAttack: spellAbility ? contextProf + finalSpellMod : 0,
+      classLevels,
+      speed: character?.speed ?? 30,
     }
     const evalVal = (raw) => evaluateBuffValue(raw, formulaContext)
 
-    // 2. 攻击加值：melee / ranged / all 分离累加
+    // 2. 攻击加值：全局 vs 条件范围分离。
+    //    命中/伤害加值只有 scope === 'global' 时才聚合到全局 all；
+    //    条件范围（本武器/某类生物/某类伤害类型/某类武器）由 CombatStatus 按具体战斗手段匹配后追加。
     let attackMelee = 0
     let attackRanged = 0
     let attackAll = 0
@@ -164,11 +367,16 @@ export function computeBuffStats(character, activeBuffs) {
 
     for (const b of entries) {
       const raw = b.value
+      const { scope } = normalizeScope(b.scope, b.scopeDetail)
+      const isGlobal = scope === SCOPE_KIND.global || scope === ''
+
       if (b.effectType === 'attack_damage_bonus' && typeof raw === 'string') {
         const attackMatch = raw.match(/攻击\s*[+＋]?\s*(\d+)/i)
         const dmgMatch = raw.match(/伤害\s*[+＋]?\s*(\d+)/i)
-        if (attackMatch) attackAll += (parseInt(attackMatch[1], 10) || 0)
-        if (dmgMatch) dmgAll += (parseInt(dmgMatch[1], 10) || 0)
+        if (isGlobal) {
+          if (attackMatch) attackAll += (parseInt(attackMatch[1], 10) || 0)
+          if (dmgMatch) dmgAll += (parseInt(dmgMatch[1], 10) || 0)
+        }
         continue
       }
       if (b.effectType === 'attack_damage_bonus' && raw && typeof raw === 'object' && !Array.isArray(raw)) {
@@ -195,7 +403,7 @@ export function computeBuffStats(character, activeBuffs) {
           }
           continue
         }
-        if (globalVal !== 0) {
+        if (isGlobal && globalVal !== 0) {
           attackAll += globalVal
           dmgAll += globalVal
         }
@@ -208,14 +416,19 @@ export function computeBuffStats(character, activeBuffs) {
       if (!Number.isNaN(v)) {
         if (b.effectType === 'attack_melee') attackMelee += v
         else if (b.effectType === 'attack_ranged') attackRanged += v
-        else if (b.effectType === 'attack_all' || b.effectType === 'attack_bonus') attackAll += v
+        else if (b.effectType === 'attack_all') attackAll += v
+        else if (b.effectType === 'attack_bonus') {
+          if (isGlobal) attackAll += v
+        }
         else if (b.effectType === 'dmg_bonus_melee') dmgMelee += v
         else if (b.effectType === 'dmg_bonus_ranged') dmgRanged += v
-        else if (b.effectType === 'dmg_bonus_all' || b.effectType === 'damage_bonus') dmgAll += v
-        // 新表：命中/伤害加值（数字输入），数值同时加到命中与伤害（全局；武器类别见 weaponCategoryAttackDamageBonuses）
+        else if (b.effectType === 'dmg_bonus_all') dmgAll += v
+        else if (b.effectType === 'damage_bonus') {
+          if (isGlobal) dmgAll += v
+        }
+        // 新表：命中/伤害加值（数字输入），数值同时加到命中与伤害；仅全局生效
         else if (b.effectType === 'attack_damage_bonus') {
-          attackAll += v
-          dmgAll += v
+          if (isGlobal) { attackAll += v; dmgAll += v }
         }
       }
     }
@@ -241,11 +454,15 @@ export function computeBuffStats(character, activeBuffs) {
         if (objAdv === 'advantage') advSave++
         else if (objAdv === 'disadvantage') disadvSave++
       } else if (b.effectType === 'skill_bonus') {
-        if (objAdv === 'advantage') advSkill++
-        else if (objAdv === 'disadvantage') disadvSkill++
+        // 仅全局范围的技能增强计入全局优势/劣势；带限定范围的（自定义/生物类型/武器类别等）仅作展示
+        const { scope: skillScope } = normalizeScope(b.scope, b.scopeDetail)
+        if (skillScope === SCOPE_KIND.global || skillScope === '') {
+          if (objAdv === 'advantage') advSkill++
+          else if (objAdv === 'disadvantage') disadvSkill++
+        }
       }
       // 命中/伤害加值上的优势/劣势：视为所有攻击的优势/劣势来源（「武器类别」限定的不计入全局，由武器行单独处理时可扩展）
-      if (b.effectType === 'attack_damage_bonus' || b.effectType === 'attack_bonus') {
+      if (b.effectType === 'attack_damage_bonus' || b.effectType === 'attack_bonus' || b.effectType === 'damage_bonus') {
         const rawA = b.value
         if (rawA && typeof rawA === 'object' && !Array.isArray(rawA)) {
           const gv = evalVal(rawA.val)
@@ -276,28 +493,61 @@ export function computeBuffStats(character, activeBuffs) {
       else if (b.effectType === 'disadv_all') disadvAll++
     }
 
+    // D&D 5e: 同时有优势和劣势来源时抵消为正常
+    const resolveAdvDisadv = (hasAdv, hasDisadv) => {
+      if (hasAdv && hasDisadv) return 'normal'
+      if (hasDisadv) return 'disadvantage'
+      if (hasAdv) return 'advantage'
+      return 'normal'
+    }
     let advantage = {
-      melee: disadvAll > 0 ? 'disadvantage' : advMelee + advAllAttack > 0 ? 'advantage' : 'normal',
-      ranged: disadvAll > 0 ? 'disadvantage' : advRanged + advAllAttack > 0 ? 'advantage' : 'normal',
-      save: disadvAll > 0 || disadvSave > 0 ? 'disadvantage' : advSave > 0 ? 'advantage' : 'normal',
-      skill: disadvAll > 0 || disadvSkill > 0 ? 'disadvantage' : advSkill > 0 ? 'advantage' : 'normal',
+      melee: resolveAdvDisadv(advMelee + advAllAttack > 0, disadvAll > 0),
+      ranged: resolveAdvDisadv(advRanged + advAllAttack > 0, disadvAll > 0),
+      save: resolveAdvDisadv(advSave > 0, disadvAll > 0 || disadvSave > 0),
+      skill: resolveAdvDisadv(advSkill > 0, disadvAll > 0 || disadvSkill > 0),
     }
 
     // 7. 状态效果与力竭的减益（力竭规则参考 D&D 2024）
-    const conditions = Array.isArray(character?.conditions) ? character.conditions : []
+    // 先收集状态免疫（来自 BUFF 效果）
+    const conditionImmunities = new Set()
+    const weaponExpertiseCategories = new Set()
+    for (const b of entries) {
+      if (b.effectType === 'condition_immunity' && Array.isArray(b.value)) {
+        for (const c of b.value) conditionImmunities.add(String(c))
+      }
+      if (b.effectType === 'weapon_expertise' && Array.isArray(b.value)) {
+        for (const c of b.value) weaponExpertiseCategories.add(String(c))
+      }
+    }
+    const rawConditions = Array.isArray(character?.conditions) ? character.conditions : []
+    const conditions = rawConditions.filter((c) => !conditionImmunities.has(c))
     const exhaustionLevel = Math.max(0, Math.min(6, Number(character?.exhaustionLevel) || 0))
     let speedMultiplier = 1
     let maxHpMultiplier = 1
     const disadvantageKeys = new Set()
+    const advantageAgainstYou = new Set() // 针对你的攻击优势
     // D&D 2024 力竭：d20 检定 -2×等级，速度 -5尺×等级，6级死亡（不再用劣势/生命减半）
     const d20ExhaustionPenalty = exhaustionLevel >= 6 ? -12 : -2 * exhaustionLevel
     const speedExhaustionPenalty = exhaustionLevel >= 6 ? 999 : 5 * exhaustionLevel
     if (conditions.includes('poisoned')) { disadvantageKeys.add('melee'); disadvantageKeys.add('ranged'); disadvantageKeys.add('skill') }
-    if (conditions.includes('blinded')) { disadvantageKeys.add('melee'); disadvantageKeys.add('ranged') }
-    if (conditions.includes('frightened')) disadvantageKeys.add('skill')
-    if (['stunned', 'paralyzed', 'unconscious'].some((c) => conditions.includes(c))) speedMultiplier = 0
-    if (disadvantageKeys.size) {
-      advantage = { ...advantage, ...Object.fromEntries([...disadvantageKeys].map((k) => [k, 'disadvantage'])) }
+    if (conditions.includes('blinded')) { disadvantageKeys.add('melee'); disadvantageKeys.add('ranged'); advantageAgainstYou.add('melee'); advantageAgainstYou.add('ranged') }
+    if (conditions.includes('frightened')) { disadvantageKeys.add('melee'); disadvantageKeys.add('ranged'); disadvantageKeys.add('skill') }
+    if (conditions.includes('restrained')) { disadvantageKeys.add('melee'); disadvantageKeys.add('ranged'); disadvantageKeys.add('skill'); advantageAgainstYou.add('melee'); advantageAgainstYou.add('ranged') }
+    if (conditions.includes('prone')) { disadvantageKeys.add('melee'); advantageAgainstYou.add('melee') }
+    if (conditions.includes('grappled')) { speedMultiplier = 0 }
+    if (conditions.includes('petrified')) { disadvantageKeys.add('melee'); disadvantageKeys.add('ranged'); disadvantageKeys.add('skill'); advantageAgainstYou.add('melee'); advantageAgainstYou.add('ranged') }
+    if (conditions.includes('invisible')) { /* 攻击你时有劣势，你攻击别人有优势 — 由 DM 手动管理 */ }
+    if (['stunned', 'paralyzed', 'unconscious'].some((c) => conditions.includes(c))) { speedMultiplier = 0; advantageAgainstYou.add('melee'); advantageAgainstYou.add('ranged') }
+    // 应用状态效果：优势/劣势抵消
+    if (disadvantageKeys.size || advantageAgainstYou.size) {
+      const newAdv = { ...advantage }
+      for (const k of disadvantageKeys) {
+        newAdv[k] = resolveAdvDisadv(newAdv[k] === 'advantage', true)
+      }
+      for (const k of advantageAgainstYou) {
+        // 针对你的优势不影响你的攻击优势/劣势，仅记录（供武器卡片使用）
+      }
+      advantage = newAdv
     }
 
     // 4. AC（使用增益后的属性，使敏捷等加成正确）、速度、先攻、DC、熟练
@@ -306,15 +556,91 @@ export function computeBuffStats(character, activeBuffs) {
     const charWithBuffedAbilities = character
       ? { ...character, abilities: finalAbilities, buffs: [] }
       : { abilities: finalAbilities, buffs: [] }
-    const baseAC = getAC(charWithBuffedAbilities)
+
+    // ── 护甲覆盖效果：收集所有 armor_override，取最高值（不叠加）──
+    let armorOverrideBase = null
+    let armorOverrideApplyDexMod = true
+    let armorOverrideMaxDexBonus = null
+    let armorOverrideExtra = 0
+    let armorOverrideShieldCompatible = false
+
+    for (const b of entries) {
+      if (b.effectType === 'armor_override' && b.value && typeof b.value === 'object' && !Array.isArray(b.value)) {
+        const ov = b.value
+        const baseVal = evaluateBuffValue(ov.base ?? 10, formulaContext)
+        if (!Number.isNaN(baseVal)) {
+          if (armorOverrideBase === null || baseVal > armorOverrideBase) {
+            armorOverrideBase = baseVal
+            armorOverrideApplyDexMod = ov.applyDexMod !== false
+            armorOverrideMaxDexBonus = Number(ov.maxDexBonus) || null
+            armorOverrideExtra = Number(ov.extra) || 0
+            armorOverrideShieldCompatible = !!ov.shieldCompatible
+          }
+        }
+      }
+    }
+
+    // 检测是否有护盾池效果：护盾池current值替换基础AC 10，不叠加护甲AC
+    const hasShieldPool = entries.some(e => e.effectType === 'shield_pool')
+
+    // 计算基础AC：变身效果 → armor_override → 默认 getAC
+    let baseAC
+    if (creatureTransformData && creatureTransformData.acMode === 'replace') {
+      // 变身替换模式：直接使用生物的 AC
+      baseAC = creatureTransformData.creature.ac ?? 10
+    } else if (creatureTransformData && creatureTransformData.acMode === 'add') {
+      // 变身叠加模式：生物 AC 作为加值叠加到现有 AC 上
+      const creatureAC = creatureTransformData.creature.ac ?? 0
+      if (armorOverrideBase !== null) {
+        const dexMod = abilityModifier(finalAbilities.dex ?? 10)
+        let acFromDex = 0
+        if (armorOverrideApplyDexMod) {
+          acFromDex = armorOverrideMaxDexBonus != null
+            ? Math.min(dexMod, armorOverrideMaxDexBonus)
+            : dexMod
+        }
+        baseAC = armorOverrideBase + acFromDex + armorOverrideExtra + creatureAC
+      } else {
+        const equipmentAC = getAC(charWithBuffedAbilities)
+        baseAC = (equipmentAC?.total ?? 10) + creatureAC
+      }
+    } else if (creatureTransformData && creatureTransformData.acMode === 'max_formula') {
+      // 取高值模式：公式值（如 13+感知调整值）与生物AC 取较高者
+      const creatureAC = creatureTransformData.creature.ac ?? 10
+      let formulaVal = creatureTransformData.acFormulaBase ?? 13
+      const abilKey = creatureTransformData.acFormulaAbility
+      if (abilKey) {
+        formulaVal += abilityModifier(finalAbilities[abilKey] ?? 10)
+      }
+      baseAC = Math.max(formulaVal, creatureAC)
+    } else if (armorOverrideBase !== null) {
+      const dexMod = abilityModifier(finalAbilities.dex ?? 10)
+      let acFromDex = 0
+      if (armorOverrideApplyDexMod) {
+        acFromDex = armorOverrideMaxDexBonus != null
+          ? Math.min(dexMod, armorOverrideMaxDexBonus)
+          : dexMod
+      }
+      baseAC = armorOverrideBase + acFromDex + armorOverrideExtra
+    } else if (hasShieldPool) {
+      // 护盾池效果：基础AC = 10（护盾池current通过ac_bonus注入，替换护甲AC）
+      baseAC = 10
+    } else {
+      baseAC = getAC(charWithBuffedAbilities)
+    }
 
     let acBonus = 0
-    const acCapStoneLayerValues = []
     let speedBonus = 0
+    let swimSpeedBonus = 0
+    let climbSpeedBonus = 0
     let reachBonus = 0
     let initBonus = 0
     const saveDcValues = []
     const spellAttackValues = []
+    // 重击威胁范围：默认自然20，通过BUFF可扩展
+    let critThreatMinNatural = 20
+    let critRangeIncrement = 0
+    const spellDamageBonuses = [] // { type, diceFloor, perDieBonus, extraDice, flatBonus }
     let flightSpeed = 0
     let flightHover = false
     const saveBonusPerAbility = { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 }
@@ -326,20 +652,38 @@ export function computeBuffStats(character, activeBuffs) {
     let spellRangeBonus = 0
     const ignoreResistanceTypes = []
     let damageReduction = 0
+    const damageReductionTyped = {}
+    // 新增效果类型变量
+    let specialSenses = { senses: [], range: 0 }
+    let healingBonus = 0
+    let deathSaveBonus = 0
+    let deathWard = false
+    let extraAttack = 0
+    let extraActionResource = 0
 
     const initiativeProfBonus = proficiencyBonus(charLevel)
 
     for (const b of entries) {
       const raw = b.value
       const v = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
-      if (b.effectType === 'ac_bonus') acBonus += evalVal(raw) || 0
+      if (b.effectType === 'ac_bonus') {
+        // 如果存在不兼容盾牌的 armor_override，忽略来自装备的盾牌AC加值
+        // 这里简化处理：ac_bonus 通常来自BUFF，不是装备；装备AC已在 getAC 中计算
+        acBonus += evalVal(raw) || 0
+      }
       else if (b.effectType === 'damage_reduction') {
         const dr = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
         if (!Number.isNaN(dr)) damageReduction += dr
       }
-      else if (b.effectType === 'ac_cap_stone_layer') {
-        const y = evalVal(raw)
-        if (!Number.isNaN(y)) acCapStoneLayerValues.push(y)
+      else if (b.effectType === 'damage_reduction_typed' && raw && typeof raw === 'object') {
+        const types = Array.isArray(raw.types) ? raw.types : []
+        const red = Number(evalVal(raw.reduction)) || 0
+        if (red > 0) {
+          for (const t of types) {
+            const key = String(t).toLowerCase()
+            damageReductionTyped[key] = (damageReductionTyped[key] || 0) + red
+          }
+        }
       }
       else if (b.effectType === 'speed_bonus') speedBonus += evalVal(raw) || 0
       else if (b.effectType === 'reach_bonus') reachBonus += v
@@ -353,6 +697,33 @@ export function computeBuffStats(character, activeBuffs) {
       }
       else if (b.effectType === 'save_dc_bonus') { const dv = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw) || 0; saveDcValues.push(dv) }
       else if (b.effectType === 'spell_attack_bonus') { const sv = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw) || 0; spellAttackValues.push(sv) }
+      // 重击威胁范围聚合
+      else if (b.effectType === 'crit_range_override') {
+        const n = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
+        if (!Number.isNaN(n) && n >= 1 && n <= 20) critThreatMinNatural = Math.min(critThreatMinNatural, Math.floor(n))
+      }
+      else if (b.effectType === 'crit_range_expand') {
+        const mn = parseCritRangeThreatMin(raw)
+        if (mn != null) critThreatMinNatural = Math.min(critThreatMinNatural, mn)
+      }
+      else if (b.effectType === 'crit_range_increment') {
+        const n = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
+        if (!Number.isNaN(n) && n >= 1) critRangeIncrement += Math.floor(n)
+      }
+      else if (b.effectType === 'crit_range_reduction') {
+        const n = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
+        if (!Number.isNaN(n) && n >= 1) critRangeIncrement += Math.floor(n)
+      }
+      else if (b.effectType === 'spell_damage_bonus' && raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        const sdb = {
+          type: raw.type ? String(raw.type).trim() : '',
+          diceFloor: Number(raw.diceFloor) > 1 ? Number(raw.diceFloor) : null,
+          perDieBonus: Number(raw.perDieBonus) || 0,
+          extraDice: raw.extraDice ? String(raw.extraDice).trim() : '',
+          flatBonus: raw.flatBonus != null && raw.flatBonus !== '' ? raw.flatBonus : 0,
+        }
+        spellDamageBonuses.push(sdb)
+      }
       else if (b.effectType === 'flight_speed' && raw && typeof raw === 'object') {
         const sp = evalVal(raw.speed)
         if (!Number.isNaN(sp) && sp > flightSpeed) flightSpeed = sp
@@ -367,11 +738,16 @@ export function computeBuffStats(character, activeBuffs) {
           const n = evalVal(raw[k])
           if (!Number.isNaN(n)) saveBonusPerAbility[k] = (saveBonusPerAbility[k] || 0) + n
         }
-      } else if (b.effectType === 'skill_bonus' && raw && typeof raw === 'object') {
-        for (const [k, val] of Object.entries(raw)) {
-          if (k === 'advantage') continue
-          const n = evalVal(val)
-          if (!Number.isNaN(n)) skillBonusPerSkill[k] = (skillBonusPerSkill[k] || 0) + n
+      } else if (b.effectType === 'skill_bonus' && raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        // 仅全局范围的技能数值加值计入全局聚合；限定范围（自定义等）仅作展示
+        const { scope: skillScope } = normalizeScope(b.scope, b.scopeDetail)
+        if (skillScope === SCOPE_KIND.global || skillScope === '') {
+          for (const [k, val] of Object.entries(raw)) {
+            if (k === 'advantage' || ['ref', 'ability', 'mult', 'add'].includes(k)) continue
+            if (val == null) continue
+            const n = evalVal(val)
+            if (!Number.isNaN(n)) skillBonusPerSkill[k] = (skillBonusPerSkill[k] || 0) + n
+          }
         }
       }
       // 新表：无视伤害抗性（防御与生存）
@@ -394,46 +770,74 @@ export function computeBuffStats(character, activeBuffs) {
       else if (b.effectType === 'terrain_ignore' && (raw === true || raw === 'true' || raw === 1)) {
         ignoreDifficultTerrain = true
       }
-      // 新表：专注增强（对象：val + advantage；兼容旧文本）
+      // 新表：专注增强（对象：val + advantage；兼容旧文本/纯数字/公式）
       else if (b.effectType === 'concentration_save_enhance') {
-        if (raw && typeof raw === 'object') {
+        if (typeof raw === 'number' || isFormulaValue(raw)) {
+          const cb = evalVal(raw)
+          if (!Number.isNaN(cb)) concentrationBonus += cb
+        } else if (raw && typeof raw === 'object') {
           const cb = evalVal(raw.val)
           if (!Number.isNaN(cb)) concentrationBonus += cb
           if (raw.advantage === 'advantage') concentrationAdvantage = 'advantage'
           else if (raw.advantage === 'disadvantage') concentrationAdvantage = 'disadvantage'
         } else if (typeof raw === 'string') {
-          if (/优势/i.test(raw)) concentrationAdvantage = 'advantage'
-          const plusMatch = raw.match(/[+＋](\d+)/)
-          if (plusMatch) concentrationBonus += (parseInt(plusMatch[1], 10) || 0)
+          const s = String(raw).trim()
+          if (/优势/i.test(s)) concentrationAdvantage = 'advantage'
+          else if (/劣势/i.test(s)) concentrationAdvantage = 'disadvantage'
+          const numMatch = s.match(/[+＋]?(\d+)/)
+          if (numMatch) concentrationBonus += (parseInt(numMatch[1], 10) || 0)
         }
       }
-      // 新表：施法距离延伸（x2 或 +N）
-      else if (b.effectType === 'spell_range_extension' && typeof raw === 'string') {
-        if (/x\s*2|2\s*倍|×\s*2/i.test(raw)) spellRangeMultiplier = Math.max(spellRangeMultiplier, 2)
-        const plusMatch = raw.match(/[+＋](\d+)/)
-        if (plusMatch) spellRangeBonus += (parseInt(plusMatch[1], 10) || 0)
+      // 新表：施法距离延伸（x2 或 +N；兼容旧文本/纯数字/公式/对象）
+      else if (b.effectType === 'spell_range_extension') {
+        const parsed = parseSpellRangeExtension(raw, evalVal)
+        if (parsed.multiplier > 1) spellRangeMultiplier = Math.max(spellRangeMultiplier, parsed.multiplier)
+        spellRangeBonus += parsed.bonus
       }
-      // 新表：速度增加（统一数值，默认为地面速度 +X）
+      // 新表：速度增加（统一数值，默认为地面速度 +X；兼容旧文本/对象/公式）
       else if (b.effectType === 'base_speed_increment') {
-        if (typeof raw === 'number' || isFormulaValue(raw)) {
-          speedBonus += evalVal(raw)
-        } else if (typeof raw === 'string') {
-          const walkMatch = raw.match(/行走\s*[+＋]?\s*(\d+)/i)
-          const flyMatch = raw.match(/飞行\s*[+＋]?\s*(\d+)/i)
-          if (walkMatch) speedBonus += (parseInt(walkMatch[1], 10) || 0)
-          if (flyMatch) {
-            const n = parseInt(flyMatch[1], 10) || 0
-            if (n > flightSpeed) flightSpeed = n
-          }
-          const swimMatch = raw.match(/游泳\s*[+＋]?\s*(\d+)/i)
-          const climbMatch = raw.match(/攀爬\s*[+＋]?\s*(\d+)/i)
-          if (swimMatch) speedBonus += (parseInt(swimMatch[1], 10) || 0)
-          if (climbMatch) speedBonus += (parseInt(climbMatch[1], 10) || 0)
+        const spd = parseBaseSpeedIncrement(raw, evalVal)
+        speedBonus += spd.walk
+        swimSpeedBonus += spd.swim
+        climbSpeedBonus += spd.climb
+        if (spd.fly > flightSpeed) flightSpeed = spd.fly
+      }
+      // 新增：特殊感官（对象：{ senses: string[], range: number }）
+      else if (b.effectType === 'special_senses' && raw && typeof raw === 'object') {
+        const senses = Array.isArray(raw.senses) ? raw.senses : []
+        const range = Number(raw.range) || 0
+        specialSenses = {
+          senses: [...new Set([...specialSenses.senses, ...senses])],
+          range: Math.max(specialSenses.range, range),
         }
+      }
+      // 新增：治疗增强（数值）
+      else if (b.effectType === 'healing_bonus') {
+        const hv = evalVal(raw)
+        if (!Number.isNaN(hv)) healingBonus += hv
+      }
+      // 新增：死亡豁免加值（数值）
+      else if (b.effectType === 'death_save_bonus') {
+        const dv = evalVal(raw)
+        if (!Number.isNaN(dv)) deathSaveBonus += dv
+      }
+      // 防死：一次 HP 降至 0 以下时强制改为 1（布尔值）
+      else if (b.effectType === 'death_ward') {
+        if (raw === true || raw === 'true' || raw === 1) deathWard = true
+      }
+      // 新增：额外攻击（数值）
+      else if (b.effectType === 'extra_attack') {
+        const ea = evalVal(raw)
+        if (!Number.isNaN(ea)) extraAttack += ea
+      }
+      // 新增：额外动作资源（数值）
+      else if (b.effectType === 'extra_action_resource') {
+        const ear = evalVal(raw)
+        if (!Number.isNaN(ear)) extraActionResource += ear
       }
     }
 
-    // 5. 生命：temp_hp 取最大，max_hp_bonus 累加
+    // 5. 生命：temp_hp 取最大，max_hp_bonus 累加；变身效果 HP 处理
     let tempHp = 0
     let maxHpBonus = 0
     let regeneration = 0
@@ -444,8 +848,33 @@ export function computeBuffStats(character, activeBuffs) {
       else if (b.effectType === 'max_hp_bonus') maxHpBonus += v
       else if (b.effectType === 'regeneration') regeneration += v
     }
+    
+    // 变身效果 HP 处理
+    if (creatureTransformData) {
+      const creatureHP = parseHpFormula(creatureTransformData.creature.hp)
+      if (creatureTransformData.hpMode === 'replace') {
+        // 替换模式：计算差值，通过 maxHpBonus 调整实现 HP 替换
+        // CombatStatus 公式：calcMaxHP + getHPBuffSum(legacy) + maxHpBonus(effects)
+        // maxHpBonus 已在上方循环累加了 effects 系统的 max_hp_bonus（如坚韧专长 +40）
+        // 需要同时减去 legacy 和 effects 两部分的 HP 加成
+        const charBaseHP = calcMaxHP(character, baseAbilities)
+        const hpBuffSum = getHPBuffSum(character)
+        maxHpBonus = creatureHP - charBaseHP - hpBuffSum
+      } else if (creatureTransformData.hpMode === 'add') {
+        // 叠加模式：生物 HP 作为临时 HP
+        tempHp = Math.max(tempHp, creatureHP)
+      } else if (creatureTransformData.hpMode === 'keep_plus_temp') {
+        // 保留原HP + 公式临时HP：不修改 maxHpBonus，用公式计算 tempHp
+        if (creatureTransformData.hpFormula && creatureTransformData.hpFormula.ref) {
+          const formulaVal = evalVal(creatureTransformData.hpFormula)
+          if (!Number.isNaN(formulaVal) && formulaVal > 0) {
+            tempHp = Math.max(tempHp, Math.floor(formulaVal))
+          }
+        }
+      }
+    }
 
-    // 6. 抗性/免疫/易伤（收集数组）
+    // 6. 抗性/免疫/易伤（收集数组）；变身效果会替换或叠加这些属性
     const resistTypes = []
     const immuneTypes = []
     const vulnerableTypes = []
@@ -454,7 +883,15 @@ export function computeBuffStats(character, activeBuffs) {
     for (const b of entries) {
       const arr = Array.isArray(b.value) ? b.value : (b.value && b.value.types) ? b.value.types : []
       const toValue = (t) => getDamageTypeValue(t) || String(t).toLowerCase()
-      if (b.effectType === 'resist_type') resistTypes.push(...arr.map(toValue).filter(Boolean))
+      if (b.effectType === 'damage_type_relation' && b.value && typeof b.value === 'object') {
+        // 新版统一格式：{ types: string[], relation: 'resist'|'immune'|'vulnerable' }
+        const relation = b.value.relation
+        const types = Array.isArray(b.value.types) ? b.value.types : []
+        if (relation === 'resist') resistTypes.push(...types.map(toValue).filter(Boolean))
+        else if (relation === 'immune') immuneTypes.push(...types.map(toValue).filter(Boolean))
+        else if (relation === 'vulnerable') vulnerableTypes.push(...types.map(toValue).filter(Boolean))
+      }
+      else if (b.effectType === 'resist_type') resistTypes.push(...arr.map(toValue).filter(Boolean))
       else if (b.effectType === 'immune_type') immuneTypes.push(...arr.map(toValue).filter(Boolean))
       else if (b.effectType === 'vulnerable_type') vulnerableTypes.push(...arr.map(toValue).filter(Boolean))
       else if (b.effectType === 'dmg_type_specific' && b.value && typeof b.value === 'object' && b.value.type) {
@@ -463,13 +900,56 @@ export function computeBuffStats(character, activeBuffs) {
         if (!Number.isNaN(v) && t) dmgTypeBonus[t] = (dmgTypeBonus[t] || 0) + v
       }
     }
-
-    const baseACTotal = baseAC?.total ?? 10
-    let ac = baseACTotal + acBonus
-    if (acCapStoneLayerValues.length > 0) {
-      const cap = baseACTotal + Math.min(...acCapStoneLayerValues)
-      ac = Math.min(ac, cap)
+    
+    // 变身效果的抗性/免疫处理
+    if (creatureTransformData) {
+      const creature = creatureTransformData.creature
+      // 变身模式下，生物的抗性/免疫完全替换角色的（replace 模式）或合并（add 模式暂未实现，当前都按 replace 处理）
+      if (Array.isArray(creature.resistances) && creature.resistances.length > 0) {
+        resistTypes.length = 0 // 清空之前的
+        resistTypes.push(...creature.resistances.map(getDamageTypeValue).filter(Boolean))
+      }
+      if (Array.isArray(creature.immunities) && creature.immunities.length > 0) {
+        immuneTypes.length = 0
+        immuneTypes.push(...creature.immunities.map(getDamageTypeValue).filter(Boolean))
+      }
+      if (Array.isArray(creature.vulnerabilities) && creature.vulnerabilities.length > 0) {
+        vulnerableTypes.length = 0
+        vulnerableTypes.push(...creature.vulnerabilities.map(getDamageTypeValue).filter(Boolean))
+      }
+      // 变身后，生物的 condition immunities 替换角色自身的
+      if (Array.isArray(creature.conditionImmunities) && creature.conditionImmunities.length > 0) {
+        conditionImmunities.clear()
+        for (const c of creature.conditionImmunities) {
+          conditionImmunities.add(String(c).toLowerCase())
+        }
+      }
     }
+
+    // 变身效果速度处理：用生物速度替换角色基础速度，但保留已有的速度加值
+    if (creatureTransformData) {
+      const creatureSpeed = creatureTransformData.creature.speed
+      if (creatureSpeed && typeof creatureSpeed === 'object') {
+        const charSpeed = character?.speed ?? 30
+        const existingSpeedBonus = speedBonus
+        if (creatureSpeed.walk != null) {
+          speedBonus = Number(creatureSpeed.walk) - charSpeed + existingSpeedBonus
+        }
+        if (creatureSpeed.swim != null) {
+          swimSpeedBonus = Number(creatureSpeed.swim)
+        }
+        if (creatureSpeed.climb != null) {
+          climbSpeedBonus = Number(creatureSpeed.climb)
+        }
+        if (creatureSpeed.fly != null) {
+          flightSpeed = Number(creatureSpeed.fly)
+          if (creatureSpeed.hover) flightHover = true
+        }
+      }
+    }
+
+    const baseACTotal = (typeof baseAC === 'object' && baseAC !== null) ? (baseAC.total ?? 10) : (baseAC ?? 10)
+    let ac = baseACTotal + acBonus
 
     // DC 和法术攻击加值：不能累加，只取最高值
     const saveDcBonus = saveDcValues.length ? Math.max(...saveDcValues) : 0
@@ -477,6 +957,7 @@ export function computeBuffStats(character, activeBuffs) {
 
     return {
       abilities: finalAbilities,
+      saveProficiencyGranted,
       meleeAttackBonus,
       rangedAttackBonus,
       meleeDamageBonus,
@@ -485,10 +966,13 @@ export function computeBuffStats(character, activeBuffs) {
       ac,
       acBonus,
       speedBonus,
+      swimSpeedBonus,
+      climbSpeedBonus,
       reachBonus,
       initBonus,
       saveDcBonus,
       spellAttackBonus,
+      spellDamageBonuses,
       proficiencyOverride: profOverride,
       flightSpeed,
       flightHover,
@@ -501,6 +985,7 @@ export function computeBuffStats(character, activeBuffs) {
       spellRangeBonus,
       ignoreResistanceTypes,
       damageReduction,
+      damageReductionTyped,
       tempHp,
       maxHpBonus,
       regeneration,
@@ -513,11 +998,53 @@ export function computeBuffStats(character, activeBuffs) {
       d20ExhaustionPenalty,
       speedExhaustionPenalty,
       weaponCategoryAttackDamageBonuses,
+      // 新增效果类型
+      specialSenses,
+      healingBonus,
+      deathSaveBonus,
+      deathWard,
+      conditionImmunities: [...conditionImmunities],
+      weaponExpertiseCategories: [...weaponExpertiseCategories],
+      extraAttack,
+      extraActionResource,
+      // 变身效果相关信息
+      creatureTransform: creatureTransformData ? {
+        creatureId: creatureTransformData.creature.id,
+        creatureName: creatureTransformData.creature.name,
+        acMode: creatureTransformData.acMode,
+        acFormulaBase: creatureTransformData.acFormulaBase,
+        acFormulaAbility: creatureTransformData.acFormulaAbility,
+        hpMode: creatureTransformData.hpMode,
+        hpFormula: creatureTransformData.hpFormula,
+        keepAbilities: creatureTransformData.keepAbilities,
+        resourceCostType: creatureTransformData.resourceCostType,
+        resourceCostValue: creatureTransformData.resourceCostValue,
+        wildShapeMode: creatureTransformData.wildShapeMode,
+        wildShapeSubclass: creatureTransformData.wildShapeSubclass,
+        creatureHP: parseHpFormula(creatureTransformData.creature.hp),
+        creatureAC: creatureTransformData.creature.ac,
+        creatureSpeed: creatureTransformData.creature.speed,
+        creatureResistances: creatureTransformData.creature.resistances,
+        creatureImmunities: creatureTransformData.creature.immunities,
+        creatureVulnerabilities: creatureTransformData.creature.vulnerabilities,
+        creatureConditionImmunities: creatureTransformData.creature.conditionImmunities,
+        naturalWeapons: creatureTransformData.creature.naturalWeapons || [],
+        // 房规：变身后不获得传奇抗性/传奇动作/巢穴动作，因此不暴露 traits、legendaryActions、legendaryActionPoints
+        spells: creatureTransformData.creature.spells || [],
+        spellSaveDC: creatureTransformData.creature.spellSaveDC || 0,
+        spellAttackBonus: creatureTransformData.creature.spellAttackBonus || 0,
+      } : null,
+      // 重击威胁范围（从 BUFF 管线聚合）
+      critThreatMinNatural: Math.max(1, critThreatMinNatural - critRangeIncrement),
     }
 }
 
-export function useBuffCalculator(character, activeBuffs) {
-  return useMemo(() => computeBuffStats(character, activeBuffs), [character, activeBuffs])
+export function useBuffCalculator(character, activeBuffs, shields) {
+  const shieldEffects = useMemo(() => getActiveShieldEffects(shields), [shields])
+  // 生物库异步加载完成或增删改后重算（否则刷新页面时首算拿不到变身生物数据）
+  const creatureLibVersion = useSyncExternalStore(subscribeCreatureLibraryVersion, getCreatureLibraryVersion)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- creatureLibVersion 是刻意的失效信号，生物库缓存变化时强制重算
+  return useMemo(() => computeBuffStats(character, activeBuffs, shieldEffects), [character, activeBuffs, shieldEffects, creatureLibVersion])
 }
 
 /**
@@ -532,6 +1059,7 @@ export function calculateDamage(baseRoll, damageType, buffStats) {
     dmgTypeBonus = {},
     ignoreResistanceTypes = [],
     damageReduction: flatDr = 0,
+    damageReductionTyped = {},
   } = buffStats
   const type = getDamageTypeValue(damageType) || String(damageType || '').toLowerCase()
   const typeBonus = dmgTypeBonus[type] || 0
@@ -542,6 +1070,9 @@ export function calculateDamage(baseRoll, damageType, buffStats) {
   if (resistTypes.includes(type) && !ignoreResistanceTypes.includes(type)) result = Math.floor(result / 2)
   const dr = Number(flatDr) || 0
   if (dr !== 0) result = Math.max(0, result - dr)
+  // 按伤害类型的固定减免
+  const typedDr = Number(damageReductionTyped[type]) || 0
+  if (typedDr !== 0) result = Math.max(0, result - typedDr)
   return result
 }
 

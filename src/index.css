@@ -443,13 +443,14 @@ select option {
   animation: dice-roll 0.35s ease-out;
 }
 
-/* 角色卡等页面：区块标题暖金色 */
+/* 角色卡等页面：区块标题暖金色（强化层级） */
 .section-title {
   color: var(--text-title);
-  font-size: 0.95rem;
-  font-weight: 700;
-  margin-bottom: 0.5rem;
-  letter-spacing: 0.04em;
+  font-size: 0.9rem;
+  font-weight: 800;
+  margin-bottom: 0.35rem;
+  letter-spacing: 0.06em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 8px rgba(199, 154, 66, 0.15);
 }
 
 .section-subtitle {
@@ -469,14 +470,14 @@ select option {
 
 /* 模块面板：与法术卡同系外投影 + 内高光（与 tailwind shadow-dnd-card 一致） */
 .module-panel {
-  /* 背景加深约 10%，叠加轻微纹理与高光，提升“轻质感” */
+  /* 背景加深约 10%，叠加轻微纹理与高光，提升”轻质感” */
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.025) 0%, rgba(255, 255, 255, 0.008) 100%),
     radial-gradient(120% 90% at 0% 0%, rgba(120, 150, 190, 0.08) 0%, rgba(120, 150, 190, 0) 45%),
     #1a2332;
   border: 1px solid var(--card-border);
   border-radius: var(--panel-radius);
-  padding: 16px;
+  padding: 12px;
   box-shadow:
     0 6px 22px rgba(0, 0, 0, 0.48),
     0 2px 6px rgba(0, 0, 0, 0.28),
@@ -484,7 +485,7 @@ select option {
     inset 0 -1px 0 rgba(0, 0, 0, 0.22);
 }
 
-/* 面板内子卡片：同色系略深、轻分隔 */
+/* 面板内子卡片：同色系略深、轻分隔（阴影降低，内发光增强） */
 .panel-card {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0.006) 100%),
@@ -493,9 +494,18 @@ select option {
   border-radius: var(--panel-radius);
   padding: 12px 16px;
   box-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.38),
-    0 1px 4px rgba(0, 0, 0, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 3px 12px rgba(0, 0, 0, 0.32),
+    0 1px 3px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.panel-card:hover {
+  border-color: rgba(199, 154, 66, 0.25);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.36),
+    0 2px 4px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
     inset 0 -1px 0 rgba(0, 0, 0, 0.14);
 }
 .panel-card-compact {
@@ -506,9 +516,18 @@ select option {
   border-radius: var(--panel-radius);
   padding: 8px 12px;
   box-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.38),
-    0 1px 4px rgba(0, 0, 0, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 3px 12px rgba(0, 0, 0, 0.32),
+    0 1px 3px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.panel-card-compact:hover {
+  border-color: rgba(199, 154, 66, 0.25);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.36),
+    0 2px 4px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
     inset 0 -1px 0 rgba(0, 0, 0, 0.14);
 }
 
@@ -517,6 +536,48 @@ select option {
   height: 1px;
   background: var(--card-border);
   margin: 12px 0;
+}
+
+/* 高频操作区金色顶边高亮（战斗状态、法术列表等） */
+.panel-highlight-top {
+  position: relative;
+}
+.panel-highlight-top::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg,
+    rgba(199, 154, 66, 0) 0%,
+    rgba(199, 154, 66, 0.8) 20%,
+    rgba(199, 154, 66, 1) 50%,
+    rgba(199, 154, 66, 0.8) 80%,
+    rgba(199, 154, 66, 0) 100%);
+  border-radius: var(--panel-radius) var(--panel-radius) 0 0;
+  pointer-events: none;
+}
+
+/* 高频操作区金色侧边高亮（次要强调） */
+.panel-highlight-side {
+  position: relative;
+}
+.panel-highlight-side::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 2px;
+  background: linear-gradient(180deg,
+    rgba(199, 154, 66, 0) 0%,
+    rgba(199, 154, 66, 0.6) 30%,
+    rgba(199, 154, 66, 0.8) 50%,
+    rgba(199, 154, 66, 0.6) 70%,
+    rgba(199, 154, 66, 0) 100%);
+  border-radius: 0 2px 2px 0;
+  pointer-events: none;
 }
 
 /* 面板内输入框/下拉框（普通文案字号，保证填入内容可读） */
@@ -537,8 +598,8 @@ select option {
 .panel-input:focus,
 .panel-select:focus {
   outline: none;
-  border-color: var(--input-focus);
-  box-shadow: 0 0 0 2px rgba(199, 154, 66, 0.16);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(199, 154, 66, 0.3), 0 0 12px rgba(199, 154, 66, 0.15);
 }
 /* 剧情等级等紧凑数字框：外框高度贴近数字，减少留白 */
 .panel-input-compact {
@@ -573,15 +634,24 @@ select option {
     0 2px 6px rgba(0, 0, 0, 0.28),
     0 0 14px rgba(230, 57, 70, 0.38),
     inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  transition: background 0.2s, box-shadow 0.2s;
+  transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
 }
 .btn-panel-add:hover {
-  background: var(--btn-primary-hover);
+  background: #e84555;
   box-shadow:
-    0 8px 22px rgba(0, 0, 0, 0.45),
+    0 8px 24px rgba(0, 0, 0, 0.45),
     0 3px 8px rgba(0, 0, 0, 0.3),
-    0 0 18px rgba(230, 57, 70, 0.48),
-    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+    0 0 24px rgba(230, 57, 70, 0.55),
+    0 0 48px rgba(230, 57, 70, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
+}
+.btn-panel-add:active {
+  transform: translateY(0);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.4),
+    0 0 18px rgba(230, 57, 70, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 /* 清空按钮：深灰 + 边框 */
@@ -675,6 +745,24 @@ select.panel-class-control-h-compact {
   font-weight: 700;
   font-size: 0.875rem;
   color: var(--text-main);
+}
+
+/* 紧凑版等级步进器 */
+.level-stepper-panel.level-stepper-compact {
+  height: 28px;
+  min-height: 28px;
+  max-height: 28px;
+  border-radius: 6px;
+  gap: 1px;
+  border-color: rgba(255,255,255,0.06);
+}
+.level-stepper-compact button {
+  width: 24px;
+  flex: 0 0 24px;
+}
+.level-stepper-compact span {
+  min-width: 1.5rem;
+  font-size: 0.8125rem;
 }
 
 /* 星形图标：金色填充 */
@@ -872,7 +960,7 @@ select.panel-class-control-h-compact {
   color: var(--text-main);
 }
 
-/* 职业 Tab */
+/* 职业 Tab（带底部边框生长动画） */
 .class-tabs {
   display: flex;
   gap: 0;
@@ -880,21 +968,157 @@ select.panel-class-control-h-compact {
   margin-bottom: 0.75rem;
 }
 .class-tab {
+  position: relative;
   padding: 0.5rem 1rem;
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--text-muted);
   background: transparent;
   border: none;
-  border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.2s;
+}
+.class-tab::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  height: 2px;
+  background: var(--accent);
+  transition: width 0.25s ease, left 0.25s ease;
+  box-shadow: 0 0 8px rgba(199, 154, 66, 0.4);
 }
 .class-tab:hover {
   color: var(--text-main);
 }
+.class-tab:hover::after {
+  width: 30%;
+  left: 35%;
+}
 .class-tab.active {
   color: var(--accent);
-  border-bottom-color: var(--accent);
+}
+.class-tab.active::after {
+  width: 100%;
+  left: 0;
+}
+
+/* ═══════════════════════════════════════════
+   入场动画 — BUFF 列表 / 条目 fade-in + slide-up
+   ═══════════════════════════════════════════ */
+@keyframes fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.anim-fade-slide-up {
+  animation: fadeSlideUp 0.25s ease-out both;
+}
+
+/* 依次延迟：给列表条目用，配合 index 变量 */
+.anim-fade-slide-up:nth-child(1)  { animation-delay: 0ms; }
+.anim-fade-slide-up:nth-child(2)  { animation-delay: 30ms; }
+.anim-fade-slide-up:nth-child(3)  { animation-delay: 60ms; }
+.anim-fade-slide-up:nth-child(4)  { animation-delay: 90ms; }
+.anim-fade-slide-up:nth-child(5)  { animation-delay: 120ms; }
+.anim-fade-slide-up:nth-child(6)  { animation-delay: 150ms; }
+.anim-fade-slide-up:nth-child(7)  { animation-delay: 180ms; }
+.anim-fade-slide-up:nth-child(8)  { animation-delay: 210ms; }
+.anim-fade-slide-up:nth-child(n+9) { animation-delay: 240ms; }
+
+/* ═══════════════════════════════════════════
+   数值变化闪烁 — HP / AC 等关键数字
+   ═══════════════════════════════════════════ */
+@keyframes valueFlash {
+  0%   { color: var(--text-main); text-shadow: none; }
+  30%  { color: #fff; text-shadow: 0 0 8px rgba(199, 154, 66, 0.6); }
+  100% { color: var(--text-main); text-shadow: none; }
+}
+
+.anim-value-flash {
+  animation: valueFlash 0.6s ease-out;
+}
+
+/* ═══════════════════════════════════════════
+   空状态占位 — D&D 风格虚线框 + 图标提示
+   ═══════════════════════════════════════════ */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  border: 1.5px dashed rgba(199, 154, 66, 0.25);
+  border-radius: var(--panel-radius);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  text-align: center;
+  gap: 0.5rem;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.empty-state:hover {
+  border-color: rgba(199, 154, 66, 0.4);
+  color: var(--text-body);
+}
+
+.empty-state-icon {
+  width: 36px;
+  height: 36px;
+  opacity: 0.35;
+  color: var(--accent);
+}
+
+/* ═══════════════════════════════════════════
+   头像上传区 — 实线边框 + 四角装饰
+   ═══════════════════════════════════════════ */
+.avatar-upload-zone {
+  position: relative;
+  border: 2px solid rgba(199, 154, 66, 0.3);
+  border-radius: var(--panel-radius);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.avatar-upload-zone:hover {
+  border-color: rgba(199, 154, 66, 0.55);
+  box-shadow: 0 0 12px rgba(199, 154, 66, 0.12);
+}
+
+/* 四角 L 形装饰 */
+.avatar-upload-zone::before,
+.avatar-upload-zone::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-color: var(--accent);
+  border-style: solid;
+  pointer-events: none;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.avatar-upload-zone::before {
+  top: -1px;
+  left: -1px;
+  border-width: 2px 0 0 2px;
+}
+
+.avatar-upload-zone::after {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 2px 2px 0;
+}
+
+.avatar-upload-zone:hover::before,
+.avatar-upload-zone:hover::after {
+  opacity: 0.8;
 }

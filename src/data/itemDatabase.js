@@ -143,6 +143,29 @@ export function buildWeaponNoteFromTraits(traits, range, ammoCategory) {
   return [...parts, ...rest].join('，')
 }
 
+/** 官方非魔法物品模板：允许作为「官方物品模板」来源的物品集合。
+ * 包含：近战/远程/枪械/弹药、盔甲、衣服、工具、载具与坐骑、食物、冒险装备，
+ *       以及消耗品中的爆炸品/子弹（强酸炸弹、炽火胶、箭袋/弩矢匣等）。
+ * 排除：所有法器、药品、储物、货币、饰品，以及明确魔法的近战武器（兆运魔牌、智能武器）。
+ */
+const OFFICIAL_TEMPLATE_EXCLUDE_IDS = new Set(['zhaoyun_arcane_cards', 'smart_weapon'])
+const OFFICIAL_TEMPLATE_NON_MAGICAL_TYPES = [
+  '近战武器', '远程武器', '枪械', '弹药',
+  '盔甲', '衣服', '工具', '载具与坐骑',
+  '食物', '冒险装备',
+]
+const OFFICIAL_TEMPLATE_NON_MAGICAL_CONSUMABLE_SUBTYPES = new Set(['爆炸品', '子弹'])
+
+export function getOfficialNonMagicalItemTemplates() {
+  return ITEM_DATABASE.filter((item) => {
+    if (!item || OFFICIAL_TEMPLATE_EXCLUDE_IDS.has(item.id)) return false
+    const type = item.类型
+    if (OFFICIAL_TEMPLATE_NON_MAGICAL_TYPES.includes(type)) return true
+    if (type === '消耗品' && OFFICIAL_TEMPLATE_NON_MAGICAL_CONSUMABLE_SUBTYPES.has(item.子类型)) return true
+    return false
+  })
+}
+
 /** 内置物品表：近战武器/远程武器/弹药、盔甲（子类型 轻甲/中甲/重甲/盾牌） */
 export const ITEM_DATABASE = [
   // 近战武器
@@ -600,7 +623,9 @@ export function getItemListGrouped() {
   })
 }
 
-/** 新增自定义物品；返回新项（含 id）。类型会规范化（首饰→饰品，奇物/液体/套组→其他）。 */
+/** 新增自定义物品；返回新项（含 id）。类型会规范化（首饰→饰品，奇物/液体/套组→其他）。
+ *  支持保存附魔/效果字段（effects、magicBonus、charge、spellDC、spellAttackBonus、攻击距离、爆炸半径）。
+ */
 export function addCustomItem(item) {
   const list = getCustomItems()
   const usedIds = new Set(list.map((x) => x?.id).filter(Boolean))
@@ -621,6 +646,13 @@ export function addCustomItem(item) {
     详细介绍: item.详细介绍?.trim() || '',
     需要同调: item.需要同调 === true || item.需要同调 === 'true',
     rarity: item.rarity ?? '',
+    effects: Array.isArray(item.effects) ? item.effects : [],
+    magicBonus: Number(item.magicBonus) || 0,
+    charge: Number(item.charge) || 0,
+    spellDC: item.spellDC ?? undefined,
+    spellAttackBonus: item.spellAttackBonus ?? undefined,
+    攻击距离: item.攻击距离?.trim() || '',
+    爆炸半径: Number(item.爆炸半径) || 0,
   }
   list.push(newItem)
   const p = persistCustomItems(list)
@@ -628,7 +660,9 @@ export function addCustomItem(item) {
   return newItem
 }
 
-/** 更新自定义物品；若 patch 含 类型，会规范化（首饰→饰品，奇物/液体/套组→其他） */
+/** 更新自定义物品；若 patch 含 类型，会规范化（首饰→饰品，奇物/液体/套组→其他）。
+ *  调用方应保证 effects 等字段格式正确；此处仅做浅合并。
+ */
 export function updateCustomItem(id, patch) {
   const list = getCustomItems()
   const idx = list.findIndex((x) => x.id === id)

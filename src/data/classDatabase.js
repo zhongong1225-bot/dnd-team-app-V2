@@ -1630,6 +1630,8 @@ export function getAvailableFeatures(character) {
       }
     }
   }
+  // 按等级升序排列，子职特性与核心特性混合排序
+  list.sort((a, b) => a.level - b.level)
   return list
 }
 

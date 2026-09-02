@@ -1,0 +1,41 @@
+{
+  "collections": [
+    {
+      "collection": "characters",
+      "desc": "角色",
+      "count": 3
+    },
+    {
+      "collection": "warehouses",
+      "desc": "团队仓库",
+      "count": 1
+    },
+    {
+      "collection": "campaign_modules",
+      "desc": "模组列表",
+      "count": 1
+    },
+    {
+      "collection": "team_vaults",
+      "desc": "团队金库",
+      "count": 0
+    },
+    {
+      "collection": "crafting_projects",
+      "desc": "制作项目",
+      "count": 0
+    },
+    {
+      "collection": "user_prefs",
+      "desc": "用户偏好",
+      "count": 1
+    },
+    {
+      "collection": "custom_libraries",
+      "desc": "自定义库",
+      "count": 0
+    }
+  ],
+  "generatedAt": "2026-07-18T19:41:51.757Z",
+  "note": "云开发 _id 限制 32 字符，角色表使用短 id，原 UUID 保存在 supabaseId 字段"
+}

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { useAuth } from './AuthContext'
 import { isSupabaseEnabled } from '../lib/supabase'
 import {
@@ -11,8 +11,16 @@ import {
 import { clearLegacyTeamLocalStorage } from '../lib/clearLegacyTeamLocalStorage'
 import { loadCustomItemsFromSupabase } from '../data/itemDatabase'
 import { loadCustomSpellsFromSupabase } from '../data/spellDatabase'
+import { loadCustomRacesFromSupabase } from '../data/races'
+import { loadCreatureLibraryFromSupabase } from '../data/creatureLibrary'
 import { startAutoBackupScheduler, stopAutoBackupScheduler } from '../lib/moduleSnapshotStore'
 import { startAutoArchiveListener } from '../lib/moduleArchiveStore'
+import {
+  getModuleLibrary,
+  loadModuleLibraryFromSupabase,
+  syncBuffTemplatesFromCharacters,
+  syncItemTemplatesFromCharacters,
+} from '../lib/moduleLibraryStore'
 
 const ModuleContext = createContext(null)
 
@@ -25,6 +33,9 @@ export function ModuleProvider({ children }) {
   const [teamDataReady, setTeamDataReady] = useState(() => !isSupabaseEnabled())
   /** 自定义物品/法术 Realtime 更新后递增，供 ItemPicker 等刷新列表 */
   const [customLibraryEpoch, setCustomLibraryEpoch] = useState(0)
+  /** 当前模组库（BUFF/物品模板） */
+  const [moduleLibrary, setModuleLibrary] = useState(() => getModuleLibrary())
+  const [moduleLibraryEpoch, setModuleLibraryEpoch] = useState(0)
 
   useEffect(() => {
     if (!isSupabaseEnabled() || !user?.name) return
@@ -34,15 +45,21 @@ export function ModuleProvider({ children }) {
       setModules(getModulesSnapshot())
     }
     const onCustomLib = () => setCustomLibraryEpoch((n) => n + 1)
+    const onModuleLibrary = () => {
+      setModuleLibrary(getModuleLibrary(currentModuleId))
+      setModuleLibraryEpoch((n) => n + 1)
+    }
     window.addEventListener('dnd-realtime-modules', onModules)
     window.addEventListener('dnd-realtime-user-prefs', onUserPrefs)
     window.addEventListener('dnd-realtime-custom-library', onCustomLib)
+    window.addEventListener('dnd-realtime-module-library', onModuleLibrary)
     return () => {
       window.removeEventListener('dnd-realtime-modules', onModules)
       window.removeEventListener('dnd-realtime-user-prefs', onUserPrefs)
       window.removeEventListener('dnd-realtime-custom-library', onCustomLib)
+      window.removeEventListener('dnd-realtime-module-library', onModuleLibrary)
     }
-  }, [user?.name])
+  }, [user?.name, currentModuleId])
 
   useEffect(() => {
     if (!isSupabaseEnabled()) {
@@ -66,6 +83,8 @@ export function ModuleProvider({ children }) {
         setCurrentModuleIdState(getCurrentModuleId(user.name))
         await loadCustomItemsFromSupabase()
         await loadCustomSpellsFromSupabase()
+        await loadCustomRacesFromSupabase()
+        await loadCreatureLibraryFromSupabase()
       } catch (e) {
         console.warn('团队数据从 Supabase 加载失败（请执行 supabase-schema-v3-team-data.sql）', e)
         if (!cancelled) {
@@ -106,6 +125,28 @@ export function ModuleProvider({ children }) {
     setCurrentModuleIdState(getCurrentModuleId(user?.name))
   }
 
+  const refreshModuleLibrary = useCallback(async () => {
+    const lib = await loadModuleLibraryFromSupabase(currentModuleId)
+    setModuleLibrary(lib)
+    setModuleLibraryEpoch((n) => n + 1)
+  }, [currentModuleId])
+
+  const syncModuleBuffTemplates = useCallback(async () => {
+    await syncBuffTemplatesFromCharacters(currentModuleId)
+    await refreshModuleLibrary()
+  }, [currentModuleId, refreshModuleLibrary])
+
+  const syncModuleItemTemplates = useCallback(async () => {
+    await syncItemTemplatesFromCharacters(currentModuleId)
+    await refreshModuleLibrary()
+  }, [currentModuleId, refreshModuleLibrary])
+
+  // 当前模组切换后重新加载模组库
+  useEffect(() => {
+    if (!teamDataReady) return
+    refreshModuleLibrary()
+  }, [currentModuleId, teamDataReady, refreshModuleLibrary])
+
   const value = {
     modules,
     currentModuleId,
@@ -113,6 +154,11 @@ export function ModuleProvider({ children }) {
     refreshModules,
     teamDataReady,
     customLibraryEpoch,
+    moduleLibrary,
+    moduleLibraryEpoch,
+    refreshModuleLibrary,
+    syncModuleBuffTemplates,
+    syncModuleItemTemplates,
   }
 
   return <ModuleContext.Provider value={value}>{children}</ModuleContext.Provider>

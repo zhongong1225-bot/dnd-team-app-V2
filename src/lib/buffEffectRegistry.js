@@ -5,7 +5,7 @@
  */
 import { BUFF_TYPES } from '../data/buffTypes'
 
-const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'custom']
+const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'active_release', 'container', 'proficiency', 'custom']
 
 export function getAllVisibleBuffEffectKeys() {
   const keys = []
@@ -21,41 +21,104 @@ export function getAllVisibleBuffEffectKeys() {
 
 /** @type {Record<string, 'calculator' | 'metadata'>} */
 export const BUFF_EFFECT_KEY_RUNTIME = {
-  // ability
+  // ability（属性/移动）
   ability_score: 'calculator',
   ability_override: 'calculator',
   ability_score_uncapped: 'calculator',
+  ability_score_bonus: 'calculator',
   extra_attunement_slots: 'metadata',
-  skill_bonus: 'calculator',
   save_bonus: 'calculator',
+  adv_save: 'calculator',
   initiative_buff: 'calculator',
+  base_speed_increment: 'calculator',
+  terrain_ignore: 'calculator',
+  speed_bonus: 'calculator',
+  flight_speed: 'calculator',
   // offense
   attack_bonus: 'calculator',
   damage_bonus: 'calculator',
+  attack_damage_bonus: 'calculator',
   attack_distance_range: 'metadata',
   attack_area: 'metadata',
   damage_piercing_traits: 'calculator',
   crit_range_expand: 'metadata',
+  crit_range_override: 'metadata',
+  crit_range_increment: 'metadata',
+  crit_range_reduction: 'metadata',
   crit_extra_dice: 'metadata',
   extra_damage_dice: 'metadata',
   infinite_ammo: 'metadata',
+  spell_ability_attack: 'metadata',
+  extra_attack: 'metadata',
+  extra_action_resource: 'metadata',
   // defense
   ac_bonus: 'calculator',
-  ac_cap_stone_layer: 'calculator',
+  armor_override: 'calculator',
   resist_type: 'calculator',
   immune_type: 'calculator',
   vulnerable_type: 'calculator',
+  damage_type_relation: 'calculator',
   damage_reduction: 'calculator',
+  damage_reduction_typed: 'calculator',
   max_hp_bonus: 'calculator',
+  temp_hp: 'calculator',
+  regeneration: 'calculator',
   condition_immunity: 'metadata',
-  // mobility_casting
-  base_speed_increment: 'calculator',
-  terrain_ignore: 'calculator',
+  special_senses: 'metadata',
+  healing_bonus: 'calculator',
+  death_save_bonus: 'calculator',
+  death_ward: 'metadata',
+  shield_pool: 'calculator',
+  // mobility_casting（施法）
   concentration_save_enhance: 'calculator',
   spell_range_extension: 'calculator',
   spell_attack_bonus: 'calculator',
   save_dc_bonus: 'calculator',
+  spell_damage_bonus: 'calculator',
+  damage_dice_bonus: 'calculator',
+  min_dice_value: 'calculator',
+  init_bonus: 'calculator',
+  concentration: 'calculator',
+  charge: 'metadata',
+  // active_release（主动释放）
+  charge_item: 'metadata',
+  creature_transform: 'calculator',
+  restore_spell_slots_v2: 'metadata',
   contained_spell: 'metadata',
+  recharge_long_rest: 'metadata',
+  recharge_dawn: 'metadata',
+  // container
+  item_storage: 'metadata',
+  // proficiency（技能/熟练）
+  skill_bonus: 'calculator',
+  adv_skill: 'calculator',
+  specific_tool_proficiency: 'metadata',
+  instrument_proficiency: 'metadata',
+  armor_proficiency: 'metadata',
+  weapon_proficiency: 'metadata',
+  language_proficiency: 'metadata',
+  vehicle_proficiency: 'metadata',
+  weapon_mastery: 'metadata',
+  weapon_expertise: 'calculator',
   // custom
   custom_condition: 'metadata',
+}
+
+/** @type {Record<string, 'calculator' | 'metadata'>} */
+export const DEPRECATED_EFFECT_RUNTIMES = {
+  attack_melee: 'calculator',
+  attack_ranged: 'calculator',
+  attack_all: 'calculator',
+  dmg_bonus_melee: 'calculator',
+  dmg_bonus_ranged: 'calculator',
+  dmg_bonus_all: 'calculator',
+  adv_melee: 'calculator',
+  adv_ranged: 'calculator',
+  adv_all_attack: 'calculator',
+  disadv_all: 'calculator',
+  dmg_type_specific: 'calculator',
+  reach_bonus: 'calculator',
+  ignore_resistance: 'calculator',
+  proficiency_override: 'calculator',
+  tool_proficiency: 'metadata',
 }

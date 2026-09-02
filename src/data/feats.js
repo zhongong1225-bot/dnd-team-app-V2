@@ -499,79 +499,6 @@ const GENERAL_FEATS = [
   },
 ]
 
-const FIGHTING_STYLE_FEATS = [
-  {
-    id: 'archery',
-    name: '箭术',
-    category: '战斗风格专长',
-    prerequisite: '战斗风格特性',
-    description: '你使用远程武器进行的攻击检定获得 +2 加值。',
-  },
-  {
-    id: 'blind_fighting',
-    name: '盲斗',
-    category: '战斗风格专长',
-    prerequisite: '战斗风格特性',
-    description: '你具有 10 尺盲视。',
-  },
-  {
-    id: 'defense',
-    name: '防御',
-    category: '战斗风格专长',
-    prerequisite: '战斗风格特性',
-    description: '着装轻甲、中甲或重甲期间，你的护甲等级获得 +1 加值。',
-  },
-  {
-    id: 'dueling',
-    name: '对决',
-    category: '战斗风格专长',
-    prerequisite: '战斗风格特性',
-    description: '当你单手持用一把近战武器且没有持用其他武器时，你使用那把武器进行的伤害掷骰获得 +2 加值。',
-  },
-  {
-    id: 'great_weapon_fighting',
-    name: '巨武器战斗',
-    category: '战斗风格专长',
-    prerequisite: '战斗风格特性',
-    description: '当你用双手持握的一把近战武器发动了一次攻击并为其进行伤害掷骰时，若该武器具有双手或多用词条，那么你便可以将伤害骰投出的 1 和 2 都视为 3。',
-  },
-  {
-    id: 'interception',
-    name: '拦截',
-    category: '战斗风格专长',
-    prerequisite: '战斗风格特性',
-    description: '当一名你可见的生物以攻击检定命中你 5 尺内的另一名生物时，你能够以反应减少对目标造成的伤害，使该伤害降低 1d10+你的熟练加值。你必须持握着一面盾牌或者一把简易/军用武器才能使用这个反应。',
-  },
-  {
-    id: 'protection',
-    name: '守护',
-    category: '战斗风格专长',
-    prerequisite: '战斗风格特性',
-    description: '当一名你可见的生物对一个你 5 尺内的除你以外的目标发动攻击时，若你正持握着一面盾牌，你能够以反应将盾牌挡在中间。你对触发攻击检定施加劣势，并且只要你还位于目标 5 尺内，其他所有对该目标进行的攻击检定也具有劣势，持续至你的下回合开始。',
-  },
-  {
-    id: 'thrown_weapon_fighting',
-    name: '投掷武器战斗',
-    category: '战斗风格专长',
-    prerequisite: '战斗风格特性',
-    description: '当你使用具有投掷词条的武器进行远程攻击检定并命中时，你在该次伤害掷骰中获得 +2 加值。',
-  },
-  {
-    id: 'two_weapon_fighting',
-    name: '双武器战斗',
-    category: '战斗风格专长',
-    prerequisite: '战斗风格特性',
-    description: '当你因使用具有轻型词条的武器而得以发动额外的攻击时，若此次额外的攻击的伤害本来无法加入你的属性调整值，你可以加入你的属性调整值。',
-  },
-  {
-    id: 'unarmed_fighting',
-    name: '徒手战斗',
-    category: '战斗风格专长',
-    prerequisite: '战斗风格特性',
-    description: '当你使用徒手打击命中并造成了伤害时，你可以改为造成 1d6+你的力量调整值点钝击伤害，而非原本的徒手打击伤害。如果你进行攻击检定时并没有持握任何武器与盾牌，则上述伤害中的 d6 将变为 d8。\n每当你的回合开始时，你还可以对一个因你受擒的生物造成 1d4 点钝击伤害。',
-  },
-]
-
 const PSIONIC_FEATS = [
   {
     id: 'psionic_overcome_barrier',
@@ -782,61 +709,61 @@ const STAR_FEATS = [
     id: 'star_memory',
     name: '星辰记忆',
     category: '星辰专长',
-    description: '每一名星辰神记忆就像是泉水，重现于每一名星辰之子的脑海里面，他们共享记忆和情绪。\n\n效果：消耗 1 点辉点数与一个反应动作，消耗一点光辉点，获得一个临时专长或特殊能力，持续 1 小时。',
+    description: '每一名星辰神记忆就像是泉水，重现于每一名星辰之子的脑海里面，他们共享记忆和情绪。\n\n效果：消耗 1 点星辰点与一个反应动作，消耗一点星辰点，获得一个临时专长或特殊能力，持续 1 小时。',
   },
   {
     id: 'star_ring_of_radiance',
     name: '光耀之环',
     category: '星辰专长',
-    description: '效果：消耗 1 点辉点数与一个动作，将光能量凝聚于自身后背，出现星辰神的神徽。获得 1 小时悬空能力，飞行速度变为 30 尺。\n此能力可升阶：每多花一点光耀点，速度加 10 尺、持续时间加 6（小时）。上限 4 点，移动速度 80 尺，持续 24 小时。',
+    description: '效果：消耗 1 点星辰点与一个动作，将光能量凝聚于自身后背，出现星辰神的神徽。获得 1 小时悬空能力，飞行速度变为 30 尺。\n此能力可升阶：每多花一点星辰点，速度加 10 尺、持续时间加 6（小时）。上限 4 点，移动速度 80 尺，持续 24 小时。',
   },
   {
     id: 'star_compassionate_care',
     name: '慈悲关怀',
     category: '星辰专长',
-    description: '效果：消耗 1 点辉点数与一个动作，以自身为中心出现一片黄金光芒照耀 10 尺范围，范围内生物恢复至生命上限。此效果不分敌我。若生物为不死生物，需进行一次 DC 10+释放者等级的魅力豁免，失败则死亡。',
+    description: '效果：消耗 1 点星辰点与一个动作，以自身为中心出现一片黄金光芒照耀 10 尺范围，范围内生物恢复至生命上限。此效果不分敌我。若生物为不死生物，需进行一次 DC 10+释放者等级的魅力豁免，失败则死亡。',
   },
   {
     id: 'star_divine_guidance',
     name: '神导之力',
     category: '星辰专长',
-    description: '效果：消耗 1 点辉点数与一个动作，让星辰之神将自身辅佐于星辰之子身上，1 分钟内攻击检定均为成功。',
+    description: '效果：消耗 1 点星辰点与一个动作，让星辰之神将自身辅佐于星辰之子身上，1 分钟内攻击检定均为成功。',
   },
   {
     id: 'star_control_blink',
     name: '控制闪烁',
     category: '星辰专长',
-    description: '稳定自身星辰之子闪烁特性。\n\n效果：一个反应动作让自己消失，可于任何时候以一个动作再次出现，出现位置可偏离 60 尺。能携带随身物品，不能携带任何生物。充能 1d6 回合，不需要光辉点。',
+    description: '稳定自身星辰之子闪烁特性。\n\n效果：一个反应动作让自己消失，可于任何时候以一个动作再次出现，出现位置可偏离 60 尺。能携带随身物品，不能携带任何生物。充能 1d6 回合，不需要星辰点。',
   },
   {
     id: 'star_high_frequency',
     name: '高频连接',
     category: '星辰专长',
-    description: '效果：恢复星辰之子自身的辉点数。但 1 分钟后会累积 1 级力竭。',
+    description: '效果：恢复星辰之子自身的星辰点。但 1 分钟后会累积 1 级力竭。',
   },
   {
     id: 'star_radiant_weapon',
     name: '辉耀武器',
     category: '星辰专长',
-    description: '效果：消耗 1 点辉点数与一个反应动作，使选定的武器获得 +1d6 加值伤害。此外，当使用该武器攻击不死生物时，不死生物必须进行魅力豁免（DC=5+施法者等级+魅力调整值），失败则立即死亡。',
+    description: '效果：消耗 1 点星辰点与一个反应动作，使选定的武器获得 +1d6 加值伤害。此外，当使用该武器攻击不死生物时，不死生物必须进行魅力豁免（DC=5+施法者等级+魅力调整值），失败则立即死亡。',
   },
   {
     id: 'star_radiant_armor',
     name: '辉耀防具',
     category: '星辰专长',
-    description: '效果：消耗 1 点辉点数与一个反应动作，AC 获得 5 点加值，持续 1 分钟。若伤害来源具有「辉耀」属性则本效果不适用。',
+    description: '效果：消耗 1 点星辰点与一个反应动作，AC 获得 5 点加值，持续 1 分钟。若伤害来源具有「辉耀」属性则本效果不适用。',
   },
   {
     id: 'star_luck',
     name: '星辰运气',
     category: '星辰专长',
-    description: '效果：消耗 1 点辉点数与一个反应动作，星辰之神注视着你，你的行动受其眷顾。任何检定获得优势；若检定投出 1 可重骰。持续 1 分钟。',
+    description: '效果：消耗 1 点星辰点与一个反应动作，星辰之神注视着你，你的行动受其眷顾。任何检定获得优势；若检定投出 1 可重骰。持续 1 分钟。',
   },
   {
     id: 'star_mana_surge',
     name: '法力涌动',
     category: '星辰专长',
-    description: '效果：消耗一个反应动作与 1 点辉点数，恢复所有 3 环法术位。可升阶：每多花一点辉点数，恢复的法术位环阶 +2（例如多花一点则恢复所有 5 环法术位）。',
+    description: '效果：消耗一个反应动作与 1 点星辰点，恢复所有 3 环法术位。可升阶：每多花一点星辰点，恢复的法术位环阶 +2（例如多花一点则恢复所有 5 环法术位）。',
   },
   {
     id: 'star_doppelganger',
@@ -1112,7 +1039,6 @@ const NINE_SWORDS_SPECIAL_FEATS = [
 export const FEATS_BY_CATEGORY = {
   起源专长: ORIGIN_FEATS,
   通用专长: GENERAL_FEATS,
-  战斗风格专长: FIGHTING_STYLE_FEATS,
   制作物品专长: CRAFTING_FEATS,
   灵能专长: PSIONIC_FEATS,
   星辰专长: STAR_FEATS,
@@ -1124,7 +1050,6 @@ export const FEATS_BY_CATEGORY = {
 export const FEATS = [
   ...ORIGIN_FEATS,
   ...GENERAL_FEATS,
-  ...FIGHTING_STYLE_FEATS,
   ...CRAFTING_FEATS,
   ...PSIONIC_FEATS,
   ...STAR_FEATS,

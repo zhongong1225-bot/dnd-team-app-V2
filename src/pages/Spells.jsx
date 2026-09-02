@@ -298,7 +298,7 @@ function SpellFormGrid({ form, setForm, excludeSpellId, formInstanceId = 'defaul
           value={form.description}
           onChange={(e) => update('description', e.target.value)}
           placeholder="法术效果描述"
-          rows={4}
+          rows={8}
           className={textareaClass + ' w-full'}
         />
       </div>

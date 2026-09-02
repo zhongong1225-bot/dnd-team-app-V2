@@ -3,7 +3,7 @@
  * 上方：手持与身穿（左右分栏）
  * 下方：背包
  */
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Plus,
   Trash2,
@@ -12,7 +12,6 @@ import {
   Pencil,
   Package,
   ChevronDown,
-  ChevronRight,
   Lock,
   Unlock,
   Sparkles,
@@ -27,8 +26,9 @@ import {
   Gem,
   Eye,
   Layers,
+  MoreVertical,
 } from 'lucide-react'
-import DragHandleIcon from './DragHandleIcon'
+import { executeAbility, canUseAbility } from '../lib/activeAbilityEngine'
 import { getItemById, getItemDisplayName, itemRequiresAttunement } from '../data/itemDatabase'
 import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { getCharacterWallet, transferCurrency } from '../lib/currencyStore'
@@ -52,10 +52,15 @@ import { parseArmorNote } from '../lib/formulas'
 import { abilityModifier } from '../lib/formulas'
 import { useBuffCalculator } from '../hooks/useBuffCalculator'
 import { ABILITY_NAMES_ZH, hasItemStorageEffect, ITEM_STORAGE_DEFAULT_ITEM_IDS } from '../data/buffTypes'
+import { getCharacterClasses, getClassDisplayName } from '../data/classDatabase'
 import { inputClass, inputClassInline } from '../lib/inputStyles'
 import { logTeamActivity } from '../lib/activityLog'
 import { NumberStepper } from './BuffForm'
 import { appendContainedSpellsBrief } from '../lib/containedSpellBrief'
+import { hasContainedSpellEffect } from '../lib/containedSpellModel'
+import ContainedSpellUseButton from './ContainedSpellUseButton'
+import { ShieldPoolCounter } from './CardView'
+import { getShieldPoolCurrent, setShieldPoolCurrent, decrementShieldPool, resetShieldPool, buildShieldPoolKey } from '../lib/shieldPoolUtils'
 import { BagModuleSection, parseDragInventoryIndex, deliverBagDrop } from './BagOfHoldingPanel'
 import { normalizeBagOfHoldingVisibility } from '../lib/bagOfHoldingVisibility'
 import {
@@ -78,22 +83,29 @@ import {
 } from '../lib/backpackLayoutOrder'
 import {
   inventoryItemActionsCellClass,
-  inventoryItemBriefChevronBtnClass,
   inventoryItemCardListGapClass,
   inventoryItemCardShellClass,
-  inventoryItemChargeCellClass,
+  inventoryItemRowGridUnified,
+  chargeStepperClass,
+  chargeStepperBtnClass,
+  chargeBarWrapClass,
+  chargeBarFillClass,
+  chargeBarFillGradient,
+  chargeTextClass,
+  releaseBtnClass,
+  actionIconBtnClass,
+  actionIconBtnDangerClass,
+  actionDropdownBtnClass,
+  actionDropdownMenuClass,
+  actionMenuItemClass,
+  actionMenuItemDangerClass,
+  actionMenuDividerClass,
   inventoryItemNameExtrasClass,
   inventoryItemNameRowClass,
   inventoryItemNameTextClass,
   inventoryItemNameTitleGroupClass,
-  inventoryItemQtyWeightCellClass,
-  inventoryItemRowGridEditableNoCharge,
-  inventoryItemRowGridEditableWithCharge,
-  inventoryItemRowGridReadNoCharge,
-  inventoryItemRowGridReadWithCharge,
-  inventoryItemBriefIsExpandable,
 } from '../lib/inventoryItemCardStyles'
-import { InventoryItemBriefChevron, InventoryItemBriefExpandedText } from './InventoryItemCardBrief'
+import { InventoryItemBriefExpandedText } from './InventoryItemCardBrief'
 import InfoTooltip from './InfoTooltip'
 import { ItemTooltipContent } from '../lib/infoTooltipContent'
 
@@ -127,6 +139,30 @@ function EquipSlotBadge({ Icon, label }) {
       <Icon className="h-3.5 w-3.5 text-dnd-gold-light/55" strokeWidth={1.75} />
       <span className="text-[9px] font-medium text-gray-500 leading-tight">{label}</span>
     </div>
+  )
+}
+
+/** 装备护盾池计数器：从 entry.effects 检测 shield_pool 效果并渲染 */
+function EquipmentShieldPoolCounter({ entry, character, onSave, compact = true }) {
+  if (!entry) return <div />
+  const spEffect = Array.isArray(entry.effects)
+    ? entry.effects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
+    : null
+  if (!spEffect) return <div />
+  const spMax = Number(spEffect.value.max) || 10
+  const spThreshold = Number(spEffect.value.threshold) || 0
+  const spCurrent = getShieldPoolCurrent(character, 'equipment', entry.id, spMax)
+  return (
+    <ShieldPoolCounter
+      current={spCurrent}
+      max={spMax}
+      threshold={spThreshold}
+      compact={compact}
+      onChange={(v) => {
+        const newState = setShieldPoolCurrent(character, 'equipment', entry.id, v)
+        onSave({ shieldPoolStates: newState })
+      }}
+    />
   )
 }
 
@@ -239,14 +275,17 @@ function buildEquipmentForAC(heldSlots, wornSlots, inv) {
       }
     }
   }
-  const offSlot = heldSlots[1]
-  if (offSlot?.inventoryId) {
-    const entry = inv.find((e) => e.id === offSlot.inventoryId)
+  const shieldSlot = heldSlots.find((s) => {
+    if (!s?.inventoryId) return false
+    const entry = inv.find((e) => e.id === s.inventoryId)
+    if (!entry) return false
+    const proto = entry.itemId ? getItemById(entry.itemId) : null
+    return proto?.类型 === '盔甲' && proto?.子类型 === '盾牌'
+  })
+  if (shieldSlot?.inventoryId) {
+    const entry = inv.find((e) => e.id === shieldSlot.inventoryId)
     if (entry) {
-      const proto = entry.itemId ? getItemById(entry.itemId) : null
-      if (proto?.类型 === '盔甲' && proto?.子类型 === '盾牌') {
-        eq.shield = { inventoryId: offSlot.inventoryId }
-      }
+      eq.shield = { inventoryId: shieldSlot.inventoryId }
     }
   }
   return eq
@@ -256,7 +295,7 @@ const BAG_PANEL_ICON_BTN =
   'inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-lg border border-gray-500/70 bg-gray-800/90 text-gray-300 hover:bg-gray-700 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed'
 const BAG_PANEL_REMOVE_BTN =
   'inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-lg border border-dnd-red/60 bg-gray-800/90 text-dnd-red hover:bg-dnd-red/20 hover:border-dnd-red/80 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-gray-800/90 disabled:hover:border-dnd-red/60'
-export default function EquipmentAndInventory({ character, canEdit, onSave, onWalletSuccess, activityActor }) {
+export default function EquipmentAndInventory({ character, canEdit, onSave, onWalletSuccess, activityActor, activeAbilities = [] }) {
   const { currentModuleId } = useModule()
   const moduleId = currentModuleId || 'default'
   const reconcileResult = useMemo(() => reconcileBagModuleAnchors(character), [character])
@@ -281,15 +320,22 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   const mergedBuffs = useMemo(() => getMergedBuffsForCalculator(character, moduleId), [
     character?.buffs,
     character?.selectedFeats,
+    character?.selectedInvocations,
+    character?.selectedFightingStyles,
+    character?.classFeatureChoices,
     character?.inventory,
     character?.equippedHeld,
     character?.equippedWorn,
+    character?.raceCard,
+    character?.backgroundCard,
+    character?.shields,
     moduleId,
   ])
   const buffStats = useBuffCalculator(character, mergedBuffs)
   const level = Math.max(1, Math.min(20, parseInt(character?.level, 10) || 1))
   const abilities = buffStats?.abilities ?? character?.abilities ?? {}
   const { spellAbility, spellAttackBonus, spellDC, prof } = getSpellcastingCombatStats(character, buffStats, level)
+  const characterClasses = useMemo(() => getCharacterClasses(character), [character])
   const referenceData = useMemo(() => {
     const arr = []
     Object.entries(abilities).forEach(([k, v]) => {
@@ -301,10 +347,14 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     })
     arr.push({ label: '熟练加值', value: prof, ref: 'proficiency' })
     arr.push({ label: '等级', value: level, ref: 'level' })
+    for (const c of characterClasses) {
+      const displayName = getClassDisplayName(c.name) || c.name
+      arr.push({ label: `${displayName}等级`, value: c.level, ref: 'classLevel', className: c.name })
+    }
     if (spellDC != null) arr.push({ label: '法术DC', value: spellDC, ref: 'spellDc' })
     if (spellAttackBonus != null) arr.push({ label: '法术攻击', value: spellAttackBonus, ref: 'spellAttack' })
     return arr
-  }, [abilities, prof, level, spellDC, spellAttackBonus])
+  }, [abilities, prof, level, spellDC, spellAttackBonus, characterClasses])
   const heldSlots = character?.equippedHeld ?? migrated?.held ?? [
     { id: 'main', inventoryId: null },
     { id: 'off', inventoryId: null },
@@ -333,6 +383,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   const [transferDirection, setTransferDirection] = useState('toVault')
   const [addFormOpen, setAddFormOpen] = useState(false)
   const [editingIndex, setEditingIndex] = useState(null)
+  const [editingNested, setEditingNested] = useState(null) // { containerId, nestedIndex }
   const [storeToVaultIndex, setStoreToVaultIndex] = useState(null)
   const [storeToVaultQty, setStoreToVaultQty] = useState(1)
   const [isStoreToVaulting, setIsStoreToVaulting] = useState(false)
@@ -341,6 +392,19 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   const [bagModuleExpanded, setBagModuleExpanded] = useState({})
   /** 背包物品卡详情：默认折叠，与次元袋/团队仓库一致 */
   const [backpackItemBriefOpen, setBackpackItemBriefOpen] = useState({})
+  const [openActionRow, setOpenActionRow] = useState(null)
+  const actionMenuRef = useRef(null)
+
+  useEffect(() => {
+    if (openActionRow === null) return
+    const handler = (e) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target)) {
+        setOpenActionRow(null)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [openActionRow])
 
   useEffect(() => {
     setBagModuleExpanded((prev) => {
@@ -383,8 +447,8 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     if (!canEdit) return
     if (!inv.some((e) => !e?.inBagOfHolding && !e?.id)) return
     onSave({
-      inventory: inv.map((e) =>
-        !e?.inBagOfHolding && !e?.id ? { ...e, id: `inv_${crypto.randomUUID()}` } : e,
+      inventory: inv.map((e, idx) =>
+        !e?.inBagOfHolding && !e?.id ? { ...e, id: `inv_${idx}_${(e.name || 'item').replace(/\s+/g, '_')}` } : e,
       ),
     })
   }, [canEdit, inv, onSave])
@@ -438,22 +502,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     onSave({ inventory: nextInv })
   }
 
-  /** 更新身穿身体槽条目上的瓦石层附魔数值（仅当 effects 中已有 ac_cap_stone_layer 时显示并编辑） */
-  const setWornStoneLayer = (inventoryId, value) => {
-    const entryIdx = inv.findIndex((e) => e.id === inventoryId)
-    if (entryIdx < 0) return
-    const n = Math.max(0, parseInt(value, 10) || 0)
-    const entry = inv[entryIdx]
-    const effects = Array.isArray(entry.effects) ? [...entry.effects] : []
-    const idx = effects.findIndex((e) => e.effectType === 'ac_cap_stone_layer')
-    if (idx >= 0) {
-      effects[idx] = { ...effects[idx], value: n }
-    } else {
-      effects.push({ category: 'defense', effectType: 'ac_cap_stone_layer', value: n })
-    }
-    const nextInv = inv.map((e, i) => (i === entryIdx ? { ...e, effects } : e))
-    onSave({ inventory: nextInv })
-  }
+  /** 更新身穿身体槽条目上的魔法装备强化加值 */
 
   const addWornSlot = () => {
     const used = new Set(wornAddable.map((a) => a.slotId).filter(Boolean))
@@ -596,6 +645,33 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     const n = Math.max(1, parseInt(value, 10) || 1)
     nested[nestedIndex] = { ...item, qty: n }
     onSave({ inventory: inv.map((e, i) => (i === containerIdx ? { ...e, nestedInventory: nested } : e)) })
+  }
+
+  /** 容器内物品存到团队仓库 */
+  const openStoreToVaultForNested = (containerInvIndex, nestedIndex) => {
+    const container = inv[containerInvIndex]
+    if (!container) return
+    const nested = Array.isArray(container.nestedInventory) ? container.nestedInventory : []
+    const item = nested[nestedIndex]
+    if (!item) return
+    const q = Math.max(1, Number(item.qty) || 1)
+    const moduleId = character?.moduleId ?? 'default'
+    const addPromise = item.itemId
+      ? Promise.resolve(addToWarehouse(moduleId, { ...item, qty: q }))
+      : Promise.resolve(addToWarehouse(moduleId, { name: item.name || '—', qty: q }))
+    setIsStoreToVaulting(true)
+    setTransferHint('物品存入中，请耐心等待；若长时间未完成请尝试刷新页面。')
+    const nextNested = nested.filter((_, idx) => idx !== nestedIndex)
+    onSave({ inventory: inv.map((e, i) => (i === containerInvIndex ? { ...e, nestedInventory: nextNested } : e)) })
+    addPromise
+      .catch((err) => {
+        console.error('[EquipmentAndInventory] 容器内物品存到团队仓库失败', err)
+        alert('存入失败，请重试或刷新页面')
+      })
+      .finally(() => {
+        setIsStoreToVaulting(false)
+        setTransferHint('')
+      })
   }
 
   /** 容器储物：拖放背包物品到展开区域入袋 */
@@ -1007,15 +1083,6 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     (e.currentTarget.closest('[data-bag-item-card]') ?? e.currentTarget).classList.remove('opacity-60')
 
   const renderEmbeddedBagNameExtras = (entry) => {
-    const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((x) => x.effectType === 'ac_cap_stone_layer') : null
-    const stoneVal = stoneEffect != null && stoneEffect.value != null ? Number(stoneEffect.value) : null
-    if (stoneVal != null && !Number.isNaN(stoneVal) && stoneVal > 0) {
-      return (
-        <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0" title="瓦石层">
-          {stoneVal}层
-        </span>
-      )
-    }
     if ((Number(entry.magicBonus) || 0) > 0) {
       return <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>
     }
@@ -1065,6 +1132,19 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     next[editingIndex] = entry
     onSave({ inventory: next })
     setEditingIndex(null)
+  }
+  const applyNestedEditSave = (entry) => {
+    if (!editingNested) return
+    const { containerId, nestedIndex } = editingNested
+    const containerIdx = inv.findIndex((e) => e.id === containerId)
+    if (containerIdx < 0) return
+    const container = inv[containerIdx]
+    const nested = Array.isArray(container.nestedInventory) ? [...container.nestedInventory] : []
+    nested[nestedIndex] = entry
+    onSave({
+      inventory: inv.map((e, i) => (i === containerIdx ? { ...e, nestedInventory: nested } : e)),
+    })
+    setEditingNested(null)
   }
 
   const openStoreToVault = (index) => {
@@ -1263,6 +1343,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                             maxAttunementSlots={maxAttunementSlots}
                             onToggle={toggleAttunedForEntry}
                           />
+                          <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
                         </>
                       ) : (
                         <>
@@ -1276,6 +1357,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                           {i === 1 && isShield && shieldMagicBonus > 0 && (
                             <span className="text-dnd-gold-light/90 text-xs font-mono shrink-0" title="盾牌增强加值">+{shieldMagicBonus}</span>
                           )}
+                          <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
                         </>
                       )}
                     </div>
@@ -1327,6 +1409,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                               maxAttunementSlots={maxAttunementSlots}
                               onToggle={toggleAttunedForEntry}
                             />
+                            <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
                           </>
                         ) : (
                           <>
@@ -1337,6 +1420,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                 同调
                               </span>
                             )}
+                            <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
                           </>
                         )}
                       </div>
@@ -1380,22 +1464,9 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                     </select>
                     {bodySlot.inventoryId && (() => {
                       const entry = inv.find((e) => e.id === bodySlot.inventoryId)
-                      const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
-                      const hasStoneLayer = !!stoneEffect
-                      const stoneValue = hasStoneLayer ? (Number(stoneEffect.value) || 0) : 0
-                      return hasStoneLayer && entry ? (
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <span className="text-gray-500 text-[10px] whitespace-nowrap">瓦石层</span>
-                          <NumberStepper
-                            compact
-                            narrow
-                            min={0}
-                            max={99}
-                            value={stoneValue}
-                            onChange={(v) => setWornStoneLayer(entry.id, String(v))}
-                          />
-                        </div>
-                      ) : null
+                      return (
+                        <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
+                      )
                     })()}
                     <AttuneToggle
                       entry={bodyEntry}
@@ -1415,11 +1486,9 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                     )}
                     {bodySlot.inventoryId && (() => {
                       const entry = inv.find((e) => e.id === bodySlot.inventoryId)
-                      const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
-                      const stoneValue = stoneEffect != null ? (Number(stoneEffect.value) || 0) : 0
-                      return stoneEffect && stoneValue > 0 ? (
-                        <span className="text-dnd-gold-light/90 text-xs font-mono shrink-0" title="瓦石层">{stoneValue}层</span>
-                      ) : null
+                      return (
+                        <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
+                      )
                     })()}
                   </>
                 )}
@@ -1491,6 +1560,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                               maxAttunementSlots={maxAttunementSlots}
                               onToggle={toggleAttunedForEntry}
                             />
+                            <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
                           </>
                         ) : (
                           <>
@@ -1505,6 +1575,20 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                             {entry && isArmorOrShield && magicBonus > 0 && (
                               <span className="text-dnd-gold-light/90 text-xs font-mono shrink-0">+{magicBonus}</span>
                             )}
+                            {(() => {
+                              const spEffect = Array.isArray(entry?.effects)
+                                ? entry.effects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
+                                : null
+                              if (!spEffect) return null
+                              const spMax = Number(spEffect.value.max) || 10
+                              const spCurrent = getShieldPoolCurrent(character, 'equipment', entry.id, spMax)
+                              return (
+                                <span className="text-dnd-gold-light/90 text-xs font-mono shrink-0" title="护盾池层数">
+                                  {spCurrent}层
+                                </span>
+                              )
+                            })()}
+                            <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
                           </>
                         )}
                       </div>
@@ -1556,6 +1640,21 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                   referenceData={referenceData}
                 />
                 <ItemAddForm open={editingIndex !== null} onClose={() => setEditingIndex(null)} onSave={applyEditSave} submitLabel="保存" editEntry={editingIndex != null ? inv[editingIndex] : null} inventory={inv} spellDC={spellDC} spellAttackBonus={spellAttackBonus} referenceData={referenceData} />
+                <ItemAddForm
+                  open={editingNested !== null}
+                  onClose={() => setEditingNested(null)}
+                  onSave={applyNestedEditSave}
+                  submitLabel="保存"
+                  editEntry={
+                    editingNested
+                      ? inv.find((e) => e.id === editingNested.containerId)?.nestedInventory?.[editingNested.nestedIndex] ?? null
+                      : null
+                  }
+                  inventory={inv}
+                  spellDC={spellDC}
+                  spellAttackBonus={spellAttackBonus}
+                  referenceData={referenceData}
+                />
               </>
             )}
           </div>
@@ -1602,22 +1701,10 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                       : Math.max(1, Math.floor(Number(entry?.qty) || 1))
                   const anchorBagExpanded = isAnchor && modForAnchor ? bagModuleExpanded[modForAnchor.id] !== false : false
                   const showChargeCol =
-                    !isAnchor && !entry?.walletCurrencyId && (Number(entry.charge) || 0) > 0
-                  const backpackRowGrid = isAnchor
-                    ? canEdit
-                      ? inventoryItemRowGridEditableWithCharge
-                      : inventoryItemRowGridReadWithCharge
-                    : entry?.walletCurrencyId
-                      ? canEdit
-                        ? inventoryItemRowGridEditableNoCharge
-                        : inventoryItemRowGridReadNoCharge
-                      : canEdit
-                        ? showChargeCol
-                          ? inventoryItemRowGridEditableWithCharge
-                          : inventoryItemRowGridEditableNoCharge
-                        : showChargeCol
-                          ? inventoryItemRowGridReadWithCharge
-                          : inventoryItemRowGridReadNoCharge
+                    !isAnchor &&
+                    !entry?.walletCurrencyId &&
+                    ((Number(entry.charge) || 0) > 0 || hasContainedSpellEffect(entry))
+                  const backpackRowGrid = inventoryItemRowGridUnified
                   const walletRowOnBodyNoFunds =
                     !!entry?.walletCurrencyId &&
                     !entry?.inBagOfHolding &&
@@ -1631,106 +1718,180 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                       <div
                         data-backpack-card
                         className={`${backpackItemCardClass} ${isAnchor ? 'border-dnd-gold/35 bg-[#1b2738]/38' : ''}`}
+                        draggable={canEdit}
+                        onDragStart={canEdit ? (e) => handleBackpackRowDragStart(e, layoutIdx) : undefined}
+                        onDragEnd={canEdit ? handleBackpackRowDragEnd : undefined}
                         onDragOver={canEdit ? handleDragOver : undefined}
                         onDrop={canEdit ? (e) => handleBackpackRowDrop(e, layoutIdx) : undefined}
-                        title={
-                          canEdit && isAnchor && modForAnchor && bagModuleExpanded[modForAnchor.id] === false
-                            ? '折叠中：可拖到本卡将物品放入该次元袋；展开后袋内接在同一卡片下方'
-                            : undefined
-                        }
                       >
                         <div className={backpackRowGrid}>
-                          {canEdit && (
+                          {isAnchor && modForAnchor ? (
                             <div
-                              className="shrink-0 cursor-grab active:cursor-grabbing text-dnd-text-muted"
-                              title="从此柄或名称区拖动排序；勿从数字、按钮起拖"
-                              draggable
-                              onDragStart={(e) => handleBackpackRowDragStart(e, layoutIdx)}
-                              onDragEnd={handleBackpackRowDragEnd}
+                              className={`${inventoryItemNameRowClass} col-span-7 cursor-pointer`}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (e.shiftKey) {
+                                  setBagModuleExpanded((p) => ({ ...p, [modForAnchor.id]: p[modForAnchor.id] === false }))
+                                } else {
+                                  setBackpackItemBriefOpen((prev) => ({ ...prev, [bbKey]: !prev[bbKey] }))
+                                }
+                              }}
+                              title={
+                                bagModuleExpanded[modForAnchor.id] === false
+                                  ? '点击展开说明 · Shift+点击展开袋内'
+                                  : '点击收起说明 · Shift+点击收起袋内'
+                              }
                             >
-                              <span className="inline-flex pointer-events-none select-none p-0.5">
-                                <DragHandleIcon className="w-3.5 h-3.5" />
-                              </span>
-                            </div>
-                          )}
-                          <div
-                            className={`min-w-0 ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''}`}
-                            draggable={!!canEdit}
-                            onDragStart={canEdit ? (e) => handleBackpackRowDragStart(e, layoutIdx) : undefined}
-                            onDragEnd={canEdit ? handleBackpackRowDragEnd : undefined}
-                          >
-                            {isAnchor && modForAnchor ? (
-                              <div className={inventoryItemNameRowClass}>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    if (e.shiftKey && inventoryItemBriefIsExpandable(packBrief)) {
-                                      setBackpackItemBriefOpen((p) => ({ ...p, [bbKey]: !p[bbKey] }))
-                                    } else {
-                                      setBagModuleExpanded((p) => ({ ...p, [modForAnchor.id]: p[modForAnchor.id] === false }))
-                                    }
-                                  }}
-                                  className="shrink-0 inline-flex items-center justify-center h-6 w-6 rounded border border-white/15 bg-[#1a2430]/70 text-gray-300 hover:bg-white/10"
-                                  title={
-                                    inventoryItemBriefIsExpandable(packBrief)
-                                      ? '单击：展开或折叠袋内；按住 Shift 再点：展开或收起物品说明'
-                                      : anchorBagExpanded
-                                        ? '折叠袋内'
-                                        : '展开袋内'
-                                  }
-                                  aria-expanded={anchorBagExpanded}
-                                  aria-label={anchorBagExpanded ? '折叠袋内' : '展开袋内'}
+                              <div className={inventoryItemNameTitleGroupClass}>
+                                <InfoTooltip
+                                  content={(() => {
+                                    const p = entry?.itemId ? getItemById(entry.itemId) : null
+                                    return <ItemTooltipContent proto={p} entry={entry} />
+                                  })()}
+                                  triggerClassName={inventoryItemNameTextClass}
+                                  disabled={!entry?.itemId}
                                 >
-                                  {anchorBagExpanded ? (
-                                    <ChevronDown className="w-3.5 h-3.5" aria-hidden />
-                                  ) : (
-                                    <ChevronRight className="w-3.5 h-3.5" aria-hidden />
-                                  )}
-                                </button>
-                                <div className={inventoryItemNameTitleGroupClass}>
-                                  <InfoTooltip
-                                    content={(() => {
-                                      const p = entry?.itemId ? getItemById(entry.itemId) : null
-                                      return <ItemTooltipContent proto={p} entry={entry} />
-                                    })()}
-                                    triggerClassName={inventoryItemNameTextClass}
-                                    disabled={!entry?.itemId}
-                                  >
-                                    <span className="break-words">{invDisplayName(entry)}</span>
-                                  </InfoTooltip>
-                                  <span className="shrink-0 text-[10px] text-dnd-text-muted whitespace-nowrap tabular-nums">
-                                    模块 {modIndexAnchor + 1} ·{' '}
-                                    {normalizeBagOfHoldingVisibility(modForAnchor.visibility) === 'public' ? '公家' : '私人'}
-                                  </span>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className={inventoryItemNameRowClass}>
-                                {isContainer ? (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setBackpackItemBriefOpen((p) => ({ ...p, [bbKey]: !p[bbKey] }))
-                                    }}
-                                    className={inventoryItemBriefChevronBtnClass}
-                                    title={backpackItemBriefOpen[bbKey] ? '收起容器内容' : '展开容器内容'}
-                                    aria-expanded={!!backpackItemBriefOpen[bbKey]}
-                                    aria-label={backpackItemBriefOpen[bbKey] ? '收起容器内容' : '展开容器内容'}
-                                  >
-                                    <ChevronDown
-                                      className={`w-3.5 h-3.5 transition-transform ${!!backpackItemBriefOpen[bbKey] ? 'rotate-180' : ''}`}
-                                      aria-hidden
-                                    />
-                                  </button>
-                                ) : (
-                                  <InventoryItemBriefChevron
-                                    brief={packBrief}
-                                    expanded={!!backpackItemBriefOpen[bbKey]}
-                                    onToggle={() => setBackpackItemBriefOpen((p) => ({ ...p, [bbKey]: !p[bbKey] }))}
+                                  <span className="break-words">{invDisplayName(entry)}</span>
+                                </InfoTooltip>
+                                <span className="shrink-0 text-[10px] text-dnd-text-muted whitespace-nowrap tabular-nums">
+                                  模块 {modIndexAnchor + 1} ·{' '}
+                                  {normalizeBagOfHoldingVisibility(modForAnchor.visibility) === 'public' ? '公家' : '私人'}
+                                </span>
+                                {hasContainedSpellEffect(entry) && (
+                                  <ContainedSpellUseButton
+                                    entry={entry}
+                                    onChargeChange={(v) => setCharge(i, v)}
+                                    compact
                                   />
                                 )}
+                                {(() => {
+                                  const activeEntry = activeAbilities.find(a => a.inventoryId === entry.id)
+                                  if (!activeEntry) return null
+                                  const { ability } = activeEntry
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={async (e) => {
+                                        e.stopPropagation()
+                                        // 检查是否可用
+                                        if (!canUseAbility(character, ability.id)) {
+                                          alert('该技能当前不可用（可能资源不足或处于冷却中）')
+                                          return
+                                        }
+                                        // 执行主动技能
+                                        try {
+                                          const result = await executeAbility(character, ability.id)
+                                          if (result.success) {
+                                            // 应用资源消耗和状态更新
+                                            if (result.classResources) {
+                                              onSave({
+                                                ...character,
+                                                classResources: result.classResources,
+                                              })
+                                            }
+                                            if (result.patch) {
+                                              onSave({
+                                                ...character,
+                                                ...result.patch,
+                                              })
+                                            }
+                                            alert(`✅ ${ability.name} 执行成功！`)
+                                          } else {
+                                            alert('❌ 技能执行失败')
+                                          }
+                                        } catch (err) {
+                                          console.error('[Equipment] 执行装备主动技能失败', err)
+                                          alert('执行失败，请查看控制台')
+                                        }
+                                      }}
+                                      className="inline-flex items-center justify-center h-6 w-6 shrink-0 rounded border border-cyan-600/70 bg-cyan-900/20 text-cyan-300 hover:bg-cyan-800/40 transition-colors"
+                                      title={`使用主动技能: ${ability.name}`}
+                                    >
+                                      <Sparkles className="w-3.5 h-3.5" />
+                                    </button>
+                                  )
+                                })()}
+                                <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
+                              </div>
+                              {/* inline visibility */}
+                              <span
+                                className={inventoryItemChargeCellClass}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                role="presentation"
+                              >
+                                <span className="shrink-0 leading-none">可见</span>
+                                <div className="min-w-0 max-w-[5.5rem] shrink-0 w-full">
+                                  {canEdit ? (
+                                    <select
+                                      aria-label="次元袋可见性"
+                                      value={normalizeBagOfHoldingVisibility(modForAnchor.visibility)}
+                                      onChange={(e) =>
+                                        applyEmbeddedModuleVisibility(
+                                          modForAnchor.id,
+                                          e.target.value === 'public' ? 'public' : 'private',
+                                        )
+                                      }
+                                      title="私人：仅本角色卡可见。公家：团队仓库可查看并与秘法箱互通。"
+                                      className={`${inputClassInline} box-border !h-6 w-full max-w-[5.5rem] py-0 pl-1 pr-5 text-[10px] leading-none`}
+                                    >
+                                      <option value="public">公家</option>
+                                      <option value="private">私人</option>
+                                    </select>
+                                  ) : (
+                                    <span className="text-dnd-text-body text-xs tabular-nums text-right block w-full pr-0.5">
+                                      {normalizeBagOfHoldingVisibility(modForAnchor.visibility) === 'public' ? '公家' : '私人'}
+                                    </span>
+                                  )}
+                                </div>
+                              </span>
+                              {/* inline bag count + weight */}
+                              <span className={inventoryItemQtyWeightCellClass}>
+                                <div
+                                  className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  role="presentation"
+                                >
+                                  <span className="shrink-0 leading-none">袋</span>
+                                  <div className="w-[5.125rem] shrink-0 max-w-full h-6 flex items-center justify-end">
+                                    {canEdit ? (
+                                      <NumberStepper
+                                        value={qty}
+                                        onChange={(v) => setQty(i, v)}
+                                        min={0}
+                                        max={MAX_BAG_OF_HOLDING_TOTAL}
+                                        compact
+                                        pill
+                                        subtle
+                                      />
+                                    ) : (
+                                      <span className="text-dnd-text-body text-xs tabular-nums inline-block text-right w-full pr-0.5">{qty}</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                                  {totalLb > 0 ? (
+                                    <span className="text-dnd-text-body" title="仅自重；与负重条一致">
+                                      {formatDisplayWeightLb(totalLb)} lb
+                                    </span>
+                                  ) : (
+                                    <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
+                                      —
+                                    </span>
+                                  )}
+                                </div>
+                              </span>
+                            </div>
+                          ) : (
+                            <>
+                              {/* Col 1: Name */}
+                              <div
+                                className={`${inventoryItemNameRowClass} cursor-pointer`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setBackpackItemBriefOpen((prev) => ({ ...prev, [bbKey]: !prev[bbKey] }))
+                                }}
+                                title="点击展开/收起说明"
+                              >
                                 <div className={inventoryItemNameTitleGroupClass}>
                                   <InfoTooltip
                                     content={(() => {
@@ -1744,17 +1905,6 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                   </InfoTooltip>
                                   <span className={inventoryItemNameExtrasClass}>
                                     {(() => {
-                                      const stoneEffect = Array.isArray(entry?.effects)
-                                        ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer')
-                                        : null
-                                      const stoneVal = stoneEffect != null && stoneEffect.value != null ? Number(stoneEffect.value) : null
-                                      if (stoneVal != null && !Number.isNaN(stoneVal) && stoneVal > 0) {
-                                        return (
-                                          <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0" title="瓦石层">
-                                            {stoneVal}层
-                                          </span>
-                                        )
-                                      }
                                       return (Number(entry.magicBonus) || 0) > 0 ? (
                                         <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>
                                       ) : null
@@ -1762,240 +1912,129 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                   </span>
                                 </div>
                               </div>
-                            )}
-                          </div>
 
-                          {isAnchor ? (
-                            modForAnchor ? (
-                              <>
-                                <div
-                                  className={inventoryItemChargeCellClass}
-                                  onMouseDown={(e) => e.stopPropagation()}
-                                  role="presentation"
-                                >
-                                  <span className="shrink-0 leading-none">可见</span>
-                                  <div className="min-w-0 max-w-[5.5rem] shrink-0 w-full">
-                                    {canEdit ? (
-                                      <select
-                                        aria-label="次元袋可见性"
-                                        value={normalizeBagOfHoldingVisibility(modForAnchor.visibility)}
-                                        onChange={(e) =>
-                                          applyEmbeddedModuleVisibility(
-                                            modForAnchor.id,
-                                            e.target.value === 'public' ? 'public' : 'private',
-                                          )
-                                        }
-                                        title="私人：仅本角色卡可见。公家：团队仓库可查看并与秘法箱互通。"
-                                        className={`${inputClassInline} box-border !h-6 w-full max-w-[5.5rem] py-0 pl-1 pr-5 text-[10px] leading-none`}
-                                      >
-                                        <option value="public">公家</option>
-                                        <option value="private">私人</option>
-                                      </select>
-                                    ) : (
-                                      <span className="text-dnd-text-body text-xs tabular-nums text-right block w-full pr-0.5">
-                                        {normalizeBagOfHoldingVisibility(modForAnchor.visibility) === 'public' ? '公家' : '私人'}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className={inventoryItemQtyWeightCellClass}>
-                                  <div
-                                    className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                    role="presentation"
-                                  >
-                                    <span className="shrink-0 leading-none">袋</span>
-                                    <div className="w-[5.125rem] shrink-0 max-w-full h-6 flex items-center justify-end">
-                                      {canEdit ? (
-                                        <NumberStepper
-                                          value={qty}
-                                          onChange={(v) => setQty(i, v)}
-                                          min={0}
-                                          max={MAX_BAG_OF_HOLDING_TOTAL}
-                                          compact
-                                          pill
-                                          subtle
-                                        />
-                                      ) : (
-                                        <span className="text-dnd-text-body text-xs tabular-nums inline-block text-right w-full pr-0.5">{qty}</span>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
-                                    {totalLb > 0 ? (
-                                      <span className="text-dnd-text-body" title="仅自重；与负重条一致">
-                                        {formatDisplayWeightLb(totalLb)} lb
-                                      </span>
-                                    ) : (
-                                      <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
-                                        —
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                <div className={`${inventoryItemChargeCellClass} justify-center`} aria-hidden="true">
-                                  <span className="text-[10px] text-dnd-text-muted">—</span>
-                                </div>
-                                <div className={inventoryItemQtyWeightCellClass}>
-                                  <div className="flex shrink-0 min-h-7 items-center justify-end text-[10px] text-dnd-text-muted" aria-hidden="true">
-                                    <span>—</span>
-                                  </div>
-                                  <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] text-dnd-text-muted" aria-hidden="true">
-                                    <span>—</span>
-                                  </div>
-                                </div>
-                              </>
-                            )
-                          ) : (
-                            <>
+                              {/* Col 2: Charge stepper (7.5rem) */}
                               {showChargeCol ? (
-                                <div
-                                  className={inventoryItemChargeCellClass}
-                                  onMouseDown={(e) => e.stopPropagation()}
-                                  role="presentation"
-                                >
-                                  <span className="shrink-0 leading-none">充能</span>
-                                  <div className="w-[5.125rem] shrink-0 max-w-full">
-                                    {canEdit ? (
-                                      <NumberStepper
-                                        value={Number(entry.charge) || 0}
-                                        onChange={(v) => setCharge(i, v)}
-                                        min={0}
-                                        compact
-                                        pill
-                                        subtle
-                                      />
-                                    ) : (
-                                      <span className="text-dnd-text-body text-xs tabular-nums inline-block text-right w-full pr-0.5">{entry.charge}</span>
-                                    )}
+                                <div className={chargeStepperClass} onMouseDown={(e) => e.stopPropagation()}>
+                                  <button
+                                    className={`${chargeStepperBtnClass} rounded-l-md border-r-0`}
+                                    onClick={(e) => { e.stopPropagation(); setCharge(i, Math.max(0, (Number(entry.charge) || 0) - 1)); }}
+                                  >
+                                    −
+                                  </button>
+                                  <div className={chargeBarWrapClass}>
+                                    <div
+                                      className={chargeBarFillClass}
+                                      style={{
+                                        width: `${Math.min(100, ((Number(entry.charge) || 0) / Math.max(1, Number(entry.charge) || 1)) * 100)}%`,
+                                        background: (Number(entry.charge) || 0) > 0 ? chargeBarFillGradient : 'transparent',
+                                      }}
+                                    />
+                                    <span className={chargeTextClass}>{Number(entry.charge) || 0}</span>
                                   </div>
+                                  <button
+                                    className={`${chargeStepperBtnClass} rounded-r-md border-l-0`}
+                                    onClick={(e) => { e.stopPropagation(); setCharge(i, (Number(entry.charge) || 0) + 1); }}
+                                  >
+                                    +
+                                  </button>
                                 </div>
-                              ) : null}
-                              <div className={inventoryItemQtyWeightCellClass}>
-                                <div
-                                  className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
-                                  onMouseDown={(e) => e.stopPropagation()}
-                                  role="presentation"
-                                >
-                                  <span className="shrink-0 leading-none">数量</span>
-                                  <div className="w-[5.125rem] shrink-0 max-w-full h-6 flex items-center justify-end">
-                                    {canEdit && !entry?.walletCurrencyId ? (
-                                      <NumberStepper
-                                        value={qty}
-                                        onChange={(v) => setQty(i, v)}
-                                        min={1}
-                                        max={undefined}
-                                        compact
-                                        pill
-                                        subtle
-                                      />
-                                    ) : (
-                                      <span className="text-dnd-text-body text-xs tabular-nums inline-block text-right w-full pr-0.5">
-                                        {entry?.walletCurrencyId === 'gem_lb' ? formatDisplayGemLbQty(qty) : qty}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
-                                  {totalLb > 0 ? (
-                                    <span className="text-dnd-text-body">{formatDisplayWeightLb(totalLb)} lb</span>
-                                  ) : (
-                                    <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
-                                      —
-                                    </span>
-                                  )}
-                                </div>
+                              ) : (
+                                <div />
+                              )}
+
+                              {/* Col 3: Release button (5rem) */}
+                              {(() => {
+                                const activeEntry = activeAbilities.find(a => a.inventoryId === entry.id)
+                                const hasSpell = hasContainedSpellEffect(entry)
+                                if (!activeEntry && !hasSpell) return <div />
+                                if (hasSpell) {
+                                  return (
+                                    <ContainedSpellUseButton
+                                      entry={entry}
+                                      onChargeChange={(v) => setCharge(i, v)}
+                                      compact
+                                    />
+                                  )
+                                }
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation()
+                                      if (!canUseAbility(character, activeEntry.ability.id)) { alert('该技能当前不可用'); return }
+                                      try {
+                                        const result = await executeAbility(character, activeEntry.ability.id)
+                                        if (result.success) {
+                                          if (result.classResources) onSave({ ...character, classResources: result.classResources })
+                                          if (result.patch) onSave({ ...character, ...result.patch })
+                                          alert(`✅ ${activeEntry.ability.name} 执行成功！`)
+                                        } else { alert('❌ 技能执行失败') }
+                                      } catch (err) { console.error('[Equipment] 执行装备主动技能失败', err); alert('执行失败') }
+                                    }}
+                                    className={releaseBtnClass}
+                                    title={`使用主动技能: ${activeEntry.ability.name}`}
+                                  >
+                                    <Sparkles className="w-3 h-3" /> 释放
+                                  </button>
+                                )
+                              })()}
+
+                              {/* Col 4: Shield pool counter or spacer (1fr) */}
+                              <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
+
+                              {/* Col 5: Quantity (3.5rem) */}
+                              <div className="text-center text-xs tabular-nums" onMouseDown={(e) => e.stopPropagation()}>
+                                {canEdit && !entry?.walletCurrencyId ? (
+                                  <NumberStepper value={qty} onChange={(v) => setQty(i, v)} min={1} compact pill subtle />
+                                ) : (
+                                  <span className="text-dnd-text-body">{entry?.walletCurrencyId === 'gem_lb' ? formatDisplayGemLbQty(qty) : qty}</span>
+                                )}
+                              </div>
+
+                              {/* Col 7: Weight (4rem) */}
+                              <div className="text-center text-xs tabular-nums">
+                                {totalLb > 0 ? <span className="text-dnd-text-body">{formatDisplayWeightLb(totalLb)} lb</span> : <span className="opacity-0 select-none text-dnd-text-muted">—</span>}
                               </div>
                             </>
                           )}
 
                           {canEdit && (
-                            <div
-                              className={inventoryItemActionsCellClass}
-                              onMouseDown={(e) => e.stopPropagation()}
-                              role="presentation"
-                            >
+                            <div className="flex items-center justify-end gap-0.5" onMouseDown={(e) => e.stopPropagation()}>
                               <button
                                 type="button"
-                                onClick={() => openStoreToVault(i)}
-                                disabled={isAnchor || walletRowOnBodyNoFunds}
-                                title={
-                                  isAnchor
-                                    ? '次元袋实体行不可整件存入仓库'
-                                    : walletRowOnBodyNoFunds
-                                      ? '身上该币种为 0，无法存仓库；可点垃圾桶清除此行'
-                                      : '存到团队仓库'
-                                }
-                                className="p-1 rounded text-emerald-400 hover:bg-emerald-400/20 shrink-0 disabled:opacity-30 disabled:pointer-events-none"
+                                className={`${actionIconBtnClass} ${(isAnchor || walletRowOnBodyNoFunds) ? 'opacity-30 pointer-events-none' : ''}`}
+                                onClick={(e) => { e.stopPropagation(); if (!isAnchor && !walletRowOnBodyNoFunds) openStoreToVault(i); }}
+                                title={isAnchor ? '次元袋实体行不可整件存入仓库' : walletRowOnBodyNoFunds ? '身上该币种为 0，无法存仓库' : '存到团队仓库'}
                               >
-                                <Package size={14} />
+                                <Package size={13} />
                               </button>
                               <button
                                 type="button"
-                                onClick={() => startEdit(i)}
-                                disabled={isAnchor}
+                                className={`${actionIconBtnClass} ${isAnchor ? 'opacity-30 pointer-events-none' : ''}`}
+                                onClick={(e) => { e.stopPropagation(); if (!isAnchor) startEdit(i); }}
                                 title={isAnchor ? '袋内物品请展开后点铅笔编辑' : '编辑'}
-                                className="p-1 rounded text-dnd-gold-light hover:bg-dnd-gold/20 shrink-0 disabled:opacity-30 disabled:pointer-events-none"
                               >
-                                <Pencil size={14} />
+                                <Pencil size={13} />
                               </button>
-                              {isAnchor && modForAnchor ? (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setBagModuleDeleteUnlocked((p) => ({ ...p, [modForAnchor.id]: !p[modForAnchor.id] }))
-                                    }}
-                                    className={`p-1 rounded shrink-0 ${
-                                      bagModuleDeleteUnlocked[modForAnchor.id]
-                                        ? 'text-emerald-400 hover:bg-emerald-400/20'
-                                        : 'text-gray-300 hover:bg-white/10'
-                                    }`}
-                                    title={
-                                      bagModuleDeleteUnlocked[modForAnchor.id]
-                                        ? '模块删除已解锁：点此重新上锁'
-                                        : '先解锁再删整模块（与袋内单行删除不同）'
-                                    }
-                                    aria-label={bagModuleDeleteUnlocked[modForAnchor.id] ? '锁定模块删除' : '解锁模块删除'}
-                                    aria-pressed={!!bagModuleDeleteUnlocked[modForAnchor.id]}
-                                  >
-                                    {bagModuleDeleteUnlocked[modForAnchor.id] ? (
-                                      <Unlock size={14} aria-hidden />
-                                    ) : (
-                                      <Lock size={14} aria-hidden />
-                                    )}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={!bagModuleDeleteUnlocked[modForAnchor.id]}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      removeItem(i)
-                                    }}
-                                    className="p-1 rounded text-dnd-red hover:text-dnd-red/20 shrink-0 disabled:opacity-30 disabled:pointer-events-none"
-                                    title={
-                                      bagModuleDeleteUnlocked[modForAnchor.id]
-                                        ? '删除此次元袋模块'
-                                        : '请先点锁图标解锁'
-                                    }
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                </>
-                              ) : (
+                              {isAnchor && modForAnchor && (
                                 <button
                                   type="button"
-                                  onClick={() => removeItem(i)}
-                                  title="移除"
-                                  className="p-1 rounded text-dnd-red hover:text-dnd-red/20 shrink-0"
+                                  className={actionIconBtnClass}
+                                  onClick={(e) => { e.stopPropagation(); setBagModuleDeleteUnlocked((p) => ({ ...p, [modForAnchor.id]: !p[modForAnchor.id] })); }}
+                                  title={bagModuleDeleteUnlocked[modForAnchor.id] ? '重新上锁' : '解锁后可删除整模块'}
                                 >
-                                  <Trash2 size={14} />
+                                  {bagModuleDeleteUnlocked[modForAnchor.id] ? <Unlock size={13} /> : <Lock size={13} />}
                                 </button>
                               )}
+                              <button
+                                type="button"
+                                className={`${actionIconBtnDangerClass} ${isAnchor && modForAnchor && !bagModuleDeleteUnlocked[modForAnchor.id] ? 'opacity-30 pointer-events-none' : ''}`}
+                                onClick={(e) => { e.stopPropagation(); if (!(isAnchor && modForAnchor && !bagModuleDeleteUnlocked[modForAnchor.id])) removeItem(i); }}
+                                title={isAnchor && modForAnchor ? '请先点锁图标解锁' : '删除'}
+                              >
+                                <Trash2 size={13} />
+                              </button>
                             </div>
                           )}
                         </div>
@@ -2022,17 +2061,140 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                               {(Array.isArray(entry.nestedInventory) ? entry.nestedInventory : []).map((nested, nestedIdx) => {
                                 const nestedLb = getInventoryEntryStackWeightLb(nested)
                                 const nestedQty = Math.max(1, Math.floor(Number(nested?.qty) || 1))
+                                const nestedCharge = Number(nested?.charge) || 0
+                                const nestedHasCharge = nestedCharge > 0 || hasContainedSpellEffect(nested)
+                                const nestedMagicBonus = Number(nested?.magicBonus) || 0
+                                const nestedActiveEntry = activeAbilities.find(a => a.inventoryId === nested.id)
+                                const nestedGridClass = inventoryItemRowGridUnified
+                                const nestedKey = `nested-${i}-${nestedIdx}`
                                 return (
                                   <div
                                     key={nested.id ?? `nested-${nestedIdx}`}
                                     className="rounded-md border border-gray-600/40 bg-[#151c28]/60 px-2 py-1.5"
                                   >
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <span className="min-w-0 flex-1 truncate text-white text-xs font-medium">
-                                        {invDisplayName(nested)}
-                                      </span>
-                                      {canEdit && (
-                                        <div className="w-[4.5rem] shrink-0">
+                                    <div className={nestedGridClass}>
+                                      {/* Col 1: Name */}
+                                      <div className={inventoryItemNameRowClass}>
+                                        <div className={inventoryItemNameTitleGroupClass}>
+                                          <InfoTooltip
+                                            content={(() => {
+                                              const p = nested?.itemId ? getItemById(nested.itemId) : null
+                                              return <ItemTooltipContent proto={p} entry={nested} />
+                                            })()}
+                                            triggerClassName={inventoryItemNameTextClass}
+                                            disabled={!nested?.itemId}
+                                          >
+                                            <span className="break-words">{invDisplayName(nested)}</span>
+                                          </InfoTooltip>
+                                          <span className={inventoryItemNameExtrasClass}>
+                                            {nestedMagicBonus > 0 ? (
+                                              <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{nestedMagicBonus}</span>
+                                            ) : null}
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      {/* Col 2: Charge stepper */}
+                                      {nestedHasCharge ? (
+                                        <div className={chargeStepperClass} onMouseDown={(e) => e.stopPropagation()}>
+                                          <button
+                                            className={`${chargeStepperBtnClass} rounded-l-md border-r-0`}
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              const nextNested = entry.nestedInventory.map((n, idx) =>
+                                                idx === nestedIdx ? { ...n, charge: Math.max(0, nestedCharge - 1) } : n
+                                              )
+                                              onSave({ inventory: inv.map((e, idx) => idx === i ? { ...e, nestedInventory: nextNested } : e) })
+                                            }}
+                                          >
+                                            −
+                                          </button>
+                                          <div className={chargeBarWrapClass}>
+                                            <div
+                                              className={chargeBarFillClass}
+                                              style={{
+                                                width: `${Math.min(100, (nestedCharge / Math.max(1, nestedCharge)) * 100)}%`,
+                                                background: nestedCharge > 0 ? chargeBarFillGradient : 'transparent',
+                                              }}
+                                            />
+                                            <span className={chargeTextClass}>{nestedCharge}</span>
+                                          </div>
+                                          <button
+                                            className={`${chargeStepperBtnClass} rounded-r-md border-l-0`}
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              const nextNested = entry.nestedInventory.map((n, idx) =>
+                                                idx === nestedIdx ? { ...n, charge: nestedCharge + 1 } : n
+                                              )
+                                              onSave({ inventory: inv.map((e, idx) => idx === i ? { ...e, nestedInventory: nextNested } : e) })
+                                            }}
+                                          >
+                                            +
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <span className="text-dnd-text-muted text-center text-xs">-</span>
+                                      )}
+
+                                      {/* Col 3: Release button */}
+                                      {(() => {
+                                        const hasSpell = hasContainedSpellEffect(nested)
+                                        if (!nestedActiveEntry && !hasSpell) return <span className="text-dnd-text-muted text-center text-xs">-</span>
+                                        if (hasSpell) {
+                                          return (
+                                            <ContainedSpellUseButton
+                                              entry={nested}
+                                              onChargeChange={(v) => {
+                                                const nextNested = entry.nestedInventory.map((n, idx) =>
+                                                  idx === nestedIdx ? { ...n, charge: v } : n
+                                                )
+                                                onSave({ inventory: inv.map((e, idx) => idx === i ? { ...e, nestedInventory: nextNested } : e) })
+                                              }}
+                                              compact
+                                            />
+                                          )
+                                        }
+                                        return (
+                                          <button
+                                            type="button"
+                                            onClick={async (e) => {
+                                              e.stopPropagation()
+                                              if (!canUseAbility(character, nestedActiveEntry.ability.id)) {
+                                                alert('该技能当前不可用（可能资源不足或处于冷却中）')
+                                                return
+                                              }
+                                              try {
+                                                const result = await executeAbility(character, nestedActiveEntry.ability.id)
+                                                if (result.success) {
+                                                  if (result.classResources) {
+                                                    onSave({ ...character, classResources: result.classResources })
+                                                  }
+                                                  if (result.patch) {
+                                                    onSave({ ...character, ...result.patch })
+                                                  }
+                                                  alert(`✅ ${nestedActiveEntry.ability.name} 执行成功！`)
+                                                } else {
+                                                  alert('❌ 技能执行失败')
+                                                }
+                                              } catch (err) {
+                                                console.error('[Equipment] 执行容器内物品主动技能失败', err)
+                                                alert('执行失败，请查看控制台')
+                                              }
+                                            }}
+                                            className={releaseBtnClass}
+                                            title={`使用主动技能: ${nestedActiveEntry.ability.name}`}
+                                          >
+                                            <Sparkles className="w-3 h-3" /> 释放
+                                          </button>
+                                        )
+                                      })()}
+
+                                      {/* Col 4: Spacer (1fr) */}
+                                      <div></div>
+
+                                      {/* Col 5: Quantity */}
+                                      <div className="text-center text-xs tabular-nums" onMouseDown={(e) => e.stopPropagation()}>
+                                        {canEdit ? (
                                           <NumberStepper
                                             value={nestedQty}
                                             onChange={(v) => setNestedQty(entry.id, nestedIdx, v)}
@@ -2041,23 +2203,48 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                             pill
                                             subtle
                                           />
-                                        </div>
-                                      )}
-                                      {!canEdit && (
-                                        <span className="text-dnd-text-body text-xs tabular-nums shrink-0">×{nestedQty}</span>
-                                      )}
-                                      <span className="text-dnd-text-muted text-[10px] tabular-nums w-12 text-right shrink-0">
-                                        {nestedLb > 0 ? `${formatDisplayWeightLb(nestedLb)} lb` : '—'}
-                                      </span>
+                                        ) : (
+                                          <span className="text-dnd-text-body">×{nestedQty}</span>
+                                        )}
+                                      </div>
+
+                                      {/* Col 7: Weight */}
+                                      <div className="text-center text-xs tabular-nums">
+                                        {nestedLb > 0 ? (
+                                          <span className="text-dnd-text-body">{formatDisplayWeightLb(nestedLb)} lb</span>
+                                        ) : (
+                                          <span className="opacity-0 select-none text-dnd-text-muted">—</span>
+                                        )}
+                                      </div>
+
+                                      {/* Col 8: Actions */}
                                       {canEdit && (
-                                        <button
-                                          type="button"
-                                          onClick={() => removeItemFromContainer(entry.id, nestedIdx)}
-                                          title="取出到背包"
-                                          className="p-1 rounded text-dnd-red hover:bg-dnd-red/20 shrink-0"
-                                        >
-                                          <ArrowUpFromLine size={13} />
-                                        </button>
+                                        <div className="flex items-center justify-end gap-0.5" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+                                          <button
+                                            type="button"
+                                            className={actionIconBtnClass}
+                                            onClick={(e) => { e.stopPropagation(); openStoreToVaultForNested(i, nestedIdx); }}
+                                            title="存到团队仓库"
+                                          >
+                                            <Package size={13} />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className={actionIconBtnClass}
+                                            onClick={(e) => { e.stopPropagation(); setEditingNested({ containerId: entry.id, nestedIndex: nestedIdx }); }}
+                                            title="编辑"
+                                          >
+                                            <Pencil size={13} />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className={actionIconBtnClass}
+                                            onClick={(e) => { e.stopPropagation(); removeItemFromContainer(entry.id, nestedIdx); }}
+                                            title="取出到背包"
+                                          >
+                                            <ArrowUpFromLine size={13} />
+                                          </button>
+                                        </div>
                                       )}
                                     </div>
                                   </div>

@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, Fragment } from 'react'
-import { Trash2, Plus, ChevronDown, Database, X } from 'lucide-react'
+import { useState, useEffect, useRef, useMemo, useCallback, Fragment } from 'react'
+import { Trash2, Plus, ChevronDown, Database, X, Pencil } from 'lucide-react'
+import { getEffectSummaryShort } from './BuffListItem'
 import {
   BUFF_TYPES,
   getCategories,
@@ -12,14 +13,64 @@ import {
   DAMAGE_DICE_ARROW_OPTIONS,
   DICE_SIDES_OPTIONS,
   parseDamageString,
+  SCOPE_KIND,
+  SCOPE_KIND_OPTIONS,
+  CREATURE_TYPE_OPTIONS,
+  WEAPON_SCOPE_CATEGORY_OPTIONS,
+  normalizeScope,
+  ARMOR_PROFICIENCY_OPTIONS,
+  WEAPON_PROFICIENCY_OPTIONS,
+  VEHICLE_PROFICIENCY_OPTIONS,
+  INSTRUMENT_PROFICIENCY_OPTIONS,
+  TOOL_PROFICIENCY_OPTIONS,
+  LANGUAGE_PROFICIENCY_OPTIONS,
+  WEAPON_MASTERY_OPTIONS,
+  SPECIAL_SENSES_OPTIONS,
+  VISUAL_EFFECT_OPTIONS,
+  DAMAGE_RELATION_OPTIONS,
+  WEAPON_PROPERTY_OPTIONS,
+  migrateProficiencyTextToArray,
 } from '../data/buffTypes'
 import { WEAPON_BUFF_CATEGORY_SELECT_OPTIONS } from '../data/itemDatabase'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
-import { SPELLS, getWandScrollSpellPower } from '../data/spellDatabase'
+import { CLASS_LIST, getClassDisplayName } from '../data/classDatabase'
+import { getMergedSpells, getSpellById, getWandScrollSpellPower } from '../data/spellDatabase'
 import { inputClass, inputClassInline, textareaClass } from '../lib/inputStyles'
 import { formatDisplayOneDecimal } from '../lib/encumbrance'
 import { isFormulaValue, formatFormulaLabel } from '../lib/formulas'
-import DragHandleIcon from './DragHandleIcon'
+import {
+  normalizeContainedSpellValue,
+  createEmptyContainedSpellSub,
+} from '../lib/containedSpellModel'
+import { normalizeChargeRecoveryValue } from '../lib/chargeRecovery'
+import {
+  normalizeChargeItemValue,
+  createChargeEffectEntry,
+  RECOVERY_METHODS,
+  RESOURCE_TYPE_OPTIONS,
+  ACTION_COST_OPTIONS,
+  recoverySupportsAmount,
+  recoveryIsDiceOnly,
+  formatRecoveryBrief,
+  ALL_MOD_OPTIONS,
+  RESULT_TYPE_OPTIONS,
+  DICE_TYPE_OPTIONS,
+  POKER_SUITS,
+  POKER_RANKS,
+  POKER_JOKERS,
+  POKER_SUIT_LABELS,
+  POKER_SUIT_SYMBOLS,
+  POKER_SUIT_COLORS,
+  RANDOM_MATCH_OPTIONS,
+  createEmptyRandomTableEntry,
+  getDiceMax,
+} from '../lib/chargeItemModel'
+import { loadCreatureLibrary, getCreatureById, CREATURE_SIZES } from '../data/creatureLibrary'
+import DurationEditor from './DurationEditor'
+import ActiveCardEditor from './ActiveCardEditor'
+import SpellNameAutocomplete from './SpellNameAutocomplete'
+import { SCOPE_TYPE, SCOPE_TYPE_OPTIONS } from '../lib/cardModel'
+import { normalizeDuration, formatDurationBrief } from '../lib/durationModel'
 import {
   BUFF_SOURCE_KIND_OPTIONS_EDITABLE,
   normalizeBuffSourceKindKey,
@@ -27,6 +78,32 @@ import {
 } from '../lib/buffSourceKind'
 
 const ABILITY_LABELS = { str: '力量', dex: '敏捷', con: '体质', int: '智力', wis: '感知', cha: '魅力' }
+
+/** 默认公式引用数据：调用方未提供 referenceData 时仍允许选择常见变量 */
+const DEFAULT_FORMULA_REFERENCE_DATA = [
+  { label: '力量调整值', value: 0, ref: 'abilityModifier', ability: 'str' },
+  { label: '敏捷调整值', value: 0, ref: 'abilityModifier', ability: 'dex' },
+  { label: '体质调整值', value: 0, ref: 'abilityModifier', ability: 'con' },
+  { label: '智力调整值', value: 0, ref: 'abilityModifier', ability: 'int' },
+  { label: '感知调整值', value: 0, ref: 'abilityModifier', ability: 'wis' },
+  { label: '魅力调整值', value: 0, ref: 'abilityModifier', ability: 'cha' },
+  { label: '熟练加值', value: 0, ref: 'proficiency' },
+  { label: '等级', value: 0, ref: 'level' },
+  { label: '步行移动速度', value: 30, ref: 'speed' },
+]
+
+/** Buff 效果「起效类型」：用于命中/伤害加值等可选择起效范围的效果 */
+const SCOPE_OPTIONS = SCOPE_KIND_OPTIONS
+
+/** 读取属性对象里的值：保留公式对象，避免 Number() 把公式转成 NaN */
+function getAbilityFieldValue(obj, key) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return 0
+  if (key === 'all') {
+    const firstKey = ABILITY_KEYS.find((k) => obj[k] != null)
+    return firstKey != null ? obj[firstKey] : 0
+  }
+  return obj[key] ?? 0
+}
 
 function resolveInitialSourceKind(initial, defaultSourceKind) {
   if (initial?.sourceKind != null && String(initial.sourceKind).trim() !== '') {
@@ -118,33 +195,32 @@ export function serializeAttackDamageBonusForSave(value) {
 
 /** 从 initial 归一化为 effects 数组（兼容旧单条与新版 effects[]，旧 4 大类规范化为 6 大类） */
 function normalizeInitialEffects(initial) {
+  const mapEffect = (e) => {
+    let value = e.value ?? 0
+    if (e.effectType === 'concentration_save_enhance') value = normalizeConcentrationSaveEnhanceValue(value)
+    if (e.effectType === 'attack_damage_bonus') value = normalizeAttackDamageBonusModuleValue(value)
+    if (e.effectType === 'choice') value = normalizeChoiceValue(value)
+    const { scope, scopeDetail } = normalizeScope(e.scope, e.scopeDetail)
+    const break20 = e.break20 && typeof e.break20 === 'object' && !Array.isArray(e.break20) ? e.break20 : {}
+    return {
+      id: 'e_' + Math.random().toString(36).slice(2),
+      category: normalizeEffectCategory(e.effectType ?? '', e.category),
+      effectType: e.effectType ?? '',
+      scope,
+      scopeDetail,
+      value,
+      break20,
+      customText: typeof e.value === 'string' && e.effectType !== 'concentration_save_enhance' ? e.value : '',
+      upgrade: e.upgrade && typeof e.upgrade === 'object' ? { className: e.upgrade.className ?? '', level: Math.max(1, Math.min(20, Number(e.upgrade.level) || 1)), value: e.upgrade.value ?? 0 } : null,
+    }
+  }
   if (Array.isArray(initial?.effects) && initial.effects.length) {
-    return initial.effects.map((e) => {
-      let value = e.value ?? 0
-      if (e.effectType === 'concentration_save_enhance') value = normalizeConcentrationSaveEnhanceValue(value)
-      if (e.effectType === 'attack_damage_bonus') value = normalizeAttackDamageBonusModuleValue(value)
-      return {
-        id: 'e_' + Math.random().toString(36).slice(2),
-        category: normalizeEffectCategory(e.effectType ?? '', e.category),
-        effectType: e.effectType ?? '',
-        value,
-        customText: typeof e.value === 'string' && e.effectType !== 'concentration_save_enhance' ? e.value : '',
-      }
-    })
+    return migrateProficiencyTextToArray(initial.effects).map(mapEffect)
   }
   if (initial?.category != null || initial?.effectType != null) {
-    let value = initial.value ?? 0
-    if (initial.effectType === 'concentration_save_enhance') value = normalizeConcentrationSaveEnhanceValue(value)
-    if (initial.effectType === 'attack_damage_bonus') value = normalizeAttackDamageBonusModuleValue(value)
-    return [{
-      id: 'e_' + Math.random().toString(36).slice(2),
-      category: normalizeEffectCategory(initial.effectType ?? '', initial.category),
-      effectType: initial.effectType ?? '',
-      value,
-      customText: typeof initial.value === 'string' && initial.effectType !== 'concentration_save_enhance' ? initial.value : '',
-    }]
+    return migrateProficiencyTextToArray([initial]).map(mapEffect)
   }
-  return [{ id: 'e_' + Math.random().toString(36).slice(2), category: '', effectType: '', value: 0, customText: '' }]
+  return [{ id: 'e_' + Math.random().toString(36).slice(2), category: '', effectType: '', scope: SCOPE_KIND.global, scopeDetail: [], value: 0, customText: '', upgrade: null }]
 }
 
 /** 根据效果类型把 value 转为保存用的最终值 */
@@ -189,19 +265,153 @@ function normalizeValueForSave(module, currentEffect) {
     if (value && typeof value === 'object' && !Array.isArray(value)) return value
     return { spellId: '', spellName: '', level: 0, hitResolution: 'dex_save', range: '', area: '', damageDice: '', damageDiceCount: 1, damageDiceSides: 6, damageType: '', charges: 0 }
   }
-  if (currentEffect.key === 'extra_damage_dice') {
-    if (typeof value === 'string') return value.trim()
+  if (needsSubSelect === 'chargeItem') {
+    return normalizeChargeItemValue(value)
+  }
+  if (needsSubSelect === 'armorOverride') {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
-      const { minus = '', plus = '', type = '' } = value
-      return [' - ', minus, ' + ', plus, ' ', type].join('').replace(/\s+/g, ' ').trim()
+      return {
+        base: isFormulaValue(value.base) ? value.base : (Number(value.base) || 10),
+        applyDexMod: value.applyDexMod !== false,
+        maxDexBonus: Number(value.maxDexBonus) || null,
+        extra: Number(value.extra) || 0,
+        shieldCompatible: !!value.shieldCompatible,
+      }
     }
-    return ''
+    return { base: 10, applyDexMod: true, maxDexBonus: null, extra: 0, shieldCompatible: false }
+  }
+  if (needsSubSelect === 'creatureTransform') {
+    return normalizeCreatureTransformValue(value)
+  }
+  if (needsSubSelect === 'restoreSpellSlots') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return {
+        mode: ['single', 'multi'].includes(value.mode) ? value.mode : 'single',
+        ringLevel: Math.max(1, Math.min(9, Number(value.ringLevel) || 1)),
+        maxRing: Math.max(1, Math.min(9, Number(value.maxRing) || 3)),
+        cost: Math.max(1, Math.min(99, Number(value.cost) || 1)),
+      }
+    }
+    return { mode: 'single', ringLevel: 1, maxRing: 3, cost: 1 }
+  }
+  if (needsSubSelect === 'choice') {
+    return normalizeChoiceValue(value)
+  }
+  if (needsSubSelect === 'damageTypeRelation') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return {
+        relation: ['resist', 'immune', 'vulnerable'].includes(value.relation) ? value.relation : 'resist',
+        types: Array.isArray(value.types) ? value.types : [],
+      }
+    }
+    return { relation: 'resist', types: [] }
+  }
+  if (needsSubSelect === 'damageReductionTyped') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return {
+        types: Array.isArray(value.types) ? value.types : [],
+        reduction: Number(value.reduction) || 0,
+      }
+    }
+    return { types: [], reduction: 0 }
+  }
+  if (needsSubSelect === 'specialSenses') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return {
+        senses: Array.isArray(value.senses) ? value.senses : [],
+        range: Number(value.range) || 60,
+      }
+    }
+    return { senses: [], range: 60 }
+  }
+  if (needsSubSelect === 'visualEffect') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return {
+        type: value.type ? String(value.type).trim() : '',
+        description: typeof value.description === 'string' ? value.description : '',
+      }
+    }
+    return { type: '', description: '' }
+  }
+  if (needsSubSelect === 'shieldPool') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return {
+        max: Number(value.max) || 10,
+        threshold: Number(value.threshold) || 0,
+        recoverOn: ['short', 'long', 'dawn', 'manual', 'none'].includes(value.recoverOn) ? value.recoverOn : 'manual',
+        bonusEffects: Array.isArray(value.bonusEffects) ? value.bonusEffects : [],
+      }
+    }
+    return { max: 10, threshold: 0, recoverOn: 'manual', bonusEffects: [] }
+  }
+  if (currentEffect.key === 'recharge_long_rest' || currentEffect.key === 'recharge_dawn') {
+    return normalizeChargeRecoveryValue(value)
+  }
+  if (currentEffect.key === 'spell_damage_bonus') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return {
+        type: value.type ? String(value.type).trim() : '',
+        diceFloor: Number(value.diceFloor) > 1 ? Number(value.diceFloor) : 0,
+        perDieBonus: Number(value.perDieBonus) || 0,
+        extraDice: value.extraDice ? String(value.extraDice).trim() : '',
+        flatBonus: value.flatBonus != null && value.flatBonus !== '' ? value.flatBonus : 0,
+      }
+    }
+    return { type: '', diceFloor: 0, perDieBonus: 0, extraDice: '', flatBonus: 0 }
+  }
+  if (currentEffect.key === 'extra_damage_dice') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const { minus = '', plus = '', type = '', o3 = '', onlySpellDamage } = value
+      return { minus, plus, type, o3, onlySpellDamage: !!onlySpellDamage }
+    }
+    if (typeof value === 'string') {
+      const parsed = parseDamageString(value.trim())
+      return { ...parsed, onlySpellDamage: false }
+    }
+    return { minus: '', plus: '', type: '', o3: '', onlySpellDamage: false }
   }
   if (currentEffect.key === 'crit_extra_dice') {
     if (isFormulaValue(value)) return value
     const n = Number(value)
     if (Number.isNaN(n) || n < 2) return 2
     return Math.min(10, Math.floor(n))
+  }
+  if (currentEffect.key === 'crit_range_override') {
+    if (isFormulaValue(value)) return value
+    const n = Number(value)
+    if (Number.isNaN(n) || n < 1 || n > 20) return 19
+    return Math.floor(n)
+  }
+  if (currentEffect.key === 'crit_range_increment') {
+    if (isFormulaValue(value)) return value
+    const n = Number(value)
+    if (Number.isNaN(n) || n < 1) return 1
+    return Math.floor(n)
+  }
+  if (currentEffect.key === 'crit_range_reduction') {
+    if (isFormulaValue(value)) return value
+    const n = Number(value)
+    if (Number.isNaN(n) || n < 1) return 1
+    return Math.floor(n)
+  }
+  if (currentEffect.key === 'base_speed_increment') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const read = (key) => {
+        const val = value[key]
+        if (isFormulaValue(val)) return val
+        const n = Number(val)
+        return Number.isNaN(n) ? 0 : n
+      }
+      const walk = read('walk')
+      const fly = read('fly')
+      const swim = read('swim')
+      const climb = read('climb')
+      if (fly === 0 && swim === 0 && climb === 0) return walk
+      return { walk, fly, swim, climb }
+    }
+    if (isFormulaValue(value)) return value
+    const n = Number(value)
+    return Number.isNaN(n) ? 0 : n
   }
   return value
 }
@@ -215,7 +425,14 @@ function isComplexValueType(currentEffect) {
     isDamageTypeArray ||
     needsSubSelect === 'condition' ||
     needsSubSelect === 'damagePiercingTraits' ||
-    needsSubSelect === 'containedSpell'
+    needsSubSelect === 'containedSpell' ||
+    needsSubSelect === 'proficiencyChecklist' ||
+    needsSubSelect === 'damageTypeRelation' ||
+    needsSubSelect === 'damageReductionTyped' ||
+    needsSubSelect === 'specialSenses' ||
+    needsSubSelect === 'visualEffect' ||
+    needsSubSelect === 'shieldPool' ||
+    needsSubSelect === 'restoreSpellSlots'
   )
 }
 
@@ -242,8 +459,325 @@ function buildPlusFromDiceParts(count, sides, flatMod) {
   return `${base}${fm > 0 ? '+' : ''}${fm}`
 }
 
+/** 从法术描述中提取伤害/治疗骰，支持升环计算 */
+function parseSpellCombatPower(desc, currentLevel = null) {
+  if (!desc || typeof desc !== 'string') return null
+  
+  // 分离基础描述和升环施法部分
+  const scalingMatch = desc.match(/升环施法[：:](.+)$/s)
+  const mainDesc = scalingMatch ? desc.slice(0, scalingMatch.index) : desc
+  const scalingDesc = scalingMatch ? scalingMatch[1] : ''
+  
+  // 提取基础伤害/治疗（从基础描述中）
+  let baseDamage = null
+  const dmgTyped = [...mainDesc.matchAll(/(\d+d\d+(?:[+-]\d+)?)\s*点\s*\S{0,4}伤害/g)]
+  if (dmgTyped.length) {
+    baseDamage = dmgTyped.map(m => m[1]).join('+')
+  }
+  if (!baseDamage) {
+    const dmgOf = [...mainDesc.matchAll(/(\d+d\d+(?:[+-]\d+)?)\s*的\s*\S{0,4}伤害/g)]
+    if (dmgOf.length) {
+      baseDamage = dmgOf.map(m => m[1]).join('+')
+    }
+  }
+  if (!baseDamage) {
+    const dmgGeneric = [...mainDesc.matchAll(/[造成受]\s*(\d+d\d+(?:[+-]\d+)?)\s*点伤害/g)]
+    if (dmgGeneric.length) {
+      baseDamage = dmgGeneric.map(m => m[1]).join('+')
+    }
+  }
+  
+  let baseHealing = null
+  const healPatterns = [...mainDesc.matchAll(/(?:恢复|回复)(?![^。]*临时)[^。]*?(\d+d\d+(?:[+-]\d+)?)\s*(?:点\s*)?生命值/g)]
+  if (healPatterns.length) {
+    baseHealing = healPatterns.map(m => m[1]).join('+')
+  }
+  if (!baseHealing) {
+    const healGeneric = [...mainDesc.matchAll(/治疗\S{0,6}?(\d+d\d+)/g)]
+    if (healGeneric.length) {
+      baseHealing = healGeneric.map(m => m[1]).join('+')
+    }
+  }
+  
+  // 如果没有升环描述或没有当前环位，直接返回基础值
+  if (!scalingDesc || currentLevel == null) {
+    if (!baseDamage && !baseHealing) return null
+    return { damage: baseDamage, healing: baseHealing }
+  }
+  
+  // 解析升环施法：提取基础环位和每环增加的骰子
+  // 格式："使用的法术位每比三环高一环，此法术的伤害就增加1d6。"
+  // 格式："使用的法术位每比七环高一环，法术产生的治疗和造成的伤害就增加1d12。"
+  const baseLevelMatch = scalingDesc.match(/比([一二三四五六七八九])环高/)
+  if (!baseLevelMatch) {
+    if (!baseDamage && !baseHealing) return null
+    return { damage: baseDamage, healing: baseHealing }
+  }
+  
+  const baseLevelMap = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9 }
+  const baseLevel = baseLevelMap[baseLevelMatch[1]]
+  if (!baseLevel) {
+    if (!baseDamage && !baseHealing) return null
+    return { damage: baseDamage, healing: baseHealing }
+  }
+  
+  // 计算环位差
+  const levelDiff = Math.max(0, currentLevel - baseLevel)
+  if (levelDiff === 0) {
+    if (!baseDamage && !baseHealing) return null
+    return { damage: baseDamage, healing: baseHealing }
+  }
+  
+  // 提取每环增加的骰子（如"1d6"、"2d8"、"1d12"）
+  const scalingDiceMatch = scalingDesc.match(/增加(\d+d\d+)/)
+  if (!scalingDiceMatch) {
+    if (!baseDamage && !baseHealing) return null
+    return { damage: baseDamage, healing: baseHealing }
+  }
+  const scalingDice = scalingDiceMatch[1]
+  
+  // 判断升环影响的是伤害、治疗还是两者
+  const affectsDamage = /伤害/.test(scalingDesc) && !/治疗.*伤害/.test(scalingDesc.slice(0, scalingDesc.indexOf('伤害')))
+  const affectsHealing = /治疗/.test(scalingDesc)
+  const affectsBoth = /治疗和.*伤害|伤害和治疗/.test(scalingDesc)
+  
+  // 合并骰子表达式：如 "8d6+4×1d6" → "12d6"
+  const combineDice = (baseStr, scalingStr, multiplier) => {
+    if (!baseStr || !scalingStr) return baseStr || scalingStr
+    // 解析基础骰子项：8d6, 2d8+3d6 → [{count, die}]
+    const parseTerms = (s) => {
+      const terms = []
+      const re = /(\d+)d(\d+)/g
+      let m
+      while ((m = re.exec(s))) terms.push({ count: parseInt(m[1]), die: parseInt(m[2]) })
+      return terms
+    }
+    const baseTerms = parseTerms(baseStr)
+    const scaleTerms = parseTerms(scalingStr)
+    if (!baseTerms.length || !scaleTerms.length) return `${baseStr}+${multiplier > 1 ? multiplier + '×' : ''}${scalingStr}`
+    // 将升环骰子乘以倍数后合并到基础同类型骰子
+    for (const st of scaleTerms) {
+      st.count *= multiplier
+      const match = baseTerms.find(bt => bt.die === st.die)
+      if (match) match.count += st.count
+      else baseTerms.push(st)
+    }
+    return baseTerms.map(t => `${t.count}d${t.die}`).join('+')
+  }
+
+  // 计算升环后的伤害/治疗
+  let damage = baseDamage
+  let healing = baseHealing
+  
+  if (levelDiff > 0) {
+    if (affectsBoth || (affectsDamage && !affectsHealing)) {
+      damage = baseDamage ? combineDice(baseDamage, scalingDice, levelDiff) : (levelDiff > 1 ? `${levelDiff}×${scalingDice}` : scalingDice)
+    }
+    if (affectsBoth || (affectsHealing && !affectsDamage)) {
+      healing = baseHealing ? combineDice(baseHealing, scalingDice, levelDiff) : (levelDiff > 1 ? `${levelDiff}×${scalingDice}` : scalingDice)
+    }
+  }
+  
+  if (!damage && !healing) return null
+  return { damage, healing }
+}
+
+/** 内含法术编辑器：一个 effect 可包含多个法术，共享总充能 */
+function ContainedSpellEditor({
+  module,
+  onChange,
+  spellDC,
+  spellAttackBonus,
+  useWandScrollTable,
+  primaryOnly = false,
+  hideCharges = false,
+  rowPrefix,
+}) {
+  const value = module.value
+  const cs = normalizeContainedSpellValue(value)
+  const { totalCharges, spells } = cs
+  const labelCls = 'text-[10px] text-dnd-text-muted shrink-0 leading-none'
+  const inputCls = inputClass.replace(/\bh-10\b/, 'h-7').replace(/\bpx-3\b/, 'px-1.5').replace(/\btext-sm\b/, 'text-[11px]').replace(/\bw-full\b/, 'flex-1 min-w-0')
+  const selectCls = inputCls + ' cursor-pointer'
+  const HIT_RESOLUTION_OPTIONS = [
+    { value: 'dex_save', label: '敏捷' },
+    { value: 'str_save', label: '力量' },
+    { value: 'con_save', label: '体质' },
+    { value: 'wis_save', label: '感知' },
+    { value: 'int_save', label: '智力' },
+    { value: 'cha_save', label: '魅力' },
+    { value: 'spell_attack', label: '法攻' },
+    { value: 'none', label: '效应' },
+  ]
+
+  const patchValue = (next) => onChange({ ...module, value: next })
+  const patchSpells = (nextSpells) => patchValue({ ...cs, spells: nextSpells })
+  const updateSpell = (idx, patch) => patchSpells(spells.map((sp, i) => (i === idx ? { ...sp, ...patch } : sp)))
+  const removeSpell = (idx) => patchSpells(spells.filter((_, i) => i !== idx))
+  const addSpell = () => patchSpells([...spells, createEmptyContainedSpellSub()])
+
+  const spellInputValue = (sp) => {
+    const name = (sp.spellName || '').trim()
+    if (name) return name
+    if (sp.spellId) {
+      const s = getSpellById(sp.spellId)
+      if (s) return s.name
+    }
+    return ''
+  }
+
+  return (
+    <div className="flex flex-col gap-y-1 w-full">
+      {!hideCharges && (
+        <div className="flex items-center gap-x-1.5">
+          <span className="text-[10px] text-dnd-text-muted">总能量</span>
+          <NumberStepper
+            value={totalCharges}
+            onChange={(v) => patchValue({ ...cs, totalCharges: Math.max(0, Math.min(999, v)) })}
+            min={0}
+            max={999}
+            compact
+            narrow
+            className="!h-5"
+            referenceData={referenceData}
+          />
+          <span className="text-gray-500 text-[10px]">所有内含法术共用</span>
+        </div>
+      )}
+      {spells.length === 0 && (
+        <p className="text-gray-500 text-[10px]">尚未添加法术</p>
+      )}
+      {spells.map((sp, idx) => {
+        const level = typeof sp.level === 'number' ? sp.level : (parseInt(sp.level, 10) || 0)
+        const hitResolution = HIT_RESOLUTION_OPTIONS.some((o) => o.value === sp.hitResolution) ? sp.hitResolution : 'dex_save'
+        const wandPower = useWandScrollTable ? getWandScrollSpellPower(level) : null
+        const hitValueDisplay = hitResolution === 'none'
+          ? null
+          : (useWandScrollTable && wandPower
+            ? (hitResolution === 'spell_attack' ? (wandPower.attackBonus >= 0 ? '+' : '') + wandPower.attackBonus : String(wandPower.dc))
+            : (hitResolution === 'spell_attack' && spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : (spellDC != null ? String(spellDC) : null)))
+        const prefix = rowPrefix != null ? String(rowPrefix).trim() : ''
+        return (
+          <div key={idx} className="rounded border border-white/[0.06] bg-[#161e2b]/60 px-1.5 py-1">
+            <div className="flex items-center gap-x-1 w-full flex-wrap">
+              {prefix && <span className="text-dnd-text-muted shrink-0 tabular-nums select-none text-[10px]">{prefix.replace(/\d+$/, (n) => Number(n) + idx)}</span>}
+              <span className={labelCls}>法术</span>
+              <SpellNameAutocomplete
+                value={spellInputValue(sp)}
+                onChange={(name) => updateSpell(idx, { spellName: name })}
+                onSelect={(spell) => updateSpell(idx, {
+                  spellName: spell.name,
+                  spellId: spell.id,
+                  level: spell.level,
+                  range: spell.range ?? '',
+                  area: spell.range ?? '',
+                })}
+                placeholder="名称"
+                className={inputCls + ' w-[6.25rem]'}
+                listId={'contained-spell-datalist-' + (module.id ?? '') + '-' + idx}
+              />
+              <span className={labelCls}>环位</span>
+              <NumberStepper
+                value={Math.max(0, Math.min(9, level))}
+                onChange={(v) => updateSpell(idx, { level: Math.max(0, Math.min(9, v)) })}
+                min={0}
+                max={9}
+                compact
+                narrow
+                className="!h-5 !w-16 !min-w-0 !max-w-none"
+              />
+              <span className={labelCls}>消耗</span>
+              <NumberStepper
+                value={sp.cost}
+                onChange={(v) => updateSpell(idx, { cost: Math.max(0, Math.min(99, v)) })}
+                min={0}
+                max={99}
+                compact
+                narrow
+                className="!h-5 !w-16 !min-w-0 !max-w-none"
+              />
+              {!primaryOnly && (
+                <>
+                  <span className="text-gray-600 mx-0.5">|</span>
+                  <span className={labelCls}>命中</span>
+                  <select
+                    value={hitResolution}
+                    onChange={(e) => updateSpell(idx, { hitResolution: e.target.value })}
+                    className={selectCls + ' !w-[3.5rem]'}
+                  >
+                    {HIT_RESOLUTION_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  {hitValueDisplay != null && (
+                    <span className="text-white font-mono tabular-nums shrink-0 text-[11px]">{hitValueDisplay}</span>
+                  )}
+                  <span className={labelCls}>距离</span>
+                  <input
+                    type="text"
+                    value={sp.range ?? ''}
+                    onChange={(e) => updateSpell(idx, { range: e.target.value })}
+                    placeholder="自身"
+                    className={inputCls + ' !w-[3rem]'}
+                  />
+                  <span className={labelCls}>伤害</span>
+                  <NumberStepper
+                    value={sp.damageDiceCount}
+                    onChange={(v) => updateSpell(idx, { damageDiceCount: Math.max(0, Math.min(99, v)) })}
+                    min={0}
+                    max={99}
+                    compact
+                    narrow
+                    className="!h-5 !w-10 min-w-0 shrink-0"
+                  />
+                  <select
+                    value={sp.damageDiceSides}
+                    onChange={(e) => updateSpell(idx, { damageDiceSides: Number(e.target.value) })}
+                    className={selectCls + ' !w-[2.8rem] shrink-0'}
+                  >
+                    {DICE_SIDES_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value} className="bg-gray-800 text-white">{o.label}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={sp.damageType ?? ''}
+                    onChange={(e) => updateSpell(idx, { damageType: e.target.value })}
+                    className={selectCls + ' !w-[3rem]'}
+                    title="伤害类型"
+                  >
+                    <option value="">类型</option>
+                    {DAMAGE_TYPES.map((d) => (
+                      <option key={d.value} value={d.value}>{d.label}</option>
+                    ))}
+                  </select>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => removeSpell(idx)}
+                className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto"
+                title="删除该法术"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        )
+      })}
+      <button
+        type="button"
+        onClick={addSpell}
+        className="flex items-center justify-center gap-1 px-2 py-1 rounded border border-dnd-gold/60 text-dnd-gold-light hover:bg-dnd-gold/20 text-[10px] font-medium w-full"
+      >
+        <Plus className="w-3 h-3" />
+        添加法术
+      </button>
+    </div>
+  )
+}
+
 /** 伤害模块一行：narrowBlocks 更窄块宽；evenSpacing 统一间隔；unifiedColor 同色基线对齐；evenSpread 时占满宽度且模块内均分平铺 */
-function DamageDiceInlineRow({ value, onChange, module, compact, minusStepper, trailing, leftLabel, narrowBlocks, evenSpacing, unifiedColor, evenSpread }) {
+function DamageDiceInlineRow({ value, onChange, module, compact, minusStepper, hideFlatMod, trailing, leftLabel, narrowBlocks, evenSpacing, unifiedColor, evenSpread }) {
   const isLegacy = typeof value === 'string'
   const parsed = isLegacy && value ? parseDamageString(value) : {}
   const raw = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -257,14 +791,14 @@ function DamageDiceInlineRow({ value, onChange, module, compact, minusStepper, t
     onChange({ ...module, value: next })
   }
   const setDice = (count, sides) => {
-    const fm = parseDiceFromPlus(plus).flatMod
+    const fm = hideFlatMod ? 0 : parseDiceFromPlus(plus).flatMod
     update('plus', buildPlusFromDiceParts(count, sides, fm))
   }
   const setFlatMod = (fm) => {
     update('plus', buildPlusFromDiceParts(diceCount, diceSides, fm))
   }
-  const rowH = compact ? 'h-7' : 'h-8'
-  const selCls = compact ? (inputClass + ' h-7 text-xs px-1 pr-4') : (inputClass + ' h-8 text-sm px-1 pr-4')
+  const rowH = 'h-7'
+  const selCls = inputClass + ' h-7 text-[11px] px-1 pr-4'
   const noteInputCls =
     inputClassInline.replace(/\bh-10\b/, rowH).replace(/\brounded-lg\b/, 'rounded-md') +
     ' shrink-0 min-w-[3rem] w-[5rem] max-w-[9rem] px-2 py-0 border-gray-500/60 bg-gray-800/90 focus:ring-amber-500/40 ' +
@@ -308,19 +842,20 @@ function DamageDiceInlineRow({ value, onChange, module, compact, minusStepper, t
           ))}
         </select>
       </div>
-      {/* 固定加值（XdY+N），在 dX 与伤害类型之间；与项目「数字输入」NumberStepper 一致 */}
-      <div className={`flex items-center shrink-0 ${rowH}`} style={stepperBlockStyle} title="伤害加值（如 +5，与骰子合计为总伤害骰部分）">
-        <NumberStepper
-          value={diceFlatMod}
-          onChange={setFlatMod}
-          min={-99}
-          max={99}
-          step={1}
-          compact={compact}
-          narrow={narrowBlocks}
-          unifiedColor={unifiedColor}
-        />
-      </div>
+      {!hideFlatMod && (
+        <div className={`flex items-center shrink-0 ${rowH}`} style={stepperBlockStyle} title="伤害加值（如 +5，与骰子合计为总伤害骰部分）">
+          <NumberStepper
+            value={diceFlatMod}
+            onChange={setFlatMod}
+            min={-99}
+            max={99}
+            step={1}
+            compact={compact}
+            narrow={narrowBlocks}
+            unifiedColor={unifiedColor}
+          />
+        </div>
+      )}
       {/* 伤害类型：evenSpacing 时缩小左右内边距以完整显示二字类型 */}
       <div className={`flex items-center ${selectWrapperCls} ${rowH}`} style={!evenSpacing ? selectBlockStyle : undefined}>
         <select value={type} onChange={(e) => update('type', e.target.value)} className={selCls + selCenter + selColorCls + ' w-full min-w-0 h-full ' + selectPad} title="伤害类型">
@@ -414,9 +949,9 @@ function ReferenceValuePicker({ options, onSelect, compact }) {
               <div className="px-2.5 py-1 text-[10px] text-dnd-text-muted uppercase tracking-wider">引用为公式</div>
               {formulaOptions.map((opt) => (
                 <button
-                  key={`formula-${opt.ref}-${opt.ability}-${opt.mult ?? 1}`}
+                  key={`formula-${opt.ref}-${opt.ability || ''}-${opt.className || ''}-${opt.mult ?? 1}`}
                   type="button"
-                  onClick={() => { onSelect({ ref: opt.ref, ability: opt.ability, mult: opt.mult }); setOpen(false) }}
+                  onClick={() => { onSelect({ ref: opt.ref, ability: opt.ability, className: opt.className, mult: opt.mult }); setOpen(false) }}
                   className="w-full text-left px-2.5 py-1 text-xs text-gray-300 hover:bg-gray-700 hover:text-white flex items-center justify-between gap-2"
                 >
                   <span className="truncate">{opt.label}</span>
@@ -608,6 +1143,2215 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
   )
 }
 
+/** 施法增伤编辑器：伤害类型 / 伤害骰下限 / 每骰 +X / 追加骰 / 公式固定加值 */
+function SpellDamageBonusEditor({ value, onChange, referenceData }) {
+  const v = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  const update = (patch) => onChange({ ...v, ...patch })
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">伤害类型（可选）</label>
+          <select
+            value={v.type || ''}
+            onChange={(e) => update({ type: e.target.value })}
+            className={inputClass.replace(/\bh-10\b/, 'h-7').replace(/\btext-sm\b/, 'text-[11px]') + 'w-full min-w-0'}
+          >
+            <option value="">全部</option>
+            {DAMAGE_TYPES.map((d) => (
+              <option key={d.value} value={d.value}>{d.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">伤害骰下限</label>
+          <NumberStepper
+            value={v.diceFloor ?? 0}
+            min={0}
+            max={20}
+            onChange={(n) => update({ diceFloor: n })}
+            compact
+            narrow
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">每 +X</label>
+          <NumberStepper
+            value={v.perDieBonus ?? 0}
+            onChange={(n) => update({ perDieBonus: n })}
+            compact
+            narrow
+          />
+        </div>
+        <div>
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">追加骰（如 1d6）</label>
+          <input
+            type="text"
+            value={v.extraDice || ''}
+            onChange={(e) => update({ extraDice: e.target.value })}
+            placeholder="1d6"
+            className={inputClass.replace(/\bh-10\b/, 'h-7').replace(/\btext-sm\b/, 'text-[11px]') + 'w-full min-w-0'}
+          />
+        </div>
+      </div>
+      <div>
+        <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">固定加值（支持公式）</label>
+        <NumberStepper
+          referenceData={referenceData}
+          value={v.flatBonus ?? 0}
+          onChange={(n) => update({ flatBonus: n })}
+          compact
+          narrow
+        />
+      </div>
+    </div>
+  )
+}
+
+/** 充能恢复编辑器：固定值或 XdX+Z */
+function ChargeRecoveryEditor({ value, onChange }) {
+  const v = normalizeChargeRecoveryValue(value)
+  const update = (patch) => onChange({ ...v, ...patch })
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <select
+          value={v.kind}
+          onChange={(e) => onChange({ kind: e.target.value, fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0 })}
+          className={inputClass.replace(/\bh-10\b/, 'h-7').replace(/\btext-sm\b/, 'text-[11px]') + 'w-28 min-w-0'}
+        >
+          <option value="fixed">固定值</option>
+          <option value="dice">掷骰</option>
+        </select>
+        {v.kind === 'fixed' ? (
+          <NumberStepper
+            value={v.fixed}
+            min={0}
+            max={99}
+            onChange={(n) => update({ fixed: n })}
+            compact
+          />
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <NumberStepper
+              value={v.diceCount}
+              min={1}
+              max={99}
+              onChange={(n) => update({ diceCount: n })}
+              compact
+            />
+            <span className="text-gray-400 text-xs">d</span>
+            <NumberStepper
+              value={v.diceSides}
+              min={1}
+              max={100}
+              onChange={(n) => update({ diceSides: n })}
+              compact
+            />
+            <span className="text-gray-400 text-xs">+</span>
+            <NumberStepper
+              value={v.diceBonus || 0}
+              min={0}
+              max={99}
+              onChange={(n) => update({ diceBonus: n })}
+              compact
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** 统一充能物品编辑器：消耗资源选择 + 充能数/回能方式 + 消耗效果（内含法术/临时BUFF/护盾） */
+function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData, subordinates = [] }) {
+  const data = normalizeChargeItemValue(module.value)
+  const patchData = (patch) => onChange({ ...module, value: { ...data, ...patch } })
+
+  const labelCls = 'text-[10px] text-dnd-text-muted shrink-0 leading-none'
+  const inputCls = inputClass.replace(/\bh-10\b/, 'h-7').replace(/\bpx-3\b/, 'px-1.5').replace(/\btext-sm\b/, 'text-[11px]').replace(/\bw-full\b/, 'flex-1 min-w-0')
+  const selectCls = inputCls + ' cursor-pointer'
+
+  const HIT_OPTIONS = [
+    { value: 'dex_save', label: '敏捷' },
+    { value: 'str_save', label: '力量' },
+    { value: 'con_save', label: '体质' },
+    { value: 'wis_save', label: '感知' },
+    { value: 'int_save', label: '智力' },
+    { value: 'cha_save', label: '魅力' },
+    { value: 'spell_attack', label: '法攻' },
+    { value: 'none', label: '效应' },
+  ]
+
+  const isChargesMode = data.resourceType === 'charges'
+  const isFreeSlotMode = data.resourceType === 'spell_slot' && data.consumptionMode === 'free'
+  const multiplierCheckbox = (effIdx, eff) => isFreeSlotMode ? (
+    <label className="flex items-center gap-0.5 text-[10px] text-amber-400 cursor-pointer select-none shrink-0" title="效果是否乘以消耗环位">
+      <input type="checkbox" checked={eff.applyMultiplier !== false} onChange={(e) => updateEffect(effIdx, { applyMultiplier: e.target.checked })} className="accent-amber-500 w-3 h-3" />
+      ×环
+    </label>
+  ) : null
+
+  // ── 造成能量下拉 ─
+  const [energyDropdownOpen, setEnergyDropdownOpen] = useState(false)
+  const energyDropdownRef = useRef(null)
+  useEffect(() => {
+    if (!energyDropdownOpen) return
+    const handler = (e) => {
+      if (energyDropdownRef.current && !energyDropdownRef.current.contains(e.target)) {
+        setEnergyDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [energyDropdownOpen])
+
+  // ── recovery helpers ──
+  const rec = data.recovery
+  const updateRecovery = (patch) => patchData({ recovery: { ...rec, ...patch } })
+  const setRecoveryMethod = (method) => {
+    const next = { ...rec, method }
+    if (!recoverySupportsAmount(method)) {
+      next.kind = 'full'
+    } else if (recoveryIsDiceOnly(method)) {
+      next.kind = 'dice'
+    }
+    updateRecovery(next)
+  }
+
+  // ── effects helpers ──
+  const effects = data.effects
+  const updateEffects = (next) => patchData({ effects: next })
+  const addEffect = (type) => updateEffects([...effects, createChargeEffectEntry(type)])
+  const removeEffect = (idx) => updateEffects(effects.filter((_, i) => i !== idx))
+  const updateEffect = (idx, patch) => updateEffects(effects.map((e, i) => {
+    if (i !== idx) return e
+    if (patch.type && patch.type !== e.type) {
+      return createChargeEffectEntry(patch.type, { id: e.id })
+    }
+    return { ...e, ...patch }
+  }))
+
+  // ── spell sub-helpers ──
+  const spellInputValue = (sp) => {
+    const name = (sp?.spellName || '').trim()
+    if (name) return name
+    if (sp?.spellId) {
+      const s = getSpellById(sp.spellId)
+      if (s) return s.name
+    }
+    return ''
+  }
+
+  // ── creature library for summon ──
+  const _chargeItemCreatureLib = useMemo(() => loadCreatureLibrary(), [])
+
+  // ── temp_buff modal state ──
+  // { effectIdx, moduleIdx (-1 = new) } | null
+  const [tempBuffModal, setTempBuffModal] = useState(null)
+  const [tempBuffDraft, setTempBuffDraft] = useState(null)
+
+  const openTempBuffModal = (effectIdx, moduleIdx) => {
+    const eff = effects[effectIdx]
+    if (!eff || eff.type !== 'temp_buff') return
+    const modules = eff.value?.modules || []
+    if (moduleIdx >= 0 && moduleIdx < modules.length) {
+      setTempBuffDraft({ ...modules[moduleIdx] })
+    } else {
+      // new module — default to first category, first effect
+      const cats = getCategories()
+      const firstCat = cats[0]?.key || 'ability'
+      const firstEffects = BUFF_TYPES[firstCat]?.effects || []
+      setTempBuffDraft({
+        id: 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
+        category: firstCat,
+        effectType: firstEffects[0]?.key || '',
+        scope: 'global',
+        scopeDetail: [],
+        value: {},
+      })
+    }
+    setTempBuffModal({ effectIdx, moduleIdx })
+  }
+  const closeTempBuffModal = () => { setTempBuffModal(null); setTempBuffDraft(null) }
+  const saveTempBuffModule = (draft) => {
+    if (!tempBuffModal) return
+    const { effectIdx, moduleIdx } = tempBuffModal
+    const eff = effects[effectIdx]
+    if (!eff || eff.type !== 'temp_buff') return
+    const modules = [...(eff.value?.modules || [])]
+    if (moduleIdx >= 0 && moduleIdx < modules.length) {
+      modules[moduleIdx] = draft
+    } else {
+      modules.push(draft)
+    }
+    updateEffect(effectIdx, { value: { ...eff.value, modules } })
+    closeTempBuffModal()
+  }
+  const removeTempBuffModule = (effectIdx, moduleIdx) => {
+    const eff = effects[effectIdx]
+    if (!eff || eff.type !== 'temp_buff') return
+    const modules = (eff.value?.modules || []).filter((_, i) => i !== moduleIdx)
+    updateEffect(effectIdx, { value: { ...eff.value, modules } })
+  }
+
+  return (
+    <div className="rounded-md bg-[#161e2b]/40 p-1.5 flex flex-col gap-y-1 w-full text-xs">
+      {/* ── 消耗资源 + 总充能（同行） ── */}
+      <div className="flex items-center gap-x-1.5 flex-wrap">
+        <span className={labelCls}>消耗资源</span>
+        <select
+          value={data.resourceType}
+          onChange={(e) => patchData({ resourceType: e.target.value })}
+          className={selectCls + ' min-w-[8rem] max-w-[14rem] shrink-0'}
+        >
+          <option value="spell_slot">法术位</option>
+          <option disabled>── 其他资源 ──</option>
+          {RESOURCE_TYPE_OPTIONS.filter(o => !o.value.startsWith('spell_slot') && o.value !== 'none').map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+          <option disabled>── ──</option>
+          {RESOURCE_TYPE_OPTIONS.filter(o => o.value === 'none').map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        {/* 法术位：固定/自由消耗选择 */}
+        {data.resourceType === 'spell_slot' && (
+          <>
+            <select
+              value={data.consumptionMode || 'fixed'}
+              onChange={(e) => patchData({ consumptionMode: e.target.value })}
+              className={selectCls + ' !w-[5.5rem] shrink-0'}
+            >
+              <option value="fixed">固定消耗</option>
+              <option value="free">自由消耗</option>
+            </select>
+            {(data.consumptionMode || 'fixed') === 'fixed' ? (
+              <>
+                <span className={labelCls}>环位</span>
+                <NumberStepper
+                  value={data.slotLevel || 1}
+                  onChange={(v) => patchData({ slotLevel: Math.max(1, Math.min(9, v)) })}
+                  min={1}
+                  max={9}
+                  compact
+                  narrow
+                  className="!h-6"
+                  referenceData={referenceData}
+                />
+              </>
+            ) : (
+              <>
+                <span className={labelCls}>最大环位</span>
+                <NumberStepper
+                  value={data.maxSlotLevel || 1}
+                  onChange={(v) => patchData({ maxSlotLevel: Math.max(1, Math.min(9, v)) })}
+                  min={1}
+                  max={9}
+                  compact
+                  narrow
+                  className="!h-6"
+                  referenceData={referenceData}
+                />
+              </>
+            )}
+          </>
+        )}
+        {isChargesMode && (
+          <>
+            <span className={labelCls}>总充能</span>
+            <NumberStepper
+              value={data.charges}
+              onChange={(v) => patchData({ charges: Math.max(0, Math.min(999, v)) })}
+              min={0}
+              max={999}
+              compact
+              narrow
+              className="!h-6"
+              referenceData={referenceData}
+            />
+          </>
+        )}
+        {!isChargesMode && (
+          <span className="text-gray-500 text-[10px]">次数与恢复由职业资源管理</span>
+        )}
+        <label className="flex items-center gap-1 text-[10px] text-amber-400 cursor-pointer select-none ml-auto">
+          <input
+            type="checkbox"
+            checked={!!data.isStance}
+            onChange={(e) => patchData({ isStance: e.target.checked })}
+            className="accent-amber-500 w-3 h-3"
+          />
+          架势
+        </label>
+      </div>
+
+      {/* ── 回能方式（仅充能数模式） ── */}
+      {isChargesMode && (
+        <div className="flex items-center gap-x-1.5 flex-wrap">
+          <span className={labelCls}>回能方式</span>
+          <select
+            value={rec.method}
+            onChange={(e) => setRecoveryMethod(e.target.value)}
+            className={selectCls + ' !w-[5rem] shrink-0'}
+          >
+            {RECOVERY_METHODS.map((m) => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+          {recoverySupportsAmount(rec.method) && (
+            <div className="flex items-center gap-x-0.5 min-w-[10rem]">
+              {!recoveryIsDiceOnly(rec.method) && (
+                <select
+                  value={rec.kind}
+                  onChange={(e) => updateRecovery({ kind: e.target.value })}
+                  className={selectCls + ' !w-[3.5rem] shrink-0'}
+                >
+                  <option value="full">回满</option>
+                  <option value="fixed">固定</option>
+                  <option value="dice">掷骰</option>
+                </select>
+              )}
+              {rec.kind === 'fixed' && (
+                <NumberStepper
+                  value={rec.fixed}
+                  onChange={(v) => updateRecovery({ fixed: Math.max(0, v) })}
+                  min={0}
+                  max={999}
+                  compact
+                  narrow
+                  className="!h-6"
+                  referenceData={referenceData}
+                />
+              )}
+              {(rec.kind === 'dice' || recoveryIsDiceOnly(rec.method)) && (
+                <div className="flex items-center gap-x-0.5">
+                  <NumberStepper
+                    value={rec.diceCount}
+                    onChange={(v) => updateRecovery({ diceCount: Math.max(1, v) })}
+                    min={1}
+                    max={99}
+                    compact
+                    narrow
+                    className="!h-6 !w-10"
+                    referenceData={referenceData}
+                  />
+                  <span className="text-gray-300 text-xs font-medium">d</span>
+                  <NumberStepper
+                    value={rec.diceSides}
+                    onChange={(v) => updateRecovery({ diceSides: Math.max(1, v) })}
+                    min={1}
+                    max={100}
+                    compact
+                    narrow
+                    className="!h-6 !w-10"
+                  />
+                  <span className="text-gray-300 text-xs font-medium">+</span>
+                  <NumberStepper
+                    value={rec.diceBonus || 0}
+                    onChange={(v) => updateRecovery({ diceBonus: Math.max(0, v) })}
+                    min={0}
+                    max={99}
+                    compact
+                    narrow
+                    className="!h-6 !w-10"
+                    referenceData={referenceData}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── 动作消耗 ── */}
+      <div className="flex items-center gap-x-1.5 flex-wrap">
+        <span className={labelCls}>动作消耗</span>
+        <select
+          value={data.actionCost}
+          onChange={(e) => patchData({ actionCost: e.target.value })}
+          className={selectCls + ' !w-[5rem] shrink-0'}
+        >
+          {ACTION_COST_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        {data.actionCost === 'movement' && (
+          <div className="flex items-center gap-x-1">
+            <NumberStepper
+              value={data.movementFeet}
+              onChange={(v) => patchData({ movementFeet: Math.max(0, v) })}
+              min={0}
+              max={999}
+              compact
+              narrow
+              className="!h-6 !w-14"
+              referenceData={referenceData}
+            />
+            <span className="text-gray-400 text-[10px]">尺</span>
+          </div>
+        )}
+      </div>
+
+      {/* ── 消耗效果 ── */}
+      <div className="flex flex-col gap-y-1 pt-1 border-t border-white/[0.06]">
+        <div className="flex items-center justify-between">
+          <span className={labelCls}>消耗效果</span>
+          <div className="flex items-center gap-x-1 flex-wrap">
+            <div className="relative" ref={energyDropdownRef}>
+              <button type="button" onClick={() => setEnergyDropdownOpen(!energyDropdownOpen)} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center" title="造成能量">⚡ 造成能量 </button>
+              {energyDropdownOpen && (
+                <div className="absolute left-0 top-[calc(100%+4px)] min-w-[100px] bg-[#1e2836] border border-white/10 rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.4)] z-[100] overflow-hidden">
+                  <button type="button" onClick={() => { addEffect('damage'); setEnergyDropdownOpen(false) }} className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/[0.06] w-full text-left transition-colors">
+                    <span className="text-red-400">⚔</span> 伤害
+                  </button>
+                  <button type="button" onClick={() => { addEffect('heal'); setEnergyDropdownOpen(false) }} className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/[0.06] w-full text-left transition-colors">
+                    <span className="text-green-400">✚</span> 治疗
+                  </button>
+                </div>
+              )}
+            </div>
+            <button type="button" onClick={() => addEffect('spell')} className="px-1.5 py-0.5 rounded border border-cyan-600/70 bg-cyan-900/20 text-cyan-300 hover:bg-cyan-800/40 hover:border-cyan-500/80 text-[10px] font-medium transition-colors" title="添加内含法术">+ 法术</button>
+            <button type="button" onClick={() => addEffect('temp_buff')} className="px-1.5 py-0.5 rounded border border-violet-600/70 bg-violet-900/20 text-violet-300 hover:bg-violet-800/40 hover:border-violet-500/80 text-[10px] font-medium transition-colors" title="添加临时BUFF">+ 临时BUFF</button>
+            <button type="button" onClick={() => addEffect('creature_transform')} className="px-1.5 py-0.5 rounded border border-rose-600/70 bg-rose-900/20 text-rose-300 hover:bg-rose-800/40 hover:border-rose-500/80 text-[10px] font-medium transition-colors" title="添加变身效果">+ 变身</button>
+            <button type="button" onClick={() => addEffect('restore_spell_slots')} className="px-1.5 py-0.5 rounded border border-sky-600/70 bg-sky-900/20 text-sky-300 hover:bg-sky-800/40 hover:border-sky-500/80 text-[10px] font-medium transition-colors" title="添加法术位恢复">+ 法术位恢复</button>
+            <button type="button" onClick={() => addEffect('summon')} className="px-1.5 py-0.5 rounded border border-indigo-600/70 bg-indigo-900/20 text-indigo-300 hover:bg-indigo-800/40 hover:border-indigo-500/80 text-[10px] font-medium transition-colors" title="添加召唤效果">+ 召唤</button>
+            <button type="button" onClick={() => addEffect('random_table')} className="px-1.5 py-0.5 rounded border border-amber-600/70 bg-amber-900/20 text-amber-300 hover:bg-amber-800/40 hover:border-amber-500/80 text-[10px] font-medium transition-colors" title="添加随机库">+ 随机库</button>
+          </div>
+        </div>
+
+        {effects.length === 0 && (
+          <p className="text-gray-500 text-[10px]">尚未添加消耗效果</p>
+        )}
+
+        {effects.map((eff, idx) => {
+          if (eff.type === 'spell') {
+            const sp = eff.value || {}
+            const level = typeof sp.level === 'number' ? sp.level : (parseInt(sp.level, 10) || 0)
+            const hitRes = HIT_OPTIONS.some((o) => o.value === sp.hitResolution) ? sp.hitResolution : 'dex_save'
+            const wandPower = useWandScrollTable ? getWandScrollSpellPower(level) : null
+            const hitVal = hitRes === 'none' ? null
+              : (useWandScrollTable && wandPower
+                ? (hitRes === 'spell_attack' ? (wandPower.attackBonus >= 0 ? '+' : '') + wandPower.attackBonus : String(wandPower.dc))
+                : (hitRes === 'spell_attack' && spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : (spellDC != null ? String(spellDC) : null)))
+            const spellScalingEnabled = !!sp.scalingEnabled
+            const spellSU = sp.scalingPerUnit || {}
+            return (
+              <div key={eff.id} className="rounded-md border border-cyan-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                <div className="flex items-center gap-x-1.5 flex-wrap">
+                  <SpellNameAutocomplete
+                    value={spellInputValue(sp)}
+                    onChange={(name) => updateEffect(idx, { value: { ...sp, spellName: name } })}
+                    onSelect={(spell) => updateEffect(idx, {
+                      value: {
+                        ...sp,
+                        spellName: spell.name,
+                        spellId: spell.id,
+                        level: spell.level,
+                        cost: Math.max(1, spell.level),
+                        range: spell.range ?? '',
+                        area: spell.range ?? '',
+                      },
+                    })}
+                    placeholder="法术名称"
+                    className={inputCls + ' w-[6.25rem]'}
+                    listId={'charge-spell-' + (module.id ?? '') + '-' + idx}
+                  />
+                  <span className={labelCls}>环</span>
+                  <NumberStepper value={Math.max(0, Math.min(9, level))} onChange={(v) => updateEffect(idx, { value: { ...sp, level: Math.max(0, Math.min(9, v)) } })} min={0} max={9} compact narrow className="!h-7 !w-16 !min-w-0 !max-w-none" />
+                  <span className={labelCls}>消耗</span>
+                  <NumberStepper value={sp.cost ?? 1} onChange={(v) => updateEffect(idx, { value: { ...sp, cost: Math.max(0, Math.min(99, v)) } })} min={0} max={99} compact narrow className="!h-7 !w-16 !min-w-0 !max-w-none" />
+                  <span className="text-gray-600 mx-0.5">|</span>
+                  <span className={labelCls}>命中</span>
+                  <select value={hitRes} onChange={(e) => updateEffect(idx, { value: { ...sp, hitResolution: e.target.value } })} className={selectCls + ' !w-[3rem]'}>
+                    {HIT_OPTIONS.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
+                  </select>
+                  {hitVal != null && <span className="text-white font-mono tabular-nums text-xs shrink-0">{hitVal}</span>}
+                  <span className={labelCls}>距离</span>
+                  <input type="text" value={sp.range ?? ''} onChange={(e) => updateEffect(idx, { value: { ...sp, range: e.target.value } })} placeholder="自身" className={inputCls + ' !w-[4rem]'} />
+                  {multiplierCheckbox(idx, eff)}
+                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0" title="删除">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )
+          }
+
+          if (eff.type === 'ability') {
+            const av = eff.value || {}
+            const scalingEnabled = !!av.scalingEnabled
+            const su = av.scalingPerUnit || {}
+            return (
+              <div key={eff.id} className="rounded-md border border-amber-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                <div className="flex items-center gap-x-1.5 flex-wrap">
+                  <span className="text-amber-400 text-[10px] shrink-0 font-medium">奇能</span>
+                  <input
+                    type="text"
+                    value={av.text ?? ''}
+                    onChange={(e) => updateEffect(idx, { value: { ...av, text: e.target.value } })}
+                    placeholder="描述效果"
+                    className={inputCls + ' min-w-[6rem]'}
+                  />
+                  <span className={labelCls}>次数</span>
+                  <NumberStepper value={av.uses ?? 1} onChange={(v) => updateEffect(idx, { value: { ...av, uses: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-10" />
+                  {multiplierCheckbox(idx, eff)}
+                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                {/* 骰子配置行 */}
+                <div className="flex items-center gap-x-1.5 flex-wrap mt-1.5">
+                  <span className={labelCls}>骰子</span>
+                  <NumberStepper value={av.diceCount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, diceCount: Math.max(0, v) } })} min={0} max={20} compact narrow className="!h-7 !w-10" referenceData={referenceData} />
+                  <span className="text-gray-300 text-xs font-medium">d</span>
+                  <select
+                    value={av.diceSides ?? 10}
+                    onChange={(e) => updateEffect(idx, { value: { ...av, diceSides: Number(e.target.value) } })}
+                    className={inputCls + ' !h-7 !w-14 !text-[11px] !px-1'}
+                  >
+                    {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  <span className="text-gray-300 text-xs font-medium">+</span>
+                  <select
+                    value={av.abilityMod ?? ''}
+                    onChange={(e) => updateEffect(idx, { value: { ...av, abilityMod: e.target.value } })}
+                    className={inputCls + ' !h-7 !w-20 !text-[11px] !px-1'}
+                  >
+                    {ALL_MOD_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <select
+                    value={av.resultType ?? 'heal'}
+                    onChange={(e) => updateEffect(idx, { value: { ...av, resultType: e.target.value } })}
+                    className={inputCls + ' !h-7 !w-16 !text-[11px] !px-1'}
+                  >
+                    {RESULT_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+              </div>
+            )
+          }
+
+          if (eff.type === 'temp_buff') {
+            const tv = eff.value || {}
+            const modules = tv.modules || []
+            return (
+              <div key={eff.id} className="rounded-md border border-violet-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                <div className="flex items-center gap-x-1.5 flex-wrap">
+                  <span className="text-violet-400 text-[10px] shrink-0 font-medium">临时BUFF</span>
+                  <input
+                    type="text"
+                    value={tv.buffName ?? ''}
+                    onChange={(e) => updateEffect(idx, { value: { ...tv, buffName: e.target.value } })}
+                    placeholder="BUFF名称"
+                    className={inputCls + ' min-w-[6rem]'}
+                  />
+                  <DurationEditor value={tv.duration} onChange={(newDur) => updateEffect(idx, { value: { ...tv, duration: newDur } })} compact showPresets={false} />
+                  {multiplierCheckbox(idx, eff)}
+                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                {/* 效果模块列表 */}
+                {modules.length > 0 && (
+                  <div className="flex flex-col gap-y-0.5 mt-1.5">
+                    {modules.map((mod, mi) => {
+                      const catLabel = BUFF_TYPES[mod.category]?.label || mod.category
+                      const effectLabel = BUFF_TYPES[mod.category]?.effects?.find((e) => e.key === mod.effectType)?.label || mod.effectType
+                      const summary = getEffectSummaryShort(mod, {})
+                      return (
+                        <div key={mod.id || mi} className="flex items-center gap-x-1 text-[10px]">
+                          <span className="text-gray-500 shrink-0">{catLabel}</span>
+                          <span className="text-violet-300/80 truncate">{summary || effectLabel}</span>
+                          <button type="button" onClick={() => openTempBuffModal(idx, mi)} className="p-0.5 rounded text-gray-500 hover:text-amber-400 transition-colors shrink-0 ml-auto" title="编辑">
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                          <button type="button" onClick={() => removeTempBuffModule(idx, mi)} className="p-0.5 rounded text-gray-500 hover:text-red-400 transition-colors shrink-0" title="删除">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                {/* 添加效果按钮 */}
+                <button type="button" onClick={() => openTempBuffModal(idx, -1)} className="mt-1.5 px-2 py-0.5 rounded-md border border-violet-600/50 bg-violet-900/10 text-violet-300/80 hover:bg-violet-800/30 hover:border-violet-500/60 text-[10px] font-medium transition-colors">
+                  + 添加效果
+                </button>
+              </div>
+            )
+          }
+
+          if (eff.type === 'creature_transform') {
+            return (
+              <div key={eff.id} className="rounded-md border border-rose-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                <div className="flex items-center gap-x-1.5 mb-1">
+                  <span className="text-rose-400 text-[10px] shrink-0 font-medium">变身</span>
+                  {multiplierCheckbox(idx, eff)}
+                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <CreatureTransformEditor
+                  value={eff.value}
+                  onChange={(newValue) => updateEffect(idx, { value: newValue })}
+                />
+              </div>
+            )
+          }
+
+          if (eff.type === 'restore_spell_slots') {
+            const syntheticModule = { value: eff.value || {} }
+            return (
+              <div key={eff.id} className="rounded-md border border-sky-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                <div className="flex items-center gap-x-1.5 mb-1">
+                  <span className="text-sky-400 text-[10px] shrink-0 font-medium">法术位恢复</span>
+                  {multiplierCheckbox(idx, eff)}
+                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <RestoreSpellSlotsEditor
+                  module={syntheticModule}
+                  onChange={(newModule) => updateEffect(idx, { value: newModule.value })}
+                />
+              </div>
+            )
+          }
+
+          if (eff.type === 'summon') {
+            const sv = eff.value || {}
+            const _cl = _chargeItemCreatureLib
+            const isStellarDouble = sv.preset === 'stellar_double'
+            return (
+              <div key={eff.id} className="rounded-md border border-indigo-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                <div className="flex items-center gap-x-1.5 flex-wrap">
+                  <span className="text-indigo-400 text-[10px] shrink-0 font-medium">召唤</span>
+                  <select value={sv.preset || ''} onChange={(e) => updateEffect(idx, { value: { ...sv, preset: e.target.value } })} className={selectCls + ' !w-[6rem] shrink-0'}>
+                    <option value="">自定义</option>
+                    <option value="stellar_double">星辰替身</option>
+                  </select>
+                  {!isStellarDouble && (
+                    <>
+                      <select value={sv.sourceType || 'library'} onChange={(e) => updateEffect(idx, { value: { ...sv, sourceType: e.target.value } })} className={selectCls + ' !w-[5rem] shrink-0'}>
+                        <option value="library">生物库</option>
+                        <option value="attached_card">附属卡</option>
+                      </select>
+                      {sv.sourceType === 'library' && (
+                        <select value={sv.creatureId || ''} onChange={(e) => updateEffect(idx, { value: { ...sv, creatureId: e.target.value } })} className={selectCls + ' min-w-[6rem] flex-1'}>
+                          <option value="">选择生物...</option>
+                          {_cl.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
+                        </select>
+                      )}
+                      {sv.sourceType === 'attached_card' && (
+                        <select value={sv.creatureId || ''} onChange={(e) => updateEffect(idx, { value: { ...sv, creatureId: e.target.value } })} className={selectCls + ' min-w-[6rem] flex-1'}>
+                          <option value="">选择附属卡...</option>
+                          {subordinates.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+                        </select>
+                      )}
+                    </>
+                  )}
+                  {isStellarDouble && (
+                    <span className="text-xs text-purple-300 flex-1">创建自身分身，分身为你的复制品</span>
+                  )}
+                  {multiplierCheckbox(idx, eff)}
+                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0" title="删除"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+                {isStellarDouble ? (
+                  <div className="mt-1.5 text-[11px] text-gray-400 leading-relaxed">
+                    <span className="text-purple-300 font-medium">星辰替身：</span>消耗当前生命值的一半（不含临时生命），创建一个与你完全相同的分身。分身拥有你最大生命值的一半作为其血量。
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-x-1.5 flex-wrap mt-1.5">
+                    <span className={labelCls}>额外消耗</span>
+                    <select value={sv.costType || ''} onChange={(e) => updateEffect(idx, { value: { ...sv, costType: e.target.value } })} className={selectCls + ' !w-[4rem] shrink-0'}>
+                      <option value="">无</option>
+                      <option value="gold">金币</option>
+                      <option value="hp">生命</option>
+                    </select>
+                    {sv.costType && (<>
+                      <NumberStepper value={sv.costAmount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...sv, costAmount: Math.max(0, v) } })} min={0} max={9999} compact narrow className="!h-7 !w-14" />
+                      <input type="text" value={sv.costDice || ''} onChange={(e) => updateEffect(idx, { value: { ...sv, costDice: e.target.value } })} placeholder="骰子(如1d4)" className={inputCls + ' !w-[4rem]'} />
+                    </>)}
+                    <input type="text" value={sv.note || ''} onChange={(e) => updateEffect(idx, { value: { ...sv, note: e.target.value } })} placeholder="备注" className={inputCls + ' min-w-[4rem] flex-1'} />
+                  </div>
+                )}
+              </div>
+            )
+          }
+
+          /* ── 随机库 ── */
+          if (eff.type === 'random_table') {
+            return <RandomTableEditor key={eff.id} rv={eff.value || {}} patchValue={(patch) => updateEffect(idx, { value: patch })} removeEffect={() => removeEffect(idx)} referenceData={referenceData} spellDC={spellDC} spellAttackBonus={spellAttackBonus} useWandScrollTable={useWandScrollTable} creatureLib={_chargeItemCreatureLib} subordinates={subordinates} />
+          }
+
+          /* ── 伤害 ── */
+          if (eff.type === 'damage') {
+            const dv = eff.value || {}
+            return (
+              <div key={eff.id} className="rounded-md border border-red-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                <div className="flex items-center gap-x-1.5 mb-1">
+                  <span className="text-red-400 text-[10px] shrink-0 font-medium">伤害</span>
+                  <div className="flex items-center gap-x-1">
+                    <NumberStepper value={dv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...dv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+                    <span className="text-[10px] text-gray-500">d</span>
+                    <select value={dv.diceSides ?? 6} onChange={(e) => updateEffect(idx, { value: { ...dv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
+                      {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <span className="text-[10px] text-gray-500">+</span>
+                    <NumberStepper value={dv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...dv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+                  </div>
+                  {multiplierCheckbox(idx, eff)}
+                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-x-2 flex-wrap">
+                  <select value={dv.damageType ?? 'fire'} onChange={(e) => updateEffect(idx, { value: { ...dv, damageType: e.target.value } })} className={selectCls + ' !w-[4.5rem]'}>
+                    {DAMAGE_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+                  </select>
+                  <label className="flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer select-none">
+                    <input type="checkbox" checked={!!dv.addWeaponDamage} onChange={(e) => updateEffect(idx, { value: { ...dv, addWeaponDamage: e.target.checked } })} className="accent-amber-500 w-3 h-3" />
+                    附加手持武器伤害
+                  </label>
+                  {/^spell_slot_[1-9]$/.test(data.resourceType) && (
+                    <label className="flex items-center gap-1 text-[10px] text-purple-400 cursor-pointer select-none">
+                      <input type="checkbox" checked={!!dv.scaleWithSlot} onChange={(e) => updateEffect(idx, { value: { ...dv, scaleWithSlot: e.target.checked } })} className="accent-purple-500 w-3 h-3" />
+                      按环位缩放
+                    </label>
+                  )}
+                </div>
+              </div>
+            )
+          }
+
+          /* ── 治疗 ── */
+          if (eff.type === 'heal') {
+            const hv = eff.value || {}
+            const isMaxMode = hv.mode === 'max'
+            return (
+              <div key={eff.id} className="rounded-md border border-green-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                <div className="flex items-center gap-x-1.5 mb-1">
+                  <span className="text-green-400 text-[10px] shrink-0 font-medium">治疗</span>
+                  <div className="flex items-center gap-0.5">
+                    <button type="button" onClick={() => updateEffect(idx, { value: { ...hv, mode: 'dice' } })} className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${!isMaxMode ? 'bg-green-800/50 text-green-300 border border-green-600/50' : 'text-gray-500 hover:text-gray-400'}`}>骰子</button>
+                    <button type="button" onClick={() => updateEffect(idx, { value: { ...hv, mode: 'max' } })} className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${isMaxMode ? 'bg-green-800/50 text-green-300 border border-green-600/50' : 'text-gray-500 hover:text-gray-400'}`}>满疗</button>
+                  </div>
+                  {multiplierCheckbox(idx, eff)}
+                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                {!isMaxMode && (
+                  <div className="flex items-center gap-x-1">
+                    <NumberStepper value={hv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...hv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+                    <span className="text-[10px] text-gray-500">d</span>
+                    <select value={hv.diceSides ?? 8} onChange={(e) => updateEffect(idx, { value: { ...hv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
+                      {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <span className="text-[10px] text-gray-500">+</span>
+                    <NumberStepper value={hv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...hv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+                  </div>
+                )}
+                {isMaxMode && (
+                  <span className="text-[10px] text-gray-500">恢复骰子最大值</span>
+                )}
+                {/^spell_slot_[1-9]$/.test(data.resourceType) && (
+                  <label className="flex items-center gap-1 text-[10px] text-purple-400 cursor-pointer select-none mt-1">
+                    <input type="checkbox" checked={!!hv.scaleWithSlot} onChange={(e) => updateEffect(idx, { value: { ...hv, scaleWithSlot: e.target.checked } })} className="accent-purple-500 w-3 h-3" />
+                    按环位缩放
+                  </label>
+                )}
+              </div>
+            )
+          }
+
+          return null
+        })}
+      </div>
+
+      {/* ── 临时BUFF效果编辑弹窗 ── */}
+      {tempBuffModal && tempBuffDraft && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50" onClick={closeTempBuffModal}>
+          <div className="relative max-w-md w-full mx-2 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <EffectModuleModal
+              module={tempBuffDraft}
+              onSave={saveTempBuffModule}
+              onCancel={closeTempBuffModal}
+              referenceData={referenceData}
+              baseReferenceData={baseReferenceData}
+              spellDC={spellDC}
+              spellAttackBonus={spellAttackBonus}
+              useWandScrollTable={useWandScrollTable}
+              isNew={tempBuffModal.moduleIdx < 0}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 主动模式效果列表：渲染 activeChargeData.effects 的子编辑器 */
+function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData, subordinates = [] }) {
+  const effects = data.effects || []
+  const patchEffects = (next) => onChange({ ...data, effects: next })
+  const removeEffect = (idx) => patchEffects(effects.filter((_, i) => i !== idx))
+  const updateEffect = (idx, patch) => patchEffects(effects.map((e, i) => {
+    if (i !== idx) return e
+    if (patch.type && patch.type !== e.type) return createChargeEffectEntry(patch.type, { id: e.id })
+    return { ...e, ...patch }
+  }))
+
+  const labelCls = 'text-[10px] text-dnd-text-muted shrink-0 leading-none'
+  const inputCls = inputClass.replace(/\bh-10\b/, 'h-7').replace(/\bpx-3\b/, 'px-1.5').replace(/\btext-sm\b/, 'text-[11px]').replace(/\bw-full\b/, 'flex-1 min-w-0')
+  const selectCls = inputCls + ' cursor-pointer'
+
+  const HIT_OPTIONS = [
+    { value: 'dex_save', label: '敏捷' }, { value: 'str_save', label: '力量' },
+    { value: 'con_save', label: '体质' }, { value: 'wis_save', label: '感知' },
+    { value: 'int_save', label: '智力' }, { value: 'cha_save', label: '魅力' },
+    { value: 'spell_attack', label: '法攻' }, { value: 'none', label: '效应' },
+  ]
+
+  const isFreeSlotMode = data.resourceType === 'spell_slot' && data.consumptionMode === 'free'
+  const multiplierCheckbox = (effIdx, eff) => isFreeSlotMode ? (
+    <label className="flex items-center gap-0.5 text-[10px] text-amber-400 cursor-pointer select-none shrink-0" title="效果是否乘以消耗环位">
+      <input type="checkbox" checked={eff.applyMultiplier !== false} onChange={(e) => updateEffect(effIdx, { applyMultiplier: e.target.checked })} className="accent-amber-500 w-3 h-3" />
+      ×环
+    </label>
+  ) : null
+
+  // ── temp_buff modal ──
+  const [tempBuffModal, setTempBuffModal] = useState(null)
+  const [tempBuffDraft, setTempBuffDraft] = useState(null)
+
+  const openTempBuffModal = (effectIdx, moduleIdx) => {
+    const eff = effects[effectIdx]
+    if (!eff || eff.type !== 'temp_buff') return
+    const modules = eff.value?.modules || []
+    if (moduleIdx >= 0 && moduleIdx < modules.length) {
+      setTempBuffDraft({ ...modules[moduleIdx] })
+    } else {
+      const cats = getCategories()
+      const firstCat = cats[0]?.key || 'ability'
+      const firstEffects = BUFF_TYPES[firstCat]?.effects || []
+      setTempBuffDraft({
+        id: 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
+        category: firstCat, effectType: firstEffects[0]?.key || '',
+        scope: 'global', scopeDetail: [], value: {},
+      })
+    }
+    setTempBuffModal({ effectIdx, moduleIdx })
+  }
+  const closeTempBuffModal = () => { setTempBuffModal(null); setTempBuffDraft(null) }
+  const saveTempBuffModule = (draft) => {
+    if (!tempBuffModal) return
+    const { effectIdx, moduleIdx } = tempBuffModal
+    const eff = effects[effectIdx]
+    if (!eff || eff.type !== 'temp_buff') return
+    const modules = [...(eff.value?.modules || [])]
+    if (moduleIdx >= 0 && moduleIdx < modules.length) modules[moduleIdx] = draft
+    else modules.push(draft)
+    updateEffect(effectIdx, { value: { ...eff.value, modules } })
+    closeTempBuffModal()
+  }
+  const removeTempBuffModule = (effectIdx, moduleIdx) => {
+    const eff = effects[effectIdx]
+    if (!eff || eff.type !== 'temp_buff') return
+    updateEffect(effectIdx, { value: { ...eff.value, modules: (eff.value?.modules || []).filter((_, i) => i !== moduleIdx) } })
+  }
+
+  const spellInputValue = (sp) => {
+    const name = (sp?.spellName || '').trim()
+    if (name) return name
+    if (sp?.spellId) { const s = getSpellById(sp.spellId); if (s) return s.name }
+    return ''
+  }
+
+  const creatureLibrary = useMemo(() => loadCreatureLibrary(), [])
+
+  return (
+    <>
+      {effects.map((eff, idx) => {
+        /* ── 法术 ── */
+        if (eff.type === 'spell') {
+          const sp = eff.value || {}
+          const level = typeof sp.level === 'number' ? sp.level : (parseInt(sp.level, 10) || 0)
+          const hitRes = HIT_OPTIONS.some((o) => o.value === sp.hitResolution) ? sp.hitResolution : 'dex_save'
+          const wandPower = useWandScrollTable ? getWandScrollSpellPower(level) : null
+          const hitVal = hitRes === 'none' ? null
+            : (useWandScrollTable && wandPower
+              ? (hitRes === 'spell_attack' ? (wandPower.attackBonus >= 0 ? '+' : '') + wandPower.attackBonus : String(wandPower.dc))
+              : (hitRes === 'spell_attack' && spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : (spellDC != null ? String(spellDC) : null)))
+          const spellScalingEnabled = !!sp.scalingEnabled
+          const spellSU = sp.scalingPerUnit || {}
+          const _spellObj = sp.spellId ? getSpellById(sp.spellId) : null
+          const _combatPower = _spellObj?.description ? parseSpellCombatPower(_spellObj.description, level) : null
+          return (
+            <div key={eff.id} className="flex items-start gap-x-2">
+              <span className="shrink-0 mt-1.5 text-[10px] font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
+              <div className="rounded-md border border-cyan-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
+              <div className="flex items-center gap-x-1.5 flex-wrap">
+                <SpellNameAutocomplete
+                  value={spellInputValue(sp)}
+                  onChange={(name) => updateEffect(idx, { value: { ...sp, spellName: name } })}
+                  onSelect={(spell) => updateEffect(idx, { value: { ...sp, spellName: spell.name, spellId: spell.id, level: spell.level, cost: Math.max(1, spell.level), range: spell.range ?? '', area: spell.range ?? '' } })}
+                  placeholder="法术名称"
+                  className={inputCls + ' w-[6.25rem]'}
+                  listId={'active-spell-' + idx}
+                />
+                <span className={labelCls}>环</span>
+                <NumberStepper value={Math.max(0, Math.min(9, level))} onChange={(v) => updateEffect(idx, { value: { ...sp, level: Math.max(0, Math.min(9, v)) } })} min={0} max={9} compact narrow className="!h-7 !w-16 !min-w-0 !max-w-none" />
+                <span className={labelCls}>消耗</span>
+                <NumberStepper value={sp.cost ?? 1} onChange={(v) => updateEffect(idx, { value: { ...sp, cost: Math.max(0, Math.min(99, v)) } })} min={0} max={99} compact narrow className="!h-7 !w-16 !min-w-0 !max-w-none" />
+                <span className="text-gray-600 mx-0.5">|</span>
+                <span className={labelCls}>命中</span>
+                <select value={hitRes} onChange={(e) => updateEffect(idx, { value: { ...sp, hitResolution: e.target.value } })} className={selectCls + ' !w-[3.5rem]'}>
+                  {HIT_OPTIONS.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
+                </select>
+                {hitVal != null && <span className="text-white font-mono tabular-nums text-xs shrink-0 w-[2rem] text-center">{hitVal}</span>}
+                <span className={labelCls}>距离</span>
+                <input type="text" value={sp.range ?? ''} onChange={(e) => updateEffect(idx, { value: { ...sp, range: e.target.value } })} placeholder="自身" className={inputCls + ' !w-[3rem]'} />
+                {(_combatPower?.damage || _combatPower?.healing) && (
+                  <span className="w-[6rem] shrink-0 flex items-center gap-x-1 font-mono text-[10px]">
+                    {_combatPower?.damage && <span className="text-red-400 truncate" title="伤害">{_combatPower.damage}</span>}
+                    {_combatPower?.healing && <span className="text-emerald-400 truncate" title="治疗">{_combatPower.healing}</span>}
+                  </span>
+                )}
+                {multiplierCheckbox(idx, eff)}
+                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0" title="删除"><Trash2 className="w-3.5 h-3.5" /></button>
+              </div>
+            </div>
+            </div>
+          )
+        }
+
+        /* ── 临时BUFF ── */
+        if (eff.type === 'temp_buff') {
+          const tv = eff.value || {}
+          const modules = tv.modules || []
+          return (
+            <div key={eff.id} className="flex items-start gap-x-2">
+              <span className="shrink-0 mt-1.5 text-[10px] font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
+              <div className="rounded-md border border-violet-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
+              <div className="flex items-center gap-x-1.5 flex-wrap">
+                <span className="text-violet-400 text-[10px] shrink-0 font-medium">临时BUFF</span>
+                <input type="text" value={tv.buffName ?? ''} onChange={(e) => updateEffect(idx, { value: { ...tv, buffName: e.target.value } })} placeholder="BUFF名称" className={inputCls + ' min-w-[6rem]'} />
+                <DurationEditor value={tv.duration} onChange={(newDur) => updateEffect(idx, { value: { ...tv, duration: newDur } })} compact showPresets={false} />
+                {multiplierCheckbox(idx, eff)}
+                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除"><Trash2 className="w-3.5 h-3.5" /></button>
+              </div>
+              {modules.length > 0 && (
+                <div className="flex flex-col gap-y-0.5 mt-1.5">
+                  {modules.map((mod, mi) => {
+                    const summary = getEffectSummaryShort(mod, {})
+                    const effectLabel = BUFF_TYPES[mod.category]?.effects?.find((e) => e.key === mod.effectType)?.label || mod.effectType
+                    return (
+                      <div key={mod.id || mi} className="flex items-center gap-x-1 text-[10px]">
+                        <span className="text-gray-500 shrink-0">{BUFF_TYPES[mod.category]?.label || mod.category}</span>
+                        <span className="text-violet-300/80 truncate">{summary || effectLabel}</span>
+                        <button type="button" onClick={() => openTempBuffModal(idx, mi)} className="p-0.5 rounded text-gray-500 hover:text-amber-400 transition-colors shrink-0 ml-auto" title="编辑"><Pencil className="w-3 h-3" /></button>
+                        <button type="button" onClick={() => removeTempBuffModule(idx, mi)} className="p-0.5 rounded text-gray-500 hover:text-red-400 transition-colors shrink-0" title="删除"><Trash2 className="w-3 h-3" /></button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              <button type="button" onClick={() => openTempBuffModal(idx, -1)} className="mt-1.5 px-2 py-0.5 rounded-md border border-violet-600/50 bg-violet-900/10 text-violet-300/80 hover:bg-violet-800/30 hover:border-violet-500/60 text-[10px] font-medium transition-colors">+ 添加效果</button>
+            </div>
+            </div>
+          )
+        }
+
+        /* ─ 变身 ── */
+        if (eff.type === 'creature_transform') {
+          return (
+            <div key={eff.id} className="flex items-start gap-x-2">
+              <span className="shrink-0 mt-1.5 text-[10px] font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
+              <div className="rounded-md border border-rose-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
+              <div className="flex items-center gap-x-1.5 mb-1">
+                <span className="text-rose-400 text-[10px] shrink-0 font-medium">变身</span>
+                {multiplierCheckbox(idx, eff)}
+                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除"><Trash2 className="w-3.5 h-3.5" /></button>
+              </div>
+              <CreatureTransformEditor value={eff.value} onChange={(newValue) => updateEffect(idx, { value: newValue })} />
+              </div>
+            </div>
+          )
+        }
+
+        /* ── 法术位恢复 ── */
+        if (eff.type === 'restore_spell_slots') {
+          const syntheticModule = { value: eff.value || {} }
+          return (
+            <div key={eff.id} className="flex items-start gap-x-2">
+              <span className="shrink-0 mt-1.5 text-[10px] font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
+              <div className="rounded-md border border-sky-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
+                <div className="flex items-center gap-x-1.5 mb-1">
+                  <span className="text-sky-400 text-[10px] shrink-0 font-medium">法术位恢复</span>
+                  {multiplierCheckbox(idx, eff)}
+                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+                <RestoreSpellSlotsEditor module={syntheticModule} onChange={(newModule) => updateEffect(idx, { value: newModule.value })} />
+              </div>
+            </div>
+          )
+        }
+
+        /* ── 召唤 ── */
+        if (eff.type === 'summon') {
+          const sv = eff.value || {}
+          const isStellarDouble = sv.preset === 'stellar_double'
+          return (
+            <div key={eff.id} className="flex items-start gap-x-2">
+              <span className="shrink-0 mt-1.5 text-[10px] font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
+              <div className="rounded-md border border-indigo-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
+              <div className="flex items-center gap-x-1.5 flex-wrap">
+                <span className="text-indigo-400 text-[10px] shrink-0 font-medium">召唤</span>
+                <select value={sv.preset || ''} onChange={(e) => updateEffect(idx, { value: { ...sv, preset: e.target.value } })} className={selectCls + ' !w-[6rem] shrink-0'}>
+                  <option value="">自定义</option>
+                  <option value="stellar_double">星辰替身</option>
+                </select>
+                {!isStellarDouble && (
+                  <>
+                    <select value={sv.sourceType || 'library'} onChange={(e) => updateEffect(idx, { value: { ...sv, sourceType: e.target.value } })} className={selectCls + ' !w-[5rem] shrink-0'}>
+                      <option value="library">生物库</option>
+                      <option value="attached_card">附属卡</option>
+                    </select>
+                    {sv.sourceType === 'library' && (
+                      <select value={sv.creatureId || ''} onChange={(e) => updateEffect(idx, { value: { ...sv, creatureId: e.target.value } })} className={selectCls + ' min-w-[6rem] flex-1'}>
+                        <option value="">选择生物...</option>
+                        {creatureLibrary.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
+                      </select>
+                    )}
+                    {sv.sourceType === 'attached_card' && (
+                      <select value={sv.creatureId || ''} onChange={(e) => updateEffect(idx, { value: { ...sv, creatureId: e.target.value } })} className={selectCls + ' min-w-[6rem] flex-1'}>
+                        <option value="">选择附属卡...</option>
+                        {subordinates.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+                      </select>
+                    )}
+                  </>
+                )}
+                {isStellarDouble && (
+                  <span className="text-xs text-purple-300 flex-1">创建自身分身，分身为你的复制品</span>
+                )}
+                {multiplierCheckbox(idx, eff)}
+                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0" title="删除"><Trash2 className="w-3.5 h-3.5" /></button>
+              </div>
+              {isStellarDouble ? (
+                <div className="mt-1.5 text-[11px] text-gray-400 leading-relaxed">
+                  <span className="text-purple-300 font-medium">星辰替身：</span>消耗当前生命值的一半（不含临时生命），创建一个与你完全相同的分身。分身拥有你最大生命值的一半作为其血量。
+                </div>
+              ) : (
+                <div className="flex items-center gap-x-1.5 flex-wrap mt-1.5">
+                  <span className={labelCls}>额外消耗</span>
+                  <select value={sv.costType || ''} onChange={(e) => updateEffect(idx, { value: { ...sv, costType: e.target.value } })} className={selectCls + ' !w-[4rem] shrink-0'}>
+                    <option value="">无</option>
+                    <option value="gold">金币</option>
+                    <option value="hp">生命</option>
+                  </select>
+                  {sv.costType && (<>
+                    <NumberStepper value={sv.costAmount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...sv, costAmount: Math.max(0, v) } })} min={0} max={9999} compact narrow className="!h-7 !w-14" />
+                    <input type="text" value={sv.costDice || ''} onChange={(e) => updateEffect(idx, { value: { ...sv, costDice: e.target.value } })} placeholder="骰子(如1d4)" className={inputCls + ' !w-[4rem]'} />
+                  </>)}
+                  <input type="text" value={sv.note || ''} onChange={(e) => updateEffect(idx, { value: { ...sv, note: e.target.value } })} placeholder="备注" className={inputCls + ' min-w-[4rem] flex-1'} />
+                </div>
+              )}
+              </div>
+            </div>
+          )
+        }
+
+        /* ── 随机库 ── */
+        if (eff.type === 'random_table') {
+          return (
+            <div key={eff.id} className="flex items-start gap-x-2">
+              <span className="shrink-0 mt-1.5 text-[10px] font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
+              <div className="flex-1 min-w-0">
+                <RandomTableEditor rv={eff.value || {}} patchValue={(patch) => updateEffect(idx, { value: patch })} removeEffect={() => removeEffect(idx)} referenceData={referenceData} spellDC={spellDC} spellAttackBonus={spellAttackBonus} useWandScrollTable={useWandScrollTable} creatureLib={creatureLibrary} subordinates={subordinates} />
+              </div>
+            </div>
+          )
+        }
+
+        /* ── 伤害 ── */
+        if (eff.type === 'damage') {
+          const dv = eff.value || {}
+          return (
+            <div key={eff.id} className="flex items-start gap-x-2">
+              <span className="shrink-0 mt-1.5 text-[10px] font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
+              <div className="rounded-md border border-red-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
+              <div className="flex items-center gap-x-1.5 mb-1">
+                <span className="text-red-400 text-[10px] shrink-0 font-medium">伤害</span>
+                <div className="flex items-center gap-x-1">
+                  <NumberStepper value={dv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...dv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+                  <span className="text-[10px] text-gray-500">d</span>
+                  <select value={dv.diceSides ?? 6} onChange={(e) => updateEffect(idx, { value: { ...dv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
+                    {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  <span className="text-[10px] text-gray-500">+</span>
+                  <NumberStepper value={dv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...dv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+                </div>
+                {multiplierCheckbox(idx, eff)}
+                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="flex items-center gap-x-2 flex-wrap">
+                <select value={dv.damageType ?? 'fire'} onChange={(e) => updateEffect(idx, { value: { ...dv, damageType: e.target.value } })} className={selectCls + ' !w-[4.5rem]'}>
+                  {DAMAGE_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+                </select>
+                <label className="flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer select-none">
+                  <input type="checkbox" checked={!!dv.addWeaponDamage} onChange={(e) => updateEffect(idx, { value: { ...dv, addWeaponDamage: e.target.checked } })} className="accent-amber-500 w-3 h-3" />
+                  附加手持武器伤害
+                </label>
+                {/^spell_slot_[1-9]$/.test(data.resourceType) && (
+                  <label className="flex items-center gap-1 text-[10px] text-purple-400 cursor-pointer select-none">
+                    <input type="checkbox" checked={!!dv.scaleWithSlot} onChange={(e) => updateEffect(idx, { value: { ...dv, scaleWithSlot: e.target.checked } })} className="accent-purple-500 w-3 h-3" />
+                    按环位缩放
+                  </label>
+                )}
+              </div>
+              </div>
+            </div>
+          )
+        }
+
+        /* ── 治疗 ── */
+        if (eff.type === 'heal') {
+          const hv = eff.value || {}
+          const isMaxMode = hv.mode === 'max'
+          return (
+            <div key={eff.id} className="flex items-start gap-x-2">
+              <span className="shrink-0 mt-1.5 text-[10px] font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
+              <div className="rounded-md border border-green-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
+              <div className="flex items-center gap-x-1.5 mb-1">
+                <span className="text-green-400 text-[10px] shrink-0 font-medium">治疗</span>
+                <div className="flex items-center gap-0.5">
+                  <button type="button" onClick={() => updateEffect(idx, { value: { ...hv, mode: 'dice' } })} className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${!isMaxMode ? 'bg-green-800/50 text-green-300 border border-green-600/50' : 'text-gray-500 hover:text-gray-400'}`}>骰子</button>
+                  <button type="button" onClick={() => updateEffect(idx, { value: { ...hv, mode: 'max' } })} className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${isMaxMode ? 'bg-green-800/50 text-green-300 border border-green-600/50' : 'text-gray-500 hover:text-gray-400'}`}>满疗</button>
+                </div>
+                {multiplierCheckbox(idx, eff)}
+                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              {!isMaxMode && (
+                <div className="flex items-center gap-x-1">
+                  <NumberStepper value={hv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...hv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+                  <span className="text-[10px] text-gray-500">d</span>
+                  <select value={hv.diceSides ?? 8} onChange={(e) => updateEffect(idx, { value: { ...hv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
+                    {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  <span className="text-[10px] text-gray-500">+</span>
+                  <NumberStepper value={hv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...hv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+                </div>
+              )}
+              {isMaxMode && (
+                <span className="text-[10px] text-gray-500">恢复骰子最大值</span>
+              )}
+              {/^spell_slot_[1-9]$/.test(data.resourceType) && (
+                <label className="flex items-center gap-1 text-[10px] text-purple-400 cursor-pointer select-none mt-1">
+                  <input type="checkbox" checked={!!hv.scaleWithSlot} onChange={(e) => updateEffect(idx, { value: { ...hv, scaleWithSlot: e.target.checked } })} className="accent-purple-500 w-3 h-3" />
+                  按环位缩放
+                </label>
+              )}
+              </div>
+            </div>
+          )
+        }
+
+        /* ── 攻击加成 ── */
+        if (eff.type === 'attack_buff') {
+          const av = eff.value || {}
+          return (
+            <div key={eff.id} className="flex items-start gap-x-2">
+              <span className="shrink-0 mt-1.5 text-[10px] font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
+              <div className="rounded-md border border-amber-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
+                <div className="flex items-center gap-x-1.5 mb-1">
+                  <span className="text-amber-400 text-[10px] shrink-0 font-medium">攻击加成</span>
+                  {multiplierCheckbox(idx, eff)}
+                  <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="space-y-1 text-[10px]">
+                  <div className="flex items-center gap-x-1.5">
+                    <span className={labelCls}>命中加值</span>
+                    <span className="text-gray-500">每环位 +</span>
+                    <NumberStepper value={av.hitBonusPerUnit ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, hitBonusPerUnit: Math.max(0, v) } })} min={0} max={99} compact narrow className="!h-7 !w-12" />
+                    <span className="text-gray-500">（消耗N环则+N×{av.hitBonusPerUnit ?? 0}）</span>
+                  </div>
+                  <div className="flex items-center gap-x-1.5">
+                    <span className={labelCls}>伤害加值</span>
+                    <span className="text-gray-500">每环位 +</span>
+                    <NumberStepper value={av.damageBonusPerUnit ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, damageBonusPerUnit: Math.max(0, v) } })} min={0} max={99} compact narrow className="!h-7 !w-12" />
+                    <span className="text-gray-500">（消耗N环则+N×{av.damageBonusPerUnit ?? 0}）</span>
+                  </div>
+                  <div className="flex items-center gap-x-1.5">
+                    <span className={labelCls}>额外骰子</span>
+                    <span className="text-gray-500">每环位 +</span>
+                    <NumberStepper value={av.extraDicePerUnit ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, extraDicePerUnit: Math.max(0, v) } })} min={0} max={99} compact narrow className="!h-7 !w-12" />
+                    <span className="text-gray-500">d</span>
+                    <select value={av.diceSides ?? 10} onChange={(e) => updateEffect(idx, { value: { ...av, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
+                      {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <span className="text-gray-500">（消耗N环则+N×{av.extraDicePerUnit ?? 0}d{av.diceSides ?? 10}）</span>
+                  </div>
+                  <div className="flex items-center gap-x-1.5">
+                    <span className={labelCls}>伤害类型</span>
+                    <select value={av.damageType ?? 'fire'} onChange={(e) => updateEffect(idx, { value: { ...av, damageType: e.target.value } })} className={selectCls + ' !w-[4.5rem]'}>
+                      {DAMAGE_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        }
+
+        return null
+      })}
+
+      {/* ── temp_buff 效果编辑弹窗 ── */}
+      {tempBuffModal && tempBuffDraft && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50" onClick={closeTempBuffModal}>
+          <div className="relative max-w-md w-full mx-2 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <EffectModuleModal
+              module={tempBuffDraft}
+              onSave={saveTempBuffModule}
+              onCancel={closeTempBuffModal}
+              referenceData={referenceData}
+              baseReferenceData={baseReferenceData}
+              spellDC={spellDC}
+              spellAttackBonus={spellAttackBonus}
+              useWandScrollTable={useWandScrollTable}
+              isNew={tempBuffModal.moduleIdx < 0}
+            />
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+/** 随机库编辑器：骰子/扑克牌模式，每条目含子效果数组 */
+function RandomTableEditor({ rv, patchValue, removeEffect, referenceData, spellDC, spellAttackBonus, useWandScrollTable, creatureLib, subordinates }) {
+  const mode = rv.mode || 'dice'
+  const entries = rv.entries || []
+  const includeJokers = !!rv.includeJokers
+
+  const patchRv = (patch) => patchValue({ ...rv, ...patch })
+  const updateEntry = (ei, patch) => patchRv({ entries: entries.map((e, i) => i === ei ? { ...e, ...patch } : e) })
+  const addEntry = () => patchRv({ entries: [...entries, createEmptyRandomTableEntry(mode)] })
+  const removeEntry = (ei) => patchRv({ entries: entries.filter((_, i) => i !== ei) })
+
+  // 子效果操作
+  const addSub = (ei, type) => {
+    const entry = entries[ei]
+    updateEntry(ei, { effects: [...(entry.effects || []), createChargeEffectEntry(type)] })
+  }
+  const removeSub = (ei, si) => {
+    const entry = entries[ei]
+    updateEntry(ei, { effects: (entry.effects || []).filter((_, i) => i !== si) })
+  }
+  const updateSub = (ei, si, patch) => {
+    const entry = entries[ei]
+    const next = (entry.effects || []).map((e, i) => {
+      if (i !== si) return e
+      if (patch.type && patch.type !== e.type) return createChargeEffectEntry(patch.type, { id: e.id })
+      return { ...e, ...patch }
+    })
+    updateEntry(ei, { effects: next })
+  }
+
+  const labelCls = 'text-[10px] text-dnd-text-muted shrink-0 leading-none'
+  const inputCls = inputClass.replace(/\bh-10\b/, 'h-7').replace(/\bpx-3\b/, 'px-1.5').replace(/\btext-sm\b/, 'text-[11px]').replace(/\bw-full\b/, 'flex-1 min-w-0')
+  const selectCls = inputCls + ' cursor-pointer'
+  const HIT_OPTIONS = [
+    { value: 'dex_save', label: '敏捷' }, { value: 'str_save', label: '力量' },
+    { value: 'con_save', label: '体质' }, { value: 'wis_save', label: '感知' },
+    { value: 'int_save', label: '智力' }, { value: 'cha_save', label: '魅力' },
+    { value: 'spell_attack', label: '法攻' }, { value: 'none', label: '效应' },
+  ]
+
+  // 切换模式时重建条目
+  const switchMode = (newMode) => {
+    patchRv({ mode: newMode, entries: [createEmptyRandomTableEntry(newMode)] })
+  }
+
+  // 扑克牌花色/点数切换
+  const toggleArrayItem = (arr, item) => arr.includes(item) ? arr.filter((x) => x !== item) : [...arr, item]
+
+  // ── 子效果紧凑渲染 ──
+  const renderSubEffect = (se, si, ei) => {
+    const sev = se.value || {}
+    const subDel = () => removeSub(ei, si)
+    const subPatch = (patch) => updateSub(ei, si, patch)
+    const trashBtn = <button type="button" onClick={subDel} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除"><Trash2 className="w-3 h-3" /></button>
+
+    if (se.type === 'damage') {
+      return (
+        <div key={se.id} className="flex items-center gap-x-1 flex-wrap">
+          <span className="text-red-400 text-[9px] shrink-0 font-medium">伤害</span>
+          <NumberStepper value={sev.diceCount ?? 1} onChange={(v) => subPatch({ value: { ...sev, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-6 !w-10" referenceData={referenceData} />
+          <span className="text-[9px] text-gray-500">d</span>
+          <select value={sev.diceSides ?? 6} onChange={(e) => subPatch({ value: { ...sev, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3rem] !h-6 !text-[10px]'}>
+            {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <span className="text-[9px] text-gray-500">+</span>
+          <NumberStepper value={sev.diceBonus ?? 0} onChange={(v) => subPatch({ value: { ...sev, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-6 !w-10" referenceData={referenceData} />
+          <select value={sev.damageType ?? 'fire'} onChange={(e) => subPatch({ value: { ...sev, damageType: e.target.value } })} className={selectCls + ' !w-[4rem] !h-6 !text-[10px]'}>
+            {DAMAGE_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+          </select>
+          {trashBtn}
+        </div>
+      )
+    }
+
+    if (se.type === 'heal') {
+      const isMax = sev.mode === 'max'
+      return (
+        <div key={se.id} className="flex items-center gap-x-1 flex-wrap">
+          <span className="text-green-400 text-[9px] shrink-0 font-medium">治疗</span>
+          <div className="flex items-center gap-0.5">
+            <button type="button" onClick={() => subPatch({ value: { ...sev, mode: 'dice' } })} className={`px-1 py-px rounded text-[9px] ${!isMax ? 'bg-green-800/50 text-green-300 border border-green-600/50' : 'text-gray-500'}`}>骰</button>
+            <button type="button" onClick={() => subPatch({ value: { ...sev, mode: 'max' } })} className={`px-1 py-px rounded text-[9px] ${isMax ? 'bg-green-800/50 text-green-300 border border-green-600/50' : 'text-gray-500'}`}>满</button>
+          </div>
+          {!isMax && (<>
+            <NumberStepper value={sev.diceCount ?? 1} onChange={(v) => subPatch({ value: { ...sev, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-6 !w-10" referenceData={referenceData} />
+            <span className="text-[9px] text-gray-500">d</span>
+            <select value={sev.diceSides ?? 8} onChange={(e) => subPatch({ value: { ...sev, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3rem] !h-6 !text-[10px]'}>
+              {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <span className="text-[9px] text-gray-500">+</span>
+            <NumberStepper value={sev.diceBonus ?? 0} onChange={(v) => subPatch({ value: { ...sev, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-6 !w-10" referenceData={referenceData} />
+          </>)}
+          {isMax && <span className="text-[9px] text-gray-500">最大值</span>}
+          {trashBtn}
+        </div>
+      )
+    }
+
+    if (se.type === 'spell') {
+      const level = typeof sev.level === 'number' ? sev.level : (parseInt(sev.level, 10) || 0)
+      return (
+        <div key={se.id} className="space-y-1">
+          <div className="flex items-center gap-x-1 flex-wrap">
+            <span className="text-cyan-400 text-[9px] shrink-0 font-medium">法术</span>
+            <SpellNameAutocomplete
+              value={(sev.spellName || '').trim() || (sev.spellId ? (getSpellById(sev.spellId)?.name || '') : '')}
+              onChange={(name) => subPatch({ value: { ...sev, spellName: name } })}
+              onSelect={(spell) => subPatch({ value: { ...sev, spellName: spell.name, spellId: spell.id, level: spell.level, cost: Math.max(1, spell.level) } })}
+              placeholder="法术名称"
+              className={inputCls + ' !h-6 !text-[10px] min-w-[5rem] flex-1'}
+              listId={'rt-spell-' + ei + '-' + si}
+            />
+            <span className="text-[9px] text-gray-500">环</span>
+            <NumberStepper value={Math.max(0, Math.min(9, level))} onChange={(v) => subPatch({ value: { ...sev, level: Math.max(0, Math.min(9, v)) } })} min={0} max={9} compact narrow className="!h-6 !w-9" />
+            {trashBtn}
+          </div>
+        </div>
+      )
+    }
+
+    if (se.type === 'temp_buff') {
+      const modules = sev.modules || []
+      return (
+        <div key={se.id} className="flex items-center gap-x-1">
+          <span className="text-violet-400 text-[9px] shrink-0 font-medium">临时BUFF</span>
+          <span className="text-[9px] text-gray-500">{modules.length} 个效果</span>
+          {trashBtn}
+        </div>
+      )
+    }
+
+    if (se.type === 'creature_transform') {
+      const _cl = creatureLib || []
+      return (
+        <div key={se.id} className="flex items-center gap-x-1 flex-wrap">
+          <span className="text-rose-400 text-[9px] shrink-0 font-medium">变身</span>
+          <select value={sev.creatureId || ''} onChange={(e) => subPatch({ value: { ...sev, creatureId: e.target.value } })} className={selectCls + ' !w-[6rem] !h-6 !text-[10px] flex-1'}>
+            <option value="">选择生物...</option>
+            {_cl.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          {trashBtn}
+        </div>
+      )
+    }
+
+    if (se.type === 'summon') {
+      const _cl = creatureLib || []
+      const isStellar = sev.preset === 'stellar_double'
+      return (
+        <div key={se.id} className="flex items-center gap-x-1 flex-wrap">
+          <span className="text-indigo-400 text-[9px] shrink-0 font-medium">召唤</span>
+          <select value={sev.preset || ''} onChange={(e) => subPatch({ value: { ...sev, preset: e.target.value } })} className={selectCls + ' !w-[5rem] !h-6 !text-[10px]'}>
+            <option value="">自定义</option>
+            <option value="stellar_double">星辰替身</option>
+          </select>
+          {!isStellar && (
+            <select value={sev.creatureId || ''} onChange={(e) => subPatch({ value: { ...sev, creatureId: e.target.value } })} className={selectCls + ' !w-[6rem] !h-6 !text-[10px] flex-1'}>
+              <option value="">选择生物...</option>
+              {_cl.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          )}
+          {isStellar && <span className="text-[9px] text-purple-300">分身</span>}
+          {trashBtn}
+        </div>
+      )
+    }
+
+    if (se.type === 'restore_spell_slots') {
+      return (
+        <div key={se.id} className="flex items-center gap-x-1 flex-wrap">
+          <span className="text-sky-400 text-[9px] shrink-0 font-medium">法术位恢复</span>
+          <span className="text-[9px] text-gray-500">环位</span>
+          <NumberStepper value={sev.ringLevel ?? 1} onChange={(v) => subPatch({ value: { ...sev, ringLevel: Math.max(1, Math.min(9, v)) } })} min={1} max={9} compact narrow className="!h-6 !w-9" />
+          <span className="text-[9px] text-gray-500">数量</span>
+          <NumberStepper value={sev.count ?? 1} onChange={(v) => subPatch({ value: { ...sev, count: Math.max(1, v) } })} min={1} max={9} compact narrow className="!h-6 !w-9" />
+          {trashBtn}
+        </div>
+      )
+    }
+
+    if (se.type === 'consume_spell_slot_to_restore_charges') {
+      return (
+        <div key={se.id} className="flex items-center gap-x-1 flex-wrap">
+          <span className="text-purple-400 text-[9px] shrink-0 font-medium">耗环回充</span>
+          <span className="text-[9px] text-gray-500">消耗环位</span>
+          <NumberStepper value={sev.slotLevel ?? 2} onChange={(v) => subPatch({ value: { ...sev, slotLevel: Math.max(1, Math.min(9, v)) } })} min={1} max={9} compact narrow className="!h-6 !w-9" />
+          <span className="text-[9px] text-gray-500">恢复充能</span>
+          <NumberStepper value={sev.restoreAmount ?? 1} onChange={(v) => subPatch({ value: { ...sev, restoreAmount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-6 !w-10" />
+          {trashBtn}
+        </div>
+      )
+    }
+
+    if (se.type === 'custom_logic') {
+      return (
+        <div key={se.id} className="space-y-0.5">
+          <div className="flex items-center gap-x-1">
+            <span className="text-gray-400 text-[9px] shrink-0 font-medium">自定义</span>
+            <input type="text" value={sev.title || ''} onChange={(e) => subPatch({ value: { ...sev, title: e.target.value } })} placeholder="标题" className={inputCls + ' !h-6 !text-[10px] flex-1'} />
+            {trashBtn}
+          </div>
+          <textarea value={sev.description || ''} onChange={(e) => subPatch({ value: { ...sev, description: e.target.value } })} placeholder="描述" rows={1} className={inputCls + ' !text-[10px] resize-none'} />
+          <div className="flex items-center gap-x-1">
+            <span className="text-gray-500 text-[9px] shrink-0">骰子</span>
+            <input type="number" min="0" value={sev.damageDiceCount || ''} onChange={(e) => subPatch({ value: { ...sev, damageDiceCount: parseInt(e.target.value) || 0 } })} placeholder="数量" className={inputCls + ' !h-6 !text-[10px] !w-14'} />
+            <span className="text-gray-500 text-[9px]">d</span>
+            <input type="number" min="1" value={sev.damageDiceSides || ''} onChange={(e) => subPatch({ value: { ...sev, damageDiceSides: parseInt(e.target.value) || 0 } })} placeholder="面数" className={inputCls + ' !h-6 !text-[10px] !w-14'} />
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div key={se.id} className="flex items-center gap-x-1">
+        <span className="text-gray-500 text-[9px]">未知类型: {se.type}</span>
+        {trashBtn}
+      </div>
+    )
+  }
+
+  // ── 子效果添加按钮行 ──
+  const _subBtnCls = {
+    red: 'border-red-600/50 bg-red-900/20 text-red-300 hover:bg-red-800/30',
+    green: 'border-green-600/50 bg-green-900/20 text-green-300 hover:bg-green-800/30',
+    cyan: 'border-cyan-600/50 bg-cyan-900/20 text-cyan-300 hover:bg-cyan-800/30',
+    violet: 'border-violet-600/50 bg-violet-900/20 text-violet-300 hover:bg-violet-800/30',
+    rose: 'border-rose-600/50 bg-rose-900/20 text-rose-300 hover:bg-rose-800/30',
+    indigo: 'border-indigo-600/50 bg-indigo-900/20 text-indigo-300 hover:bg-indigo-800/30',
+    sky: 'border-sky-600/50 bg-sky-900/20 text-sky-300 hover:bg-sky-800/30',
+    gray: 'border-gray-600/50 bg-gray-900/20 text-gray-300 hover:bg-gray-800/30',
+  }
+  const renderSubAddButtons = (ei) => (
+    <div className="flex items-center gap-x-0.5 flex-wrap mt-1">
+      {[
+        { type: 'damage', label: '伤害', color: 'red' },
+        { type: 'heal', label: '治疗', color: 'green' },
+        { type: 'spell', label: '法术', color: 'cyan' },
+        { type: 'temp_buff', label: 'BUFF', color: 'violet' },
+        { type: 'creature_transform', label: '变身', color: 'rose' },
+        { type: 'summon', label: '召唤', color: 'indigo' },
+        { type: 'restore_spell_slots', label: '环位恢复', color: 'sky' },
+        { type: 'custom_logic', label: '自定义', color: 'gray' },
+      ].map((b) => (
+        <button key={b.type} type="button" onClick={() => addSub(ei, b.type)}
+          className={`px-1 py-px rounded border text-[9px] leading-tight transition-colors ${_subBtnCls[b.color]}`}
+        >+ {b.label}</button>
+      ))}
+    </div>
+  )
+
+  return (
+    <div className="rounded-md border border-amber-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+      {/* 顶栏：模式切换 + 删除 */}
+      <div className="flex items-center gap-x-1.5 flex-wrap mb-1.5">
+        <span className="text-amber-400 text-[10px] shrink-0 font-medium">随机库</span>
+        <div className="flex items-center gap-0.5">
+          <button type="button" onClick={() => switchMode('dice')} className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${mode !== 'poker' ? 'bg-amber-800/50 text-amber-300 border border-amber-600/50' : 'text-gray-500 hover:text-gray-400'}`}>骰子</button>
+          <button type="button" onClick={() => switchMode('poker')} className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${mode === 'poker' ? 'bg-amber-800/50 text-amber-300 border border-amber-600/50' : 'text-gray-500 hover:text-gray-400'}`}>扑克牌</button>
+        </div>
+        {mode !== 'poker' ? (
+          <select value={rv.diceType || 'd6'} onChange={(e) => patchRv({ diceType: e.target.value })} className={selectCls + ' !w-[4rem] !h-7 !text-[10px]'}>
+            {DICE_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        ) : (
+          <label className="flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer select-none">
+            <input type="checkbox" checked={includeJokers} onChange={(e) => patchRv({ includeJokers: e.target.checked })} className="accent-amber-500 w-3 h-3" />
+            大小丑
+          </label>
+        )}
+        <span className="text-[9px] text-gray-500 ml-auto">{entries.length} 条</span>
+        <button type="button" onClick={() => removeEffect()} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0" title="删除"><Trash2 className="w-3.5 h-3.5" /></button>
+      </div>
+
+      {/* 条目列表 */}
+      <div className="space-y-1.5">
+        {entries.map((entry, ei) => {
+          const subs = entry.effects || []
+          return (
+            <div key={entry.id} className="rounded border border-amber-900/20 bg-[#0a1018]/40 px-1.5 py-1">
+              {/* 条目配置行 */}
+              <div className="flex items-center gap-x-1 flex-wrap">
+                {mode === 'poker' ? (
+                  <>
+                    <select value={entry.matchType || 'any'} onChange={(e) => updateEntry(ei, { matchType: e.target.value })} className={selectCls + ' !w-[4.5rem] !h-6 !text-[10px]'}>
+                      {RANDOM_MATCH_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    {(entry.matchType === 'suit' || entry.matchType === 'both') && (
+                      <div className="flex items-center gap-0.5">
+                        {POKER_SUITS.map((s) => {
+                          const selected = (entry.suits || []).includes(s)
+                          return (
+                            <button key={s} type="button" onClick={() => updateEntry(ei, { suits: toggleArrayItem(entry.suits || [], s) })}
+                              className={`w-5 h-5 rounded text-[10px] leading-none flex items-center justify-center transition-colors ${selected ? 'bg-amber-800/60 text-amber-200 border border-amber-600/50' : 'bg-white/[0.03] text-gray-500 border border-white/[0.06] hover:text-gray-400'}`}
+                              title={POKER_SUIT_LABELS[s]}
+                            >{POKER_SUIT_SYMBOLS[s]}</button>
+                          )
+                        })}
+                      </div>
+                    )}
+                    {(entry.matchType === 'rank' || entry.matchType === 'both') && (
+                      <div className="flex items-center gap-0.5 flex-wrap">
+                        {POKER_RANKS.map((r) => {
+                          const selected = (entry.ranks || []).includes(r)
+                          return (
+                            <button key={r} type="button" onClick={() => updateEntry(ei, { ranks: toggleArrayItem(entry.ranks || [], r) })}
+                              className={`w-4 h-4 rounded text-[8px] leading-none flex items-center justify-center transition-colors ${selected ? 'bg-amber-800/60 text-amber-200 border border-amber-600/50' : 'bg-white/[0.03] text-gray-500 border border-white/[0.06] hover:text-gray-400'}`}
+                            >{r}</button>
+                          )
+                        })}
+                        {includeJokers && POKER_JOKERS.map((j) => {
+                          const selected = (entry.ranks || []).includes(j)
+                          return (
+                            <button key={j} type="button" onClick={() => updateEntry(ei, { ranks: toggleArrayItem(entry.ranks || [], j) })}
+                              className={`w-4 h-4 rounded text-[8px] leading-none flex items-center justify-center transition-colors ${selected ? 'bg-amber-800/60 text-amber-200 border border-amber-600/50' : 'bg-white/[0.03] text-gray-500 border border-white/[0.06] hover:text-gray-400'}`}
+                            >{j === 'big_joker' ? '大' : '小'}</button>
+                          )
+                        })}
+                      </div>
+                    )}
+                    {entry.matchType === 'any' && <span className="text-[9px] text-gray-500">兜底匹配</span>}
+                  </>
+                ) : (
+                  <>
+                    <span className="text-[9px] text-gray-500">范围</span>
+                    <NumberStepper value={entry.min ?? 1} onChange={(v) => updateEntry(ei, { min: Math.max(1, v) })} min={1} max={getDiceMax(rv.diceType || 'd6')} compact narrow className="!h-6 !w-10" />
+                    <span className="text-[9px] text-gray-500">~</span>
+                    <NumberStepper value={entry.max ?? 1} onChange={(v) => updateEntry(ei, { max: Math.max(1, v) })} min={1} max={getDiceMax(rv.diceType || 'd6')} compact narrow className="!h-6 !w-10" />
+                  </>
+                )}
+                <button type="button" onClick={() => removeEntry(ei)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除条目"><Trash2 className="w-3 h-3" /></button>
+              </div>
+
+              {/* 子效果列表 */}
+              {subs.length > 0 && (
+                <div className="space-y-1 mt-1 pl-1 border-l border-amber-900/20">
+                  {subs.map((se, si) => renderSubEffect(se, si, ei))}
+                </div>
+              )}
+
+              {/* 子效果添加按钮 */}
+              {renderSubAddButtons(ei)}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* 添加条目 */}
+      <button type="button" onClick={addEntry} className="mt-1.5 px-2 py-0.5 rounded border border-amber-700/40 bg-amber-900/10 text-amber-400 hover:bg-amber-800/20 text-[10px] transition-colors flex items-center gap-1">
+        <Plus className="w-3 h-3" /> 添加条目
+      </button>
+    </div>
+  )
+}
+
+/** 法术位恢复编辑器：单环恢复 / 多环恢复 */
+function RestoreSpellSlotsEditor({ module, onChange }) {
+  const data = module.value || {}
+  const patchData = (patch) => onChange({ ...module, value: { ...data, ...patch } })
+
+  const labelCls = 'text-[10px] text-dnd-text-muted shrink-0 leading-none'
+  const inputCls = inputClass.replace(/\bh-10\b/, 'h-7').replace(/\bpx-3\b/, 'px-1.5').replace(/\btext-sm\b/, 'text-[11px]').replace(/\bw-full\b/, 'flex-1 min-w-0')
+  const selectCls = inputCls + ' cursor-pointer'
+
+  const mode = data.mode || 'single'
+  const ringLevel = typeof data.ringLevel === 'number' ? data.ringLevel : (parseInt(data.ringLevel, 10) || 1)
+  const maxRing = typeof data.maxRing === 'number' ? data.maxRing : (parseInt(data.maxRing, 10) || 3)
+  const cost = typeof data.cost === 'number' ? data.cost : (parseInt(data.cost, 10) || 1)
+  const singleCostRing = typeof data.singleCostRing === 'number' ? data.singleCostRing : (parseInt(data.singleCostRing, 10) || maxRing)
+
+  return (
+    <div className="rounded-md bg-[#161e2b]/40 p-2 flex flex-col gap-y-1.5 w-full text-xs">
+      {/* 模式选择 */}
+      <div className="flex items-center gap-x-2">
+        <span className={labelCls}>模式</span>
+        <select
+          value={mode}
+          onChange={(e) => patchData({ mode: e.target.value })}
+          className={selectCls + ' !w-[8rem] shrink-0'}
+        >
+          <option value="single">单资源恢复</option>
+          <option value="multi">多资源恢复</option>
+        </select>
+      </div>
+
+      {mode === 'single' ? (
+        /* ─ 单资源恢复 ── */
+        <div className="flex items-center gap-x-2 flex-wrap">
+          <span className="text-cyan-400 text-[10px] shrink-0 font-medium">恢复</span>
+          <span className={labelCls}>环位</span>
+          <NumberStepper
+            value={Math.max(1, Math.min(9, ringLevel))}
+            onChange={(v) => patchData({ ringLevel: Math.max(1, Math.min(9, v)) })}
+            min={1}
+            max={9}
+            compact
+            narrow
+            className="!h-7 !w-10"
+          />
+          <span className="text-gray-500 text-[10px]">消耗1资源，恢复1个该环位法术位（已满则向下找空位）</span>
+        </div>
+      ) : (
+        /* ── 多资源恢复 ── */
+        <div className="flex items-center gap-x-2 flex-wrap">
+          <span className="text-cyan-400 text-[10px] shrink-0 font-medium">恢复</span>
+          <span className={labelCls}>最高环位</span>
+          <NumberStepper
+            value={Math.max(1, Math.min(9, maxRing))}
+            onChange={(v) => patchData({ maxRing: Math.max(1, Math.min(9, v)) })}
+            min={1}
+            max={9}
+            compact
+            narrow
+            className="!h-7 !w-10"
+          />
+          <span className="text-gray-500 text-[10px]">消耗</span>
+          <NumberStepper
+            value={Math.max(1, Math.min(99, cost))}
+            onChange={(v) => patchData({ cost: Math.max(1, Math.min(99, v)) })}
+            min={1}
+            max={99}
+            compact
+            narrow
+            className="!h-7 !w-10"
+          />
+          <span className="text-gray-500 text-[10px]">资源</span>
+          {cost === 1 && (
+            <>
+              <span className="text-gray-500 text-[10px]">1点恢复环位</span>
+              <NumberStepper
+                value={Math.max(1, Math.min(9, singleCostRing))}
+                onChange={(v) => patchData({ singleCostRing: Math.max(1, Math.min(9, v)) })}
+                min={1}
+                max={9}
+                compact
+                narrow
+                className="!h-7 !w-10"
+              />
+            </>
+          )}
+          <span className="text-gray-500 text-[10px]">
+            {cost === 1
+              ? `消耗1资源，恢复所有1~${singleCostRing}环法术位到满`
+              : `消耗${cost}资源，恢复所有1~${maxRing}环法术位到满`}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 护甲覆盖编辑器：用于法师护甲、武僧无甲护甲等修改基础AC的效果 */
+function ArmorOverrideEditor({ value, onChange, referenceData }) {
+  const data = normalizeArmorOverrideValue(value)
+  const patchData = (patch) => onChange({ ...data, ...patch })
+
+  const labelCls = 'text-[10px] text-dnd-text-muted shrink-0 leading-none'
+  const inputCls = inputClass.replace(/\bh-10\b/, 'h-7').replace(/\bpx-3\b/, 'px-1.5').replace(/\btext-sm\b/, 'text-[11px]')
+  const selectCls = inputCls + ' cursor-pointer'
+
+  return (
+    <div className="rounded-md bg-[#161e2b]/50 p-2 flex flex-col gap-y-1.5 w-full text-xs">
+      {/* 基础AC */}
+      <div className="flex items-center gap-x-1.5">
+        <span className={labelCls}>基础AC</span>
+        <NumberStepper
+          referenceData={referenceData}
+          value={data.base}
+          onChange={(v) => patchData({ base: Math.max(1, Math.min(99, v)) })}
+          min={1}
+          max={99}
+          compact
+          narrow
+          className="!h-6"
+        />
+      </div>
+
+      {/* 应用敏捷调整值 */}
+      <label className="flex items-center gap-x-1.5 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={!!data.applyDexMod}
+          onChange={(e) => patchData({ applyDexMod: e.target.checked })}
+          className="rounded border-gray-600 bg-gray-800 text-dnd-red h-3.5 w-3.5"
+        />
+        <span className={labelCls}>应用敏捷调整值</span>
+      </label>
+
+      {/* 最大DEX加值限制 */}
+      {data.applyDexMod && (
+        <div className="flex items-center gap-x-1.5">
+          <span className={labelCls}>最大DEX</span>
+          <select
+            value={data.maxDexBonus ?? ''}
+            onChange={(e) => patchData({ maxDexBonus: e.target.value ? Number(e.target.value) : null })}
+            className={selectCls + ' !w-[4rem] shrink-0'}
+          >
+            <option value="">无限制</option>
+            {[2, 3, 4, 5].map((n) => (
+              <option key={n} value={n}>+{n}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* 额外增加 */}
+      <div className="flex items-center gap-x-1.5">
+        <span className={labelCls}>额外增加</span>
+        <NumberStepper
+          value={data.extra}
+          onChange={(v) => patchData({ extra: v })}
+          step={1}
+          compact
+          narrow
+          className="!h-6"
+        />
+      </div>
+
+      {/* 盾牌兼容 */}
+      <label className="flex items-center gap-x-1.5 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={!!data.shieldCompatible}
+          onChange={(e) => patchData({ shieldCompatible: e.target.checked })}
+          className="rounded border-gray-600 bg-gray-800 text-dnd-red h-3.5 w-3.5"
+        />
+        <span className={labelCls}>可与盾牌叠加</span>
+      </label>
+    </div>
+  )
+}
+
+/** 变身效果编辑器：引用生物库 + AC/HP/属性/资源 全方位配置 */
+function CreatureTransformEditor({ value, onChange }) {
+  const data = normalizeCreatureTransformValue(value)
+  const patchData = (patch) => onChange({ ...data, ...patch })
+  const [showAdvanced, setShowAdvanced] = useState(!data.wildShapeMode && (data.acMode !== 'max_formula' || data.hpMode !== 'keep_plus_temp' || data.resourceCostType !== ''))
+
+  const creatures = useMemo(() => loadCreatureLibrary(), [])
+  const selectedCreature = data.creatureId ? getCreatureById(data.creatureId) : null
+
+  const labelCls = 'text-[10px] text-dnd-text-muted shrink-0 leading-none'
+  const selectCls = inputClass.replace(/\bh-10\b/, 'h-7').replace(/\bpx-3\b/, 'px-1.5').replace(/\btext-sm\b/, 'text-[11px]') + ' cursor-pointer'
+  const inputCls = selectCls
+
+  const abilityOptions = [
+    { key: 'int', label: '智力' },
+    { key: 'wis', label: '感知' },
+    { key: 'cha', label: '魅力' },
+  ]
+  const abilityRefOptions = [
+    { value: '', label: '—' },
+    { value: 'str', label: '力量' },
+    { value: 'dex', label: '敏捷' },
+    { value: 'con', label: '体质' },
+    { value: 'int', label: '智力' },
+    { value: 'wis', label: '感知' },
+    { value: 'cha', label: '魅力' },
+  ]
+  const hpRefOptions = [
+    { value: '', label: '无' },
+    { value: 'classLevel', label: '职业等级' },
+    { value: 'level', label: '角色等级' },
+    { value: 'abilityModifier', label: '属性调整值' },
+    { value: 'proficiency', label: '熟练加值' },
+  ]
+
+  const toggleKeepAbility = (key) => {
+    const next = data.keepAbilities.includes(key)
+      ? data.keepAbilities.filter((k) => k !== key)
+      : [...data.keepAbilities, key]
+    patchData({ keepAbilities: next })
+  }
+
+  /** 切换荒野变形模式：自动配置所有参数 */
+  const toggleWildShapeMode = (enabled) => {
+    if (enabled) {
+      const isMoon = data.wildShapeSubclass === 'moon'
+      patchData({
+        wildShapeMode: true,
+        keepAbilities: ['int', 'wis', 'cha'],
+        acMode: 'max_formula',
+        acFormulaBase: 13,
+        acFormulaAbility: 'wis',
+        hpMode: 'keep_plus_temp',
+        hpFormula: { ref: 'classLevel', className: '德鲁伊', mult: isMoon ? 3 : 1, add: 0 },
+        resourceCostType: 'wild_shape_uses',
+        resourceCostValue: 1,
+      })
+    } else {
+      patchData({ wildShapeMode: false })
+    }
+  }
+
+  /** 切换荒野变形子职：自动更新临时HP倍率 */
+  const changeWildShapeSubclass = (subclass) => {
+    const isMoon = subclass === 'moon'
+    patchData({
+      wildShapeSubclass: subclass,
+      hpFormula: { ref: 'classLevel', className: '德鲁伊', mult: isMoon ? 3 : 1, add: 0 },
+    })
+  }
+
+  return (
+    <div className="rounded-md bg-[#161e2b]/50 p-2 flex flex-col gap-y-1.5 w-full text-xs">
+      {/* 荒野变形模式开关 */}
+      <div className="flex items-center gap-x-1.5">
+        <label className="inline-flex items-center gap-1.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={data.wildShapeMode}
+            onChange={(e) => toggleWildShapeMode(e.target.checked)}
+            className="w-3.5 h-3.5 accent-amber-500"
+          />
+          <span className="text-[10px] text-dnd-gold-light font-medium">荒野变形模式</span>
+        </label>
+      </div>
+
+      {/* 荒野变形子职选择 + CR 提示 */}
+      {data.wildShapeMode && (
+        <div className="rounded border border-amber-900/40 bg-amber-950/20 px-2 py-1.5 space-y-1">
+          <div className="flex items-center gap-x-1.5">
+            <span className={labelCls}>子职</span>
+            <select
+              value={data.wildShapeSubclass}
+              onChange={(e) => changeWildShapeSubclass(e.target.value)}
+              className={selectCls + ' flex-1 min-w-0'}
+            >
+              <option value="regular">普通德鲁伊</option>
+              <option value="moon">月亮结社</option>
+            </select>
+          </div>
+          <div className="text-[10px] text-gray-400 space-y-0.5">
+            <div>保留属性：智力/感知/魅力 | AC = max(野兽AC, 13+感知调整值)</div>
+            <div>临时HP = 德鲁伊等级 × {data.wildShapeSubclass === 'moon' ? '3' : '1'} | 消耗 1 次荒野变形</div>
+            {data.wildShapeSubclass === 'regular' && (
+              <div className="text-amber-400/70">CR上限: 2级¼ → 4级½ → 8级1（8级起可飞行）</div>
+            )}
+            {data.wildShapeSubclass === 'moon' && (
+              <div className="text-amber-400/70">CR上限: 2级1 → 6级=等级÷3 | 10级元素形态</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 选择生物 */}
+      <div className="flex items-center gap-x-1.5">
+        <span className={labelCls}>生物</span>
+        <select
+          value={data.creatureId}
+          onChange={(e) => patchData({ creatureId: e.target.value })}
+          className={selectCls + ' flex-1 min-w-0'}
+        >
+          <option value="">-- 选择生物 --</option>
+          {creatures.map((c) => (
+            <option key={c.id} value={c.id}>{c.name} (CR {c.cr})</option>
+          ))}
+        </select>
+      </div>
+
+      {/* 生物预览 */}
+      {selectedCreature && (
+        <div className="rounded border border-gray-700 bg-[#0d1520]/50 px-1.5 py-1 space-y-0.5">
+          <div className="text-dnd-gold-light/80 text-[10px]">{selectedCreature.name} - {CREATURE_SIZES.find(s => s.value === selectedCreature.size)?.label || selectedCreature.size}</div>
+          <div className="text-gray-400 text-[10px]">HP: {selectedCreature.hp} | AC: {selectedCreature.ac}</div>
+          <div className="text-gray-400 text-[10px]">
+            STR:{selectedCreature.abilities.str} DEX:{selectedCreature.abilities.dex} CON:{selectedCreature.abilities.con}
+            INT:{selectedCreature.abilities.int} WIS:{selectedCreature.abilities.wis} CHA:{selectedCreature.abilities.cha}
+          </div>
+        </div>
+      )}
+
+      {/* ── 荒野变形模式：锁定自动配置，隐藏手动设置 ── */}
+      {data.wildShapeMode ? (
+        <div className="text-[10px] text-gray-500 italic text-center py-1">
+          荒野变形模式下，属性/AC/HP/消耗已自动配置
+        </div>
+      ) : (
+        <>
+          {/* 高级配置折叠开关 */}
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-200 transition-colors mt-0.5"
+          >
+            <ChevronDown className={`w-3 h-3 transition-transform ${showAdvanced ? 'rotate-0' : '-rotate-90'}`} />
+            高级配置
+          </button>
+
+          {showAdvanced && (
+            <div className="space-y-1.5 pl-1 border-l border-white/[0.06] ml-0.5">
+              {/* 保留原角色属性 */}
+              <div className="flex items-center gap-x-1.5">
+                <span className={labelCls}>保留属性</span>
+                <div className="flex gap-x-2">
+                  {abilityOptions.map(({ key, label }) => (
+                    <label key={key} className="inline-flex items-center gap-0.5 text-[10px] text-gray-400 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={data.keepAbilities.includes(key)}
+                        onChange={() => toggleKeepAbility(key)}
+                        className="w-3 h-3 accent-amber-500"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* AC 模式 */}
+              <div className="flex items-center gap-x-1.5">
+                <span className={labelCls}>AC处理</span>
+                <select
+                  value={data.acMode}
+                  onChange={(e) => patchData({ acMode: e.target.value })}
+                  className={selectCls + ' !w-auto flex-1 min-w-0'}
+                >
+                  <option value="replace">替换为生物AC</option>
+                  <option value="add">叠加生物AC</option>
+                  <option value="max_formula">取高值（公式 vs 生物AC）</option>
+                </select>
+              </div>
+
+              {/* AC 公式（仅 max_formula 模式） */}
+              {data.acMode === 'max_formula' && (
+                <div className="flex items-center gap-x-1.5 pl-2">
+                  <span className={labelCls}>公式</span>
+                  <input
+                    type="number"
+                    value={data.acFormulaBase}
+                    onChange={(e) => patchData({ acFormulaBase: Number(e.target.value) || 0 })}
+                    className={inputCls + ' !w-12'}
+                    placeholder="13"
+                  />
+                  <span className="text-gray-300 text-xs font-medium">+</span>
+                  <select
+                    value={data.acFormulaAbility}
+                    onChange={(e) => patchData({ acFormulaAbility: e.target.value })}
+                    className={selectCls + ' !w-auto flex-1 min-w-0'}
+                  >
+                    {abilityRefOptions.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  <span className="text-gray-500 text-[10px]">调整值</span>
+                </div>
+              )}
+
+              {/* HP 模式 */}
+              <div className="flex items-center gap-x-1.5">
+                <span className={labelCls}>HP处理</span>
+                <select
+                  value={data.hpMode}
+                  onChange={(e) => patchData({ hpMode: e.target.value })}
+                  className={selectCls + ' !w-auto flex-1 min-w-0'}
+                >
+                  <option value="replace">替换为生物HP</option>
+                  <option value="add">生物HP作临时HP</option>
+                  <option value="keep_plus_temp">保留原HP + 公式临时HP</option>
+                </select>
+              </div>
+
+              {/* HP 公式（仅 keep_plus_temp 模式） */}
+              {data.hpMode === 'keep_plus_temp' && (
+                <div className="flex items-center gap-x-1.5 pl-2 flex-wrap">
+                  <span className={labelCls}>公式</span>
+                  <select
+                    value={data.hpFormula?.ref || ''}
+                    onChange={(e) => patchData({ hpFormula: { ...data.hpFormula, ref: e.target.value } || { ref: e.target.value, mult: 1, add: 0 } })}
+                    className={selectCls + ' !w-auto flex-1 min-w-0'}
+                  >
+                    {hpRefOptions.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  {data.hpFormula?.ref === 'classLevel' && (
+                    <>
+                      <input
+                        type="text"
+                        value={data.hpFormula?.className || ''}
+                        onChange={(e) => patchData({ hpFormula: { ...data.hpFormula, className: e.target.value } })}
+                        className={inputCls + ' !w-16'}
+                        placeholder="职业名"
+                      />
+                    </>
+                  )}
+                  {data.hpFormula?.ref === 'abilityModifier' && (
+                    <select
+                      value={data.hpFormula?.ability || ''}
+                      onChange={(e) => patchData({ hpFormula: { ...data.hpFormula, ability: e.target.value } })}
+                      className={selectCls + ' !w-auto flex-1 min-w-0'}
+                    >
+                      {abilityRefOptions.filter((o) => o.value).map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  )}
+                  <span className="text-gray-500 text-[10px]">×</span>
+                  <input
+                    type="number"
+                    value={data.hpFormula?.mult ?? 1}
+                    onChange={(e) => patchData({ hpFormula: { ...data.hpFormula, mult: Number(e.target.value) || 1 } })}
+                    className={inputCls + ' !w-10'}
+                  />
+                </div>
+              )}
+
+              {/* 资源消耗 */}
+              <div className="flex items-center gap-x-1.5">
+                <span className={labelCls}>消耗</span>
+                <select
+                  value={data.resourceCostType}
+                  onChange={(e) => patchData({ resourceCostType: e.target.value })}
+                  className={selectCls + ' !w-auto flex-1 min-w-0'}
+                >
+                  <option value="">无</option>
+                  <option value="wild_shape_uses">荒野变形次数</option>
+                  <option value="spell_slot">法术位</option>
+                  <option value="charges">充能次数</option>
+                </select>
+              </div>
+
+              {/* 资源消耗详细 */}
+              {data.resourceCostType === 'spell_slot' && (
+                <div className="flex items-center gap-x-1.5 pl-2">
+                  <span className={labelCls}>环位</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={9}
+                    value={data.resourceCostValue}
+                    onChange={(e) => patchData({ resourceCostValue: Number(e.target.value) || 1 })}
+                    className={inputCls + ' !w-12'}
+                  />
+                </div>
+              )}
+              {(data.resourceCostType === 'wild_shape_uses' || data.resourceCostType === 'charges') && (
+                <div className="flex items-center gap-x-1.5 pl-2">
+                  <span className={labelCls}>次数</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={data.resourceCostValue}
+                    onChange={(e) => patchData({ resourceCostValue: Number(e.target.value) || 1 })}
+                    className={inputCls + ' !w-12'}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+/** 规范化护甲覆盖值 */
+function normalizeArmorOverrideValue(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { base: 10, applyDexMod: true, maxDexBonus: null, extra: 0, shieldCompatible: false }
+  }
+  return {
+    base: isFormulaValue(value.base) ? value.base : (Number(value.base) || 10),
+    applyDexMod: value.applyDexMod !== false,
+    maxDexBonus: Number(value.maxDexBonus) || null,
+    extra: Number(value.extra) || 0,
+    shieldCompatible: !!value.shieldCompatible,
+  }
+}
+
+/** 规范化生物变身值 */
+function normalizeCreatureTransformValue(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { creatureId: '', acMode: 'replace', acFormulaBase: 13, acFormulaAbility: '', hpMode: 'replace', hpFormula: null, keepAbilities: [], resourceCostType: '', resourceCostValue: 1, wildShapeMode: false, wildShapeSubclass: 'regular' }
+  }
+  const ka = Array.isArray(value.keepAbilities) ? value.keepAbilities.filter((k) => ['int', 'wis', 'cha'].includes(k)) : []
+  return {
+    creatureId: String(value.creatureId || ''),
+    acMode: ['replace', 'add', 'max_formula'].includes(value.acMode) ? value.acMode : 'replace',
+    acFormulaBase: Number(value.acFormulaBase) || 13,
+    acFormulaAbility: ['dex', 'wis', 'con', 'str', 'int', 'cha'].includes(value.acFormulaAbility) ? value.acFormulaAbility : '',
+    hpMode: ['replace', 'add', 'keep_plus_temp'].includes(value.hpMode) ? value.hpMode : 'replace',
+    hpFormula: value.hpFormula && typeof value.hpFormula === 'object' ? value.hpFormula : null,
+    keepAbilities: ka,
+    resourceCostType: ['', 'wild_shape_uses', 'spell_slot', 'charges'].includes(value.resourceCostType) ? value.resourceCostType : '',
+    resourceCostValue: Number(value.resourceCostValue) || 1,
+    wildShapeMode: !!value.wildShapeMode,
+    wildShapeSubclass: value.wildShapeSubclass === 'moon' ? 'moon' : 'regular',
+  }
+}
+
+/** 规范化选择型 BUFF 值 */
+function normalizeChoiceValue(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { choiceOptions: [{ name: '选项 A', effects: [] }], choiceSelected: 0 }
+  }
+  const opts = Array.isArray(value.choiceOptions) && value.choiceOptions.length > 0
+    ? value.choiceOptions.map((o) => ({
+        name: String(o?.name || '选项'),
+        effects: Array.isArray(o?.effects) ? o.effects.map((e) => ({
+          id: e.id || 'e_' + Math.random().toString(36).slice(2),
+          category: e.category || '',
+          effectType: e.effectType || '',
+          scope: e.scope || 'global',
+          scopeDetail: Array.isArray(e.scopeDetail) ? e.scopeDetail : [],
+          value: e.value ?? 0,
+          break20: e.break20 && typeof e.break20 === 'object' ? e.break20 : {},
+          customText: typeof e.customText === 'string' ? e.customText : '',
+        })) : [],
+      }))
+    : [{ name: '选项 A', effects: [] }]
+  const sel = Number(value.choiceSelected) || 0
+  return { choiceOptions: opts, choiceSelected: Math.min(Math.max(0, sel), opts.length - 1) }
+}
+
 /** 多选下拉：点击显示已选，展开后为复选框列表，选择感强 */
 function MultiSelectDropdown({ options, selected, onChange, placeholder, id, className }) {
   const [open, setOpen] = useState(false)
@@ -627,11 +3371,11 @@ function MultiSelectDropdown({ options, selected, onChange, placeholder, id, cla
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={inputClass + ' h-8 w-full flex items-center justify-between gap-1 text-left pr-7'}
+        className={inputClass.replace(/\bh-10\b/, 'h-7').replace(/\btext-sm\b/, 'text-[11px]') + ' w-full flex items-center justify-between gap-1 text-left pr-7'}
         aria-expanded={open}
         aria-haspopup="listbox"
       >
-        <span className="truncate text-sm">{display}</span>
+        <span className="truncate text-xs">{display}</span>
         <ChevronDown className={'w-4 h-4 shrink-0 absolute right-2 top-1/2 -translate-y-1/2 transition-transform ' + (open ? 'rotate-180' : '')} />
       </button>
       {open && (
@@ -654,7 +3398,7 @@ function MultiSelectDropdown({ options, selected, onChange, placeholder, id, cla
                   }}
                   className="rounded border-gray-600 bg-gray-800 text-dnd-red"
                 />
-                <span className="text-sm text-gray-300">{o.label}</span>
+                <span className="text-xs text-gray-300">{o.label}</span>
               </label>
             )
           })}
@@ -671,17 +3415,17 @@ function AttackDamageBonusFields({ module, onChange, compactClass, inline, varia
   const rows = obj.categoryRows || []
   const selectCls = inline
     ? `${compactClass} min-w-0 max-w-[5.75rem] pr-6 w-auto shrink-0`
-    : `${inputClass} h-8 min-w-0 max-w-[6.5rem] pr-6 text-sm shrink-0`
+    : `${inputClass.replace(/\bh-10\b/, 'h-7').replace(/\btext-sm\b/, 'text-[11px]')} min-w-0 max-w-[6.5rem] pr-6 shrink-0`
   const chevCls = inline ? 'w-3 h-3 right-1.5' : 'w-4 h-4 right-2'
   const rowSelectCls = inline
     ? `${compactClass} min-w-0 flex-1 basis-[4.5rem] max-w-[min(100%,11rem)]`
-    : `${inputClass} h-8 text-sm min-w-0 flex-1 basis-[5rem] max-w-[min(100%,14rem)]`
+    : `${inputClass.replace(/\bh-10\b/, 'h-7').replace(/\btext-sm\b/, 'text-[11px]')} min-w-0 flex-1 basis-[5rem] max-w-[min(100%,14rem)]`
   const delBtnClass = inline
     ? 'h-7 w-7 shrink-0 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 flex items-center justify-center'
-    : 'h-8 w-8 shrink-0 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 flex items-center justify-center'
+    : 'h-7 w-7 shrink-0 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 flex items-center justify-center'
   const addIconBtnClass = inline
     ? 'h-7 w-7 shrink-0 rounded border border-amber-500/60 text-amber-400/90 hover:bg-amber-500/15 flex items-center justify-center'
-    : 'h-8 w-8 shrink-0 rounded border border-amber-500/60 text-amber-400/90 hover:bg-amber-500/15 flex items-center justify-center'
+    : 'h-7 w-7 shrink-0 rounded border border-amber-500/60 text-amber-400/90 hover:bg-amber-500/15 flex items-center justify-center'
   const stepperCompact = true
   const stepperNarrow = true
 
@@ -837,16 +3581,33 @@ function EffectValueEditor({
   containedSpellRowPrefix,
   /** 为真时不显示顶部的「选项」等区块标题（制作工厂等场景） */
   hideSectionLabel = false,
+  /** 附属卡列表，供召唤效果选择 */
+  subordinates = [],
 }) {
-  const [selectedSkillId, setSelectedSkillId] = useState(SKILLS[0]?.id ?? 'acrobatics')
-  const [selectedAbilityId, setSelectedAbilityId] = useState(ABILITY_KEYS[0] ?? 'str')
+  const [selectedSkillId, setSelectedSkillId] = useState(() => {
+    const val = module?.value
+    if (val && typeof val === 'object' && !Array.isArray(val)) {
+      const found = SKILLS.find(sk => val[sk.id] != null && val[sk.id] !== 0)
+      if (found) return found.id
+    }
+    return SKILLS[0]?.id ?? 'acrobatics'
+  })
+  const [selectedAbilityId, setSelectedAbilityId] = useState(() => {
+    const val = module?.value
+    if (val && typeof val === 'object' && !Array.isArray(val)) {
+      const found = ABILITY_KEYS.find(k => val[k] != null && val[k] !== 0)
+      if (found) return found
+    }
+    return ABILITY_KEYS[0] ?? 'str'
+  })
+  const [profSearch, setProfSearch] = useState('')
   const effects = catData?.effects ?? []
   const currentEffect = effects.find((e) => e.key === module.effectType)
   const isAbilityScoreEffect =
-    currentEffect?.key === 'ability_score' ||
     currentEffect?.key === 'ability_override' ||
     currentEffect?.key === 'ability_score_uncapped'
-  const activeReferenceData = isAbilityScoreEffect ? (baseReferenceData ?? referenceData) : referenceData
+  const effectiveReferenceData = referenceData?.length ? referenceData : DEFAULT_FORMULA_REFERENCE_DATA
+  const activeReferenceData = isAbilityScoreEffect ? (baseReferenceData ?? effectiveReferenceData) : effectiveReferenceData
   const isBoolean = currentEffect?.dataType === 'boolean'
   const isText = currentEffect?.dataType === 'text'
   const isCustom = currentEffect?.key?.startsWith('custom_')
@@ -860,11 +3621,12 @@ function EffectValueEditor({
   useEffect(() => {
     if (!['abilityScores', 'abilityScoresAndAdvantage'].includes(needsSubSelect)) return
     if (!(value && typeof value === 'object' && !Array.isArray(value))) return
-    const preferred = ABILITY_KEYS.find((k) => value[k] != null && Number(value[k]) !== 0) || ABILITY_KEYS.find((k) => value[k] != null)
+    const preferred = ABILITY_KEYS.find((k) => value[k] != null && (typeof value[k] === 'object' || Number(value[k]) !== 0)) || ABILITY_KEYS.find((k) => value[k] != null)
     if (preferred && preferred !== selectedAbilityId) setSelectedAbilityId(preferred)
   }, [module.id, module.effectType, needsSubSelect])
 
-  const compactClass = inputClass + ' h-8 text-xs'
+  const compactClass = inputClass.replace(/\bh-10\b/, 'h-7').replace(/\btext-sm\b/, 'text-[11px]')
+  const panelInputCls = inputClass.replace(/\bh-10\b/, 'h-7').replace(/\btext-sm\b/, 'text-[11px]').replace(/\bw-full\b/, '')
   if (isBoolean) {
     if (inline) {
       return (
@@ -882,7 +3644,7 @@ function EffectValueEditor({
     return null
   }
   if (inline) {
-    if (currentEffect?.key === 'attack_distance_range' || currentEffect?.key === 'spell_range_extension' || currentEffect?.key === 'base_speed_increment') {
+    if (currentEffect?.key === 'attack_distance_range' || currentEffect?.key === 'base_speed_increment') {
       return (
         <>
           <div className="flex items-center gap-1.5 min-w-0">
@@ -893,6 +3655,42 @@ function EffectValueEditor({
               compact
             />
             <span className="text-xs text-gray-400 shrink-0">尺</span>
+          </div>
+          <div />
+          <div />
+        </>
+      )
+    }
+    if (currentEffect?.key === 'spell_range_extension') {
+      return (
+        <>
+          <input
+            type="text"
+            value={typeof value === 'string' ? value : ''}
+            onChange={(e) => onChange({ ...module, value: e.target.value })}
+            placeholder="x2 或 +30"
+            className={compactClass + ' w-full min-w-0'}
+          />
+          <div />
+          <div />
+        </>
+      )
+    }
+    if (needsSubSelect === 'baseSpeedIncrement') {
+      const isFormula = isFormulaValue(value)
+      const obj = (value && typeof value === 'object' && !Array.isArray(value) && !isFormula)
+        ? value
+        : { walk: isFormula ? value : (typeof value === 'number' ? value : 0), fly: 0, swim: 0, climb: 0 }
+      return (
+        <>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <NumberStepper referenceData={activeReferenceData}
+              value={obj.walk ?? 0}
+              onChange={(v) => onChange({ ...module, value: { ...obj, walk: v } })}
+              step={5}
+              compact
+            />
+            <span className="text-xs text-gray-400 shrink-0">尺（步行）</span>
           </div>
           <div />
           <div />
@@ -943,12 +3741,92 @@ function EffectValueEditor({
         </>
       )
     }
+    if (currentEffect?.key === 'crit_range_override') {
+      const options = [19, 18, 17, 16]
+      return (
+        <>
+          <select
+            value={value || 19}
+            onChange={(e) => onChange({ ...module, value: Number(e.target.value) })}
+            className={compactClass + ' w-full min-w-0'}
+          >
+            {options.map((o) => (
+              <option key={o} value={o}>{o}-20</option>
+            ))}
+          </select>
+          <div />
+          <div />
+        </>
+      )
+    }
+    if (currentEffect?.key === 'crit_range_increment') {
+      return (
+        <>
+          <NumberStepper
+            value={value || 1}
+            min={1}
+            max={5}
+            onChange={(v) => onChange({ ...module, value: v })}
+            compact
+            narrow
+          />
+          <div />
+          <div />
+        </>
+      )
+    }
+    if (currentEffect?.key === 'crit_range_reduction') {
+      return (
+        <>
+          <NumberStepper
+            value={value || 1}
+            min={1}
+            max={5}
+            onChange={(v) => onChange({ ...module, value: v })}
+            compact
+            narrow
+          />
+          <div />
+          <div />
+        </>
+      )
+    }
+    if (currentEffect?.key === 'spell_ability_attack') {
+      const obj = value && typeof value === 'object' && !Array.isArray(value) ? value : { ability: 'int' }
+      return (
+        <>
+          <select
+            value={obj.ability || 'int'}
+            onChange={(e) => onChange({ ...module, value: { ...obj, ability: e.target.value || 'int' } })}
+            className={compactClass + ' w-full min-w-0'}
+          >
+            <option value="int">智力</option>
+            <option value="wis">感知</option>
+            <option value="cha">魅力</option>
+          </select>
+          <div />
+          <div />
+        </>
+      )
+    }
     if (currentEffect?.key === 'extra_damage_dice' || needsSubSelect === 'damageDiceInline') {
+      const raw = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
       return (
         <>
           <div className="min-w-0 w-full">
             <DamageDiceInlineRow value={value} onChange={onChange} module={module} compact />
           </div>
+          {currentEffect?.key === 'extra_damage_dice' && (
+            <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-gray-300 col-span-full">
+              <input
+                type="checkbox"
+                checked={!!raw.onlySpellDamage}
+                onChange={(e) => onChange({ ...module, value: { ...raw, onlySpellDamage: e.target.checked } })}
+                className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+              />
+              仅法术伤害生效
+            </label>
+          )}
         </>
       )
     }
@@ -966,163 +3844,259 @@ function EffectValueEditor({
       )
     }
     if (needsSubSelect === 'abilityScores') {
+      const isUncapped = currentEffect?.key === 'ability_score_uncapped'
+      const breakObj = module.break20 && typeof module.break20 === 'object' && !Array.isArray(module.break20) ? module.break20 : {}
+      const setBreak20 = (k, checked) => {
+        const next = { ...breakObj, [k]: checked }
+        if (!checked) delete next[k]
+        onChange({ ...module, break20: next })
+      }
+      const valueObj = typeof value === 'object' && value && !Array.isArray(value) ? value : {}
+      const selectedAbilities = ABILITY_KEYS.filter(k => valueObj[k] != null)
+      const allChecked = ABILITY_KEYS.every(k => valueObj[k] != null)
       return (
-        <>
-          <select
-            value={selectedAbilityId}
-            onChange={(e) => {
-              const nextKey = e.target.value
-              const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
-              const currentVal = selectedAbilityId === 'all'
-                ? (Number(obj[ABILITY_KEYS.find((k) => obj[k] != null) || ABILITY_KEYS[0]]) || 0)
-                : (Number(obj[selectedAbilityId]) || 0)
-              const base = {}
-              if (nextKey === 'all') ABILITY_KEYS.forEach((k) => { base[k] = currentVal })
-              else base[nextKey] = currentVal
-              setSelectedAbilityId(nextKey)
-              onChange({ ...module, value: base })
-            }}
-            className={compactClass + ' w-full min-w-0 h-7'}
-          >
-            <option value="all">全属性</option>
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap gap-x-2.5 gap-y-0.5 items-center">
             {ABILITY_KEYS.map((k) => (
-              <option key={k} value={k}>{ABILITY_LABELS[k]}</option>
+              <label key={k} className="flex items-center gap-0.5 text-[10px] text-gray-300 cursor-pointer whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={valueObj[k] != null}
+                  onChange={(e) => {
+                    const base = { ...valueObj }
+                    if (e.target.checked) base[k] = 0
+                    else delete base[k]
+                    onChange({ ...module, value: base })
+                  }}
+                  className="w-2.5 h-2.5 accent-dnd-red"
+                />
+                {ABILITY_LABELS[k]}
+              </label>
             ))}
-          </select>
-          <div className="min-w-0">
-            <NumberStepper referenceData={activeReferenceData}
-              value={(typeof value === 'object' && value && selectedAbilityId !== 'all' && value[selectedAbilityId] != null ? value[selectedAbilityId] : 0) ?? 0}
-              onChange={(v) => {
-                // 单行单属性：选中单属性时清空其它属性，避免残留导致外层摘要与表单不一致
-                const base = {}
-                if (selectedAbilityId === 'all') {
-                  ABILITY_KEYS.forEach((k) => { base[k] = v })
+            <button
+              type="button"
+              onClick={() => {
+                if (allChecked) {
+                  onChange({ ...module, value: {} })
                 } else {
-                  base[selectedAbilityId] = v
+                  const base = {}
+                  ABILITY_KEYS.forEach(k => { base[k] = valueObj[k] ?? 0 })
+                  onChange({ ...module, value: base })
                 }
-                onChange({ ...module, value: base })
               }}
-              compact
-            />
+              className="text-[10px] text-dnd-gold-light/70 hover:text-dnd-gold-light"
+            >
+              {allChecked ? '取消全选' : '全属性'}
+            </button>
           </div>
-        </>
+          {selectedAbilities.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {selectedAbilities.map((k) => (
+                <div key={k} className="flex items-center gap-0.5">
+                  <span className="text-[10px] text-dnd-gold-light/80">{ABILITY_LABELS[k]}</span>
+                  <NumberStepper referenceData={activeReferenceData}
+                    value={valueObj[k] ?? 0}
+                    onChange={(v) => onChange({ ...module, value: { ...valueObj, [k]: v } })}
+                    compact
+                    narrow
+                  />
+                  {isUncapped && (
+                    <label className="flex items-center gap-0.5 cursor-pointer text-[9px] text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={!!breakObj[k]}
+                        onChange={(e) => setBreak20(k, e.target.checked)}
+                        className="w-2.5 h-2.5 rounded border-gray-600 bg-gray-800 text-dnd-red"
+                      />
+                      破20
+                    </label>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )
+    }
+    if (needsSubSelect === 'abilityProficiency') {
+      const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
+      // 迁移：旧数字值（非零）视为 true
+      const toBool = (v) => {
+        if (typeof v === 'boolean') return v
+        if (typeof v === 'number') return v !== 0
+        return !!v
+      }
+      return (
+        <div className="flex flex-wrap gap-2 min-w-0">
+          {ABILITY_KEYS.map((k) => (
+            <label key={k} className="flex items-center gap-1 cursor-pointer text-xs text-gray-200">
+              <input
+                type="checkbox"
+                checked={toBool(obj[k])}
+                onChange={(e) => {
+                  const next = { ...obj, [k]: e.target.checked }
+                  onChange({ ...module, value: next })
+                }}
+                className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+              />
+              {ABILITY_LABELS[k]}
+            </label>
+          ))}
+        </div>
       )
     }
     if (needsSubSelect === 'abilityScoresAndAdvantage') {
+      const valueObj = typeof value === 'object' && value && !Array.isArray(value) ? value : {}
+      const labels = module.effectType === 'save_bonus' ? SAVE_NAMES : ABILITY_LABELS
+      const selectedAbilities = ABILITY_KEYS.filter(k => valueObj[k] != null)
+      const allChecked = ABILITY_KEYS.every(k => valueObj[k] != null)
       return (
-        <div className="flex min-h-7 w-full min-w-0 flex-nowrap items-stretch gap-1">
-          <div className="min-w-0 basis-0 flex-[2.5]">
-            <select
-              value={selectedAbilityId}
-              onChange={(e) => {
-                const nextKey = e.target.value
-                const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
-                const currentVal = selectedAbilityId === 'all'
-                  ? (Number(obj[ABILITY_KEYS.find((k) => obj[k] != null) || ABILITY_KEYS[0]]) || 0)
-                  : (Number(obj[selectedAbilityId]) || 0)
-                const base = {}
-                if (obj.advantage != null) base.advantage = obj.advantage
-                if (nextKey === 'all') ABILITY_KEYS.forEach((k) => { base[k] = currentVal })
-                else base[nextKey] = currentVal
-                setSelectedAbilityId(nextKey)
-                onChange({ ...module, value: base })
-              }}
-              className={compactClass + ' h-7 w-full min-w-0 max-w-full'}
-            >
-              <option value="all">全属性</option>
-              {ABILITY_KEYS.map((k) => (
-                <option key={k} value={k}>{(module.effectType === 'save_bonus' ? SAVE_NAMES[k] : ABILITY_LABELS[k]) ?? k}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex shrink-0 items-center">
-            <NumberStepper referenceData={activeReferenceData}
-              value={(typeof value === 'object' && value && selectedAbilityId !== 'all' && value[selectedAbilityId] != null ? value[selectedAbilityId] : 0) ?? 0}
-              onChange={(v) => {
-                // 单行单属性；保留 advantage 字段
-                const base = {}
-                if (typeof value === 'object' && value && !Array.isArray(value) && value.advantage != null) base.advantage = value.advantage
-                if (selectedAbilityId === 'all') {
-                  ABILITY_KEYS.forEach((k) => { base[k] = v })
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap gap-x-2.5 gap-y-0.5 items-center">
+            {ABILITY_KEYS.map((k) => (
+              <label key={k} className="flex items-center gap-0.5 text-[10px] text-gray-300 cursor-pointer whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={valueObj[k] != null}
+                  onChange={(e) => {
+                    const base = { ...valueObj }
+                    if (e.target.checked) base[k] = 0
+                    else delete base[k]
+                    onChange({ ...module, value: base })
+                  }}
+                  className="w-2.5 h-2.5 accent-dnd-red"
+                />
+                {labels[k]}
+              </label>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                if (allChecked) {
+                  const base = {}
+                  if (valueObj.advantage) base.advantage = valueObj.advantage
+                  onChange({ ...module, value: base })
                 } else {
-                  base[selectedAbilityId] = v
+                  const base = {}
+                  ABILITY_KEYS.forEach(k => { base[k] = valueObj[k] ?? 0 })
+                  if (valueObj.advantage) base.advantage = valueObj.advantage
+                  onChange({ ...module, value: base })
                 }
-                onChange({ ...module, value: base })
               }}
-              compact
-              narrow
-            />
-          </div>
-          <div className="min-w-0 basis-0 flex-[2]">
-            <select
-              value={(typeof value === 'object' && value && value.advantage != null ? value.advantage : '') ?? ''}
-              onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), advantage: e.target.value } })}
-              className={compactClass + ' h-7 w-full min-w-0 max-w-full'}
+              className="text-[10px] text-dnd-gold-light/70 hover:text-dnd-gold-light"
             >
-              {ADVANTAGE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+              {allChecked ? '取消全选' : '全属性'}
+            </button>
           </div>
+          {selectedAbilities.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {selectedAbilities.map((k) => (
+                <div key={k} className="flex items-center gap-0.5">
+                  <span className="text-[10px] text-dnd-gold-light/80">{labels[k]}</span>
+                  <NumberStepper referenceData={activeReferenceData}
+                    value={valueObj[k] ?? 0}
+                    onChange={(v) => onChange({ ...module, value: { ...valueObj, [k]: v } })}
+                    compact
+                    narrow
+                  />
+                </div>
+              ))}
+              <select
+                value={valueObj.advantage ?? ''}
+                onChange={(e) => onChange({ ...module, value: { ...valueObj, advantage: e.target.value } })}
+                className={compactClass + ' h-7 min-w-[4.5rem]'}
+              >
+                {ADVANTAGE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       )
     }
     if (needsSubSelect === 'skillsAndAdvantage') {
+      const valueObj = typeof value === 'object' && value && !Array.isArray(value) ? value : {}
+      const selectedSkills = SKILLS.filter(sk => valueObj[sk.id] != null)
       return (
-        <div className="flex min-h-7 w-full min-w-0 flex-nowrap items-stretch gap-1">
-          <div className="min-w-0 basis-0 flex-[2.5]">
-            <select
-              value={selectedSkillId}
-              onChange={(e) => setSelectedSkillId(e.target.value)}
-              className={compactClass + ' h-7 w-full min-w-0 max-w-full'}
-            >
-              {SKILLS.map((sk) => (
-                <option key={sk.id} value={sk.id}>{sk.name}</option>
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap gap-x-2.5 gap-y-0.5">
+            {SKILLS.map((sk) => (
+              <label key={sk.id} className="flex items-center gap-0.5 text-[10px] text-gray-300 cursor-pointer whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={valueObj[sk.id] != null}
+                  onChange={(e) => {
+                    const base = { ...valueObj }
+                    if (e.target.checked) {
+                      base[sk.id] = 0
+                    } else {
+                      delete base[sk.id]
+                    }
+                    onChange({ ...module, value: base })
+                  }}
+                  className="w-2.5 h-2.5 accent-dnd-red"
+                />
+                {sk.name}
+              </label>
+            ))}
+          </div>
+          {selectedSkills.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {selectedSkills.map((sk) => (
+                <div key={sk.id} className="flex items-center gap-0.5">
+                  <span className="text-[10px] text-dnd-gold-light/80">{sk.name}</span>
+                  <NumberStepper referenceData={activeReferenceData}
+                    value={valueObj[sk.id] ?? 0}
+                    onChange={(v) => onChange({ ...module, value: { ...valueObj, [sk.id]: v } })}
+                    compact
+                    narrow
+                  />
+                </div>
               ))}
-            </select>
-          </div>
-          <div className="flex shrink-0 items-center">
-            <NumberStepper referenceData={activeReferenceData}
-              value={(typeof value === 'object' && value && value[selectedSkillId] != null ? value[selectedSkillId] : 0) ?? 0}
-              onChange={(v) => {
-                const base = typeof value === 'object' && value && !Array.isArray(value) ? { ...value } : {}
-                base[selectedSkillId] = v
-                onChange({ ...module, value: base })
-              }}
-              compact
-              narrow
-            />
-          </div>
-          <div className="min-w-0 basis-0 flex-[2]">
-            <select
-              value={(typeof value === 'object' && value && value.advantage != null ? value.advantage : '') ?? ''}
-              onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), advantage: e.target.value } })}
-              className={compactClass + ' h-7 w-full min-w-0 max-w-full'}
-            >
-              {ADVANTAGE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
+              <select
+                value={valueObj.advantage ?? ''}
+                onChange={(e) => onChange({ ...module, value: { ...valueObj, advantage: e.target.value } })}
+                className={compactClass + ' h-7 min-w-[4.5rem]'}
+              >
+                {ADVANTAGE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       )
     }
     if (currentEffect?.key === 'crit_extra_dice') {
       return (
-        <>
-          <div className="min-w-0">
-            <NumberStepper referenceData={activeReferenceData}
-              value={value}
-              min={2}
-              max={10}
-              onChange={(v) => onChange({ ...module, value: v })}
-              compact
-            />
-            <p className="mt-0.5 text-[10px] leading-tight text-gray-500">仅本件物品生效；各武器重击倍数互不串用；Buff 栏此项不参与投掷；法术重击×2</p>
-          </div>
-          <div />
-          <div />
-        </>
+        <div className="min-w-0 w-full flex flex-col gap-0.5">
+          <NumberStepper
+            value={value}
+            min={2}
+            max={10}
+            onChange={(v) => onChange({ ...module, value: v })}
+            compact
+            narrow
+          />
+          <p className="text-[10px] leading-tight text-gray-500">仅本件物品生效；各武器重击倍数互不串用；Buff 栏此项不参与投掷；法术重击×2</p>
+        </div>
+      )
+    }
+    if (currentEffect?.key === 'spell_ability_attack') {
+      const obj = value && typeof value === 'object' && !Array.isArray(value) ? value : { ability: 'int' }
+      return (
+        <div className="min-w-0 w-full">
+          <select
+            value={obj.ability || 'int'}
+            onChange={(e) => onChange({ ...module, value: { ...obj, ability: e.target.value || 'int' } })}
+            className={compactClass + ' w-full min-w-0'}
+          >
+            <option value="int">智力</option>
+            <option value="wis">感知</option>
+            <option value="cha">魅力</option>
+          </select>
+        </div>
       )
     }
     if (isNumber) {
@@ -1166,16 +4140,6 @@ function EffectValueEditor({
     }
     const numAdvVal = typeof value === 'object' && value && !Array.isArray(value) ? value : { val: typeof value === 'number' ? value : 0, advantage: '' }
     if (needsSubSelect === 'numberAndAdvantage') {
-      if (currentEffect?.key === 'attack_damage_bonus') {
-        return (
-          <AttackDamageBonusFields
-            module={module}
-            onChange={onChange}
-            compactClass={inputClassInline + ' h-7 text-xs'}
-            inline
-          />
-        )
-      }
       return (
         <div className="flex items-center gap-1.5 flex-nowrap">
           <NumberStepper referenceData={activeReferenceData}
@@ -1255,7 +4219,7 @@ function EffectValueEditor({
         <select
           value={typeof value === 'string' ? value : ''}
           onChange={(e) => onChange({ ...module, value: e.target.value })}
-          className={inputClass + ' min-w-[7rem]'}
+          className={panelInputCls + ' min-w-[7rem]'}
         >
           <option value="">{'20'}</option>
           {options.filter((o) => o).map((o) => (
@@ -1265,12 +4229,96 @@ function EffectValueEditor({
       </div>
     )
   }
+  if (currentEffect?.key === 'crit_range_override') {
+    const options = [19, 18, 17, 16]
+    return (
+      <div className="flex items-center gap-2">
+        <select
+          value={value || 19}
+          onChange={(e) => onChange({ ...module, value: Number(e.target.value) })}
+          className={panelInputCls + ' min-w-[7rem]'}
+        >
+          {options.map((o) => (
+            <option key={o} value={o}>{o}-20</option>
+          ))}
+        </select>
+        <span className="text-xs text-gray-500">覆盖，多个取最低</span>
+      </div>
+    )
+  }
+  if (currentEffect?.key === 'crit_range_increment') {
+    return (
+      <div className="flex items-center gap-2">
+        <NumberStepper
+          value={value || 1}
+          min={1}
+          max={5}
+          onChange={(v) => onChange({ ...module, value: v })}
+          compact={false}
+        />
+        <span className="text-xs text-gray-500">可叠加</span>
+      </div>
+    )
+  }
+  if (currentEffect?.key === 'crit_range_reduction') {
+    return (
+      <div className="flex items-center gap-2">
+        <NumberStepper
+          value={value || 1}
+          min={1}
+          max={5}
+          onChange={(v) => onChange({ ...module, value: v })}
+          compact={false}
+        />
+        <span className="text-xs text-gray-500">火铳致命专注等-N机制</span>
+      </div>
+    )
+  }
 
   if (currentEffect?.key === 'extra_damage_dice' || needsSubSelect === 'damageDiceInline') {
+    const raw = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
     return (
-      <div className="space-y-0.5">
+      <div className="space-y-1">
         <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5 leading-none">伤害骰</label>
         <DamageDiceInlineRow value={value} onChange={onChange} module={module} compact={false} />
+        {currentEffect?.key === 'extra_damage_dice' && (
+          <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-300">
+            <input
+              type="checkbox"
+              checked={!!raw.onlySpellDamage}
+              onChange={(e) => onChange({ ...module, value: { ...raw, onlySpellDamage: e.target.checked } })}
+              className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+            />
+            仅法术伤害生效
+          </label>
+        )}
+      </div>
+    )
+  }
+
+  if (currentEffect?.key === 'attack_area' || needsSubSelect === 'attackAreaSize') {
+    const obj = value && typeof value === 'object' && !Array.isArray(value) ? value : { kind: 'radius', size: 0 }
+    return (
+      <div className="space-y-0.5">
+        {!hideSectionLabel && (
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5 leading-none">范围</label>
+        )}
+        <div className="flex items-center gap-2">
+          <select
+            value={obj.kind || 'radius'}
+            onChange={(e) => onChange({ ...module, value: { ...obj, kind: e.target.value || 'radius' } })}
+            className={panelInputCls + ' min-w-[6rem]'}
+          >
+            <option value="radius">半径</option>
+            <option value="diameter">直径</option>
+          </select>
+          <NumberStepper referenceData={activeReferenceData}
+            value={obj.size}
+            onChange={(v) => onChange({ ...module, value: { ...obj, size: v } })}
+            step={5}
+          />
+          <span className="text-gray-500 text-xs">尺</span>
+        </div>
       </div>
     )
   }
@@ -1290,7 +4338,7 @@ function EffectValueEditor({
             onChange={(e) => onChange({ ...module, value: e.target.checked })}
             className="rounded border-gray-600 bg-gray-800 text-dnd-red"
           />
-          <span className="text-sm text-gray-300">启用</span>
+          <span className="text-xs text-gray-300">启用</span>
         </label>
       ) : isText && !isCustom ? (
         <input
@@ -1298,7 +4346,7 @@ function EffectValueEditor({
           value={textDisplay}
           onChange={(e) => onChange({ ...module, value: e.target.value })}
           placeholder="按说明填写..."
-          className={inputClass}
+          className={panelInputCls}
         />
       ) : isCustom ? (
         <textarea
@@ -1310,7 +4358,7 @@ function EffectValueEditor({
         />
       ) : currentEffect?.key === 'crit_extra_dice' ? (
         <div className="space-y-1">
-          <NumberStepper referenceData={activeReferenceData}
+          <NumberStepper
             value={value}
             min={2}
             max={10}
@@ -1320,11 +4368,16 @@ function EffectValueEditor({
           <p className="text-xs text-gray-500">写在装备上时：只影响「这一件」武器的战斗快捷投掷，其它已装备武器上的暴击×不会串到本武器。角色 Buff 栏此项不生效。法术重击始终×2。武器加值仍只加一次。</p>
         </div>
       ) : isNumber ? (
-        <NumberStepper referenceData={activeReferenceData}
-          value={value}
-          onChange={(v) => onChange({ ...module, value: v })}
-          compact={false}
-        />
+        <div className="flex items-center gap-2">
+          <NumberStepper referenceData={activeReferenceData}
+            value={value}
+            onChange={(v) => onChange({ ...module, value: v })}
+            compact={false}
+          />
+          {(currentEffect?.key === 'attack_distance_range' || currentEffect?.key === 'base_speed_increment') && (
+            <span className="text-gray-500 text-xs">尺</span>
+          )}
+        </div>
       ) : isDamageTypeArray ? (
         <div className="flex flex-wrap gap-2">
           {DAMAGE_TYPES.map((d) => {
@@ -1341,7 +4394,7 @@ function EffectValueEditor({
                   }}
                   className="rounded border-gray-600 bg-gray-800 text-dnd-red"
                 />
-                <span className="text-sm text-gray-300">{d.label}</span>
+                <span className="text-xs text-gray-300">{d.label}</span>
               </label>
             )
           })}
@@ -1351,7 +4404,7 @@ function EffectValueEditor({
           <select
             value={(typeof value === 'object' && value?.type) || 'bludgeoning'}
             onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), type: e.target.value } })}
-            className={inputClass + ' min-w-[8rem]'}
+            className={panelInputCls + ' min-w-[8rem]'}
           >
             {DAMAGE_TYPES.map((d) => (
               <option key={d.value} value={d.value}>{d.label}</option>
@@ -1378,11 +4431,94 @@ function EffectValueEditor({
                   }}
                   className="rounded border-gray-600 bg-gray-800 text-dnd-red"
                 />
-                <span className="text-sm text-gray-300">{c.label}</span>
+                <span className="text-xs text-gray-300">{c.label}</span>
               </label>
             )
           })}
         </div>
+      ) : needsSubSelect === 'proficiencyChecklist' ? (
+        (() => {
+          const optKey = currentEffect?.proficiencyOptions
+          const allOptions =
+            optKey === 'armor' ? ARMOR_PROFICIENCY_OPTIONS :
+            optKey === 'weapon' ? WEAPON_PROFICIENCY_OPTIONS :
+            optKey === 'vehicle' ? VEHICLE_PROFICIENCY_OPTIONS :
+            optKey === 'instrument' ? INSTRUMENT_PROFICIENCY_OPTIONS :
+            optKey === 'tool' ? TOOL_PROFICIENCY_OPTIONS :
+            optKey === 'toolAndInstrument' ? [...TOOL_PROFICIENCY_OPTIONS, ...INSTRUMENT_PROFICIENCY_OPTIONS] :
+            optKey === 'language' ? LANGUAGE_PROFICIENCY_OPTIONS :
+            optKey === 'weaponMastery' ? WEAPON_MASTERY_OPTIONS :
+            []
+          const arr = Array.isArray(value) ? value : []
+          const filter = profSearch.trim().toLowerCase()
+          const filtered = filter ? allOptions.filter((o) => o.label.toLowerCase().includes(filter)) : allOptions
+          return (
+            <div className="space-y-1.5">
+              {/* 搜索 + 已选计数 */}
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1 min-w-0">
+                  <input
+                    type="text"
+                    value={profSearch}
+                    onChange={(e) => setProfSearch(e.target.value)}
+                    placeholder="搜索..."
+                    className={inputClass.replace(/\bh-10\b/, 'h-7').replace(/\btext-sm\b/, 'text-[11px]') + ' w-full pl-2 pr-6'}
+                  />
+                  {profSearch && (
+                    <button type="button" onClick={() => setProfSearch('')} className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+                <span className="text-[10px] text-gray-500 whitespace-nowrap">已选 {arr.length}</span>
+              </div>
+              {/* 已选项标签 */}
+              {arr.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {arr.map((v) => {
+                    const opt = allOptions.find((o) => o.value === v)
+                    if (!opt) return null
+                    return (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => onChange({ ...module, value: arr.filter((x) => x !== v) })}
+                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] hover:bg-amber-500/25 transition-colors"
+                      >
+                        {opt.label}
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+              {/* 过滤后的选项列表 */}
+              <div className="max-h-36 overflow-y-auto space-y-0.5 pr-1 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
+                {filtered.length === 0 ? (
+                  <p className="text-gray-500 text-[10px] text-center py-1">无匹配项</p>
+                ) : (
+                  filtered.map((o) => {
+                    const checked = arr.includes(o.value)
+                    return (
+                      <label key={o.value} className="flex items-center gap-1.5 cursor-pointer px-1 py-0.5 rounded hover:bg-white/[0.03] transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const next = e.target.checked ? [...arr, o.value] : arr.filter((x) => x !== o.value)
+                            onChange({ ...module, value: next })
+                          }}
+                          className="rounded border-gray-600 bg-gray-800 text-dnd-red w-3.5 h-3.5"
+                        />
+                        <span className={`text-xs ${checked ? 'text-gray-200' : 'text-gray-400'}`}>{o.label}</span>
+                      </label>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          )
+        })()
       ) : needsSubSelect === 'damagePiercingTraits' ? (
         (() => {
           const obj = value && typeof value === 'object' && !Array.isArray(value) ? value : { selected: Array.isArray(value) ? value : [], element: [], alignment: [] }
@@ -1405,7 +4541,7 @@ function EffectValueEditor({
                     onChange={(e) => onChange({ ...module, value: { ...obj, selected: toggle('magic', e.target.checked) } })}
                     className="rounded border-gray-600 bg-gray-800 text-dnd-red shrink-0"
                   />
-                  <span className="text-sm text-gray-300">视为魔法</span>
+                  <span className="text-xs text-gray-300">视为魔法</span>
                 </label>
                 <label className={labelClass}>
                   <input
@@ -1417,7 +4553,7 @@ function EffectValueEditor({
                     }}
                     className="rounded border-gray-600 bg-gray-800 text-dnd-red shrink-0"
                   />
-                  <span className="text-sm text-gray-300">忽略伤害抗性</span>
+                  <span className="text-xs text-gray-300">忽略伤害抗性</span>
                 </label>
                 {hasPierce ? (
                   <MultiSelectDropdown
@@ -1439,7 +4575,7 @@ function EffectValueEditor({
                     onChange={(e) => onChange({ ...module, value: { ...obj, selected: toggle('silver', e.target.checked) } })}
                     className="rounded border-gray-600 bg-gray-800 text-dnd-red shrink-0"
                   />
-                  <span className="text-sm text-gray-300">视为银质</span>
+                  <span className="text-xs text-gray-300">视为银质</span>
                 </label>
                 <span />
                 <span />
@@ -1448,29 +4584,25 @@ function EffectValueEditor({
           )
         })()
       ) : needsSubSelect === 'numberAndAdvantage' ? (
-        currentEffect?.key === 'attack_damage_bonus' ? (
-          <AttackDamageBonusFields module={module} onChange={onChange} compactClass={inputClass + ' h-8 text-xs'} inline={false} />
-        ) : (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <NumberStepper referenceData={activeReferenceData}
-              value={(typeof value === 'object' && value && 'val' in value ? value.val : (typeof value === 'number' ? value : 0)) ?? 0}
-              onChange={(v) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), val: v } })}
-              compact
-            />
-            <div className="relative">
-              <select
-                value={(typeof value === 'object' && value && value.advantage != null ? value.advantage : '') ?? ''}
-                onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), advantage: e.target.value } })}
-                className={inputClass + ' min-w-[6rem] pr-6'}
-              >
-                {ADVANTAGE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-              <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-            </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <NumberStepper referenceData={activeReferenceData}
+            value={(typeof value === 'object' && value && 'val' in value ? value.val : (typeof value === 'number' ? value : 0)) ?? 0}
+            onChange={(v) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), val: v } })}
+            compact
+          />
+          <div className="relative">
+            <select
+              value={(typeof value === 'object' && value && value.advantage != null ? value.advantage : '') ?? ''}
+              onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), advantage: e.target.value } })}
+              className={panelInputCls + ' min-w-[6rem] pr-6'}
+            >
+              {ADVANTAGE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
-        )
+        </div>
       ) : needsSubSelect === 'flightSpeed' ? (
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5">
@@ -1479,7 +4611,7 @@ function EffectValueEditor({
               onChange={(v) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), speed: v } })}
               step={5}
             />
-            <span className="text-gray-500 text-sm">尺</span>
+            <span className="text-gray-500 text-xs">尺</span>
           </div>
           <label className="flex items-center gap-1 cursor-pointer">
             <input
@@ -1488,8 +4620,34 @@ function EffectValueEditor({
               onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), hover: e.target.checked } })}
               className="rounded border-gray-600 bg-gray-800 text-dnd-red"
             />
-            <span className="text-sm text-gray-300">是否悬浮</span>
+            <span className="text-xs text-gray-300">是否悬浮</span>
           </label>
+        </div>
+      ) : needsSubSelect === 'baseSpeedIncrement' ? (
+        <div className="space-y-1.5">
+          {(() => {
+            const isFormula = isFormulaValue(value)
+            const obj = (value && typeof value === 'object' && !Array.isArray(value) && !isFormula)
+              ? value
+              : { walk: isFormula ? value : (typeof value === 'number' ? value : 0), fly: 0, swim: 0, climb: 0 }
+            const fields = [
+              { key: 'walk', label: '步行' },
+              { key: 'fly', label: '飞行' },
+              { key: 'swim', label: '游泳' },
+              { key: 'climb', label: '攀爬' },
+            ]
+            return fields.map(({ key, label }) => (
+              <div key={key} className="flex items-center gap-2">
+                <span className="text-xs text-gray-300 w-12">{label}</span>
+                <NumberStepper referenceData={activeReferenceData}
+                  value={obj[key] ?? 0}
+                  onChange={(v) => onChange({ ...module, value: { ...obj, [key]: v } })}
+                  step={5}
+                />
+                <span className="text-gray-500 text-xs">尺</span>
+              </div>
+            ))
+          })()}
         </div>
       ) : needsSubSelect === 'initBonusAndProficiency' ? (
         <div className="flex flex-wrap items-center gap-2">
@@ -1510,279 +4668,631 @@ function EffectValueEditor({
                     onChange={(e) => onChange({ ...module, value: { ...ib, proficient: e.target.checked } })}
                     className="rounded border-gray-600 bg-gray-800 text-dnd-red"
                   />
-                  <span className="text-sm text-gray-300">先攻获得熟练加值（PB）</span>
+                  <span className="text-xs text-gray-300">先攻获得熟练加值（PB）</span>
                 </label>
               </>
             )
           })()}
         </div>
-      ) : needsSubSelect === 'abilityScoresAndAdvantage' ? (
-        <div className="flex items-center gap-2 flex-nowrap">
-          <select
-            value={selectedAbilityId}
-            onChange={(e) => {
-              const nextKey = e.target.value
-              const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
-              const currentVal = selectedAbilityId === 'all'
-                ? (Number(obj[ABILITY_KEYS.find((k) => obj[k] != null) || ABILITY_KEYS[0]]) || 0)
-                : (Number(obj[selectedAbilityId]) || 0)
-              const base = {}
-              if (obj.advantage != null) base.advantage = obj.advantage
-              if (nextKey === 'all') ABILITY_KEYS.forEach((k) => { base[k] = currentVal })
-              else base[nextKey] = currentVal
-              setSelectedAbilityId(nextKey)
-              onChange({ ...module, value: base })
-            }}
-            className={inputClass + ' h-8 min-w-[6.5rem]'}
-          >
-            <option value="all">全属性</option>
+      ) : needsSubSelect === 'abilityScores' ? (() => {
+        const isUncapped = currentEffect?.key === 'ability_score_uncapped'
+        const breakObj = module.break20 && typeof module.break20 === 'object' && !Array.isArray(module.break20) ? module.break20 : {}
+        const setBreak20 = (k, checked) => {
+          const next = { ...breakObj, [k]: checked }
+          if (!checked) delete next[k]
+          onChange({ ...module, break20: next })
+        }
+        const valueObj = typeof value === 'object' && value && !Array.isArray(value) ? value : {}
+        const selectedAbilities = ABILITY_KEYS.filter(k => valueObj[k] != null)
+        const allChecked = ABILITY_KEYS.every(k => valueObj[k] != null)
+        return (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-x-3 gap-y-1 items-center">
             {ABILITY_KEYS.map((k) => (
-              <option key={k} value={k}>{(module.effectType === 'save_bonus' ? SAVE_NAMES[k] : ABILITY_LABELS[k]) ?? k}</option>
+              <label key={k} className="flex items-center gap-1 text-xs text-gray-300 cursor-pointer whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={valueObj[k] != null}
+                  onChange={(e) => {
+                    const base = { ...valueObj }
+                    if (e.target.checked) base[k] = 0
+                    else delete base[k]
+                    onChange({ ...module, value: base })
+                  }}
+                  className="w-3 h-3 accent-dnd-red"
+                />
+                {ABILITY_LABELS[k]}
+              </label>
             ))}
-          </select>
-          <NumberStepper referenceData={activeReferenceData}
-            value={(typeof value === 'object' && value && selectedAbilityId !== 'all' && value[selectedAbilityId] != null ? value[selectedAbilityId] : 0) ?? 0}
-            onChange={(v) => {
-              const base = typeof value === 'object' && value && !Array.isArray(value) ? { ...value } : {}
-              if (selectedAbilityId === 'all') {
-                ABILITY_KEYS.forEach((k) => { base[k] = v })
-              } else {
-                base[selectedAbilityId] = v
-              }
-              onChange({ ...module, value: base })
-            }}
-            compact
-          />
-          <span className="text-gray-400 text-xs shrink-0">优势/劣势</span>
-          <select
-            value={(typeof value === 'object' && value && value.advantage != null ? value.advantage : '') ?? ''}
-            onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), advantage: e.target.value } })}
-            className={inputClass + ' h-8 min-w-[6rem]'}
-          >
-            {ADVANTAGE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-      ) : needsSubSelect === 'skillsAndAdvantage' ? (
-        <div className="flex items-center gap-2 flex-nowrap">
-          <select
-            value={selectedSkillId}
-            onChange={(e) => setSelectedSkillId(e.target.value)}
-            className={inputClass + ' h-8 min-w-[7rem]'}
-          >
-            {SKILLS.map((sk) => (
-              <option key={sk.id} value={sk.id}>{sk.name}</option>
-            ))}
-          </select>
-          <NumberStepper referenceData={activeReferenceData}
-            value={(typeof value === 'object' && value && value[selectedSkillId] != null ? value[selectedSkillId] : 0) ?? 0}
-            onChange={(v) => {
-              const valueObj = typeof value === 'object' && value && !Array.isArray(value) ? { ...value } : {}
-              valueObj[selectedSkillId] = v
-              onChange({ ...module, value: valueObj })
-            }}
-            compact
-          />
-          <span className="text-gray-400 text-xs shrink-0">优势/劣势</span>
-          <select
-            value={(typeof value === 'object' && value && value.advantage != null ? value.advantage : '') ?? ''}
-            onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), advantage: e.target.value } })}
-            className={inputClass + ' h-8 min-w-[6rem]'}
-          >
-            {ADVANTAGE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-      ) : needsSubSelect === 'containedSpell' ? (
-        (() => {
-          const obj = value && typeof value === 'object' && !Array.isArray(value) ? value : { spellId: '', spellName: '', level: 0, hitResolution: 'dex_save', range: '', area: '', damageDice: '', damageDiceCount: 1, damageDiceSides: 6, damageType: '', charges: 0 }
-          const spellId = obj.spellId ?? ''
-          const spellName = obj.spellName ?? ''
-          const level = typeof obj.level === 'number' ? obj.level : (parseInt(obj.level, 10) || 0)
-          const charges = typeof obj.charges === 'number' ? Math.max(0, obj.charges) : (parseInt(obj.charges, 10) || 0)
-          const hitResolutionList = ['dex_save', 'str_save', 'con_save', 'wis_save', 'int_save', 'cha_save', 'spell_attack']
-          const hitResolution = hitResolutionList.includes(obj.hitResolution) ? obj.hitResolution : 'dex_save'
-          const spell = spellId ? SPELLS.find((s) => s.id === spellId) : null
-          const rangeValue = obj.range ?? spell?.range ?? ''
-          const sidesOpts = [4, 6, 8, 10, 12]
-          let damageDiceCount = typeof obj.damageDiceCount === 'number' ? Math.max(0, obj.damageDiceCount) : (parseInt(obj.damageDiceCount, 10) || 0)
-          let damageDiceSides = sidesOpts.includes(Number(obj.damageDiceSides)) ? Number(obj.damageDiceSides) : 6
-          if ((damageDiceCount === 0 || damageDiceSides === 6) && obj.damageDice && typeof obj.damageDice === 'string') {
-            const parsed = parseDamageString(obj.damageDice.trim())
-            const m = (parsed.plus || '').match(/^(\d*)d(\d+)$/i)
-            if (m) {
-              const c = parseInt(m[1], 10) || 1
-              const s = parseInt(m[2], 10)
-              if (sidesOpts.includes(s)) { damageDiceSides = s; if (damageDiceCount === 0) damageDiceCount = Math.max(1, c) }
-            }
-          }
-          const damageType = obj.damageType ?? ''
-          const HIT_RESOLUTION_OPTIONS = [
-            { value: 'dex_save', label: '敏捷豁免' },
-            { value: 'str_save', label: '力量豁免' },
-            { value: 'con_save', label: '体质豁免' },
-            { value: 'wis_save', label: '感知豁免' },
-            { value: 'int_save', label: '智力豁免' },
-            { value: 'cha_save', label: '魅力豁免' },
-            { value: 'spell_attack', label: '法术攻击加值' },
-          ]
-          const wandScrollPower = useWandScrollTable ? getWandScrollSpellPower(level) : null
-          const hitValueDisplay = useWandScrollTable && wandScrollPower
-            ? (hitResolution === 'spell_attack' ? (wandScrollPower.attackBonus >= 0 ? '+' : '') + wandScrollPower.attackBonus : String(wandScrollPower.dc))
-            : (hitResolution === 'spell_attack' && spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : (spellDC != null ? String(spellDC) : null))
-          const sep = <span className="text-dnd-text-muted shrink-0">|</span>
-          return (
-            <div className="flex flex-col gap-y-1 text-xs w-full">
-              {/* 第一行：宽度 5 份 — 内含法术 3 份 | 释放环位 1 份 | 充能数 1 份 */}
-              <div className="flex items-center gap-x-2 flex-nowrap min-w-0 whitespace-nowrap w-full overflow-hidden">
-                <div className="flex-[3] min-w-0 flex items-center gap-x-2">
-                  {containedSpellRowPrefix != null && String(containedSpellRowPrefix).trim() !== '' && (
-                    <span className="text-dnd-text-muted shrink-0 tabular-nums select-none">{containedSpellRowPrefix}</span>
-                  )}
-                  <span className="text-dnd-text-muted shrink-0">内含法术</span>
-                  <input
-                    type="text"
-                    value={spellName}
-                    onChange={(e) => {
-                      const name = e.target.value
-                      const match = name.trim() ? SPELLS.find((s) => s.name === name.trim()) : null
-                      const prevSpellId = (obj.spellId ?? '').trim()
-                      const nextSpellId = match ? match.id : ''
-                      let nextLevel = level
-                      if (match) {
-                        if (nextSpellId !== prevSpellId) {
-                          // 换了一道法术：用新法术默认环位；若刚从「未识别名」补全且玩家已填过环位则保留（避免重打字丢升环）
-                          nextLevel = prevSpellId === '' && level > 0 ? level : match.level
-                        }
-                        // 同一法术：不碰环位，玩家可自由改升环/戏法等
-                      }
-                      onChange({
-                        ...module,
-                        value: {
-                          ...obj,
-                          spellName: name,
-                          spellId: nextSpellId,
-                          range: match ? (match.range ?? '') : obj.range,
-                          area: match ? (match.range ?? '') : obj.area,
-                          level: nextLevel,
-                        },
-                      })
-                    }}
-                    placeholder="输入法术名称搜索"
-                    className={inputClass + ' h-7 text-xs flex-1 min-w-0 rounded-md border-2 border-gray-500 bg-gray-700/80 placeholder:text-gray-400 focus:border-amber-500/80'}
-                    list={'contained-spell-datalist-' + (module.id ?? '')}
-                    title="法术名称"
-                  />
-                  <datalist id={'contained-spell-datalist-' + (module.id ?? '')}>
-                    {SPELLS.map((s) => (
-                      <option key={s.id} value={s.name} />
-                    ))}
-                  </datalist>
-                </div>
-                {sep}
-                <div className={containedSpellHideChargesInPrimary ? 'flex-[2] min-w-0 flex items-center gap-x-2' : 'flex-[1] min-w-0 flex items-center gap-x-2'}>
-                  <span className="text-dnd-text-muted shrink-0">释放环位</span>
+            <button
+              type="button"
+              onClick={() => {
+                if (allChecked) {
+                  onChange({ ...module, value: {} })
+                } else {
+                  const base = {}
+                  ABILITY_KEYS.forEach(k => { base[k] = valueObj[k] ?? 0 })
+                  onChange({ ...module, value: base })
+                }
+              }}
+              className="text-xs text-dnd-gold-light/70 hover:text-dnd-gold-light"
+            >
+              {allChecked ? '取消全选' : '全属性'}
+            </button>
+          </div>
+          {selectedAbilities.length > 0 && (
+            <div className="flex flex-wrap gap-2 items-center">
+              {selectedAbilities.map((k) => (
+                <div key={k} className="flex items-center gap-1">
+                  <span className="text-xs text-dnd-gold-light/80">{ABILITY_LABELS[k]}</span>
                   <NumberStepper referenceData={activeReferenceData}
-                    value={Math.max(0, Math.min(9, level))}
-                    onChange={(v) =>
-                      onChange({
-                        ...module,
-                        value: { ...obj, level: Math.max(0, Math.min(9, v)) },
-                      })
-                    }
-                    min={0}
-                    max={9}
+                    value={valueObj[k] ?? 0}
+                    onChange={(v) => onChange({ ...module, value: { ...valueObj, [k]: v } })}
+                    compact
+                  />
+                  {isUncapped && (
+                    <label className="flex items-center gap-0.5 cursor-pointer text-[10px] text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={!!breakObj[k]}
+                        onChange={(e) => setBreak20(k, e.target.checked)}
+                        className="w-3 h-3 rounded border-gray-600 bg-gray-800 text-dnd-red"
+                      />
+                      破20
+                    </label>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        )
+      })() : needsSubSelect === 'abilityProficiency' ? (
+        <div className="flex flex-wrap gap-2">
+          {ABILITY_KEYS.map((k) => {
+            const toBool = (v) => {
+              if (typeof v === 'boolean') return v
+              if (typeof v === 'number') return v !== 0
+              return !!v
+            }
+            const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
+            return (
+              <label key={k} className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={toBool(obj[k])}
+                  onChange={(e) => onChange({ ...module, value: { ...obj, [k]: e.target.checked } })}
+                  className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                />
+                <span className="text-xs text-gray-300">{ABILITY_LABELS[k]}</span>
+              </label>
+            )
+          })}
+        </div>
+      ) : needsSubSelect === 'spellAbilityForAttack' ? (
+        <div className="flex items-center gap-2">
+          <select
+            value={(value && typeof value === 'object' && !Array.isArray(value) ? value.ability : 'int') || 'int'}
+            onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), ability: e.target.value || 'int' } })}
+            className={panelInputCls + ' min-w-[6rem]'}
+          >
+            <option value="int">智力</option>
+            <option value="wis">感知</option>
+            <option value="cha">魅力</option>
+          </select>
+        </div>
+      ) : needsSubSelect === 'abilityScoresAndAdvantage' ? (() => {
+        const valueObj = typeof value === 'object' && value && !Array.isArray(value) ? value : {}
+        const labels = module.effectType === 'save_bonus' ? SAVE_NAMES : ABILITY_LABELS
+        const selectedAbilities = ABILITY_KEYS.filter(k => valueObj[k] != null)
+        const allChecked = ABILITY_KEYS.every(k => valueObj[k] != null)
+        return (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-x-3 gap-y-1 items-center">
+            {ABILITY_KEYS.map((k) => (
+              <label key={k} className="flex items-center gap-1 text-xs text-gray-300 cursor-pointer whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={valueObj[k] != null}
+                  onChange={(e) => {
+                    const base = { ...valueObj }
+                    if (e.target.checked) base[k] = 0
+                    else delete base[k]
+                    onChange({ ...module, value: base })
+                  }}
+                  className="w-3 h-3 accent-dnd-red"
+                />
+                {labels[k]}
+              </label>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                if (allChecked) {
+                  const base = {}
+                  if (valueObj.advantage) base.advantage = valueObj.advantage
+                  onChange({ ...module, value: base })
+                } else {
+                  const base = {}
+                  ABILITY_KEYS.forEach(k => { base[k] = valueObj[k] ?? 0 })
+                  if (valueObj.advantage) base.advantage = valueObj.advantage
+                  onChange({ ...module, value: base })
+                }
+              }}
+              className="text-xs text-dnd-gold-light/70 hover:text-dnd-gold-light"
+            >
+              {allChecked ? '取消全选' : '全属性'}
+            </button>
+          </div>
+          {selectedAbilities.length > 0 && (
+            <div className="flex flex-wrap gap-2 items-center">
+              {selectedAbilities.map((k) => (
+                <div key={k} className="flex items-center gap-1">
+                  <span className="text-xs text-dnd-gold-light/80">{labels[k]}</span>
+                  <NumberStepper referenceData={activeReferenceData}
+                    value={valueObj[k] ?? 0}
+                    onChange={(v) => onChange({ ...module, value: { ...valueObj, [k]: v } })}
                     compact
                   />
                 </div>
-                {!containedSpellHideChargesInPrimary && (
-                  <>
-                    {sep}
-                    <div className="flex-[1] min-w-0 flex items-center gap-x-2">
-                      <span className="text-dnd-text-muted shrink-0">充能数</span>
-                      <NumberStepper referenceData={activeReferenceData}
-                        value={charges}
-                        onChange={(v) => onChange({ ...module, value: { ...obj, charges: Math.max(0, v) } })}
-                        min={0}
-                        max={99}
-                        compact
+              ))}
+              <span className="text-gray-400 text-xs shrink-0">优势/劣势</span>
+              <select
+                value={valueObj.advantage ?? ''}
+                onChange={(e) => onChange({ ...module, value: { ...valueObj, advantage: e.target.value } })}
+                className={panelInputCls + ' min-w-[6rem]'}
+              >
+                {ADVANTAGE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+        )
+      })() : needsSubSelect === 'skillsAndAdvantage' ? (() => {
+        const valueObj = typeof value === 'object' && value && !Array.isArray(value) ? value : {}
+        const selectedSkills = SKILLS.filter(sk => valueObj[sk.id] != null)
+        return (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            {SKILLS.map((sk) => (
+              <label key={sk.id} className="flex items-center gap-1 text-xs text-gray-300 cursor-pointer whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={valueObj[sk.id] != null}
+                  onChange={(e) => {
+                    const base = { ...valueObj }
+                    if (e.target.checked) {
+                      base[sk.id] = 0
+                    } else {
+                      delete base[sk.id]
+                    }
+                    onChange({ ...module, value: base })
+                  }}
+                  className="w-3 h-3 accent-dnd-red"
+                />
+                {sk.name}
+              </label>
+            ))}
+          </div>
+          {selectedSkills.length > 0 && (
+            <div className="flex flex-wrap gap-2 items-center">
+              {selectedSkills.map((sk) => (
+                <div key={sk.id} className="flex items-center gap-1">
+                  <span className="text-xs text-dnd-gold-light/80">{sk.name}</span>
+                  <NumberStepper referenceData={activeReferenceData}
+                    value={valueObj[sk.id] ?? 0}
+                    onChange={(v) => onChange({ ...module, value: { ...valueObj, [sk.id]: v } })}
+                    compact
+                  />
+                </div>
+              ))}
+              <span className="text-gray-400 text-xs shrink-0">优势/劣势</span>
+              <select
+                value={valueObj.advantage ?? ''}
+                onChange={(e) => onChange({ ...module, value: { ...valueObj, advantage: e.target.value } })}
+                className={panelInputCls + ' min-w-[6rem]'}
+              >
+                {ADVANTAGE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+        )
+      })() : needsSubSelect === 'spellDamageBonus' ? (
+        <SpellDamageBonusEditor
+          value={value}
+          onChange={(v) => onChange({ ...module, value: v })}
+          referenceData={activeReferenceData}
+        />
+      ) : needsSubSelect === 'containedSpell' ? (
+        <ContainedSpellEditor
+          module={module}
+          onChange={onChange}
+          spellDC={spellDC}
+          spellAttackBonus={spellAttackBonus}
+          useWandScrollTable={useWandScrollTable}
+          primaryOnly={containedSpellPrimaryOnly}
+          hideCharges={containedSpellHideChargesInPrimary}
+          rowPrefix={containedSpellRowPrefix}
+        />
+      ) : needsSubSelect === 'chargeRecovery' ? (
+        <ChargeRecoveryEditor
+          value={value}
+          onChange={(v) => onChange({ ...module, value: v })}
+        />
+      ) : needsSubSelect === 'chargeItem' ? (
+        <ChargeItemEditor
+          module={module}
+          onChange={onChange}
+          spellDC={spellDC}
+          spellAttackBonus={spellAttackBonus}
+          useWandScrollTable={useWandScrollTable}
+          referenceData={referenceData}
+          baseReferenceData={baseReferenceData}
+          subordinates={subordinates}
+        />
+      ) : needsSubSelect === 'armorOverride' ? (
+        <ArmorOverrideEditor
+          value={value}
+          onChange={(v) => onChange({ ...module, value: v })}
+          referenceData={activeReferenceData}
+        />
+      ) : needsSubSelect === 'creatureTransform' ? (
+        <CreatureTransformEditor
+          value={value}
+          onChange={(v) => onChange({ ...module, value: v })}
+        />
+      ) : needsSubSelect === 'restoreSpellSlots' ? (
+        <RestoreSpellSlotsEditor
+          module={module}
+          onChange={onChange}
+        />
+      ) : needsSubSelect === 'choice' ? (
+        <ChoiceBUFFEditor
+          choiceOptions={value?.choiceOptions}
+          choiceSelected={value?.choiceSelected}
+          onChange={(v) => onChange({ ...module, value: v })}
+        />
+      ) : needsSubSelect === 'damageTypeRelation' ? (
+        (() => {
+          const rel = value && typeof value === 'object' ? value : {}
+          const relation = rel.relation || 'resist'
+          const types = Array.isArray(rel.types) ? rel.types : []
+          return (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400">关系类型</span>
+                <select
+                  value={relation}
+                  onChange={(e) => onChange({ ...module, value: { ...rel, relation: e.target.value } })}
+                  className={panelInputCls + ' !py-1 text-xs'}
+                >
+                  {DAMAGE_RELATION_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {DAMAGE_TYPES.map((dt) => {
+                  const checked = types.includes(dt.value)
+                  return (
+                    <label key={dt.value} className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          const next = e.target.checked ? [...types, dt.value] : types.filter((x) => x !== dt.value)
+                          onChange({ ...module, value: { ...rel, types: next } })
+                        }}
+                        className="rounded border-gray-600 bg-gray-800 text-dnd-red"
                       />
-                    </div>
-                  </>
+                      <span className="text-xs text-gray-300">{dt.label}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })()
+      ) : needsSubSelect === 'damageReductionTyped' ? (
+        (() => {
+          const dv = value && typeof value === 'object' ? value : {}
+          const types = Array.isArray(dv.types) ? dv.types : []
+          const reduction = dv.reduction != null ? Number(dv.reduction) || 0 : 0
+          return (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400">减免量</span>
+                <input
+                  type="number"
+                  value={reduction}
+                  onChange={(e) => onChange({ ...module, value: { ...dv, reduction: Number(e.target.value) || 0 } })}
+                  className={panelInputCls + ' !py-1 !w-20 text-xs'}
+                  min={0}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {DAMAGE_TYPES.map((dt) => {
+                  const checked = types.includes(dt.value)
+                  return (
+                    <label key={dt.value} className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          const next = e.target.checked ? [...types, dt.value] : types.filter((x) => x !== dt.value)
+                          onChange({ ...module, value: { ...dv, types: next } })
+                        }}
+                        className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                      />
+                      <span className="text-xs text-gray-300">{dt.label}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })()
+      ) : needsSubSelect === 'specialSenses' ? (
+        (() => {
+          const sv = value && typeof value === 'object' ? value : {}
+          const senses = Array.isArray(sv.senses) ? sv.senses : []
+          const range = sv.range != null ? sv.range : 60
+          return (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400">范围（尺）</span>
+                <input
+                  type="number"
+                  value={range}
+                  onChange={(e) => onChange({ ...module, value: { ...sv, range: Number(e.target.value) || 0 } })}
+                  className={panelInputCls + ' !py-1 !w-20 text-xs'}
+                  min={0}
+                  step={10}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {SPECIAL_SENSES_OPTIONS.map((o) => {
+                  const checked = senses.includes(o.value)
+                  return (
+                    <label key={o.value} className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          const next = e.target.checked ? [...senses, o.value] : senses.filter((x) => x !== o.value)
+                          onChange({ ...module, value: { ...sv, senses: next } })
+                        }}
+                        className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                      />
+                      <span className="text-xs text-gray-300">{o.label}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })()
+      ) : needsSubSelect === 'visualEffect' ? (
+        (() => {
+          const sv = value && typeof value === 'object' ? value : {}
+          const selectedType = sv.type || ''
+          const description = typeof sv.description === 'string' ? sv.description : ''
+          return (
+            <div className="space-y-2">
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">视觉类型</label>
+                <select
+                  value={selectedType}
+                  onChange={(e) => onChange({ ...module, value: { ...sv, type: e.target.value } })}
+                  className={panelInputCls + ' !py-1.5 text-xs w-full'}
+                >
+                  <option value="">请选择</option>
+                  {VISUAL_EFFECT_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              {selectedType === 'custom' || description ? (
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">描述</label>
+                  <textarea
+                    value={description}
+                    onChange={(e) => onChange({ ...module, value: { ...sv, description: e.target.value } })}
+                    placeholder="描述视觉效果..."
+                    className={panelInputCls + ' !py-1.5 text-xs w-full'}
+                    rows={2}
+                  />
+                </div>
+              ) : null}
+            </div>
+          )
+        })()
+      ) : needsSubSelect === 'shieldPool' ? (
+        (() => {
+          const sv = value && typeof value === 'object' ? value : {}
+          const max = sv.max != null ? Number(sv.max) || 10 : 10
+          const threshold = sv.threshold != null ? Number(sv.threshold) || 0 : 0
+          const recoverOn = sv.recoverOn || 'manual'
+          const bonusEffects = Array.isArray(sv.bonusEffects) ? sv.bonusEffects : []
+          const [bonusPickerOpen, setBonusPickerOpen] = useState(false)
+          const [bonusPickerCategory, setBonusPickerCategory] = useState(Object.keys(BUFF_TYPES)[0] || '')
+          const [bonusEditingIdx, setBonusEditingIdx] = useState(null)
+          const bonusOnChange = (idx, next) => {
+            const updated = bonusEffects.map((be, i) => i === idx ? next : be)
+            onChange({ ...module, value: { ...sv, bonusEffects: updated } })
+          }
+          const bonusAddEffect = (category, effectType) => {
+            const newEffect = { id: 'be_' + Date.now().toString(36), category, effectType, value: {}, scope: 'global', scopeDetail: undefined }
+            onChange({ ...module, value: { ...sv, bonusEffects: [...bonusEffects, newEffect] } })
+            setBonusPickerOpen(false)
+            setBonusEditingIdx(bonusEffects.length)
+          }
+          const bonusRemoveEffect = (idx) => {
+            const updated = bonusEffects.filter((_, i) => i !== idx)
+            onChange({ ...module, value: { ...sv, bonusEffects: updated } })
+            if (bonusEditingIdx === idx) setBonusEditingIdx(null)
+            else if (bonusEditingIdx > idx) setBonusEditingIdx(bonusEditingIdx - 1)
+          }
+          return (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-400 w-16">AC 上限</span>
+                <input
+                  type="number"
+                  value={max}
+                  onChange={(e) => onChange({ ...module, value: { ...sv, max: Number(e.target.value) || 10 } })}
+                  className={panelInputCls + ' !py-1 !w-20 text-xs'}
+                  min={1}
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-400 w-16">AC 阈值</span>
+                <input
+                  type="number"
+                  value={threshold}
+                  onChange={(e) => onChange({ ...module, value: { ...sv, threshold: Number(e.target.value) || 0 } })}
+                  className={panelInputCls + ' !py-1 !w-20 text-xs'}
+                  min={0}
+                />
+                <span className="text-[10px] text-gray-500">低于此值时护盾失效</span>
+              </div>
+              <div>
+                <span className="text-xs text-gray-400 block mb-1">恢复条件</span>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { value: 'short', label: '短休' },
+                    { value: 'long', label: '长休' },
+                    { value: 'dawn', label: '黎明' },
+                    { value: 'manual', label: '仅手动' },
+                    { value: 'none', label: '不可恢复' },
+                  ].map((o) => (
+                    <label key={o.value} className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="shieldPoolRecover"
+                        checked={recoverOn === o.value}
+                        onChange={() => onChange({ ...module, value: { ...sv, recoverOn: o.value } })}
+                        className="border-gray-600 bg-gray-800 text-dnd-gold"
+                      />
+                      <span className="text-xs text-gray-300">{o.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              {/* ── 高于阈值增益 ── */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs text-gray-400">高于阈值增益</span>
+                  <button
+                    type="button"
+                    onClick={() => setBonusPickerOpen(!bonusPickerOpen)}
+                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] transition-colors ${
+                      bonusPickerOpen ? 'border-gray-600 bg-gray-700 text-gray-300' : 'border-gray-600 text-gray-400 hover:bg-gray-700'
+                    }`}
+                  >
+                    <Plus className="w-3 h-3" />
+                    {bonusPickerOpen ? '收起' : '添加效果'}
+                  </button>
+                </div>
+                {bonusPickerOpen && (
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <select
+                      value={bonusPickerCategory}
+                      onChange={(e) => setBonusPickerCategory(e.target.value)}
+                      className="h-7 px-1.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-[10px] cursor-pointer shrink-0"
+                    >
+                      {Object.entries(BUFF_TYPES).map(([k, v]) => (
+                        <option key={k} value={k}>{v.label}</option>
+                      ))}
+                    </select>
+                    <select
+                      onChange={(e) => { if (e.target.value) { bonusAddEffect(bonusPickerCategory, e.target.value); e.target.value = '' } }}
+                      defaultValue=""
+                      className="h-7 px-1.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-[10px] cursor-pointer flex-1 min-w-0"
+                    >
+                      <option value="" disabled>选择效果类型…</option>
+                      {(BUFF_TYPES[bonusPickerCategory]?.effects || []).filter(e => !e.hidden).map(eff => (
+                        <option key={eff.key} value={eff.key}>{eff.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {bonusEffects.length === 0 ? (
+                  <p className="text-gray-500 text-[10px] text-center py-1">高于阈值时无增益效果</p>
+                ) : (
+                  <div className="space-y-1">
+                    {bonusEffects.map((be, idx) => {
+                      const beCatData = BUFF_TYPES[be.category]
+                      const beCurrentEffect = beCatData?.effects?.find(e => e.key === be.effectType)
+                      const beSummary = beCurrentEffect
+                        ? getEffectSummaryShort({ effectType: be.effectType, value: be.value, scope: be.scope, scopeDetail: be.scopeDetail }, {})
+                        : '未选择效果'
+                      const beRawLabel = beCurrentEffect ? (beCurrentEffect.label ?? be.effectType) : '—'
+                      const beDisplayLabel = beSummary && beSummary !== beRawLabel && beSummary !== '未选择效果' ? beSummary : beRawLabel
+                      const isBonusEditing = bonusEditingIdx === idx
+                      return (
+                        <div key={be.id || idx}>
+                          <div className={`rounded-lg border px-2 py-1.5 flex items-center justify-between gap-2 ${
+                            isBonusEditing ? 'border-gray-600 bg-gray-700/50' : 'border-gray-700 bg-gray-800/50'
+                          }`}>
+                            <div className="min-w-0 flex-1 flex items-center gap-1.5">
+                              <span className="text-[9px] px-1 py-0.5 rounded shrink-0 font-medium text-amber-400 bg-amber-500/10">增益</span>
+                              <span className="text-xs text-gray-300 font-medium truncate">{beDisplayLabel}</span>
+                            </div>
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <button type="button" onClick={() => setBonusEditingIdx(isBonusEditing ? null : idx)}
+                                className={`p-1 rounded transition-colors ${isBonusEditing ? 'text-gray-300 bg-gray-700' : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'}`}
+                                title={isBonusEditing ? '收起编辑' : '编辑'}>
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button type="button" onClick={() => bonusRemoveEffect(idx)}
+                                className="p-1 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors" title="删除">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                          {isBonusEditing && (
+                            <div className="mt-1 p-2 rounded-lg border border-gray-600 bg-gray-800 space-y-1.5">
+                              <div className="flex items-center justify-between gap-2 pb-1 border-b border-gray-700">
+                                <span className="text-[10px] text-gray-400 font-medium">编辑增益效果</span>
+                                <button type="button" onClick={() => setBonusEditingIdx(null)}
+                                  className="text-[10px] px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors">收起</button>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <select value={be.category || ''}
+                                  onChange={(e) => {
+                                    const newEffects = BUFF_TYPES[e.target.value]?.effects ?? []
+                                    bonusOnChange(idx, { ...be, category: e.target.value, effectType: newEffects[0]?.key ?? '' })
+                                  }}
+                                  className="h-7 px-1.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-[10px] cursor-pointer shrink-0">
+                                  {Object.entries(BUFF_TYPES).map(([k, v]) => (<option key={k} value={k}>{v.label}</option>))}
+                                </select>
+                                <select value={be.effectType || ''}
+                                  onChange={(e) => bonusOnChange(idx, { ...be, effectType: e.target.value })}
+                                  className="h-7 px-1.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-[10px] cursor-pointer flex-1 min-w-0">
+                                  <option value="" disabled>选择效果类型…</option>
+                                  {(BUFF_TYPES[be.category]?.effects || []).filter(e => !e.hidden).map(eff => (
+                                    <option key={eff.key} value={eff.key}>{eff.label}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              {be.effectType && <ScopeEditor scope={be.scope} scopeDetail={be.scopeDetail} onChange={(next) => bonusOnChange(idx, { ...be, ...next })} />}
+                              {be.effectType && beCatData && (
+                                <EffectValueEditor module={{ ...be }} onChange={(next) => bonusOnChange(idx, next)} catData={beCatData} />
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
                 )}
               </div>
-              {!containedSpellPrimaryOnly && (
-                <>
-                  {/* 第二行：宽度 5 份 — 命中判断 1 份 | 施法距离（可修改）1 份 | 伤害 3 份 */}
-                  <div className="flex items-center gap-x-2 flex-nowrap min-w-0 whitespace-nowrap w-full overflow-hidden">
-                    <div className="flex-[1] min-w-0 flex items-center gap-x-2">
-                      <span className="text-dnd-text-muted shrink-0">命中判断</span>
-                      <select
-                        value={hitResolution}
-                        onChange={(e) => onChange({ ...module, value: { ...obj, hitResolution: e.target.value } })}
-                        className={inputClass + ' h-7 text-xs flex-1 min-w-0'}
-                      >
-                        {HIT_RESOLUTION_OPTIONS.map((o) => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                      </select>
-                      {hitValueDisplay != null && (
-                        <span className="text-white font-mono tabular-nums shrink-0">{hitValueDisplay}</span>
-                      )}
-                    </div>
-                    {sep}
-                    <div className="flex-[1] min-w-0 flex items-center gap-x-2">
-                      <span className="text-dnd-text-muted shrink-0">施法距离</span>
-                      <input
-                        type="text"
-                        value={rangeValue}
-                        onChange={(e) => onChange({ ...module, value: { ...obj, range: e.target.value } })}
-                        placeholder="如 自身、60尺"
-                        className={inputClass + ' h-7 text-xs flex-1 min-w-0'}
-                      />
-                    </div>
-                    {sep}
-                    <div className="flex-[3] min-w-0 flex items-center gap-x-2">
-                      <span className="text-dnd-text-muted shrink-0">伤害</span>
-                      <NumberStepper referenceData={activeReferenceData}
-                        value={damageDiceCount}
-                        onChange={(v) => onChange({ ...module, value: { ...obj, damageDiceCount: Math.max(0, Math.min(99, v)) } })}
-                        min={0}
-                        max={99}
-                        compact
-                      />
-                      <select
-                        value={damageDiceSides}
-                        onChange={(e) => onChange({ ...module, value: { ...obj, damageDiceSides: Number(e.target.value) } })}
-                        className={inputClass + ' h-7 text-xs min-w-0 text-white bg-[var(--input-bg)]'}
-                      >
-                        {DICE_SIDES_OPTIONS.map((o) => (
-                          <option key={o.value} value={o.value} className="bg-gray-800 text-white">{o.label}</option>
-                        ))}
-                      </select>
-                      <div className="flex-1 min-w-[5rem] relative flex items-center rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] h-7 px-2">
-                        <span className="text-white text-xs flex-1 min-w-0 truncate pointer-events-none">
-                          {damageType ? (DAMAGE_TYPES.find((d) => d.value === damageType)?.label ?? damageType) : '— 类型 —'}
-                        </span>
-                        <select
-                          value={damageType}
-                          onChange={(e) => onChange({ ...module, value: { ...obj, damageType: e.target.value } })}
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                          title="伤害类型"
-                        >
-                          <option value="">— 类型 —</option>
-                          {DAMAGE_TYPES.map((d) => (
-                            <option key={d.value} value={d.value}>{d.label}</option>
-                          ))}
-                        </select>
-                        <ChevronDown className="w-4 h-4 text-gray-400 shrink-0 pointer-events-none" />
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
             </div>
           )
         })()
@@ -1791,21 +5301,404 @@ function EffectValueEditor({
   )
 }
 
-export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData }) {
+/** 选择型 BUFF 编辑器：多选项 + 每选项独立效果列表 */
+function ChoiceBUFFEditor({ choiceOptions = [], choiceSelected = 0, onChange }) {
+  const [editingOptionIdx, setEditingOptionIdx] = useState(null)
+  const [editingModule, setEditingModule] = useState(null)
+
+  const safeOptions = Array.isArray(choiceOptions) && choiceOptions.length > 0 ? choiceOptions : [{ name: '选项 A', effects: [] }]
+  const selectedIdx = Math.min(Math.max(0, Number(choiceSelected) || 0), safeOptions.length - 1)
+  const selectedOption = safeOptions[selectedIdx]
+
+  const updateOptions = (next) => onChange({ choiceOptions: next, choiceSelected: Math.min(selectedIdx, next.length - 1) })
+
+  const addOption = () => {
+    const next = [...safeOptions, { name: `选项 ${String.fromCharCode(65 + safeOptions.length)}`, effects: [] }]
+    updateOptions(next)
+  }
+
+  const removeOption = (idx) => {
+    if (safeOptions.length <= 1) return
+    const next = safeOptions.filter((_, i) => i !== idx)
+    const newSelected = selectedIdx >= next.length ? next.length - 1 : selectedIdx
+    onChange({ choiceOptions: next, choiceSelected: newSelected })
+  }
+
+  const renameOption = (idx, name) => {
+    const next = safeOptions.map((o, i) => (i === idx ? { ...o, name } : o))
+    updateOptions(next)
+  }
+
+  const openEditModule = (modId) => {
+    const mod = selectedOption.effects.find((m) => m.id === modId)
+    if (mod) setEditingModule({ ...mod })
+  }
+
+  const saveModule = (draft) => {
+    const opts = safeOptions.map((o, i) => {
+      if (i !== selectedIdx) return o
+      const exists = o.effects.some((m) => m.id === draft.id)
+      return {
+        ...o,
+        effects: exists ? o.effects.map((m) => (m.id === draft.id ? draft : m)) : [...o.effects, draft],
+      }
+    })
+    updateOptions(opts)
+    setEditingModule(null)
+  }
+
+  const addModule = () => {
+    setEditingModule({
+      id: 'e_' + Math.random().toString(36).slice(2),
+      category: '',
+      effectType: '',
+      scope: SCOPE_KIND.global,
+      scopeDetail: [],
+      value: 0,
+      break20: {},
+      customText: '',
+    })
+  }
+
+  const removeModule = (modId) => {
+    const opts = safeOptions.map((o, i) =>
+      i === selectedIdx ? { ...o, effects: o.effects.filter((m) => m.id !== modId) } : o
+    )
+    updateOptions(opts)
+  }
+
+  const labelCls = 'text-[10px] text-dnd-text-muted shrink-0 leading-none'
+  const selectCls = inputClass.replace(/\bh-10\b/, 'h-7').replace(/\bpx-3\b/, 'px-1.5').replace(/\btext-sm\b/, 'text-[11px]') + ' cursor-pointer'
+
+  return (
+    <div className="space-y-2">
+      {/* 选项选择器 */}
+      <div>
+        <span className={labelCls + ' block mb-1'}>选项</span>
+        <div className="flex flex-wrap gap-1">
+          {safeOptions.map((opt, idx) => (
+            <div key={idx} className="flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => onChange({ choiceOptions: safeOptions, choiceSelected: idx })}
+                className={`px-2 py-0.5 rounded text-[11px] border transition-colors ${
+                  idx === selectedIdx
+                    ? 'border-violet-500 bg-violet-500/20 text-violet-300'
+                    : 'border-gray-600 bg-gray-800/50 text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                {opt.name || `选项 ${idx + 1}`}
+              </button>
+              {safeOptions.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeOption(idx)}
+                  className="p-0.5 rounded text-gray-600 hover:text-red-400 hover:bg-red-900/30 transition-colors"
+                  title="删除选项"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              )}
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={addOption}
+            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] text-gray-500 hover:text-violet-400 hover:bg-violet-500/10 border border-dashed border-gray-600 hover:border-violet-500/50 transition-colors"
+          >
+            <Plus className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+
+      {/* 当前选中选项的名称编辑 */}
+      <div className="flex items-center gap-x-1.5">
+        <span className={labelCls}>选项名</span>
+        <input
+          type="text"
+          value={selectedOption.name || ''}
+          onChange={(e) => renameOption(selectedIdx, e.target.value)}
+          className={selectCls + ' flex-1 min-w-0'}
+          placeholder={`选项 ${selectedIdx + 1}`}
+        />
+      </div>
+
+      {/* 当前选项的效果列表 */}
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <span className={labelCls}>效果（{selectedOption.name || `选项 ${selectedIdx + 1}`}）</span>
+          <button
+            type="button"
+            onClick={addModule}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-violet-500 text-violet-400 hover:bg-violet-500/20 text-[10px] font-medium"
+          >
+            <Plus className="w-3 h-3" />
+            添加效果
+          </button>
+        </div>
+        {selectedOption.effects.length === 0 ? (
+          <p className="text-gray-500 text-[10px] text-center py-1.5">暂无效果，点击添加</p>
+        ) : (
+          <div className="space-y-1">
+            {selectedOption.effects.map((mod) => {
+              const catData = BUFF_TYPES[mod.category]
+              const currentEffect = catData?.effects?.find((e) => e.key === mod.effectType)
+              const summary = currentEffect
+                ? getEffectSummaryShort({ effectType: mod.effectType, value: mod.value, customText: mod.customText, scope: mod.scope, scopeDetail: mod.scopeDetail }, {})
+                : '未选择效果'
+              const rawLabel = currentEffect ? (currentEffect.label ?? mod.effectType) : '—'
+              const displayLabel = summary && summary !== rawLabel && summary !== '未选择效果' ? summary : rawLabel
+              return (
+                <div
+                  key={mod.id}
+                  className="rounded border border-white/[0.08] bg-[#1a2333]/60 px-2 py-1 flex items-center justify-between gap-2"
+                >
+                  <span className="text-dnd-gold-light/90 text-[11px] font-medium truncate">{displayLabel}</span>
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <button type="button" onClick={() => openEditModule(mod.id)} className="p-0.5 rounded text-gray-400 hover:bg-gray-700 hover:text-dnd-gold transition-colors" title="编辑">
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                    <button type="button" onClick={() => removeModule(mod.id)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors" title="删除">
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 效果编辑：内嵌（避免第三层弹窗） */}
+      {editingModule && (
+        <div className="rounded-lg border border-violet-500/30 bg-[#1e2738]/80 p-2 mt-1">
+          <EffectModuleModal
+            module={editingModule}
+            onSave={saveModule}
+            onCancel={() => setEditingModule(null)}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 等级升级编辑器：被动效果随职业等级升级为更高值 */
+function UpgradeEditor({ upgrade, baseValue, effectType, category, charClasses, catData, currentEffect, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData, subordinates, onChange }) {
+  const [expanded, setExpanded] = useState(!!upgrade)
+  const upg = upgrade || { className: charClasses[0]?.className ?? '', level: 1, value: baseValue ?? 0 }
+
+  const handleEnable = () => {
+    if (expanded) {
+      setExpanded(false)
+      onChange(null)
+    } else {
+      setExpanded(true)
+      onChange({ className: charClasses[0]?.className ?? '', level: 1, value: baseValue ?? 0 })
+    }
+  }
+
+  const update = (patch) => {
+    const next = { ...upg, ...patch }
+    onChange(next)
+  }
+
+  // 构造一个虚拟 module 给 EffectValueEditor 用
+  const upgradeModule = {
+    id: 'upgrade',
+    category,
+    effectType,
+    scope: 'global',
+    scopeDetail: [],
+    value: upg.value,
+    customText: '',
+  }
+
+  return (
+    <div className="rounded border border-indigo-500/30 bg-indigo-500/5 px-2 py-1.5 space-y-1">
+      <div className="flex items-center justify-between">
+        <label className="flex items-center gap-1.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={expanded}
+            onChange={handleEnable}
+            className="w-3 h-3 rounded border-gray-600 bg-gray-700 text-indigo-500 focus:ring-indigo-500/30"
+          />
+          <span className="text-[10px] text-indigo-300 font-medium">等级升级</span>
+        </label>
+        {expanded && upg.className && (
+          <span className="text-[9px] text-indigo-400/70">
+            {getClassDisplayName(upg.className)} {upg.level}级 时生效
+          </span>
+        )}
+      </div>
+      {expanded && (
+        <>
+          <div className="flex items-center gap-1.5">
+            <select
+              value={upg.className}
+              onChange={(e) => update({ className: e.target.value })}
+              className="h-7 px-1.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-[10px] cursor-pointer flex-1 min-w-0"
+            >
+              <option value="" disabled>选择职业…</option>
+              {charClasses.map((c) => (
+                <option key={c.className} value={c.className}>{getClassDisplayName(c.className)}（当前 {c.level} 级）</option>
+              ))}
+            </select>
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => update({ level: Math.max(1, upg.level - 1) })}
+                className="w-5 h-5 rounded border border-gray-600 bg-gray-700 text-gray-400 hover:bg-gray-600 text-[10px] flex items-center justify-center"
+              >−</button>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={upg.level}
+                onChange={(e) => update({ level: Math.max(1, Math.min(20, Number(e.target.value) || 1)) })}
+                className="w-8 h-5 px-0.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-[10px] text-center"
+              />
+              <button
+                type="button"
+                onClick={() => update({ level: Math.min(20, upg.level + 1) })}
+                className="w-5 h-5 rounded border border-gray-600 bg-gray-700 text-gray-400 hover:bg-gray-600 text-[10px] flex items-center justify-center"
+              >+</button>
+              <span className="text-[9px] text-gray-500">级</span>
+            </div>
+          </div>
+          <div className="pt-1 border-t border-indigo-500/20">
+            <span className="text-[9px] text-indigo-300/70 block mb-1">升级后效果值：</span>
+            <EffectValueEditor
+              module={upgradeModule}
+              onChange={(next) => update({ value: next.value })}
+              catData={catData}
+              spellDC={spellDC}
+              spellAttackBonus={spellAttackBonus}
+              useWandScrollTable={useWandScrollTable}
+              referenceData={referenceData}
+              baseReferenceData={baseReferenceData}
+              subordinates={subordinates}
+            />
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClear, defaultSourceKind, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData, sourceNameOptions = [], sourceKindOptions = BUFF_SOURCE_KIND_OPTIONS_EDITABLE, compact = false, readOnly = false, hideDuration = false, subordinates = [], charResources, spellSlots, charClasses = [] }) {
   const sourceKindLocked = !!(initial?.fromFeat || initial?.fromItem)
   const [source, setSource] = useState(initial?.source ?? '')
-  const [duration, setDuration] = useState(initial?.duration ?? '')
-  const [sourceKind, setSourceKind] = useState(() =>
-    sourceKindLocked ? normalizeBuffSourceKindKey('adventure') : resolveInitialSourceKind(initial, defaultSourceKind),
-  )
-  const [effectModules, setEffectModules] = useState(() => normalizeInitialEffects(initial))
+  const [duration, setDuration] = useState(() => normalizeDuration(initial?.duration))
+  const [sourceKind, setSourceKind] = useState(() => {
+    if (sourceKindLocked) return normalizeBuffSourceKindKey('adventure')
+    const resolved = resolveInitialSourceKind(initial, defaultSourceKind)
+    return sourceKindOptions.some((o) => o.key === resolved) ? resolved : normalizeBuffSourceKindKey(defaultSourceKind ?? 'adventure')
+  })
+
+  const sourceListId = useMemo(() => 'buff-source-options-' + Math.random().toString(36).slice(2, 9), [])
+  /** 用于效果简写求值与内含法术 DC/法攻/充能显示 */
+  const effectSummaryContext = useMemo(() => ({
+    ...(referenceData || {}),
+    spellDC,
+    spellAttackBonus,
+    useWandScrollTable,
+  }), [referenceData, spellDC, spellAttackBonus, useWandScrollTable])
+  // custom_text 纯描述性效果无实际功能，过滤掉避免显示在编辑器中
+  const filteredInitial = Array.isArray(initial?.effects)
+    ? { ...initial, effects: initial.effects.filter(e => e.effectType !== 'custom_text') }
+    : initial
+
+  const [effectModules, setEffectModules] = useState(() => normalizeInitialEffects(filteredInitial))
+  /** 初始效果 ID 集合，用于判断新建 vs 编辑 */
+  const _initIdsRef = useRef(new Set(effectModules.map(m => m.id)))
+  /** 行内效果类型选择器开关 */
+  const [showEffectPicker, setShowEffectPicker] = useState(false)
+  const [pickerCategory, setPickerCategory] = useState('ability')
+  /** 自动保存定时器 */
+  const autoSaveTimerRef = useRef(null)
+
+  /** 防抖自动保存：在用户停止编辑 800ms 后触发 */
+  const triggerAutoSave = useCallback(() => {
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
+    autoSaveTimerRef.current = setTimeout(() => {
+      // 构造当前状态并触发 onSave
+      const catDataByKey = BUFF_TYPES
+      const effects = effectModules.map((mod) => {
+        if (mod.effectType === 'charge_item') {
+          return { category: 'active_release', effectType: 'charge_item', scope: 'global', scopeDetail: [], value: { ...mod.value } }
+        }
+        const catData = catDataByKey[mod.category]
+        const effList = catData?.effects ?? []
+        const effectType = effList.some((e) => e.key === mod.effectType) ? mod.effectType : (effList[0]?.key ?? '')
+        const currentEffect = effList.find((x) => x.key === effectType)
+        let val = normalizeValueForSave(mod, currentEffect)
+        if (currentEffect?.key?.startsWith('custom_')) {
+          val = typeof mod.customText === 'string' ? mod.customText : (typeof val === 'string' ? val : '')
+        }
+        const { scope, scopeDetail } = normalizeScope(mod.scope, mod.scopeDetail)
+        const out = { category: mod.category, effectType, scope, scopeDetail, value: val }
+        if (effectType === 'ability_score_uncapped' && mod.break20 && typeof mod.break20 === 'object' && Object.keys(mod.break20).length) {
+          out.break20 = mod.break20
+        }
+        if (mod.upgrade && mod.upgrade.className && mod.upgrade.level >= 1) {
+          const upgradeVal = normalizeValueForSave({ ...mod, value: mod.upgrade.value, customText: '' }, currentEffect)
+          out.upgrade = { className: mod.upgrade.className, level: mod.upgrade.level, value: upgradeVal }
+        }
+        return out
+      }).filter((ef) => ef.effectType)
+      const durType = duration?.type || 'permanent'
+      const hasChargeItem = effects.some((ef) => ef.effectType === 'charge_item')
+      const isTimedDuration = !['permanent', 'instant', 'custom'].includes(durType)
+      if (isTimedDuration && !hasChargeItem) {
+        effects.push({ category: 'active_release', effectType: 'charge_item', scope: 'global', scopeDetail: [], value: normalizeChargeItemValue({}) })
+      }
+      const payload = {
+        ...initial,
+        source: source.trim(),
+        duration: duration?.type ? duration : (duration || undefined),
+        effects,
+        enabled: initial?.enabled !== false,
+      }
+      if (!initial?.fromFeat && !initial?.fromItem) {
+        payload.sourceKind = normalizeBuffSourceKindKey(sourceKind)
+      }
+      (onAutoSave || onSave)(payload)
+    }, 800)
+  }, [effectModules, source, duration, sourceKind, initial, onSave, onAutoSave])
+
+  const addModule = () => {
+    setShowEffectPicker((prev) => !prev)
+  }
+
+  /** 直接添加指定类型效果到列表（不弹窗） */
+  const addEffectDirectly = (category, effectKey) => {
+    const newMod = {
+      id: 'e_' + Math.random().toString(36).slice(2),
+      category,
+      effectType: effectKey,
+      scope: SCOPE_KIND.global,
+      scopeDetail: [],
+      value: effectKey === 'charge_item' ? normalizeChargeItemValue({}) : 0,
+      break20: {},
+      customText: '',
+    }
+    setEffectModules((prev) => [...prev, newMod])
+    setShowEffectPicker(false)
+    // 添加后自动打开行内编辑
+    setEditingModuleId(newMod.id)
+  }
 
   const handleSubmit = (e) => {
     e.preventDefault()
     if (!source.trim()) return
     const catDataByKey = BUFF_TYPES
-    // 保存为统一 Effect 结构（与 src/lib/effects/effectModel 一致），供 useBuffCalculator 与物品效果共用
     const effects = effectModules.map((mod) => {
+      // charge_item 直接保存 value 对象
+      if (mod.effectType === 'charge_item') {
+        return { category: 'active_release', effectType: 'charge_item', scope: 'global', scopeDetail: [], value: { ...mod.value } }
+      }
       const catData = catDataByKey[mod.category]
       const effList = catData?.effects ?? []
       const effectType = effList.some((e) => e.key === mod.effectType) ? mod.effectType : (effList[0]?.key ?? '')
@@ -1815,13 +5708,29 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
       if (currentEffect?.key?.startsWith('custom_')) {
         val = typeof mod.customText === 'string' ? mod.customText : (typeof val === 'string' ? val : '')
       }
-      return { category: mod.category, effectType, value: val }
+      const { scope, scopeDetail } = normalizeScope(mod.scope, mod.scopeDetail)
+      const out = { category: mod.category, effectType, scope, scopeDetail, value: val }
+      if (effectType === 'ability_score_uncapped' && mod.break20 && typeof mod.break20 === 'object' && Object.keys(mod.break20).length) {
+        out.break20 = mod.break20
+      }
+      // 等级升级配置
+      if (mod.upgrade && mod.upgrade.className && mod.upgrade.level >= 1) {
+        const upgradeVal = normalizeValueForSave({ ...mod, value: mod.upgrade.value, customText: '' }, currentEffect)
+        out.upgrade = { className: mod.upgrade.className, level: mod.upgrade.level, value: upgradeVal }
+      }
+      return out
     }).filter((ef) => ef.effectType)
-    if (!effects.length && !initial?.fromFeat) return
+    // 非永久持续时间 = 有结束时刻 = 必然有开始时刻 = 需要主动激活 → 自动添加 charge_item 使卡片变为主动
+    const durType = duration?.type || 'permanent'
+    const hasChargeItem = effects.some((ef) => ef.effectType === 'charge_item')
+    const isTimedDuration = !['permanent', 'instant', 'custom'].includes(durType)
+    if (isTimedDuration && !hasChargeItem) {
+      effects.push({ category: 'active_release', effectType: 'charge_item', scope: 'global', scopeDetail: [], value: normalizeChargeItemValue({}) })
+    }
     const payload = {
       ...initial,
       source: source.trim(),
-      duration: duration.trim() || undefined,
+      duration: duration?.type ? duration : (duration || undefined),
       effects,
       enabled: initial?.enabled !== false,
     }
@@ -1831,50 +5740,77 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
     onSave(payload)
   }
 
-  const addModule = () => {
-    setEffectModules((prev) => [...prev, {
-      id: 'e_' + Math.random().toString(36).slice(2),
-      category: '',
-      effectType: '',
-      value: 0,
-      customText: '',
-    }])
+  const [editingModuleId, setEditingModuleId] = useState(null)
+
+  const handleToggleEdit = (id) => {
+    setEditingModuleId(prev => prev === id ? null : id)
   }
 
-  const updateModule = (id, next) => {
-    setEffectModules((prev) => prev.map((m) => (m.id === id ? (typeof next === 'function' ? next(m) : next) : m)))
+  const updateModule = (id, patch) => {
+    setEffectModules(prev => {
+      const next = prev.map(m => m.id === id ? { ...m, ...patch } : m)
+      // 模块更新后触发自动保存
+      setTimeout(() => triggerAutoSave(), 0)
+      return next
+    })
   }
 
   const removeModule = (id) => {
-    setEffectModules((prev) => (prev.length <= 1 ? prev : prev.filter((m) => m.id !== id)))
+    setEffectModules(prev => prev.filter(m => m.id !== id))
+    if (editingModuleId === id) setEditingModuleId(null)
   }
 
+  // 组件卸载时清理自动保存定时器
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
+    }
+  }, [])
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 p-3 bg-gray-800 rounded-xl border border-gray-600">
+    <form onSubmit={handleSubmit} className="space-y-2 p-2 bg-gray-800 rounded-lg border border-gray-700">
+      {!compact && (
       <div>
-        <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-1">来源名称 *</label>
+        <label className="block text-gray-300 text-xs mb-1">来源名称 *</label>
         <input
           type="text"
+          list={sourceListId}
           value={source}
-          onChange={(e) => setSource(e.target.value)}
+          onChange={(e) => {
+            setSource(e.target.value)
+            // 来源变化后触发自动保存
+            setTimeout(() => triggerAutoSave(), 0)
+          }}
           placeholder="牧师的祝福术、狂暴、法师护甲..."
           className={inputClass}
           required
         />
+        {sourceNameOptions.length > 0 && (
+          <datalist id={sourceListId}>
+            {sourceNameOptions.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+        )}
       </div>
+      )}
+      {!hideDuration && (
       <div>
-        <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-1">持续时间</label>
-        <input
-          type="text"
-          value={duration}
-          onChange={(e) => setDuration(e.target.value)}
-          placeholder="1分钟、直到下次长休、专注..."
-          className={inputClass}
+        <DurationEditor 
+          value={duration} 
+          onChange={(next) => {
+            setDuration(next)
+            // 持续时间变化后触发自动保存
+            setTimeout(() => triggerAutoSave(), 0)
+          }} 
         />
       </div>
+      )}
 
+      {/* ══════ 统一效果编辑器 ══════ */}
+      {!compact && (
       <div>
-        <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-1">来源归类</label>
+        <label className="block text-gray-300 text-xs mb-1">来源归类</label>
         {sourceKindLocked ? (
           <div
             className={
@@ -1889,11 +5825,15 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
         ) : (
           <select
             value={sourceKind}
-            onChange={(e) => setSourceKind(normalizeBuffSourceKindKey(e.target.value))}
+            onChange={(e) => {
+              setSourceKind(normalizeBuffSourceKindKey(e.target.value))
+              // 来源归类变化后触发自动保存
+              setTimeout(() => triggerAutoSave(), 0)
+            }}
             className={inputClass + ' cursor-pointer'}
             title="Buff 在列表中的小标签归类"
           >
-            {BUFF_SOURCE_KIND_OPTIONS_EDITABLE.map((o) => (
+            {sourceKindOptions.map((o) => (
               <option key={o.key} value={o.key}>
                 {o.label}
               </option>
@@ -1901,156 +5841,243 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
           </select>
         )}
       </div>
-
+      )}
       <div>
-        <div className="flex items-center justify-between mb-0.5">
-          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">效果（可多条）</label>
-          <button type="button" onClick={addModule} className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500 text-amber-400 hover:bg-amber-500/20 text-[10px] font-medium">
+        <div className="flex items-center justify-between mb-1">
+          <label className="block text-gray-300 text-[10px]">效果（可多条）</label>
+          {!readOnly && (
+          <button
+            type="button"
+            onClick={addModule}
+            className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] transition-colors ${
+              showEffectPicker
+                ? 'border-gray-600 bg-gray-700 text-gray-300'
+                : 'border-gray-600 text-gray-400 hover:bg-gray-700'
+            }`}
+          >
             <Plus className="w-3 h-3" />
-            添加效果
+            {showEffectPicker ? '收起' : '添加效果'}
           </button>
+          )}
         </div>
-        <div className="space-y-1">
-          {effectModules.map((mod) => {
-            const catData = BUFF_TYPES[mod.category]
-            const effects = catData?.effects ?? []
-            const visibleEffects = effects.filter((e) => !e.hidden)
-            const hasCategory = !!mod.category && !!catData
-            const effectTypeValid = hasCategory && effects.some((e) => e.key === mod.effectType)
-            const effectiveEffectType = hasCategory && effectTypeValid ? mod.effectType : ''
-            const currentEffect = effects.find((e) => e.key === effectiveEffectType)
-            const complexValue = isComplexValueType(currentEffect)
-            const isAttackDamageBonus = effectiveEffectType === 'attack_damage_bonus'
-            const categorySelect = (
-              <select
-                value={mod.category || ''}
-                onChange={(e) => {
-                  const newCat = e.target.value
-                  const newEffects = BUFF_TYPES[newCat]?.effects ?? []
-                  updateModule(mod.id, { ...mod, category: newCat, effectType: newCat ? (newEffects[0]?.key ?? '') : '' })
-                }}
-                className={inputClass + ' h-7 text-xs w-full min-w-0'}
-              >
-                <option value="">&lt;效果大类&gt;</option>
-                {getCategories().map((c) => (
-                  <option key={c.key} value={c.key}>{c.label}</option>
+
+        {/* ── 行内效果类型选择器（双下拉） ── */}
+        {showEffectPicker && !readOnly && (
+          <div className="flex items-center gap-1.5 mb-2">
+            <select
+              value={pickerCategory}
+              onChange={(e) => setPickerCategory(e.target.value)}
+              className="h-7 px-1.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-[10px] cursor-pointer shrink-0"
+            >
+              {Object.entries(BUFF_TYPES)
+                .map(([k, v]) => (
+                  <option key={k} value={k}>{v.label}</option>
                 ))}
-              </select>
-            )
-            const effectTypeSelect = (
-              <select
-                value={effectiveEffectType}
-                onChange={(e) => {
-                  const nextType = e.target.value
-                  const patch = { ...mod, effectType: nextType }
-                  if (nextType === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
-                  if (nextType === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(mod.value)
-                  updateModule(mod.id, patch)
-                }}
-                className={inputClass + ' h-7 text-xs w-full min-w-0'}
-                disabled={!hasCategory}
-              >
-                <option value="">&lt;具体效果&gt;</option>
-                {visibleEffects.map((e) => (
-                  <option key={e.key} value={e.key}>{e.label}</option>
+            </select>
+            <select
+              onChange={(e) => {
+                if (e.target.value) {
+                  addEffectDirectly(pickerCategory, e.target.value)
+                  e.target.value = ''
+                }
+              }}
+              defaultValue=""
+              className="h-7 px-1.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-[10px] cursor-pointer flex-1 min-w-0"
+            >
+              <option value="" disabled>选择效果类型…</option>
+              {(BUFF_TYPES[pickerCategory]?.effects || [])
+                .filter(e => !e.hidden)
+                .map(eff => (
+                  <option key={eff.key} value={eff.key}>{eff.label}</option>
                 ))}
-              </select>
-            )
-            const removeBtn = (
-              <button
-                type="button"
-                onClick={() => removeModule(mod.id)}
-                className="h-7 w-7 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 hover:border-red-600 flex items-center justify-center shrink-0"
-                title="删除此效果"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            )
-            const inlineValueEditor = (
-              <EffectValueEditor
-                module={{ ...mod, effectType: effectiveEffectType }}
-                onChange={(next) => updateModule(mod.id, next)}
-                catData={catData}
-                inline
-                spellDC={spellDC}
-                spellAttackBonus={spellAttackBonus}
-                useWandScrollTable={useWandScrollTable}
-                referenceData={referenceData}
-                baseReferenceData={baseReferenceData}
-              />
-            )
-            const attackDamageCompactClass = inputClassInline + ' h-7 text-xs'
-            const attackDamageModule = { ...mod, effectType: effectiveEffectType }
-            const attackDamageOnChange = (next) => updateModule(mod.id, next)
-            const addAttackDamageLocalRow = () => {
-              const obj = normalizeAttackDamageBonusModuleValue(mod.value)
-              updateModule(mod.id, {
-                ...mod,
-                value: { ...obj, categoryRows: [...(obj.categoryRows || []), newWeaponBonusRow('', 0)] },
-              })
-            }
-            return (
-              <div key={mod.id} className="rounded border border-gray-600 bg-gray-700/30 p-1.5 space-y-1">
-                {isAttackDamageBonus ? (
-                  <div className="flex flex-col gap-2.5 w-full min-w-0">
-                    <div className="flex flex-wrap items-center gap-1 w-full min-w-0 overflow-x-hidden">
-                      <div className="flex items-center justify-center shrink-0 w-5 pointer-events-none select-none" aria-hidden>
-                        <DragHandleIcon className="w-3.5 h-3.5 text-dnd-text-muted opacity-70" />
-                      </div>
-                      <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{categorySelect}</div>
-                      <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{effectTypeSelect}</div>
-                      <AttackDamageBonusFields
-                        module={attackDamageModule}
-                        onChange={attackDamageOnChange}
-                        compactClass={attackDamageCompactClass}
-                        inline
-                        variant="global"
-                        referenceData={referenceData}
-                      />
-                      <div className="ml-auto flex items-center gap-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={addAttackDamageLocalRow}
-                          className="shrink-0 rounded border border-amber-500/60 bg-gray-800/90 px-2 py-0.5 text-[10px] font-medium text-amber-400/95 hover:bg-amber-500/15 h-7 flex items-center"
-                          title="添加一条按武器类型/类别的额外加值"
-                        >
-                          局部生效
-                        </button>
-                        {removeBtn}
-                      </div>
+            </select>
+          </div>
+        )}
+
+        <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
+          {effectModules.length === 0 ? (
+            <p className="text-gray-500 text-xs text-center py-2">暂无效果，点击右上角添加</p>
+          ) : (
+            effectModules.map((mod) => {
+              const catData = BUFF_TYPES[mod.category]
+              const currentEffect = catData?.effects?.find((e) => e.key === mod.effectType)
+              const isCustomText = mod.effectType === 'custom_condition'
+              const summary = currentEffect
+                ? getEffectSummaryShort({ effectType: mod.effectType, value: mod.value, customText: mod.customText, scope: mod.scope, scopeDetail: mod.scopeDetail }, effectSummaryContext)
+                : '未选择效果'
+              const rawLabel = currentEffect ? (currentEffect.label ?? mod.effectType) : '—'
+              const displayLabel = summary && summary !== rawLabel && summary !== '未选择效果' ? summary : rawLabel
+              const isEditing = editingModuleId === mod.id
+              // 判断是否为新建效果（刚添加，尚未保存过）
+              const isNewEffect = !_initIdsRef.current.has(mod.id)
+              // 判断效果是否配置完整（有 value 且不为默认值）
+              const isIncomplete = !mod.value || (typeof mod.value === 'number' && mod.value === 0) || (typeof mod.value === 'object' && Object.keys(mod.value).length === 0)
+              const isChargeItem = mod.effectType === 'charge_item'
+              const chargeData = isChargeItem ? normalizeChargeItemValue(mod.value) : null
+              
+              return (
+                <div key={mod.id}>
+                  <div
+                    className={`rounded-lg border px-2 py-1.5 flex items-center justify-between gap-2 ${
+                      isEditing
+                        ? 'border-gray-600 bg-gray-700/50'
+                        : isCustomText
+                          ? 'border-dashed border-gray-600/50 bg-gray-800/30'
+                          : isIncomplete && !readOnly
+                            ? 'border-dashed border-yellow-500/40 bg-yellow-500/5'
+                            : 'border-gray-700 bg-gray-800/50'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1 flex items-center gap-1.5">
+                      <span className={`text-[9px] px-1 py-0.5 rounded shrink-0 font-medium ${
+                        isChargeItem
+                          ? 'text-amber-400 bg-amber-500/10'
+                          : 'text-blue-400 bg-blue-500/10'
+                      }`}>
+                        {isChargeItem ? '主' : '被'}
+                      </span>
+                      {isCustomText && (
+                        <span className="text-[9px] text-gray-500 bg-gray-700/50 px-1 py-0.5 rounded shrink-0">文案</span>
+                      )}
+                      {isIncomplete && !readOnly && !isEditing && (
+                        <span className="text-[9px] text-yellow-400 bg-yellow-500/10 px-1 py-0.5 rounded shrink-0">待配置</span>
+                      )}
+                      <span className={`text-xs ${isCustomText ? 'text-gray-400' : 'text-gray-300'} font-medium`}>{displayLabel}</span>
                     </div>
-                    <div className="w-full min-w-0 overflow-x-hidden border-t border-gray-600/50 pt-2.5">
-                      <AttackDamageBonusFields
-                        module={attackDamageModule}
-                        onChange={attackDamageOnChange}
-                        compactClass={attackDamageCompactClass}
-                        inline
-                        variant="weapons"
-                        hideWeaponAddButtons
-                        referenceData={referenceData}
-                      />
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      {!readOnly && (
+                      <>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleEdit(mod.id)}
+                        className={`p-1 rounded transition-colors ${isEditing ? 'text-gray-300 bg-gray-700' : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'}`}
+                        title={isEditing ? '收起编辑' : '编辑'}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeModule(mod.id)}
+                        className="p-1 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors"
+                        title="删除"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                      </>
+                      )}
                     </div>
                   </div>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-1 w-full min-w-0">
-                      <div className="flex items-center justify-center shrink-0 w-5 pointer-events-none select-none" aria-hidden>
-                        <DragHandleIcon className="w-3.5 h-3.5 text-dnd-text-muted opacity-70" />
+                  {isEditing && !readOnly && (
+                    <div className="mt-1 p-2 rounded-lg border border-gray-600 bg-gray-800 space-y-1.5">
+                      {/* 状态标签 */}
+                      <div className="flex items-center justify-between gap-2 pb-1 border-b border-gray-700">
+                        <span className="text-[10px] text-gray-400 font-medium">
+                          {isNewEffect ? '新建效果' : '编辑效果'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleEdit(mod.id)}
+                          className="text-[10px] px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors"
+                          title="收起编辑区"
+                        >
+                          收起
+                        </button>
                       </div>
-                      <div className="min-w-0">{categorySelect}</div>
-                      <div className="min-w-0">{effectTypeSelect}</div>
-                      {!complexValue && (
-                        <div className="col-span-2 min-w-0 flex flex-nowrap items-center gap-1 overflow-hidden">
-                          {inlineValueEditor}
-                        </div>
+                      
+                      {!isChargeItem && (
+                      <>
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          value={mod.category || ''}
+                          onChange={(e) => {
+                            const newEffects = BUFF_TYPES[e.target.value]?.effects ?? []
+                            updateModule(mod.id, { category: e.target.value, effectType: newEffects[0]?.key ?? '' })
+                          }}
+                          className="h-7 px-1.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-[10px] cursor-pointer shrink-0"
+                        >
+                          {Object.entries(BUFF_TYPES)
+                            .map(([k, v]) => (
+                              <option key={k} value={k}>{v.label}</option>
+                            ))}
+                        </select>
+                        <select
+                          value={mod.effectType || ''}
+                          onChange={(e) => {
+                            const patch = { effectType: e.target.value }
+                            if (e.target.value === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
+                            if (e.target.value === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(mod.value)
+                            if (e.target.value === 'spell_damage_bonus') patch.value = { type: '', diceFloor: 0, perDieBonus: 0, extraDice: '', flatBonus: 0 }
+                            if (e.target.value === 'spell_ability_attack') patch.value = { ability: 'int' }
+                            if (e.target.value === 'base_speed_increment') patch.value = { walk: 0, fly: 0, swim: 0, climb: 0 }
+                            if (e.target.value === 'ability_score_uncapped') patch.break20 = {}
+                            if (e.target.value === 'choice') patch.value = { choiceOptions: [{ name: '选项 A', effects: [] }, { name: '选项 B', effects: [] }], choiceSelected: 0 }
+                            updateModule(mod.id, patch)
+                          }}
+                          className="h-7 px-1.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-[10px] cursor-pointer flex-1 min-w-0"
+                        >
+                          <option value="" disabled>选择效果类型…</option>
+                          {(BUFF_TYPES[mod.category]?.effects || [])
+                            .filter(e => !e.hidden)
+                            .map(eff => (
+                              <option key={eff.key} value={eff.key}>{eff.label}</option>
+                            ))}
+                        </select>
+                      </div>
+                      {mod.effectType && (
+                        <>
+                          <ScopeEditor scope={mod.scope} scopeDetail={mod.scopeDetail} onChange={(next) => updateModule(mod.id, next)} />
+                          <EffectConditionEditor effectCondition={mod.effectCondition} onChange={(effectCondition) => updateModule(mod.id, { effectCondition })} />
+                        </>
                       )}
-                      {complexValue && <div className="col-span-2" />}
-                      {removeBtn}
-                    </div>
-                    {complexValue && (
-                      <div className="pt-0.5 border-t border-gray-600/80">
+                      </>
+                      )}
+                      {isChargeItem ? (
+                        <ActiveCardEditor
+                          data={chargeData}
+                          onChange={(next) => updateModule(mod.id, { value: normalizeChargeItemValue(next) })}
+                          duration={duration}
+                          onDurationChange={setDuration}
+                          charResources={charResources}
+                          spellSlots={spellSlots}
+                          renderEffects={() => {
+                            const addChargeEffect = (type) => updateModule(mod.id, { value: normalizeChargeItemValue({ ...chargeData, effects: [...(chargeData.effects || []), createChargeEffectEntry(type)] }) })
+                            return (
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-gray-400 text-[10px]">释放效果</span>
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  <button type="button" onClick={() => addChargeEffect('damage')} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">⚔ 伤害</button>
+                                  <button type="button" onClick={() => addChargeEffect('attack_buff')} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">🎯 攻击加成</button>
+                                  <button type="button" onClick={() => addChargeEffect('heal')} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">✚ 治疗</button>
+                                  <button type="button" onClick={() => addChargeEffect('spell')} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 法术</button>
+                                  <button type="button" onClick={() => addChargeEffect('temp_buff')} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 增益</button>
+                                  <button type="button" onClick={() => addChargeEffect('creature_transform')} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 变身</button>
+                                  <button type="button" onClick={() => addChargeEffect('restore_spell_slots')} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 环位恢复</button>
+                                  <button type="button" onClick={() => addChargeEffect('summon')} className="h-6 px-2 rounded border border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600 text-[10px] leading-none flex items-center">+ 召唤</button>
+                                  <button type="button" onClick={() => addChargeEffect('consume_spell_slot_to_restore_charges')} className="h-6 px-2 rounded border border-purple-600/70 bg-purple-900/30 text-purple-300 hover:bg-purple-800/40 text-[10px] leading-none flex items-center">+ 耗环回充</button>
+                                  <button type="button" onClick={() => addChargeEffect('random_table')} className="h-6 px-2 rounded border border-amber-600/70 bg-amber-900/30 text-amber-300 hover:bg-amber-800/40 text-[10px] leading-none flex items-center">+ 随机库</button>
+                                </div>
+                              </div>
+                              {(chargeData.effects || []).length === 0 && (
+                                <p className="text-gray-500 text-[10px]">点击上方按钮添加释放效果</p>
+                              )}
+                              <ActiveEffectsList
+                                data={chargeData}
+                                onChange={(next) => updateModule(mod.id, { value: normalizeChargeItemValue(next) })}
+                                spellDC={spellDC}
+                                spellAttackBonus={spellAttackBonus}
+                                useWandScrollTable={useWandScrollTable}
+                                referenceData={referenceData}
+                                baseReferenceData={baseReferenceData}
+                                subordinates={subordinates}
+                              />
+                            </div>
+                            )
+                          }}
+                        />
+                      ) : currentEffect && (
                         <EffectValueEditor
-                          module={{ ...mod, effectType: effectiveEffectType }}
+                          module={{ ...mod }}
                           onChange={(next) => updateModule(mod.id, next)}
                           catData={catData}
                           spellDC={spellDC}
@@ -2058,27 +6085,330 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
                           useWandScrollTable={useWandScrollTable}
                           referenceData={referenceData}
                           baseReferenceData={baseReferenceData}
+                          subordinates={subordinates}
                         />
+                      )}
+
+                      {/* 等级升级配置（仅被动效果） */}
+                      {!isChargeItem && mod.effectType && charClasses.length > 0 && (
+                        <UpgradeEditor
+                          upgrade={mod.upgrade}
+                          baseValue={mod.value}
+                          effectType={mod.effectType}
+                          category={mod.category}
+                          charClasses={charClasses}
+                          catData={catData}
+                          currentEffect={currentEffect}
+                          spellDC={spellDC}
+                          spellAttackBonus={spellAttackBonus}
+                          useWandScrollTable={useWandScrollTable}
+                          referenceData={referenceData}
+                          baseReferenceData={baseReferenceData}
+                          subordinates={subordinates}
+                          onChange={(next) => updateModule(mod.id, { upgrade: next })}
+                        />
+                      )}
+                      
+                      {/* 编辑区底部操作按钮 */}
+                      <div className="flex items-center justify-end gap-1.5 pt-1 border-t border-amber-500/20">
+                        {isNewEffect && (
+                          <button
+                            type="button"
+                            onClick={() => removeModule(mod.id)}
+                            className="text-[10px] px-2 py-0.5 rounded bg-red-900/30 hover:bg-red-900/50 text-red-400 transition-colors"
+                            title="取消新建并删除"
+                          >
+                            ✕ 取消新建
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleEdit(mod.id)}
+                          className="text-[10px] px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors"
+                        >
+                          完成编辑
+                        </button>
                       </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )
-          })}
+                    </div>
+                  )}
+                </div>
+              )
+            })
+          )}
         </div>
       </div>
 
-      <div className="flex gap-1.5 justify-end pt-1.5">
-        <button type="button" onClick={onCancel} className="px-4 py-2 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700">
+
+
+      {!readOnly && (
+      <div className={`flex gap-1.5 justify-end ${compact ? 'pt-1' : 'pt-1.5'}`}>
+        <button type="button" onClick={onCancel} className={`${compact ? 'px-2.5 py-1 text-[11px]' : 'px-4 py-2'} rounded-lg border border-gray-600 text-gray-400 hover:bg-gray-700`}>
           取消
         </button>
-        <button type="submit" className="px-4 py-2 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-medium">
+        {onClear && (
+          <button type="button" onClick={onClear} className={`${compact ? 'px-2.5 py-1 text-[11px]' : 'px-4 py-2'} rounded-lg border border-gray-600 text-gray-400 hover:bg-gray-700`}>
+            清除
+          </button>
+        )}
+        <button type="submit" className={`${compact ? 'px-2.5 py-1 text-[11px]' : 'px-4 py-2'} rounded-[10px] bg-dnd-red hover:bg-dnd-red-hover text-white font-medium shadow-[0_0_12px_rgba(230,57,70,0.35)]`}>
           保存
         </button>
       </div>
+      )}
     </form>
   )
 }
 
-export { EffectValueEditor, isComplexValueType, DamageDiceInlineRow, NumberStepper, AttackDamageBonusFields, newWeaponBonusRow }
+/** scope 条件编辑器：命中/伤害加值选择起效范围后，按 kind 渲染对应的 scopeDetail 多选 */
+function ScopeEditor({ scope, scopeDetail, onChange }) {
+  const currentScope = scope || SCOPE_KIND.global
+  const details = Array.isArray(scopeDetail) ? scopeDetail.filter(Boolean) : []
+  const showDetail =
+    currentScope === SCOPE_KIND.creature_type ||
+    currentScope === SCOPE_KIND.damage_type ||
+    currentScope === SCOPE_KIND.weapon_category ||
+    currentScope === SCOPE_KIND.weapon_property ||
+    currentScope === SCOPE_KIND.custom
+
+  const detailOptions = useMemo(() => {
+    if (currentScope === SCOPE_KIND.creature_type) return CREATURE_TYPE_OPTIONS
+    if (currentScope === SCOPE_KIND.damage_type) return DAMAGE_TYPES
+    if (currentScope === SCOPE_KIND.weapon_category) return WEAPON_SCOPE_CATEGORY_OPTIONS
+    if (currentScope === SCOPE_KIND.weapon_property) return WEAPON_PROPERTY_OPTIONS
+    return []
+  }, [currentScope])
+
+  const handleScopeChange = (nextScope) => {
+    onChange({ scope: nextScope || SCOPE_KIND.global, scopeDetail: [] })
+  }
+
+  const toggleDetail = (value, checked) => {
+    const next = checked ? [...details, value] : details.filter((v) => v !== value)
+    onChange({ scopeDetail: next })
+  }
+
+  const handleCustomTextChange = (text) => {
+    onChange({ scopeDetail: [text] })
+  }
+
+  return (
+    <div className="space-y-2">
+      <div>
+        <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">起效范围</label>
+        <select
+          value={currentScope}
+          onChange={(e) => handleScopeChange(e.target.value)}
+          className={inputClass.replace(/\bh-10\b/, 'h-7').replace(/\btext-sm\b/, 'text-[11px]') + 'w-full sm:w-48 min-w-0'}
+        >
+          {SCOPE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+      {showDetail && currentScope !== SCOPE_KIND.custom && (
+        <div className="flex flex-wrap gap-2">
+          {detailOptions.map((o) => {
+            const checked = details.includes(o.value)
+            return (
+              <label key={o.value} className="flex items-center gap-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => toggleDetail(o.value, e.target.checked)}
+                  className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                />
+                <span className="text-xs text-gray-300">{o.label}</span>
+              </label>
+            )
+          })}
+        </div>
+      )}
+      {currentScope === SCOPE_KIND.custom && (
+        <div>
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">自定义范围</label>
+          <input
+            type="text"
+            value={details[0] ?? ''}
+            onChange={(e) => handleCustomTextChange(e.target.value)}
+            placeholder="例如：水下、风暴天气、夜间…"
+            className={inputClass.replace(/\bh-10\b/, 'h-7').replace(/\btext-sm\b/, 'text-[11px]') + 'w-full sm:w-64 min-w-0'}
+          />
+        </div>
+      )}
+      {currentScope === SCOPE_KIND.self_weapon && (
+        <p className="text-xs text-gray-500">仅对来自同一件物品的武器战斗手段生效。</p>
+      )}
+      {currentScope === SCOPE_KIND.specific_target && (
+        <div>
+          <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">特定目标</label>
+          <input
+            type="text"
+            value={details[0] ?? ''}
+            onChange={(e) => handleCustomTextChange(e.target.value)}
+            placeholder="例如：对 undead 类型生物、对龙类、对某件装备…"
+            className={inputClass.replace(/\bh-10\b/, 'h-7').replace(/\btext-sm\b/, 'text-[11px]') + 'w-full sm:w-64 min-w-0'}
+          />
+          <p className="text-xs text-gray-500 mt-0.5">特定目标范围需手动计算，系统不自动匹配。</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** effectCondition 条件编辑器：选择效果的生效条件（如仅在变身状态下） */
+function EffectConditionEditor({ effectCondition, onChange }) {
+  const currentCondition = effectCondition || ''
+  
+  const CONDITION_OPTIONS = [
+    { value: '', label: '无条件（始终生效）' },
+    { value: 'creature_transform_active', label: '仅在变身状态下生效' },
+    { value: 'wild_shape_active', label: '仅在荒野变形期间生效' },
+  ]
+
+  return (
+    <div>
+      <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5">生效条件</label>
+      <select
+        value={currentCondition}
+        onChange={(e) => onChange(e.target.value)}
+        className={inputClass.replace(/\bh-10\b/, 'h-7').replace(/\btext-sm\b/, 'text-[11px]') + 'w-full sm:w-64 min-w-0'}
+      >
+        {CONDITION_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+      {currentCondition && (
+        <p className="text-xs text-gray-500 mt-1">
+          {currentCondition === 'creature_transform_active' && '此效果仅在角色处于变身状态时应用。'}
+          {currentCondition === 'wild_shape_active' && '此效果仅在德鲁伊使用荒野变形时应用。'}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/** 单条效果（附魔）弹窗编辑器：选择分类/效果类型/scope 后用 EffectValueEditor 编辑值 */
+function EffectModuleModal({
+  module,
+  onSave,
+  onCancel,
+  referenceData,
+  baseReferenceData,
+  spellDC,
+  spellAttackBonus,
+  useWandScrollTable,
+  isNew = false,
+  subordinates = [],
+}) {
+  const [draft, setDraft] = useState(module)
+
+  const catData = BUFF_TYPES[draft.category]
+  const effects = catData?.effects ?? []
+  const visibleEffects = effects.filter((e) => !e.hidden)
+  const hasCategory = !!draft.category && !!catData
+  const effectTypeValid = hasCategory && effects.some((e) => e.key === draft.effectType)
+  const effectiveEffectType = hasCategory && effectTypeValid ? draft.effectType : ''
+  const currentEffect = effects.find((e) => e.key === effectiveEffectType)
+  const showScope = !!effectiveEffectType
+
+  const updateDraft = (patch) => setDraft((prev) => ({ ...prev, ...patch }))
+
+  return (
+    <div className="rounded-lg border border-white/[0.1] bg-[#1e2736] shadow-lg p-2.5 space-y-2">
+      <div className="flex items-center justify-between">
+        <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">
+          {isNew || !module.id ? '添加附魔' : '编辑附魔'}
+        </h3>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="p-1 rounded text-gray-400 hover:bg-gray-700 hover:text-white"
+          title="关闭"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* 效果大类 + 具体效果：双下拉 */}
+      <div className="flex items-center gap-1.5">
+        <select
+          value={draft.category || ''}
+          onChange={(e) => {
+            const newEffects = BUFF_TYPES[e.target.value]?.effects ?? []
+            updateDraft({ category: e.target.value, effectType: newEffects[0]?.key ?? '' })
+          }}
+          className="h-7 px-1.5 rounded border border-amber-500/30 bg-dnd-bg text-amber-300 text-[10px] cursor-pointer shrink-0"
+        >
+          {Object.entries(BUFF_TYPES)
+            .map(([k, v]) => (
+              <option key={k} value={k}>{v.label}</option>
+            ))}
+        </select>
+        <select
+          value={effectiveEffectType || ''}
+          onChange={(e) => {
+            const patch = { effectType: e.target.value }
+            if (e.target.value === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
+            if (e.target.value === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(draft.value)
+            if (e.target.value === 'spell_damage_bonus') patch.value = { type: '', diceFloor: 0, perDieBonus: 0, extraDice: '', flatBonus: 0 }
+            if (e.target.value === 'spell_ability_attack') patch.value = { ability: 'int' }
+            if (e.target.value === 'base_speed_increment') patch.value = { walk: 0, fly: 0, swim: 0, climb: 0 }
+            if (e.target.value === 'ability_score_uncapped') patch.break20 = {}
+            if (e.target.value === 'choice') patch.value = { choiceOptions: [{ name: '选项 A', effects: [] }, { name: '选项 B', effects: [] }], choiceSelected: 0 }
+            updateDraft(patch)
+          }}
+          className="h-7 px-1.5 rounded border border-amber-500/30 bg-dnd-bg text-amber-300 text-[10px] cursor-pointer flex-1 min-w-0"
+        >
+          <option value="" disabled>选择效果类型…</option>
+          {(BUFF_TYPES[draft.category]?.effects || [])
+            .filter(e => !e.hidden)
+            .map(eff => (
+              <option key={eff.key} value={eff.key}>{eff.label}</option>
+            ))}
+        </select>
+      </div>
+
+      {showScope && (
+        <ScopeEditor
+          scope={draft.scope}
+          scopeDetail={draft.scopeDetail}
+          onChange={(next) => updateDraft(next)}
+        />
+      )}
+
+      {currentEffect && (
+        <EffectValueEditor
+          module={{ ...draft, effectType: effectiveEffectType }}
+          onChange={(next) => setDraft(next)}
+          catData={catData}
+          spellDC={spellDC}
+          spellAttackBonus={spellAttackBonus}
+          useWandScrollTable={useWandScrollTable}
+          referenceData={referenceData}
+          baseReferenceData={baseReferenceData}
+          subordinates={subordinates}
+        />
+      )}
+
+      <div className="flex gap-1.5 justify-end pt-0.5">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-2.5 py-1 rounded border border-gray-600 text-gray-300 hover:bg-gray-700 text-xs"
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          onClick={() => onSave(draft)}
+          disabled={!effectiveEffectType}
+          className="px-2.5 py-1 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-xs"
+        >
+          保存
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export { EffectValueEditor, isComplexValueType, DamageDiceInlineRow, NumberStepper, AttackDamageBonusFields, newWeaponBonusRow, EffectModuleModal, ArmorOverrideEditor, CreatureTransformEditor, RestoreSpellSlotsEditor, ChoiceBUFFEditor }

@@ -28,7 +28,7 @@ function syncWalletCurrencyEntries(wallet, inventory) {
     const existing = inv.find((e) => e?.walletCurrencyId === cid && !e?.inBagOfHolding)
     const label = getCurrencyDisplayName(getCurrencyById(cid)) || cfg.name || cid
     out.push({
-      id: existing?.id || `inv_${crypto.randomUUID()}`,
+      id: existing?.id || `wallet_${cid}`,
       name: label,
       walletCurrencyId: cid,
       qty,
@@ -262,6 +262,7 @@ export function addCharacter(ownerName, data = {}) {
     wallet: data.wallet ?? {},
     equipment: data.equipment ?? {},
     buffs: data.buffs ?? [],
+    shields: Array.isArray(data.shields) ? data.shields : [],
     notes: data.notes ?? '',
     createdAt: now,
     updatedAt: now,

@@ -40,5 +40,5 @@ export function useCombatState(character) {
       attunementSlotsAvailable: Math.max(0, maxSlots - attunedCount),
       getEffectiveSlot: getEffective,
     }
-  }, [character?.buffs, character?.equipment, character?.inventory])
+  }, [character?.buffs, character?.equipment, character?.inventory, character?.classFeatureChoices])
 }

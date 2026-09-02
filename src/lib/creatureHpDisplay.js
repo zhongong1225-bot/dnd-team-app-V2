@@ -8,7 +8,7 @@ export function resolveCreatureHpDisplay(char) {
   let hpFromText = m != null ? Number(m[0]) : null
   if (!Number.isFinite(hpFromText) || hpFromText <= 0) hpFromText = null
 
-  const h = char?.hp ?? { current: 0, max: 0, temp: 0 }
+  const h = char?.hp ?? { current: 0, max: 0, temp: 0, buffTemp: 0 }
   let rawCur = Number(h.current)
   let rawMax = Number(h.max)
   if (!Number.isFinite(rawCur)) rawCur = 0
@@ -33,6 +33,6 @@ export function resolveCreatureHpDisplay(char) {
     }
   }
 
-  const temp = Math.max(0, Number(h.temp) || 0)
+  const temp = Math.max(Math.max(0, Number(h.temp) || 0), Math.max(0, Number(h.buffTemp) || 0))
   return { cur, max, temp }
 }

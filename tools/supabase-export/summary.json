@@ -1,0 +1,41 @@
+{
+  "exportedAt": "2026-07-18T19:39:56.050Z",
+  "supabaseUrl": "https://twqmhhozcthfoxnxwgyb.supabase.co",
+  "results": [
+    {
+      "table": "characters",
+      "count": 3,
+      "path": "G:\\dnd-team-app\\tools\\supabase-export\\characters.json"
+    },
+    {
+      "table": "warehouse",
+      "count": 1,
+      "path": "G:\\dnd-team-app\\tools\\supabase-export\\warehouse.json"
+    },
+    {
+      "table": "campaign_modules",
+      "count": 1,
+      "path": "G:\\dnd-team-app\\tools\\supabase-export\\campaign_modules.json"
+    },
+    {
+      "table": "team_vault",
+      "count": 0,
+      "path": "G:\\dnd-team-app\\tools\\supabase-export\\team_vault.json"
+    },
+    {
+      "table": "crafting_projects",
+      "count": 0,
+      "path": "G:\\dnd-team-app\\tools\\supabase-export\\crafting_projects.json"
+    },
+    {
+      "table": "user_prefs",
+      "count": 1,
+      "path": "G:\\dnd-team-app\\tools\\supabase-export\\user_prefs.json"
+    },
+    {
+      "table": "custom_library",
+      "count": 0,
+      "path": "G:\\dnd-team-app\\tools\\supabase-export\\custom_library.json"
+    }
+  ]
+}

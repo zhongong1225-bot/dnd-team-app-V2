@@ -9,8 +9,8 @@ const FLOOR_SPIN_KEEP = 0.972
 /** 空气阻力：每帧衰减角速度，滚动更有「重量感」 */
 const AV_AIR_DAMP = 0.994
 const FLOOR_BOUNCE_Y = 0.54
-/** 向中心收拢强度（略弱便于多颗骰子平铺开） */
-const CENTER_PULL = 0.48
+/** 向中心收拢强度（降低以减少不自然的牵引感） */
+const CENTER_PULL = 0.22
 /** 多颗骰子出生时沿 X 错开间距（世界单位） */
 const SPAWN_X_STRIDE = 2.15
 /** 面上数字留白比例：略收窄，避免大点数文本贴边/越界 */
@@ -906,9 +906,9 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
           a.v.y = Math.abs(a.v.y) * 0.82
         }
         if (settled) {
-          a.v.multiplyScalar(0.88)
-          // 与其它骰型一致：停稳阶段统一角速度阻尼，避免 d6 视觉效果偏“滑”。
-          a.av.multiplyScalar(0.42)
+          a.v.multiplyScalar(0.92)
+          // 停稳阶段使用更平缓的角速度阻尼，避免最后几秒快速减速的不自然感
+          a.av.multiplyScalar(0.95)
         }
 
         // 停稳后：把本次点数所在面旋向世界上方，结果只看贴图，不再叠 HTML 圆标
@@ -920,7 +920,8 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
             const ln = faceOutwardNormal(a.bodyMesh.geometry, fi, 3)
             if (ln.lengthSq() > 1e-12) {
               const qTarget = new THREE.Quaternion().setFromUnitVectors(ln, resultFaceDir)
-              a.group.quaternion.slerp(qTarget, 0.2)
+              // 使用极小的 slerp 值让旋转非常平缓，避免"突然找面"的感觉
+              a.group.quaternion.slerp(qTarget, 0.03)
               a.group.quaternion.normalize()
             }
           } else if (sd === 6) {
@@ -928,7 +929,7 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
             const ln = d6FaceNormalByValue(fv)
             if (ln.lengthSq() > 1e-12) {
               const qTarget = new THREE.Quaternion().setFromUnitVectors(ln, resultFaceDir)
-              a.group.quaternion.slerp(qTarget, 0.2)
+              a.group.quaternion.slerp(qTarget, 0.03)
               a.group.quaternion.normalize()
             }
           } else if (sd === 10) {
@@ -946,7 +947,7 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
             const ln = faceOutwardNormal(a.bodyMesh.geometry, fi, 6)
             if (ln.lengthSq() > 1e-12) {
               const qTarget = new THREE.Quaternion().setFromUnitVectors(ln, resultFaceDir)
-              a.group.quaternion.slerp(qTarget, 0.2)
+              a.group.quaternion.slerp(qTarget, 0.03)
               a.group.quaternion.normalize()
             }
           } else if (sd === 12) {
@@ -955,15 +956,15 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
             const ln = faceOutwardNormal(a.bodyMesh.geometry, fi, 9)
             if (ln.lengthSq() > 1e-12) {
               const qTarget = new THREE.Quaternion().setFromUnitVectors(ln, resultFaceDir)
-              a.group.quaternion.slerp(qTarget, 0.2)
+              a.group.quaternion.slerp(qTarget, 0.03)
               a.group.quaternion.normalize()
             }
           }
         }
       }
 
-      // 多次迭代的 2D（XY）分离与冲量，减少高速相互穿模。
-      const collisionIterations = 6
+      // 减少碰撞迭代次数以提升性能，同时保持合理的分离效果
+      const collisionIterations = 3
       const separationBias = 1.08
       for (let iter = 0; iter < collisionIterations; iter++) {
         for (let i = 0; i < dice.length; i++) {

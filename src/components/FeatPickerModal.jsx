@@ -10,9 +10,24 @@ import {
 } from '../data/featBuffChoices'
 import { ABILITY_NAMES_ZH, DAMAGE_TYPES } from '../data/buffTypes'
 import { resolveRuleText, buildFeatNameKey, buildFeatDescriptionKey } from '../lib/ruleTextOverrides'
+import { loadDefaultBuffPatch, saveDefaultBuffPatch, migrateFeatBuffsToModuleLibrary } from '../lib/defaultBuffPatchStore'
+import { HARDCODED_FEAT_BUFFS } from '../data/featDefaultBuffs'
+import { useAuth } from '../contexts/AuthContext'
 import { inputClass } from '../lib/inputStyles'
+import BuffForm from './BuffForm'
 
 const CATEGORY_ORDER = Object.keys(FEATS_BY_CATEGORY)
+
+/** 通用专长槽额外开放九剑特殊专长与制作物品专长 */
+const GENERAL_FEAT_EXTRA_CATEGORIES = ['九剑特殊专长', '制作物品专长']
+
+function expandAllowedCategories(categories) {
+  if (!categories || categories.length === 0) return categories
+  if (categories.includes('通用专长')) {
+    return [...new Set([...categories, ...GENERAL_FEAT_EXTRA_CATEGORIES])]
+  }
+  return categories
+}
 
 function AbilitySelect({ value, options, onChange, placeholder }) {
   return (
@@ -159,31 +174,47 @@ function ChoicePanel({ schema, state, onChange }) {
   }
 }
 
-export default function FeatPickerModal({ isOpen, onClose, onConfirm, overridesMap, selectedIds }) {
-  const [category, setCategory] = useState(CATEGORY_ORDER[0])
+export default function FeatPickerModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  overridesMap,
+  selectedIds,
+  allowedCategories,
+  moduleId = 'default',
+  formulaContext,
+}) {
+  const { isAdmin } = useAuth()
+  const expandedCategories = useMemo(() => expandAllowedCategories(allowedCategories), [allowedCategories])
+  const categoryOrder = useMemo(() => {
+    if (!expandedCategories || expandedCategories.length === 0) return CATEGORY_ORDER
+    return CATEGORY_ORDER.filter((c) => expandedCategories.includes(c))
+  }, [expandedCategories])
+  const [category, setCategory] = useState(categoryOrder[0] || '')
   const [query, setQuery] = useState('')
   const [selectedFeatId, setSelectedFeatId] = useState(null)
   const [choiceState, setChoiceState] = useState({})
 
   useEffect(() => {
     if (!isOpen) return
-    setCategory(CATEGORY_ORDER[0])
+    setCategory(categoryOrder[0] || '')
     setQuery('')
     setSelectedFeatId(null)
     setChoiceState({})
-  }, [isOpen])
+  }, [isOpen, categoryOrder])
 
   const featById = useMemo(() => new Map(FEATS.map((x) => [x.id, x])), [])
 
   const availableFeats = useMemo(() => {
     const set = selectedIds instanceof Set ? selectedIds : new Set(selectedIds || [])
-    return FEATS.filter((f) => !set.has(f.id))
+    return FEATS.map((f) => ({ ...f, alreadySelected: set.has(f.id) }))
   }, [selectedIds])
 
   const filteredFeats = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return FEATS_BY_CATEGORY[category] ?? []
-    return availableFeats.filter((f) => {
+    const base = q ? availableFeats : availableFeats.filter((f) => f.category === category)
+    if (!q) return base
+    return base.filter((f) => {
       const name = resolveRuleText(overridesMap, buildFeatNameKey(f.id), f.name).toLowerCase()
       return name.includes(q) || f.id.toLowerCase().includes(q)
     })
@@ -194,9 +225,17 @@ export default function FeatPickerModal({ isOpen, onClose, onConfirm, overridesM
     setChoiceState(buildDefaultChoiceState(schema))
   }, [selectedFeatId])
 
+  // 迁移旧版专长 BUFF 到模组库
+  useEffect(() => {
+    if (isOpen && isAdmin) {
+      migrateFeatBuffsToModuleLibrary(moduleId)
+    }
+  }, [isOpen, isAdmin, moduleId])
+
   const selectedFeat = selectedFeatId ? featById.get(selectedFeatId) : null
   const schema = selectedFeatId ? getFeatBuffSchema(selectedFeatId) : null
-  const canConfirm = selectedFeatId && validateChoiceState(schema, choiceState)
+  const isAlreadySelected = selectedFeat?.alreadySelected ?? false
+  const canConfirm = selectedFeatId && !isAlreadySelected && validateChoiceState(schema, choiceState)
 
   const handleConfirm = () => {
     if (!selectedFeatId) return
@@ -210,7 +249,7 @@ export default function FeatPickerModal({ isOpen, onClose, onConfirm, overridesM
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 bg-black/65">
       <div
-        className="w-full max-w-4xl max-h-[90vh] flex flex-col rounded-xl border border-white/15 bg-[#1b2738] shadow-xl overflow-hidden"
+        className="w-full max-h-[90vh] flex flex-col rounded-xl border border-white/15 bg-[#1b2738] shadow-xl overflow-hidden max-w-5xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -233,24 +272,30 @@ export default function FeatPickerModal({ isOpen, onClose, onConfirm, overridesM
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Categories */}
           <div className="w-36 sm:w-44 border-r border-white/10 bg-[#141f2e]/60 overflow-y-auto p-2 space-y-1">
-            {CATEGORY_ORDER.map((cat) => (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => {
-                  setCategory(cat)
-                  setQuery('')
-                  setSelectedFeatId(null)
-                }}
-                className={`w-full text-left px-3 py-2 rounded-lg text-xs sm:text-sm transition-colors ${
-                  category === cat && !query.trim()
-                    ? 'bg-dnd-red/20 text-dnd-red font-medium'
-                    : 'text-gray-300 hover:bg-white/5'
-                }`}
-              >
-                {cat === '星辰专长' ? '★ 星辰专长' : cat}
-              </button>
-            ))}
+            {categoryOrder.length > 1 ? (
+              categoryOrder.map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => {
+                    setCategory(cat)
+                    setQuery('')
+                    setSelectedFeatId(null)
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-xs sm:text-sm transition-colors ${
+                    category === cat && !query.trim()
+                      ? 'bg-dnd-red/20 text-dnd-red font-medium'
+                      : 'text-gray-300 hover:bg-white/5'
+                  }`}
+                >
+                  {cat === '星辰专长' ? '★ 星辰专长' : cat}
+                </button>
+              ))
+            ) : categoryOrder.length === 1 ? (
+              <div className="px-3 py-2 text-xs sm:text-sm text-dnd-gold-light font-medium">
+                {categoryOrder[0] === '星辰专长' ? '★ 星辰专长' : categoryOrder[0]}
+              </div>
+            ) : null}
           </div>
 
           {/* Feat list */}
@@ -274,6 +319,7 @@ export default function FeatPickerModal({ isOpen, onClose, onConfirm, overridesM
                 filteredFeats.map((feat) => {
                   const name = resolveRuleText(overridesMap, buildFeatNameKey(feat.id), feat.name)
                   const active = selectedFeatId === feat.id
+                  const isAlreadySelected = feat.alreadySelected
                   return (
                     <button
                       key={feat.id}
@@ -282,16 +328,26 @@ export default function FeatPickerModal({ isOpen, onClose, onConfirm, overridesM
                       className={`w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center justify-between gap-2 ${
                         active
                           ? 'bg-dnd-gold/15 border border-dnd-gold/40'
-                          : 'bg-gray-800/30 border border-transparent hover:bg-gray-800/60'
+                          : isAlreadySelected
+                            ? 'bg-gray-800/20 border border-transparent hover:bg-gray-800/50'
+                            : 'bg-gray-800/30 border border-transparent hover:bg-gray-800/60'
                       }`}
                     >
-                      <span className="text-sm text-white truncate">{name}</span>
-                      {feat.category === '星辰专长' && (
-                        <Star className="w-3.5 h-3.5 text-dnd-gold-light shrink-0 fill-current" />
-                      )}
-                      {query.trim() && feat.category && (
-                        <span className="text-[10px] text-gray-500 shrink-0">{feat.category}</span>
-                      )}
+                      <span className={`text-sm truncate ${isAlreadySelected ? 'text-gray-400' : 'text-white'}`}>{name}</span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {isAlreadySelected && (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                            <span className="text-[10px] text-green-500/80">已选择</span>
+                          </>
+                        )}
+                        {feat.category === '星辰专长' && (
+                          <Star className="w-3.5 h-3.5 text-dnd-gold-light shrink-0 fill-current" />
+                        )}
+                        {query.trim() && feat.category && (
+                          <span className="text-[10px] text-gray-500 shrink-0">{feat.category}</span>
+                        )}
+                      </div>
                     </button>
                   )
                 })
@@ -300,7 +356,7 @@ export default function FeatPickerModal({ isOpen, onClose, onConfirm, overridesM
           </div>
 
           {/* Preview */}
-          <div className="w-72 sm:w-80 flex flex-col bg-[#141f2e]/40 overflow-y-auto">
+          <div className="flex flex-col bg-[#141f2e]/40 overflow-y-auto w-96 sm:w-[28rem]">
             {selectedFeat ? (
               <div className="p-4 space-y-4">
                 <div>
@@ -343,6 +399,43 @@ export default function FeatPickerModal({ isOpen, onClose, onConfirm, overridesM
                 ) : (
                   <div className="border-t border-white/10 pt-3">
                     <p className="text-[11px] text-dnd-text-muted">本专长未预设自动 BUFF，确认后可在 Buff 栏手动补充。</p>
+                  </div>
+                )}
+
+                {selectedFeat && (
+                  <div className="border-t border-white/10 pt-3">
+                    <h4 className="text-[11px] font-bold text-dnd-gold-light/90 mb-1">
+                      {isAdmin ? '默认 BUFF' : '专长 BUFF'}
+                    </h4>
+                    <p className="text-[10px] text-dnd-text-muted mb-2">
+                      {isAdmin
+                        ? '配置后，其他玩家选择该专长时会自动获得此 BUFF。'
+                        : '选择该专长时自动获得的 BUFF。'}
+                    </p>
+                    <BuffForm
+                      key={`feat-buff-${selectedFeat.id}`}
+                      compact
+                      readOnly={!isAdmin}
+                      hideDuration
+                      referenceData={formulaContext}
+                      initial={{
+                        source: resolveRuleText(overridesMap, buildFeatNameKey(selectedFeat.id), selectedFeat.name),
+                        effects: (() => {
+                          const userPatch = loadDefaultBuffPatch(moduleId, 'feat', selectedFeat.id)
+                          if (userPatch?.effects?.length) return userPatch.effects
+                          return HARDCODED_FEAT_BUFFS[selectedFeat.id] ?? []
+                        })(),
+                        enabled: loadDefaultBuffPatch(moduleId, 'feat', selectedFeat.id)?.enabled !== false,
+                      }}
+                      onSave={(buff) => {
+                        saveDefaultBuffPatch(moduleId, 'feat', selectedFeat.id, {
+                          effects: buff.effects,
+                          enabled: buff.enabled,
+                          sourceName: resolveRuleText(overridesMap, buildFeatNameKey(selectedFeat.id), selectedFeat.name),
+                        })
+                      }}
+                      onCancel={() => {}}
+                    />
                   </div>
                 )}
               </div>

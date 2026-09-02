@@ -1,0 +1,242 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Search, X, Check, Swords, Settings } from 'lucide-react'
+import { FIGHTING_STYLES } from '../data/fightingStyles'
+import { loadDefaultBuffPatch, saveDefaultBuffPatch } from '../lib/defaultBuffPatchStore'
+import { useAuth } from '../contexts/AuthContext'
+import { inputClass } from '../lib/inputStyles'
+import BuffForm from './BuffForm'
+
+export default function FightingStylePicker({
+  isOpen,
+  onClose,
+  onConfirm,
+  selectedIds = [],
+  maxStyles = 1,
+  sourceName = '',
+  moduleId = 'default',
+}) {
+  const { isAdmin } = useAuth()
+  const [query, setQuery] = useState('')
+  const [selected, setSelected] = useState(new Set(selectedIds))
+  const [previewId, setPreviewId] = useState(null)
+  const [editingDefaultBuff, setEditingDefaultBuff] = useState(false)
+
+  useEffect(() => {
+    if (!isOpen) return
+    setQuery('')
+    setSelected(new Set(selectedIds))
+    setPreviewId(null)
+    setEditingDefaultBuff(false)
+  }, [isOpen, selectedIds])
+
+  const preview = useMemo(() => {
+    if (!previewId) return null
+    return FIGHTING_STYLES.find((x) => x.id === previewId) ?? null
+  }, [previewId])
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return FIGHTING_STYLES.filter((style) => {
+      if (!q) return true
+      return (
+        style.name.toLowerCase().includes(q) ||
+        style.description.toLowerCase().includes(q)
+      )
+    })
+  }, [query])
+
+  const toggle = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else if (next.size < maxStyles) {
+        next.add(id)
+      }
+      return next
+    })
+  }
+
+  const handleConfirm = () => {
+    onConfirm(Array.from(selected))
+    onClose()
+  }
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 bg-black/65">
+      <div
+        className="w-full max-w-4xl max-h-[90vh] flex flex-col rounded-xl border border-white/15 bg-[#1b2738] shadow-xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-white/10 shrink-0">
+          <div>
+            <h2 className="text-base font-semibold text-dnd-gold-light/95 flex items-center gap-2">
+              <Swords className="w-4 h-4" />
+              选择战斗风格
+            </h2>
+            <p className="text-[11px] text-dnd-text-muted">
+              {sourceName ? `${sourceName}：` : ''}
+              勾选已习得的战斗风格，确认后以虚拟 BUFF 显示在 BUFF 栏。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"
+            aria-label="关闭"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* List */}
+          <div className="flex-1 min-w-0 flex flex-col border-r border-white/10">
+            <div className="p-3 border-b border-white/10">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="搜索战斗风格..."
+                  className={inputClass + ' w-full pl-9 pr-3 h-9 text-sm'}
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {filtered.map((style) => {
+                const active = selected.has(style.id)
+                const disabled = !active && selected.size >= maxStyles
+                return (
+                  <div
+                    key={style.id}
+                    onClick={() => setPreviewId(style.id)}
+                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                      previewId === style.id
+                        ? 'border-dnd-gold/50 bg-dnd-gold/10'
+                        : active
+                          ? 'border-dnd-red/40 bg-dnd-red/5'
+                          : disabled
+                            ? 'border-gray-700 bg-gray-800/20 opacity-60'
+                            : 'border-gray-600 bg-gray-800/40 hover:bg-gray-800/70'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); toggle(style.id) }}
+                      disabled={disabled}
+                      className={`shrink-0 w-5 h-5 rounded border flex items-center justify-center transition-colors ${
+                        active
+                          ? 'bg-dnd-red border-dnd-red text-white'
+                          : disabled
+                            ? 'border-gray-600 bg-gray-800 text-transparent'
+                            : 'border-gray-500 bg-gray-800 text-transparent hover:border-gray-400'
+                      }`}
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm text-white font-medium truncate">{style.name}</span>
+                    </div>
+                  </div>
+                )
+              })}
+              {filtered.length === 0 && (
+                <p className="text-center text-gray-500 text-xs py-8">没有匹配的战斗风格</p>
+              )}
+            </div>
+          </div>
+
+          {/* Preview */}
+          <div className="w-80 sm:w-96 bg-[#141f2e]/60 flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-white/10 bg-[#1b2738]/80 shrink-0">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-dnd-text-muted">已选 / 上限</span>
+                <span className="text-white font-medium">{selected.size} / {maxStyles}</span>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {preview ? (
+                <div className="space-y-3">
+                  <div>
+                    <h3 className="text-base font-semibold text-dnd-gold-light/95">{preview.name}</h3>
+                  </div>
+                  <p className="text-sm text-gray-300 whitespace-pre-line leading-relaxed">{preview.description}</p>
+
+                  {isAdmin && (
+                    <div className="border-t border-white/10 pt-3 mt-3">
+                      <button
+                        type="button"
+                        onClick={() => setEditingDefaultBuff(true)}
+                        className="inline-flex items-center gap-1.5 text-xs text-dnd-gold-light hover:text-dnd-gold transition-colors"
+                      >
+                        <Settings className="w-3.5 h-3.5" />
+                        配置默认 BUFF（DM）
+                      </button>
+                      <p className="text-[10px] text-dnd-text-muted mt-1">
+                        配置后，其他玩家选择该战斗风格时会自动获得此 BUFF。
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-gray-500 text-xs text-center mt-20">点击左侧战斗风格查看详情</p>
+              )}
+            </div>
+            <div className="p-3 border-t border-white/10 shrink-0">
+              <p className="text-xs text-dnd-text-muted mb-2">已选择 {selected.size} 个</p>
+              <button
+                type="button"
+                onClick={handleConfirm}
+                className="w-full px-3 py-2 rounded-lg bg-dnd-red hover:bg-dnd-red/90 text-white text-sm font-medium transition-colors"
+              >
+                确认
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* DM 默认 BUFF 编辑器 */}
+      {editingDefaultBuff && preview && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-3 bg-black/75">
+          <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl p-4">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <h3 className="text-sm font-semibold text-dnd-gold-light/95">配置「{preview.name}」默认 BUFF</h3>
+              <button
+                type="button"
+                onClick={() => setEditingDefaultBuff(false)}
+                className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <BuffForm
+              initial={{
+                source: preview.name,
+                effects: loadDefaultBuffPatch(moduleId, 'fightingStyle', preview.id)?.effects ?? [],
+                duration: loadDefaultBuffPatch(moduleId, 'fightingStyle', preview.id)?.duration ?? '',
+                enabled: loadDefaultBuffPatch(moduleId, 'fightingStyle', preview.id)?.enabled !== false,
+              }}
+              onSave={(buff) => {
+                saveDefaultBuffPatch(moduleId, 'fightingStyle', preview.id, {
+                  effects: buff.effects,
+                  duration: buff.duration,
+                  enabled: buff.enabled,
+                })
+                setEditingDefaultBuff(false)
+              }}
+              onCancel={() => setEditingDefaultBuff(false)}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

@@ -10,6 +10,7 @@ import { loadCraftingIntoCache } from './craftingStore'
 import { loadCampaignModulesFromSupabase, loadUserPrefsFromSupabase } from './moduleStore'
 import { loadCustomItemsFromSupabase } from '../data/itemDatabase'
 import { loadCustomSpellsFromSupabase } from '../data/spellDatabase'
+import { loadCustomRacesFromSupabase } from '../data/races'
 
 const DEBOUNCE_MS = 450
 
@@ -115,7 +116,7 @@ export function startSupabaseRealtime({ ownerName, isAdmin, moduleId }) {
     clearTimeout(customRtTimer)
     customRtTimer = setTimeout(async () => {
       try {
-        await Promise.all([loadCustomItemsFromSupabase(), loadCustomSpellsFromSupabase()])
+        await Promise.all([loadCustomItemsFromSupabase(), loadCustomSpellsFromSupabase(), loadCustomRacesFromSupabase()])
         emit('dnd-realtime-custom-library')
       } catch (e) {
         console.warn('[Realtime] custom_library refresh failed', e)

@@ -5,6 +5,7 @@
  */
 import React from 'react'
 import { itemRequiresAttunement } from '../data/itemDatabase'
+import { appendContainedSpellsBrief } from './containedSpellBrief'
 
 const SECTION_LABEL = 'text-dnd-gold-light/85 font-bold tracking-wider uppercase text-[10px]'
 const FIELD_LABEL = 'text-gray-500 text-[10px] uppercase tracking-wider'
@@ -103,12 +104,25 @@ export function ItemTooltipContent({ proto, entry }) {
   const isAttuned = entry?.isAttuned === true
   const requiresAttunement = itemRequiresAttunement(proto)
   const hasExtraEntryInfo = isInventoryEntry && (hasMagic || hasCharge || isAttuned || qty > 1)
+  // 简介：优先使用物品实例的详细介绍，没有时回退到模板描述
+  const entryBrief = entry?.详细介绍?.trim()
+  const entryRange = entry?.攻击距离?.trim()
+  const briefParts = []
+  if (entryBrief) briefParts.push(entryBrief)
+  if (entryRange) briefParts.push(`攻击距离 ${entryRange}`)
+  let briefBase = ''
+  if (briefParts.length) briefBase = briefParts.join('；')
+  else if (entry?.附注?.trim()) briefBase = entry.附注.trim()
+  else briefBase = proto.详细介绍?.trim() || ''
+  const briefText = appendContainedSpellsBrief(entry?.effects, briefBase)
+  // 标题：优先使用物品实例名称
+  const displayName = entry?.name?.trim() || proto.名称 || proto.类别 || proto.id
 
   return (
     <div className="space-y-1.5">
       <div className="flex items-baseline justify-between gap-2 min-w-0">
         <span className="text-sm font-bold text-white break-words">
-          {proto.名称 || proto.类别 || proto.id}
+          {displayName}
         </span>
         {hasExtraEntryInfo && (
           <span className="shrink-0 text-[10px] text-amber-300/90 font-mono">
@@ -142,10 +156,10 @@ export function ItemTooltipContent({ proto, entry }) {
           )}
         </div>
       )}
-      {proto.详细介绍 && (
+      {briefText && (
         <div className="rounded-md border border-dnd-gold-light/25 bg-dnd-gold-light/[0.08] p-2">
           <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-dnd-gold-light/90">简介</p>
-          <DescriptionBlock text={proto.详细介绍} />
+          <DescriptionBlock text={briefText} />
         </div>
       )}
       <div className="space-y-0.5">
@@ -154,8 +168,6 @@ export function ItemTooltipContent({ proto, entry }) {
         <Field label="伤害" value={proto.伤害} />
         <Field label="精通" value={proto.精通} />
         <Field label="附注" value={proto.附注} />
-        <Field label="重量" value={proto.重量 != null ? `${proto.重量} 磅` : ''} />
-        <Field label="价格" value={proto.价格 != null ? `${proto.价格} GP` : ''} />
         {hasCharge && <Field label="充能" value={`${charge}`} />}
       </div>
     </div>
