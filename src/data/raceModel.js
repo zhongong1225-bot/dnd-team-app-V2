@@ -163,6 +163,7 @@ export const DEFAULT_RACE = {
   darkvision: null,
   spellcastingAbility: null,
   abilityScoreBonuses: [{ amount: 2 }, { amount: 1 }],
+  spells: [],
   traits: [],
   tables: [],
   subraces: [],
@@ -292,6 +293,7 @@ export function normalizeRace(race) {
     spellcastingAbility: race.spellcastingAbility || null,
     speed: { ...DEFAULT_RACE.speed, ...(race.speed || {}) },
     abilityScoreBonuses: normalizeAbilityScoreBonuses(race.abilityScoreBonuses, DEFAULT_RACE.abilityScoreBonuses),
+    spells: Array.isArray(race.spells) ? race.spells : [],
     traits: Array.isArray(race.traits) ? race.traits.map(normalizeTrait) : [],
     tables: Array.isArray(race.tables) ? race.tables : [],
     subraces: Array.isArray(race.subraces) ? race.subraces.map((s) => ({

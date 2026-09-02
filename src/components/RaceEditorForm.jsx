@@ -240,6 +240,16 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
     setEditingTraitBuffId(null)
   }
 
+  const addRaceSpell = () => {
+    onChange({ ...race, spells: [...(race.spells || []), createEmptyRaceSpell()] })
+  }
+  const removeRaceSpell = (idx) => {
+    onChange({ ...race, spells: (race.spells || []).filter((_, i) => i !== idx) })
+  }
+  const patchRaceSpell = (idx, key, val) => {
+    onChange({ ...race, spells: (race.spells || []).map((s, i) => i === idx ? { ...s, [key]: val } : s) })
+  }
+
   // ── 属性加值槽编辑 ────────────────────────────────────────
   const raceBonuses = normalizeAbilityScoreBonuses(race.abilityScoreBonuses, [])
   const patchBonusAmount = (idx, val) => {
@@ -345,41 +355,34 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
   return (
     <>
       <div className="space-y-3">
-        {/* 基本信息 */}
+        {/* 名称 */}
         <div className={sectionCls}>
           <div>
             <label className={labelCls}>名称 *</label>
             <input className={inputCls} value={race.name} onChange={e => patch('name', e.target.value)} placeholder="例如：半血裔" />
           </div>
-          <div>
-            <label className={labelCls}>背景描述</label>
-            <textarea
-              className={`${inputCls} resize-none`}
-              rows={8}
-              placeholder="种族背景故事 / 风味文字"
-              value={race.description}
-              onChange={e => patch('description', e.target.value)}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className={labelCls}>来源</label>
-              <input className={inputCls} value={race.source} onChange={e => patch('source', e.target.value)} placeholder="例如：Van Richten's Guide" />
-            </div>
+        </div>
+
+        {/* 2×3 网格布局 */}
+        <div className="grid grid-cols-3 gap-3">
+          {/* Row1 Col1: 生物类型 + 来源 */}
+          <div className={sectionCls}>
             <div>
               <label className={labelCls}>生物类型</label>
               <select className={inputCls} value={race.creatureType} onChange={e => patch('creatureType', e.target.value)}>
                 {CREATURE_TYPE_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </div>
+            <div className="mt-2">
+              <label className={labelCls}>来源</label>
+              <input className={inputCls} value={race.source} onChange={e => patch('source', e.target.value)} placeholder="例如：Van Richten's Guide" />
+            </div>
           </div>
-        </div>
 
-        {/* 体型 + 速度（两列） */}
-        <div className="grid grid-cols-2 gap-3">
+          {/* Row1 Col2: 可选体型 */}
           <div className={sectionCls}>
             <div className="text-[10px] text-dnd-text-muted">可选体型（可多选）</div>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-x-3 gap-y-1.5 mt-1">
               {RACE_SIZES.map(s => (
                 <label key={s.value} className="flex items-center gap-1.5 text-xs text-white cursor-pointer">
                   <input
@@ -393,9 +396,11 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
               ))}
             </div>
           </div>
+
+          {/* Row1 Col3: 速度 */}
           <div className={sectionCls}>
             <div className="text-[10px] text-dnd-text-muted">速度（尺）</div>
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-5 gap-1.5 mt-1">
               {Object.entries(SPEED_LABELS).map(([key, label]) => (
                 <div key={key}>
                   <label className={labelCls}>{label}</label>
@@ -410,13 +415,11 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
               ))}
             </div>
           </div>
-        </div>
 
-        {/* 黑暗视觉 + 属性加值（两列） */}
-        <div className="grid grid-cols-2 gap-3">
+          {/* Row2 Col1: 黑暗视觉 + 天生施法属性 */}
           <div className={sectionCls}>
             <div>
-              <label className={labelCls}>黑暗视觉（尺，留空表示无）</label>
+              <label className={labelCls}>黑暗视觉（尺）</label>
               <input
                 className={inputCls}
                 type="number"
@@ -439,15 +442,16 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
               </select>
             </div>
           </div>
+
+          {/* Row2 Col2: 属性加值槽 */}
           <div className={sectionCls}>
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-dnd-text-muted">属性加值槽</span>
-              <button onClick={addBonusSlot} className="text-dnd-gold text-xs hover:text-dnd-gold-light">+ 添加加值槽</button>
+              <button onClick={addBonusSlot} className="text-dnd-gold text-xs hover:text-dnd-gold-light">+ 添加</button>
             </div>
-            <div className="text-[10px] text-gray-500">每个槽是一个加值（如 +2），角色创建时玩家选择加到哪属性</div>
             {raceBonuses.length === 0 && <div className="text-[10px] text-gray-600">无加值槽</div>}
             {raceBonuses.map((b, idx) => (
-              <div key={idx} className="flex items-center gap-2">
+              <div key={idx} className="flex items-center gap-2 mt-1">
                 <span className="text-[10px] text-dnd-text-muted w-8 shrink-0">槽 {idx + 1}</span>
                 <input
                   className={`${inputCls} w-20`}
@@ -463,6 +467,46 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
                 </button>
               </div>
             ))}
+          </div>
+
+          {/* Row2 Col3: 天生法术 */}
+          <div className={sectionCls}>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-purple-300/70">天生法术</span>
+              <button onClick={addRaceSpell} className="text-purple-400/70 text-[10px] hover:text-purple-300">+ 添加</button>
+            </div>
+            {(race.spells || []).length === 0 && <div className="text-[10px] text-gray-600">无</div>}
+            {(race.spells || []).map((sp, si) => (
+              <div key={si} className="flex items-center gap-1 flex-wrap mt-1">
+                <input className={`${inputCls} w-20`} placeholder="法术名" value={sp.name} onChange={e => patchRaceSpell(si, 'name', e.target.value)} />
+                <select className={`${inputCls} w-14`} value={sp.castMode} onChange={e => patchRaceSpell(si, 'castMode', e.target.value)}>
+                  <option value="at-will">随意</option>
+                  <option value="per-day">每天</option>
+                  <option value="slot">环位</option>
+                </select>
+                {sp.castMode === 'per-day' && (
+                  <input className={`${inputCls} w-10`} type="number" min="1" value={sp.timesPerDay || 1} onChange={e => patchRaceSpell(si, 'timesPerDay', Number(e.target.value))} placeholder="次" />
+                )}
+                {sp.castMode === 'slot' && (
+                  <input className={`${inputCls} w-10`} type="number" min="1" max="9" value={sp.slotLevel || 1} onChange={e => patchRaceSpell(si, 'slotLevel', Number(e.target.value))} placeholder="环" />
+                )}
+                <button onClick={() => removeRaceSpell(si)} className="text-dnd-red/60 hover:text-dnd-red text-xs px-1">×</button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 背景描述 */}
+        <div className={sectionCls}>
+          <div>
+            <label className={labelCls}>背景描述</label>
+            <textarea
+              className={`${inputCls} resize-none`}
+              rows={3}
+              placeholder="种族背景故事 / 风味文字"
+              value={race.description}
+              onChange={e => patch('description', e.target.value)}
+            />
           </div>
         </div>
 
