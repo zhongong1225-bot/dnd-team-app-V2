@@ -243,8 +243,13 @@ export function createPassiveCard(overrides = {}) {
 
   if (overrides) {
     if (overrides.scope) base.scope = { ...base.scope, ...overrides.scope }
-    const { scope: _s, ...rest } = overrides
+    const { scope: _s, effects: _e, ...rest } = overrides
     Object.assign(base, rest)
+    // 同步 effects 到 buffEffects
+    if (_e != null) {
+      base.effects = Array.isArray(_e) ? _e : []
+      base.buffEffects = base.effects
+    }
   }
 
   return base
