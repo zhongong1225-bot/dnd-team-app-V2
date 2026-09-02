@@ -35,6 +35,7 @@ import { WEAPON_BUFF_CATEGORY_SELECT_OPTIONS } from '../data/itemDatabase'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { CLASS_LIST, getClassDisplayName } from '../data/classDatabase'
 import { getMergedSpells, getSpellById, getWandScrollSpellPower } from '../data/spellDatabase'
+import { WEAPON_DATABASE } from '../data/weaponDatabase'
 import { inputClass, inputClassInline, textareaClass } from '../lib/inputStyles'
 import { formatDisplayOneDecimal } from '../lib/encumbrance'
 import { isFormulaValue, formatFormulaLabel } from '../lib/formulas'
@@ -5602,6 +5603,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
   const sourceKindLocked = !!(initial?.fromFeat || initial?.fromItem)
   const [source, setSource] = useState(initial?.source ?? '')
   const [duration, setDuration] = useState(() => normalizeDuration(initial?.duration))
+  const [cardScope, setCardScope] = useState(() => initial?.cardScope || { scopeType: 'global', scopeDetail: [] })
   const [sourceKind, setSourceKind] = useState(() => {
     if (sourceKindLocked) return normalizeBuffSourceKindKey('adventure')
     const resolved = resolveInitialSourceKind(initial, defaultSourceKind)
@@ -5749,6 +5751,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
       duration: duration?.type ? duration : (duration || undefined),
       effects,
       enabled: initial?.enabled !== false,
+      cardScope: !hasChargeItem ? cardScope : undefined, // 仅被动卡保存范围配置
     }
     if (!initial?.fromFeat && !initial?.fromItem) {
       payload.sourceKind = normalizeBuffSourceKindKey(sourceKind)
@@ -5830,6 +5833,117 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
           }} 
         />
       </div>
+      )}
+
+      {/* ── 被动卡范围编辑器（仅非主动卡显示） ── */}
+      {!hasChargeItem && (
+        <div className="rounded-lg border border-white/10 bg-[#1a2333]/60 p-2">
+          <label className="block text-dnd-gold-light text-[10px] font-bold tracking-wide mb-1.5">起效范围</label>
+          
+          {/* 范围类型选择 */}
+          <select
+            value={cardScope.scopeType || 'global'}
+            onChange={(e) => {
+              const newType = e.target.value
+              setCardScope({ scopeType: newType, scopeDetail: [] })
+              setTimeout(() => triggerAutoSave(), 0)
+            }}
+            className={`${inputClass} text-xs cursor-pointer`}
+          >
+            {SCOPE_TYPE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+
+          {/* 武器类型多选 */}
+          {cardScope.scopeType === 'weapon_type' && (
+            <div className="mt-2">
+              <label className="block text-gray-400 text-[9px] mb-1">选择武器</label>
+              <div className="grid grid-cols-3 gap-1 max-h-40 overflow-y-auto">
+                {WEAPON_DATABASE.map((weapon) => {
+                  const isSelected = (cardScope.scopeDetail || []).includes(weapon.id)
+                  return (
+                    <button
+                      key={weapon.id}
+                      type="button"
+                      onClick={() => {
+                        const current = cardScope.scopeDetail || []
+                        const next = isSelected
+                          ? current.filter(id => id !== weapon.id)
+                          : [...current, weapon.id]
+                        setCardScope({ ...cardScope, scopeDetail: next })
+                        setTimeout(() => triggerAutoSave(), 0)
+                      }}
+                      className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors ${
+                        isSelected
+                          ? 'bg-yellow-600/20 border-yellow-600/40 text-yellow-400'
+                          : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'
+                      }`}
+                    >
+                      {weapon.name}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 伤害类型多选 */}
+          {cardScope.scopeType === 'damage_type' && (
+            <div className="mt-2">
+              <label className="block text-gray-400 text-[9px] mb-1">选择伤害类型</label>
+              <div className="grid grid-cols-3 gap-1">
+                {DAMAGE_TYPES.map((dt) => {
+                  const isSelected = (cardScope.scopeDetail || []).includes(dt.value)
+                  return (
+                    <button
+                      key={dt.value}
+                      type="button"
+                      onClick={() => {
+                        const current = cardScope.scopeDetail || []
+                        const next = isSelected
+                          ? current.filter(v => v !== dt.value)
+                          : [...current, dt.value]
+                        setCardScope({ ...cardScope, scopeDetail: next })
+                        setTimeout(() => triggerAutoSave(), 0)
+                      }}
+                      className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors ${
+                        isSelected
+                          ? 'bg-red-600/20 border-red-600/40 text-red-400'
+                          : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'
+                      }`}
+                    >
+                      {dt.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 自定义条件 */}
+          {cardScope.scopeType === 'custom' && (
+            <div className="mt-2">
+              <label className="block text-gray-400 text-[9px] mb-1">自定义条件描述</label>
+              <textarea
+                value={(cardScope.scopeDetail || [])[0] || ''}
+                onChange={(e) => {
+                  setCardScope({ scopeType: 'custom', scopeDetail: [e.target.value] })
+                  setTimeout(() => triggerAutoSave(), 0)
+                }}
+                placeholder="例如：对体型小于自己的生物伤害+2"
+                className={`${inputClass} text-xs h-16 resize-none`}
+              />
+            </div>
+          )}
+
+          {/* 全局范围提示 */}
+          {cardScope.scopeType === 'global' && (
+            <p className="mt-1 text-gray-500 text-[9px]">全局生效，无需额外配置</p>
+          )}
+        </div>
       )}
 
       {/* ══════ 统一效果编辑器 ══════ */}
