@@ -1595,6 +1595,17 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
         )}
       </div>
 
+      {/* ─ 持续时间（主动卡专属，第4段） ── */}
+      <div className="flex items-center gap-x-1.5 flex-wrap pt-1 border-t border-white/[0.06]">
+        <span className={labelCls}>持续时间</span>
+        <DurationEditor 
+          value={data.duration || { type: 'instant' }} 
+          onChange={(newDur) => patchData({ duration: newDur })} 
+          compact 
+          showPresets={false} 
+        />
+      </div>
+
       {/* ── 消耗效果 ── */}
       <div className="flex flex-col gap-y-1 pt-1 border-t border-white/[0.06]">
         <div className="flex items-center justify-between">
@@ -5618,6 +5629,11 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
   const [pickerCategory, setPickerCategory] = useState('ability')
   /** 自动保存定时器 */
   const autoSaveTimerRef = useRef(null)
+  /** 是否为主动卡（含 charge_item 效果） */
+  const hasChargeItem = useMemo(() => 
+    effectModules.some(m => m.effectType === 'charge_item'),
+    [effectModules]
+  )
 
   /** 防抖自动保存：在用户停止编辑 800ms 后触发 */
   const triggerAutoSave = useCallback(() => {
@@ -5803,7 +5819,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
         )}
       </div>
       )}
-      {!hideDuration && (
+      {!hideDuration && !hasChargeItem && (
       <div>
         <DurationEditor 
           value={duration} 

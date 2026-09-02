@@ -4140,13 +4140,33 @@ export default function CharacterSheet() {
               subordinates={subordinates}
               charClasses={charClasses}
               onSave={(buffsList) => {
-                const manual = buffsList.filter(
+                // 分离主动卡（含 charge_item）和被动 BUFF
+                const activeCards = buffsList.filter(
+                  (b) => Array.isArray(b.effects) && b.effects.some((e) => e.effectType === 'charge_item')
+                )
+                const passiveBuffs = buffsList.filter(
+                  (b) => !(Array.isArray(b.effects) && b.effects.some((e) => e.effectType === 'charge_item'))
+                )
+                
+                // 手动被动 BUFF 保存到 buffs[]
+                const manual = passiveBuffs.filter(
                   (b) => !b.fromItem && !b.fromFeat && !b.fromInvocation && !b.fromFightingStyle && !b.fromClassFeature,
                 )
                 const selectedFeats = mergeFeatBuffPatchesFromMergedList(char, buffsList)
                 const selectedInvocations = mergeInvocationBuffPatchesFromMergedList(char, buffsList)
                 const selectedFightingStyles = mergeFightingStyleBuffPatchesFromMergedList(char, buffsList)
-                persist({ buffs: manual, selectedFeats, selectedInvocations, selectedFightingStyles })
+                
+                // 主动卡保存到 cards[]（如果存在）
+                const updates = { buffs: manual, selectedFeats, selectedInvocations, selectedFightingStyles }
+                if (activeCards.length > 0 || (char.cards ?? []).length > 0) {
+                  // 保留非主动卡的已有卡片，替换/添加新的主动卡
+                  const existingNonActiveCards = (char.cards ?? []).filter(
+                    (c) => !(c.buffEffects && c.buffEffects.some((e) => e.effectType === 'charge_item'))
+                  )
+                  updates.cards = [...existingNonActiveCards, ...activeCards]
+                }
+                
+                persist(updates)
               }}
               stashBuffs={char.buffStash ?? []}
               onStashChange={canEdit ? (next) => persist({ buffStash: next }) : undefined}
