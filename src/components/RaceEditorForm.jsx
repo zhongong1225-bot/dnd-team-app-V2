@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   RACE_SIZES,
   CREATURE_TYPE_OPTIONS,
+  ABILITY_KEYS,
   createEmptyTrait,
   createEmptyTable,
   createEmptySubrace,
@@ -14,6 +15,7 @@ import BuffForm from './BuffForm'
 const inputCls = 'w-full bg-[#0d1520] border border-white/10 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-dnd-gold/50'
 const labelCls = 'text-[10px] text-dnd-text-muted block mb-0.5'
 const sectionCls = 'rounded-lg bg-dnd-card border border-white/10 p-3 space-y-2'
+const ABILITY_SHORT = { str: '力', dex: '敏', con: '体', int: '智', wis: '感', cha: '魅' }
 
 const SPEED_LABELS = { walk: '行走', climb: '攀爬', swim: '游泳', fly: '飞行', burrow: '掘地' }
 const DICE_OPTIONS = ['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'd100']
@@ -73,21 +75,6 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
     setEditingTraitBuffId(null)
   }
 
-  // ── 天生法术编辑 ────────────────────────────────────────────
-  const addSpell = (ctx, traitId) => {
-    const updater = getCtxUpdater(ctx)
-    updater(ctx.type === 'race' ? null : ctx.subraceId, traitId, t => ({ ...t, spells: [...(t.spells || []), createEmptyRaceSpell()] }))
-  }
-  const removeSpell = (ctx, traitId, spellIdx) => {
-    const updater = getCtxUpdater(ctx)
-    updater(ctx.type === 'race' ? null : ctx.subraceId, traitId, t => ({ ...t, spells: (t.spells || []).filter((_, i) => i !== spellIdx) }))
-  }
-  const patchSpell = (ctx, traitId, spellIdx, key, val) => {
-    const updater = getCtxUpdater(ctx)
-    updater(ctx.type === 'race' ? null : ctx.subraceId, traitId, t => ({
-      ...t, spells: (t.spells || []).map((s, i) => i === spellIdx ? { ...s, [key]: val } : s),
-    }))
-  }
 
   // ── 选择型特性编辑 ─────────────────────────────────────────
   const toggleChoiceMode = (ctx, traitId) => {
@@ -253,7 +240,7 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
   // ── 属性加值槽编辑 ────────────────────────────────────────
   const raceBonuses = normalizeAbilityScoreBonuses(race.abilityScoreBonuses, [])
   const patchBonusAmount = (idx, val) => {
-    const next = raceBonuses.map((b, i) => i === idx ? { amount: Number(val) || 0 } : b)
+    const next = raceBonuses.map((b, i) => i === idx ? { ...b, amount: Number(val) || 0 } : b)
     onChange({ ...race, abilityScoreBonuses: next })
   }
   const addBonusSlot = () => {
@@ -262,6 +249,19 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
   const removeBonusSlot = (idx) => {
     onChange({ ...race, abilityScoreBonuses: raceBonuses.filter((_, i) => i !== idx) })
   }
+  const toggleBonusAbility = (idx, abilityKey) => {
+    const next = raceBonuses.map((b, i) => {
+      if (i !== idx) return b
+      const current = Array.isArray(b.allowedAbilities) ? [...b.allowedAbilities] : []
+      const has = current.includes(abilityKey)
+      const updated = has ? current.filter(k => k !== abilityKey) : [...current, abilityKey]
+      const slot = { ...b, amount: b.amount }
+      if (updated.length > 0) slot.allowedAbilities = updated
+      else delete slot.allowedAbilities
+      return slot
+    })
+    onChange({ ...race, abilityScoreBonuses: next })
+  }
 
   const patchSubraceBonusAmount = (subraceId, idx, val) => {
     onChange({
@@ -269,7 +269,7 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
       subraces: (race.subraces || []).map(s => {
         if (s.id !== subraceId) return s
         const bonuses = normalizeAbilityScoreBonuses(s.abilityScoreBonuses, [])
-        const next = bonuses.map((b, i) => i === idx ? { amount: Number(val) || 0 } : b)
+        const next = bonuses.map((b, i) => i === idx ? { ...b, amount: Number(val) || 0 } : b)
         return { ...s, abilityScoreBonuses: next }
       }),
     })
@@ -291,6 +291,26 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
         if (s.id !== subraceId) return s
         const bonuses = normalizeAbilityScoreBonuses(s.abilityScoreBonuses, [])
         return { ...s, abilityScoreBonuses: bonuses.filter((_, i) => i !== idx) }
+      }),
+    })
+  }
+  const toggleSubraceBonusAbility = (subraceId, idx, abilityKey) => {
+    onChange({
+      ...race,
+      subraces: (race.subraces || []).map(s => {
+        if (s.id !== subraceId) return s
+        const bonuses = normalizeAbilityScoreBonuses(s.abilityScoreBonuses, [])
+        const next = bonuses.map((b, i) => {
+          if (i !== idx) return b
+          const current = Array.isArray(b.allowedAbilities) ? [...b.allowedAbilities] : []
+          const has = current.includes(abilityKey)
+          const updated = has ? current.filter(k => k !== abilityKey) : [...current, abilityKey]
+          const slot = { ...b, amount: b.amount }
+          if (updated.length > 0) slot.allowedAbilities = updated
+          else delete slot.allowedAbilities
+          return slot
+        })
+        return { ...s, abilityScoreBonuses: next }
       }),
     })
   }
@@ -450,23 +470,50 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
               <button onClick={addBonusSlot} className="text-dnd-gold text-xs hover:text-dnd-gold-light">+ 添加</button>
             </div>
             {raceBonuses.length === 0 && <div className="text-[10px] text-gray-600">无加值槽</div>}
-            {raceBonuses.map((b, idx) => (
-              <div key={idx} className="flex items-center gap-2 mt-1">
-                <span className="text-[10px] text-dnd-text-muted w-8 shrink-0">槽 {idx + 1}</span>
-                <input
-                  className={`${inputCls} w-20`}
-                  type="number"
-                  value={b.amount}
-                  onChange={e => patchBonusAmount(idx, e.target.value)}
-                />
-                <button
-                  onClick={() => removeBonusSlot(idx)}
-                  className="text-dnd-red/60 hover:text-dnd-red text-xs shrink-0 px-1"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
+            {raceBonuses.map((b, idx) => {
+              const allowed = Array.isArray(b.allowedAbilities) ? b.allowedAbilities : null
+              return (
+                <div key={idx} className="mt-1 space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-dnd-text-muted w-8 shrink-0">槽 {idx + 1}</span>
+                    <input
+                      className={`${inputCls} w-20`}
+                      type="number"
+                      value={b.amount}
+                      onChange={e => patchBonusAmount(idx, e.target.value)}
+                    />
+                    <button
+                      onClick={() => removeBonusSlot(idx)}
+                      className="text-dnd-red/60 hover:text-dnd-red text-xs shrink-0 px-1"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1 pl-10">
+                    {ABILITY_KEYS.map(k => {
+                      const active = allowed === null || allowed.includes(k)
+                      return (
+                        <button
+                          key={k}
+                          type="button"
+                          onClick={() => toggleBonusAbility(idx, k)}
+                          className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                            allowed === null
+                              ? 'border-dnd-gold/30 text-dnd-gold/60 bg-dnd-gold/5'
+                              : active
+                                ? 'border-dnd-gold/60 text-dnd-gold bg-dnd-gold/10'
+                                : 'border-white/10 text-gray-600 bg-transparent hover:border-white/20'
+                          }`}
+                        >
+                          {ABILITY_SHORT[k]}
+                        </button>
+                      )
+                    })}
+                    {allowed === null && <span className="text-[9px] text-gray-600 ml-1">任意</span>}
+                  </div>
+                </div>
+              )
+            })}
           </div>
 
           {/* Row2 Col3: 天生法术 */}
@@ -522,7 +569,6 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
           {(race.traits || []).length === 0 && <div className="text-[10px] text-gray-600">无特性</div>}
           {(race.traits || []).map((t, idx) => {
             const isChoice = Array.isArray(t.choiceOptions)
-            const spells = t.spells || []
             return (
             <div key={t.id} className="space-y-1.5 border-t border-white/5 pt-2">
               <div className="flex items-center gap-1">
@@ -555,33 +601,6 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
                   <input type="checkbox" checked={isChoice} onChange={() => toggleChoiceMode(ctx, t.id)} className="accent-[#c79a42] w-3 h-3" />
                   选择型
                 </label>
-              </div>
-
-              {/* 天生法术 */}
-              <div className="pl-2 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-purple-300/70">天生法术</span>
-                  <button onClick={() => addSpell(ctx, t.id)} className="text-purple-400/70 text-[10px] hover:text-purple-300">+ 添加</button>
-                </div>
-                {spells.length === 0 && <div className="text-[10px] text-gray-600">无</div>}
-                {spells.map((sp, si) => (
-                  <div key={si} className="flex items-center gap-1 flex-wrap">
-                    <input className={`${inputCls} w-24`} placeholder="法术名" value={sp.name} onChange={e => patchSpell(ctx, t.id, si, 'name', e.target.value)} />
-                    <select className={`${inputCls} w-16`} value={sp.castMode} onChange={e => patchSpell(ctx, t.id, si, 'castMode', e.target.value)}>
-                      <option value="at-will">随意</option>
-                      <option value="per-day">每天</option>
-                      <option value="slot">环位</option>
-                    </select>
-                    {sp.castMode === 'per-day' && (
-                      <input className={`${inputCls} w-12`} type="number" min="1" value={sp.timesPerDay || 1} onChange={e => patchSpell(ctx, t.id, si, 'timesPerDay', Number(e.target.value))} placeholder="次" />
-                    )}
-                    {sp.castMode === 'slot' && (
-                      <input className={`${inputCls} w-12`} type="number" min="1" max="9" value={sp.slotLevel || 1} onChange={e => patchSpell(ctx, t.id, si, 'slotLevel', Number(e.target.value))} placeholder="环" />
-                    )}
-                    <input className={`${inputCls} flex-1 min-w-[60px]`} placeholder="备注" value={sp.description || ''} onChange={e => patchSpell(ctx, t.id, si, 'description', e.target.value)} />
-                    <button onClick={() => removeSpell(ctx, t.id, si)} className="text-dnd-red/60 hover:text-dnd-red text-xs px-1">×</button>
-                  </div>
-                ))}
               </div>
 
               {/* 选择型选项 */}
@@ -739,23 +758,50 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
                   const subBonuses = normalizeAbilityScoreBonuses(sub.abilityScoreBonuses, [])
                   return subBonuses.length === 0
                     ? <div className="text-[10px] text-gray-600">无加值槽</div>
-                    : subBonuses.map((b, idx) => (
-                        <div key={idx} className="flex items-center gap-2">
-                          <span className="text-[10px] text-dnd-text-muted w-8 shrink-0">槽 {idx + 1}</span>
-                          <input
-                            className={`${inputCls} w-20`}
-                            type="number"
-                            value={b.amount}
-                            onChange={e => patchSubraceBonusAmount(sub.id, idx, e.target.value)}
-                          />
-                          <button
-                            onClick={() => removeSubraceBonusSlot(sub.id, idx)}
-                            className="text-dnd-red/60 hover:text-dnd-red text-xs shrink-0 px-1"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))
+                    : subBonuses.map((b, idx) => {
+                        const allowed = Array.isArray(b.allowedAbilities) ? b.allowedAbilities : null
+                        return (
+                          <div key={idx} className="mt-0.5 space-y-0.5">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-dnd-text-muted w-8 shrink-0">槽 {idx + 1}</span>
+                              <input
+                                className={`${inputCls} w-20`}
+                                type="number"
+                                value={b.amount}
+                                onChange={e => patchSubraceBonusAmount(sub.id, idx, e.target.value)}
+                              />
+                              <button
+                                onClick={() => removeSubraceBonusSlot(sub.id, idx)}
+                                className="text-dnd-red/60 hover:text-dnd-red text-xs shrink-0 px-1"
+                              >
+                                ×
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-1 pl-10">
+                              {ABILITY_KEYS.map(k => {
+                                const active = allowed === null || allowed.includes(k)
+                                return (
+                                  <button
+                                    key={k}
+                                    type="button"
+                                    onClick={() => toggleSubraceBonusAbility(sub.id, idx, k)}
+                                    className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                                      allowed === null
+                                        ? 'border-dnd-gold/30 text-dnd-gold/60 bg-dnd-gold/5'
+                                        : active
+                                          ? 'border-dnd-gold/60 text-dnd-gold bg-dnd-gold/10'
+                                          : 'border-white/10 text-gray-600 bg-transparent hover:border-white/20'
+                                    }`}
+                                  >
+                                    {ABILITY_SHORT[k]}
+                                  </button>
+                                )
+                              })}
+                              {allowed === null && <span className="text-[9px] text-gray-600 ml-1">任意</span>}
+                            </div>
+                          </div>
+                        )
+                      })
                 })()}
               </div>
               {/* 亚种特性 */}
@@ -772,7 +818,6 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
                 {(sub.traits || []).map((st, stIdx) => {
                   const sCtx = { type: 'subrace', subraceId: sub.id }
                   const stIsChoice = Array.isArray(st.choiceOptions)
-                  const stSpells = st.spells || []
                   return (
                   <div key={st.id} className="space-y-1 border-l-2 border-white/5 pl-2">
                     <div className="flex items-center gap-1">
@@ -810,33 +855,6 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
                         <input type="checkbox" checked={stIsChoice} onChange={() => toggleChoiceMode(sCtx, st.id)} className="accent-[#c79a42] w-3 h-3" />
                         选择型
                       </label>
-                    </div>
-
-                    {/* 天生法术 */}
-                    <div className="pl-2 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-purple-300/70">天生法术</span>
-                        <button onClick={() => addSpell(sCtx, st.id)} className="text-purple-400/70 text-[10px] hover:text-purple-300">+ 添加</button>
-                      </div>
-                      {stSpells.length === 0 && <div className="text-[10px] text-gray-600">无</div>}
-                      {stSpells.map((sp, si) => (
-                        <div key={si} className="flex items-center gap-1 flex-wrap">
-                          <input className={`${inputCls} w-24`} placeholder="法术名" value={sp.name} onChange={e => patchSpell(sCtx, st.id, si, 'name', e.target.value)} />
-                          <select className={`${inputCls} w-16`} value={sp.castMode} onChange={e => patchSpell(sCtx, st.id, si, 'castMode', e.target.value)}>
-                            <option value="at-will">随意</option>
-                            <option value="per-day">每天</option>
-                            <option value="slot">环位</option>
-                          </select>
-                          {sp.castMode === 'per-day' && (
-                            <input className={`${inputCls} w-12`} type="number" min="1" value={sp.timesPerDay || 1} onChange={e => patchSpell(sCtx, st.id, si, 'timesPerDay', Number(e.target.value))} placeholder="次" />
-                          )}
-                          {sp.castMode === 'slot' && (
-                            <input className={`${inputCls} w-12`} type="number" min="1" max="9" value={sp.slotLevel || 1} onChange={e => patchSpell(sCtx, st.id, si, 'slotLevel', Number(e.target.value))} placeholder="环" />
-                          )}
-                          <input className={`${inputCls} flex-1 min-w-[60px]`} placeholder="备注" value={sp.description || ''} onChange={e => patchSpell(sCtx, st.id, si, 'description', e.target.value)} />
-                          <button onClick={() => removeSpell(sCtx, st.id, si)} className="text-dnd-red/60 hover:text-dnd-red text-xs px-1">×</button>
-                        </div>
-                      ))}
                     </div>
 
                     {/* 选择型选项 */}

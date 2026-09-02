@@ -90,6 +90,8 @@ export const CREATURE_TYPE_OPTIONS = [
   { value: 'plant', label: '植物' },
 ]
 
+export const ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha']
+
 /** 空特性模板 */
 export function createEmptyTrait() {
   return {
@@ -174,7 +176,13 @@ export function normalizeAbilityScoreBonuses(raw, fallback) {
   if (!Array.isArray(raw)) return fallback.map(b => ({ ...b }))
   return raw
     .filter(b => b && typeof b === 'object' && Number.isFinite(Number(b.amount)))
-    .map(b => ({ amount: Number(b.amount) }))
+    .map(b => {
+      const slot = { amount: Number(b.amount) }
+      if (Array.isArray(b.allowedAbilities) && b.allowedAbilities.length > 0) {
+        slot.allowedAbilities = b.allowedAbilities.filter(v => ABILITY_KEYS.includes(v))
+      }
+      return slot
+    })
 }
 
 /**
@@ -187,7 +195,6 @@ export function normalizeAbilityScoreBonuses(raw, fallback) {
  */
 export function inferAsiAssignmentsFromLegacy(raceDef, subrace, oldASI) {
   if (!oldASI || typeof oldASI !== 'object') return null
-  const ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha']
 
   const nonZero = ABILITY_KEYS
     .map(k => ({ ability: k, value: Number(oldASI[k]) || 0 }))

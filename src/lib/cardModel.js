@@ -84,6 +84,7 @@ export const SCOPE_TYPE = {
   WEAPON_TYPE: 'weapon_type',       // 武器类型
   DAMAGE_TYPE: 'damage_type',       // 伤害类型
   CREATURE_ITEM: 'creature_item',   // 对生物/物品
+  FORM_CONDITION: 'form_condition', // 形态条件（如荒野变形、狂暴等）
   CUSTOM: 'custom',                 // 自定义
 }
 
@@ -92,6 +93,7 @@ export const SCOPE_TYPE_OPTIONS = [
   { value: SCOPE_TYPE.WEAPON_TYPE, label: '武器类型' },
   { value: SCOPE_TYPE.DAMAGE_TYPE, label: '伤害类型' },
   { value: SCOPE_TYPE.CREATURE_ITEM, label: '对生物/物品' },
+  { value: SCOPE_TYPE.FORM_CONDITION, label: '形态条件' },
   { value: SCOPE_TYPE.CUSTOM, label: '自定义' },
 ]
 

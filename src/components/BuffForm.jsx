@@ -5923,6 +5923,23 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
             </div>
           )}
 
+          {/* 形态条件 */}
+          {cardScope.scopeType === 'form_condition' && (
+            <div className="mt-2">
+              <label className="block text-gray-400 text-[9px] mb-1">形态/状态条件</label>
+              <textarea
+                value={(cardScope.scopeDetail || [])[0] || ''}
+                onChange={(e) => {
+                  setCardScope({ scopeType: 'form_condition', scopeDetail: [e.target.value] })
+                  setTimeout(() => triggerAutoSave(), 0)
+                }}
+                placeholder="例如：荒野变形状态下、狂暴状态下、专注法术时"
+                className={`${inputClass} text-xs h-16 resize-none`}
+              />
+              <p className="mt-1 text-gray-500 text-[8px]">描述角色处于什么形态或状态时此效果才生效</p>
+            </div>
+          )}
+
           {/* 自定义条件 */}
           {cardScope.scopeType === 'custom' && (
             <div className="mt-2">
