@@ -616,7 +616,6 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
             const isChoice = Array.isArray(t.choiceOptions) && t.choiceOptions.length > 0
             const chosenOpt = isChoice ? (t.choiceOptions || []).find(o => o.id === raceCard.traitChoices?.[t.id]) : null
             const activeCards = isChoice ? (chosenOpt?.cards || []) : (t.cards || [])
-            const activeSpells = isChoice ? (chosenOpt?.spells || []) : (t.spells || [])
             const effectSummaries = activeCards.map(c =>
               getEffectSummaryShort({ effectType: c.effectType, value: c.value, customText: c.customText, scope: c.scope, scopeDetail: c.scopeDetail }, {})
             ).filter(Boolean)
@@ -640,18 +639,6 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                   <div className="flex flex-wrap gap-1">
                     {effectSummaries.map((s, i) => (
                       <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-[10px] text-blue-300/80">{s}</span>
-                    ))}
-                  </div>
-                )}
-                {activeSpells.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-1">
-                    {activeSpells.map((sp, si) => (
-                      <span key={si} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20 text-[10px] text-purple-300/80">
-                        <span>{sp.name}</span>
-                        <span className="text-purple-400/60">
-                          {sp.castMode === 'at-will' ? '随意' : sp.castMode === 'per-day' ? `${sp.timesPerDay || 1}次/天` : `${sp.slotLevel || 1}环位`}
-                        </span>
-                      </span>
                     ))}
                   </div>
                 )}
@@ -786,7 +773,7 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
             ]
             if (allSlots.length === 0) return null
             const assignments = raceCard.asiAssignments || []
-            const ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha']
+            const ALL_ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha']
             const handleAsiChange = (slotSource, slotIndex, ability) => {
               const existing = [...assignments]
               const slotEntries = existing.filter(a => a.source === slotSource)
@@ -794,47 +781,64 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
               slotEntries[slotIndex] = { source: slotSource, ability }
               onSave({ raceCard: { ...raceCard, asiAssignments: [...otherEntries, ...slotEntries] } })
             }
+            const getAvailableKeys = (b) => {
+              if (Array.isArray(b.allowedAbilities) && b.allowedAbilities.length > 0) return b.allowedAbilities
+              return ALL_ABILITY_KEYS
+            }
+            const renderHint = (b) => {
+              if (!Array.isArray(b.allowedAbilities) || b.allowedAbilities.length === 0) return null
+              if (b.allowedAbilities.length === ALL_ABILITY_KEYS.length) return null
+              return <span className="text-[9px] text-amber-400/60">限:{b.allowedAbilities.map(k => ABILITY_NAMES_ZH[k]).join(',')}</span>
+            }
             return (
               <>
                 <span className="col-span-2 text-right text-[11px] text-gray-400 font-medium bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">属性加值</span>
                 <div className="col-span-12 flex flex-wrap items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">
                   {raceBonuses.length > 0 && (
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-[10px] text-gray-500">种族</span>
                       {raceBonuses.map((b, i) => {
                         const current = (assignments.filter(a => a.source === 'race') || [])[i]?.ability || ''
                         const takenByOthers = assignments.filter(a => a.source === 'race').map((a, idx) => idx !== i ? a.ability : null).filter(Boolean)
+                        const keys = getAvailableKeys(b)
                         return (
-                          <select key={i} value={current} onChange={e => handleAsiChange('race', i, e.target.value)}
-                            className="px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
-                            <option value="">+{b.amount} → ?</option>
-                            {ABILITY_KEYS.map(k => (
-                              <option key={k} value={k} disabled={takenByOthers.includes(k)}>
-                                +{b.amount} → {ABILITY_NAMES_ZH[k]}
-                              </option>
-                            ))}
-                          </select>
+                          <div key={i} className="flex items-center gap-1">
+                            <select value={current} onChange={e => handleAsiChange('race', i, e.target.value)}
+                              className="px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+                              <option value="">+{b.amount} → ?</option>
+                              {keys.map(k => (
+                                <option key={k} value={k} disabled={takenByOthers.includes(k)}>
+                                  +{b.amount} → {ABILITY_NAMES_ZH[k]}
+                                </option>
+                              ))}
+                            </select>
+                            {renderHint(b)}
+                          </div>
                         )
                       })}
                     </div>
                   )}
                   {subraceBonuses.length > 0 && (
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-[10px] text-gray-500">亚种</span>
                       {subraceBonuses.map((b, i) => {
                         const subAssignments = assignments.filter(a => a.source === 'subrace')
                         const current = subAssignments[i]?.ability || ''
                         const takenByOthers = subAssignments.map((a, idx) => idx !== i ? a.ability : null).filter(Boolean)
+                        const keys = getAvailableKeys(b)
                         return (
-                          <select key={i} value={current} onChange={e => handleAsiChange('subrace', i, e.target.value)}
-                            className="px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
-                            <option value="">+{b.amount} → ?</option>
-                            {ABILITY_KEYS.map(k => (
-                              <option key={k} value={k} disabled={takenByOthers.includes(k)}>
-                                +{b.amount} → {ABILITY_NAMES_ZH[k]}
-                              </option>
-                            ))}
-                          </select>
+                          <div key={i} className="flex items-center gap-1">
+                            <select value={current} onChange={e => handleAsiChange('subrace', i, e.target.value)}
+                              className="px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+                              <option value="">+{b.amount} → ?</option>
+                              {keys.map(k => (
+                                <option key={k} value={k} disabled={takenByOthers.includes(k)}>
+                                  +{b.amount} → {ABILITY_NAMES_ZH[k]}
+                                </option>
+                              ))}
+                            </select>
+                            {renderHint(b)}
+                          </div>
                         )
                       })}
                     </div>
@@ -3996,7 +4000,6 @@ export default function CharacterSheet() {
                             const isChoice = Array.isArray(t.choiceOptions) && t.choiceOptions.length > 0
                             const chosenOpt = isChoice ? (t.choiceOptions || []).find(o => o.id === char.raceCard?.traitChoices?.[t.id]) : null
                             const activeCards = isChoice ? (chosenOpt?.cards || []) : (t.cards || [])
-                            const activeSpells = isChoice ? (chosenOpt?.spells || []) : (t.spells || [])
                             const effectSummaries = activeCards.map(c =>
                               getEffectSummaryShort({ effectType: c.effectType, value: c.value, customText: c.customText, scope: c.scope, scopeDetail: c.scopeDetail }, {})
                             ).filter(Boolean)
@@ -4020,18 +4023,6 @@ export default function CharacterSheet() {
                                   <div className="flex flex-wrap gap-1">
                                     {effectSummaries.map((s, i) => (
                                       <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-[10px] text-blue-300/80">{s}</span>
-                                    ))}
-                                  </div>
-                                )}
-                                {activeSpells.length > 0 && (
-                                  <div className="flex flex-wrap gap-1.5 mt-1">
-                                    {activeSpells.map((sp, si) => (
-                                      <span key={si} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20 text-[10px] text-purple-300/80">
-                                        <span>{sp.name}</span>
-                                        <span className="text-purple-400/60">
-                                          {sp.castMode === 'at-will' ? '随意' : sp.castMode === 'per-day' ? `${sp.timesPerDay || 1}次/天` : `${sp.slotLevel || 1}环位`}
-                                        </span>
-                                      </span>
                                     ))}
                                   </div>
                                 )}
@@ -4135,6 +4126,8 @@ export default function CharacterSheet() {
             <h3 className="section-title">被动BUFF</h3>
             <BuffManager
               buffs={mergedBuffs}
+              cards={char.cards ?? []}
+              char={char}
               baseAbilities={char.abilities ?? {}}
               sourceNameOptions={sourceNameOptions}
               subordinates={subordinates}
@@ -4167,6 +4160,13 @@ export default function CharacterSheet() {
                 }
                 
                 persist(updates)
+              }}
+              onUseAbility={(card, patch, lines) => {
+                // 应用资源扣除和效果
+                if (patch && Object.keys(patch).length > 0) {
+                  persist(patch)
+                }
+                console.log('[CharacterSheet] Ability used:', card.source, lines)
               }}
               stashBuffs={char.buffStash ?? []}
               onStashChange={canEdit ? (next) => persist({ buffStash: next }) : undefined}

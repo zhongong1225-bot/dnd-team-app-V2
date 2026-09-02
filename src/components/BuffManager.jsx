@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect, useLayoutEffect } from 'react'
-import { Plus, Pencil, Trash2, ArrowDownToLine, Library, Search, ChevronDown, Minus, Maximize2, Minimize2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, ArrowDownToLine, Library, Search, ChevronDown, Minus, Maximize2, Minimize2, Zap } from 'lucide-react'
 import { getBuffSummaryLine } from './BuffListItem'
 import BuffForm from './BuffForm'
 import BuffColumnBoard from './BuffColumnBoard'
+import AbilityUseModal from './AbilityUseModal'
 import {
   normalizeBuffSourceKindKey,
   getColumnKeyForBuff,
@@ -26,8 +27,11 @@ const BUFF_PANEL_OUTER_SHADOW =
 
 export default function BuffManager({
   buffs = [],
+  cards = [],
+  char,
   baseAbilities = {},
   onSave,
+  onUseAbility,
   canEdit,
   stashBuffs = [],
   onStashChange,
@@ -44,6 +48,7 @@ export default function BuffManager({
 }) {
   const { moduleLibrary, currentModuleId } = useModule()
   const [formState, setFormState] = useState(null)
+  const [useAbilityCard, setUseAbilityCard] = useState(null) // 正在使用的主动卡
 
   // 包装 setFormState，记录所有调用
   const setFormStateTracked = (value) => {
@@ -458,6 +463,87 @@ export default function BuffManager({
         )}
       </div>
 
+      {/* ── 主动卡列表 ── */}
+      {cards.length > 0 && (
+        <div className="mb-3 rounded-lg border border-white/10 bg-[#1a2333]/60 p-2">
+          <div className="flex items-center gap-x-2 gap-y-0.5 mb-1.5 min-w-0">
+            <span className="text-dnd-gold-light text-[10px] font-bold tracking-wide shrink-0">主动卡</span>
+            <span className="text-gray-500 text-[10px] min-w-0 leading-snug">点击「使用」按钮释放技能</span>
+          </div>
+          <div className="space-y-1.5">
+            {cards.map((card) => {
+              const chargeItemEffect = card.effects?.find(e => e.effectType === 'charge_item')
+              const actionType = card.actionType || 'action'
+              const actionLabel = {
+                action: '主要动作',
+                bonus: '附赠动作',
+                reaction: '反应',
+                movement: '移动',
+              }[actionType] || '主要动作'
+              
+              // 提取消耗信息
+              let consumptionText = ''
+              if (chargeItemEffect?.value) {
+                const val = chargeItemEffect.value
+                if (val.consumeSpellSlot && val.spellLevel) {
+                  consumptionText = `${val.spellLevel}环法术位`
+                } else if (val.chargeCost) {
+                  consumptionText = `${val.chargeCost}充能`
+                } else if (val.resourceType && val.resourceAmount) {
+                  consumptionText = `${val.resourceAmount}${val.resourceType}`
+                }
+              }
+              
+              return (
+                <div
+                  key={card.id}
+                  className="flex items-center gap-2 min-w-0 max-w-full rounded-md border border-white/10 bg-[#243147]/50 pl-2 pr-1.5 py-1"
+                >
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <Zap className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs text-gray-200 font-medium truncate">
+                        {card.source || '未命名'}
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[9px] text-gray-500 px-1 py-0.5 rounded bg-white/5">
+                          {actionLabel}
+                        </span>
+                        {consumptionText && (
+                          <span className="text-[9px] text-gray-500 px-1 py-0.5 rounded bg-white/5">
+                            {consumptionText}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setUseAbilityCard(card)}
+                    className="shrink-0 px-2 py-0.5 rounded-md bg-yellow-600/20 border border-yellow-600/40 text-yellow-400 hover:bg-yellow-600/30 text-[10px] font-medium transition-colors"
+                  >
+                    使用
+                  </button>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        editorOpenTimeRef.current = Date.now()
+                        setFormStateTracked({ mode: 'active', id: card.id })
+                      }}
+                      className="shrink-0 p-1 rounded-md text-gray-400 hover:bg-gray-700/80 hover:text-dnd-gold-light transition-colors"
+                      title="编辑"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {showStashSection && (
         <div className="mb-3 rounded-lg border border-white/10 bg-[#1a2333]/60 p-2">
           <div className="flex items-center gap-x-2 gap-y-0.5 mb-1.5 min-w-0">
@@ -795,6 +881,21 @@ export default function BuffManager({
             </div>
           </div>
         </>
+      )}
+
+      {/* ── 主动卡使用弹窗 ── */}
+      {useAbilityCard && char && (
+        <AbilityUseModal
+          activeAbility={useAbilityCard}
+          char={char}
+          featureName={useAbilityCard.source || '主动技能'}
+          onConfirm={(patch, lines) => {
+            if (onUseAbility) {
+              onUseAbility(useAbilityCard, patch, lines)
+            }
+          }}
+          onClose={() => setUseAbilityCard(null)}
+        />
       )}
     </>
   )
