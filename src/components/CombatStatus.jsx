@@ -3356,6 +3356,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                               isAttackType: true,
                               attackRollResult: total,
                               rawD20Result: rawD20,
+                              critThreatMinNatural: buffStats?.critThreatMinNatural,
                               buffBonuses: creatureSpellBuffBonuses,
                               extraDamageDice: creatureSpellExtraDice,
                             })

@@ -110,8 +110,14 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
   if (buff.effectType === 'crit_range_override' && typeof v === 'number' && !Number.isNaN(v)) {
     return `${effectLabel}${v}-20`
   }
+  if (buff.effectType === 'crit_range_expand' && typeof v === 'string' && v) {
+    return `${effectLabel}${v}`
+  }
   if (buff.effectType === 'crit_range_increment' && typeof v === 'number' && !Number.isNaN(v)) {
     return `${effectLabel}+${v}`
+  }
+  if (buff.effectType === 'crit_range_reduction' && typeof v === 'number' && !Number.isNaN(v)) {
+    return `${effectLabel}-${v}`
   }
   if (info.effect.dataType === 'number' && (typeof v === 'number' || isFormulaValue(v))) {
     if (isFormulaValue(v)) return `${effectLabel}${formatFormulaLabelWithEval(v, context)}`
@@ -411,7 +417,20 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
   if ((buff.effectType === 'ability_override' || buff.effectType === 'ability_score_uncapped') && !isPlainAbilityObject(v)) {
     return ''
   }
-  return v != null ? `${effectLabel}${String(v)}` : effectLabel
+  
+  let result = v != null ? `${effectLabel}${String(v)}` : effectLabel
+  
+  // 附加条件标签
+  if (buff.effectCondition) {
+    const conditionLabels = {
+      creature_transform_active: '[变身]',
+      wild_shape_active: '[荒野变形]',
+    }
+    const condLabel = conditionLabels[buff.effectCondition] || `[${buff.effectCondition}]`
+    result = `${condLabel}${result}`
+  }
+  
+  return result
 }
 
 /** 整条 buff 的简化一行文案：来源 | 效果1，效果2，… */
@@ -525,8 +544,14 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
   if (buff.effectType === 'crit_range_override' && typeof buff.value === 'number') {
     return { label: effectLabel, value: `${buff.value}-20` }
   }
+  if (buff.effectType === 'crit_range_expand' && typeof buff.value === 'string' && buff.value) {
+    return { label: effectLabel, value: buff.value }
+  }
   if (buff.effectType === 'crit_range_increment' && typeof buff.value === 'number') {
     return { label: effectLabel, value: `+${buff.value}` }
+  }
+  if (buff.effectType === 'crit_range_reduction' && typeof buff.value === 'number') {
+    return { label: effectLabel, value: `-${buff.value}` }
   }
   if (info.effect.dataType === 'number' && (typeof buff.value === 'number' || isFormulaValue(buff.value))) {
     if (isFormulaValue(buff.value)) return { label: effectLabel, value: formatFormulaLabelWithEval(buff.value, context) }
