@@ -13,7 +13,7 @@ import { getDamageTypeLabel } from '../../data/buffTypes'
 import { parseCombatDiceExpression } from '../../data/weaponDatabase'
 
 const COMBAT_MEAN_ROW_GRID =
-  'grid grid-cols-[repeat(24,minmax(0,1fr))] items-center gap-x-1 w-full min-w-0 overflow-hidden'
+  'grid grid-cols-[5fr_3fr_3fr_12fr_1fr] items-center gap-x-1 w-full min-w-0 overflow-hidden'
 const COMBAT_LIST_ROW_SHADOW = 'shadow-[0_2px_10px_rgba(0,0,0,0.42)]'
 const CM_MEAN_LABEL = 'text-xs'
 const CM_MEAN_HI = 'text-sm'
@@ -74,9 +74,10 @@ export default function WeaponAttackCard({ displayMean, weaponOpt, ctx, comboSuf
     canEdit, isCombo, gains,
     openEditWeaponMean, openEditComboMean, removeCombatMean,
     openForCheck, rollAllWeaponDamage, renderAutoGainBadges,
+    setDamageRollConfirm, handleCreatureSpellAttackResult,
   } = ctx
 
-  /* ── 计算 ── */
+  /* ── 计算 ─ */
   const weaponCritDiceMult = getCritDamageDiceMultiplierFromItemEntry(weaponOpt.entry, ctx.itemFormulaContext)
   const weaponCritThreatMin = getCritThreatMinNaturalFromItemEntry(weaponOpt.entry)
   const isRanged = weaponOpt.proto?.子类型 === '远程'
@@ -129,40 +130,100 @@ export default function WeaponAttackCard({ displayMean, weaponOpt, ctx, comboSuf
   const extraFiltered = filterExtraDiceAgainstMain(attackParsed, rawDamageType, weaponExtraDiceStrings)
   const hasDamage = ((attackParsed.diceList?.length || attackParsed.dice) || extraFiltered.length > 0)
 
+  // 构建伤害列表（用于多步流程）
+  const damageList = []
+  if (attackParsed.dice) {
+    const diceMatch = attackParsed.dice.match(/(\d+)d(\d+)/)
+    if (diceMatch) {
+      damageList.push({ dice: attackParsed.dice, type: displayDamageType })
+    }
+  } else if (attackParsed.diceList?.length) {
+    attackParsed.diceList.forEach((diceExpr) => {
+      const diceMatch = diceExpr.match(/(\d+)d(\d+)/)
+      if (diceMatch) {
+        damageList.push({ dice: diceExpr, type: displayDamageType })
+      }
+    })
+  }
+  extraFiltered.forEach((extraDice) => {
+    const diceMatch = extraDice.match(/(\d+)d(\d+)/)
+    if (diceMatch) {
+      const [, , typePart] = extraDice.split(/\s+/)
+      damageList.push({ dice: extraDice, type: typePart || displayDamageType })
+    }
+  })
+
   const onEdit = isCombo ? () => openEditComboMean(displayMean) : () => openEditWeaponMean(displayMean)
   const editBadgeClick = () => openEditWeaponMean(displayMean)
 
+  // 构建BUFF加值列表（从physStats提取）
+  const buffBonuses = []
+  if (buffDamageBonus !== 0) buffBonuses.push({ label: 'BUFF伤害加值', value: buffDamageBonus })
+  if (gainDamageBonus !== 0) buffBonuses.push({ label: '增益伤害加值', value: gainDamageBonus })
+  if (weaponPerDieMod !== 0) buffBonuses.push({ label: '每骰加成', value: weaponPerDieMod })
+  
+  // 构建额外伤害列表
+  const extraDamageDice = extraFiltered.map((dice, idx) => ({
+    label: `额外伤害${idx + 1}`,
+    dice,
+  }))
+
+  const nameColumnClickable = !!(setDamageRollConfirm && openForCheck && hasDamage)
+  
   return (
     <div className={`rounded-lg border border-gray-600 bg-gray-800/80 p-2 ${COMBAT_LIST_ROW_SHADOW}`}>
       <div className={COMBAT_MEAN_ROW_GRID}>
-        {/* 名称列 */}
-        <div className="col-span-5 flex items-center gap-1 min-w-0 pr-2">
+        {/* 名称列 - 可点击触发释放 */}
+        <div 
+          className={`flex items-center gap-1 min-w-0 pr-2 ${nameColumnClickable ? 'cursor-pointer hover:bg-gray-700/30 transition-colors rounded px-1 -ml-1' : ''}`}
+          onClick={nameColumnClickable ? () => {
+            // 攻击型：打开攻击检定弹窗（带回调）
+            openForCheck(fullName + ' 攻击', physicalAttackBonus, { 
+              quickRoll: true,
+              critThreatMinNatural: weaponCritThreatMin,
+              advantage: gainAdvantage,
+              onResult: (total, rawD20) => {
+                setDamageRollConfirm({
+                  spellName: fullName,
+                  damageList,
+                  nwSpellAtk: physicalAttackBonus,
+                  slotLevel: 0,
+                  spellData: null,
+                  isAttackType: true,
+                  attackRollResult: total,
+                  rawD20Result: rawD20,
+                  critThreatMinNatural: weaponCritThreatMin,
+                  buffBonuses,
+                  extraDamageDice,
+                })
+              },
+            })
+          } : undefined}
+          title={nameColumnClickable ? '点击释放' : undefined}
+        >
           <ActionLabelBadge source="1 动作" />
           <span className={`text-white font-medium ${CM_MEAN_HI} truncate min-w-0`}>{fullName}</span>
           {canEdit && (
-            <button type="button" onClick={onEdit} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-dnd-gold-light shrink-0" title={isCombo ? '编辑组合技' : '编辑武器'}>
+            <button type="button" onClick={(e) => { e.stopPropagation(); onEdit() }} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-dnd-gold-light shrink-0" title={isCombo ? '编辑组合技' : '编辑武器'}>
               <Pencil size={12} />
             </button>
           )}
         </div>
 
         {/* 射程列 */}
-        <div className="col-span-4 pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden">
+        <div className="pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden">
           <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>射程</span>
           <span className={`text-white ${CM_MEAN_HI} truncate`}>{rangeDisplay}</span>
         </div>
 
-        {/* 攻击列 */}
-        <div className="col-span-4 pl-2 border-l border-gray-600 flex items-center gap-x-1.5 min-w-0 overflow-hidden">
+        {/* 攻击列 - 只显示数值 */}
+        <div className="pl-2 border-l border-gray-600 flex items-center gap-x-1.5 min-w-0 overflow-hidden">
           <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>攻击</span>
           <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums truncate`}>{physicalAttackBonus >= 0 ? '+' : ''}{physicalAttackBonus}</span>
-          <button type="button" onClick={() => openForCheck(weaponOpt.name + ' 攻击' + comboSuffix, physicalAttackBonus, { quickRoll: true, critThreatMinNatural: weaponCritThreatMin, advantage: gainAdvantage })} className={CM_BTN_RED} title={quickRollTitle('攻击')} aria-label={quickRollTitle('攻击')}>
-            <QuickRollIcon />
-          </button>
         </div>
 
-        {/* 伤害列 */}
-        <div className="col-span-10 pl-2 border-l border-gray-600 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1">
+        {/* 伤害列 - 只显示伤害文本 */}
+        <div className="pl-2 border-l border-gray-600 flex min-w-0 items-center gap-x-1 overflow-hidden">
           <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
           <span
             className={`min-w-0 flex-1 font-mono ${CM_MEAN_HI} tabular-nums text-white whitespace-nowrap [overflow-wrap:anywhere] sm:truncate`}
@@ -176,20 +237,10 @@ export default function WeaponAttackCard({ displayMean, weaponOpt, ctx, comboSuf
             {extraFiltered.map((d) => ` + ${d}`).join('')}
           </span>
           {renderAutoGainBadges(gains, editBadgeClick)}
-          {hasDamage && (
-            <>
-              <button type="button" onClick={() => rollAllWeaponDamage(displayMean, weaponOpt, attackParsed, totalDamageMod, displayDamageType, false)} className={CM_BTN_GOLD} title={quickRollTitle('伤害')} aria-label={quickRollTitle('伤害')}>
-                <QuickRollIcon />
-              </button>
-              <button type="button" onClick={() => rollAllWeaponDamage(displayMean, weaponOpt, attackParsed, totalDamageMod, displayDamageType, true)} className={CM_BTN_CRIT} title={quickRollTitle(`伤害（重击×${weaponCritDiceMult}伤害骰）`)} aria-label={quickRollTitle(`伤害（重击×${weaponCritDiceMult}伤害骰）`)}>
-                <QuickRollIcon />
-              </button>
-            </>
-          )}
         </div>
 
         {/* 删除列 */}
-        <div className="col-span-1 flex min-w-0 items-center justify-end gap-0.5 pl-1 border-l border-gray-600 shrink-0">
+        <div className="flex min-w-0 items-center justify-end gap-0.5 pl-1 border-l border-gray-600 shrink-0">
           {canEdit && (
             <button type="button" onClick={() => removeCombatMean(displayMean.id)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red shrink-0" title="移除">
               <Trash2 size={12} />

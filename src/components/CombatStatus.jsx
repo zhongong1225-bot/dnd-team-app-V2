@@ -49,7 +49,7 @@ import {
   GAIN_TYPES, getEnabledGains, sumGainAttackBonus, sumGainDamageBonus, sumGainPerDieBonus, getGainExtraDice, getGainAdvantage, hasGainDiceFloor2,
   computePhysicalWeaponStats, buildDefaultGainsFromBuffs, mergeAutoGains, gainsContentEqual,
   getWeaponEntrySpellAbility, getWeaponEntryDamageExtras, getMergedWeaponExtraDiceStrings, filterExtraDiceAgainstMain,
-  parseSpellDamageFromDescription, spellUsesAttack, inferSaveFromSpellDescription,
+  parseSpellDamageFromDescription, spellUsesAttack, inferSaveFromSpellDescription, normalizeSpellName,
 } from './combat/combatMeanUtils'
 
 import { getItemById, parseWeaponNoteToTraits } from '../data/itemDatabase'
@@ -153,7 +153,7 @@ function getEntrySpellPowerBonus(entry, char, context) {
 
 /** 战斗手段行：24 细分为 12 份 — 名称2 | 射程2 | 命中2 | 伤害5.5 | 删除0.5（删列=1/24；Tailwind 无 grid-cols-24 故用任意值） */
 const COMBAT_MEAN_ROW_GRID =
-  'grid grid-cols-[repeat(24,minmax(0,1fr))] items-center gap-x-1 w-full min-w-0 overflow-hidden'
+  'grid grid-cols-[5fr_3fr_3fr_12fr_1fr] items-center gap-x-1 w-full min-w-0 overflow-hidden'
 
 /** 战斗状态根容器：同 Buff 最外框，仅黑系外投影 + 底内收边，无 shadow-dnd-card 顶白 inset（圆角易像外发光） */
 const COMBAT_ROOT_OUTER_SHADOW =
@@ -553,7 +553,11 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
 
   const acModeOptions = useMemo(() => getACModeOptionsForCharacter(char), [char?.['class'], char?.multiclass, char?.prestige])
   const acModeEffective = getEffectiveACCalculationMode(char)
-  const showAcModeSelect = canEdit && acModeOptions.length > 1
+  // 变身状态下隐藏 AC 模式下拉框（由变身BUFF自动覆盖）
+  const hasTransformBuff = Array.isArray(char.buffs) && char.buffs.some(b => 
+    b.enabled !== false && Array.isArray(b.effects) && b.effects.some(e => e?.effectType === 'creature_transform')
+  )
+  const showAcModeSelect = canEdit && acModeOptions.length > 1 && !hasTransformBuff
   const isCreatureTemplate = char?.subordinateTemplate === 'creature'
   /** 与豁免/技能一致：用 Buff 合并后的体质参与每级 HP，否则专长「体质+N」不会增加上限 */
   const abilitiesForMaxHp = buffStats?.abilities ?? abilities
@@ -654,6 +658,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [explosiveUsePending, setExplosiveUsePending] = useState(null) // { inventoryIndex, name, diceExpr, damageType }
   const [focusUsePending, setFocusUsePending] = useState(null) // { inventoryIndex, name, spellSub } 法器投掷待确认
   const [executeAbilityModal, setExecuteAbilityModal] = useState(null) // { ability, context }
+  const [damageRollConfirm, setDamageRollConfirm] = useState(null) // { attackResult, spellName, damageList, isSpellAttack, critThreatMin, nwSpellAtk, slotLevel, spellData }
   const [focusSpellMap, setFocusSpellMap] = useState({}) // { [inventoryIndex]: spellSub } 法器当前选中的内含法术
   const combatMeansRef = useRef(combatMeans)
   useEffect(() => {
@@ -1318,6 +1323,127 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         ? { animate: true, formula: animParts.join(','), diceValues: animValues }
         : {}
     setLastDamageRoll({ byType, ...animBundle })
+  }
+
+  // 变身法术攻击检定后的确认回调（由弹窗调用）
+  const handleCreatureSpellAttackResult = (attackResult, targetDC, isCrit) => {
+    if (!damageRollConfirm) return
+    const { spellName, damageList, nwSpellAtk, slotLevel, spellData } = damageRollConfirm
+    
+    const dcNum = Number(targetDC)
+    if (!dcNum || isNaN(dcNum)) {
+      // 用户未输入有效DC，不投伤害
+      setDamageRollConfirm(null)
+      return
+    }
+    
+    const hit = attackResult >= dcNum
+    if (!hit) {
+      alert(`攻击未命中！（${attackResult} < ${dcNum}）`)
+      setDamageRollConfirm(null)
+      return
+    }
+    
+    // 确定是否重击
+    const isCritChoice = isCrit === true || isCrit === false ? isCrit : false
+    
+    // 计算升环后的伤害
+    const actualSlotLevel = Number(slotLevel) || spellData?.level || 0
+    const spellBaseLevel = Number(spellData?.level) || 0
+    const levelDiff = Math.max(0, actualSlotLevel - spellBaseLevel)
+    
+    let finalDamageList = [...damageList]
+    if (levelDiff > 0 && spellData?.description) {
+      const baseDamages = parseSpellDamageFromDescription(spellData.description)
+      const higherLevelMatch = spellData.description.match(/升环施法[：:]?.*?(钝击|寒冷|火焰|光耀|力场|心灵|闪电|穿刺|挥砍|毒素|黯蚀|雷鸣)?伤害.*?提高(\d+d\d+)/i)
+      
+      if (higherLevelMatch) {
+        const extraDiceStr = higherLevelMatch[2]
+        const extraTypeRaw = higherLevelMatch[1]
+        const extraType = getDamageTypeLabel(extraTypeRaw) || extraTypeRaw
+        const extraDiceMatch = extraDiceStr.match(/(\d+)d(\d+)/)
+        
+        if (extraDiceMatch) {
+          const baseCount = parseInt(extraDiceMatch[1]) * levelDiff
+          const diceSize = extraDiceMatch[2]
+          const targetType = extraType || '钝击'
+          const existingIdx = baseDamages.findIndex(d => d.type === targetType)
+          
+          if (existingIdx >= 0) {
+            const existing = baseDamages[existingIdx]
+            const existingMatch = existing.dice.match(/(\d+)d(\d+)/)
+            if (existingMatch && existingMatch[2] === diceSize) {
+              const newCount = parseInt(existingMatch[1]) + baseCount
+              finalDamageList = [...baseDamages]
+              finalDamageList[existingIdx] = { dice: `${newCount}d${diceSize}`, type: targetType }
+            } else {
+              finalDamageList = [...baseDamages, { dice: `${baseCount}d${diceSize}`, type: targetType }]
+            }
+          } else {
+            finalDamageList = [...baseDamages, { dice: `${baseCount}d${diceSize}`, type: targetType }]
+          }
+        }
+      }
+    }
+    
+    // 投掷伤害
+    if (finalDamageList.length > 0) {
+      const firstDice = finalDamageList[0].dice
+      const firstType = getDamageTypeLabel(finalDamageList[0].type) || finalDamageList[0].type || ''
+      const label = `${spellName} ${firstType}`
+      rollDamageDice(firstDice, label, 'creature-spell-confirm', 0, isCritChoice, firstType)
+    }
+    
+    setDamageRollConfirm(null)
+  }
+
+  // 豁免型法术直接投伤害
+  const handleCreatureSpellSaveDamage = (spellName, damageList, slotLevel, spellData) => {
+    if (!damageList || damageList.length === 0) return
+    
+    // 计算升环后的伤害
+    const actualSlotLevel = Number(slotLevel) || spellData?.level || 0
+    const spellBaseLevel = Number(spellData?.level) || 0
+    const levelDiff = Math.max(0, actualSlotLevel - spellBaseLevel)
+    
+    let finalDamageList = [...damageList]
+    if (levelDiff > 0 && spellData?.description) {
+      const baseDamages = parseSpellDamageFromDescription(spellData.description)
+      const higherLevelMatch = spellData.description.match(/升环施法[：:]?.*?(钝击|寒冷|火焰|光耀|力场|心灵|闪电|穿刺|挥砍|毒素|黯蚀|雷鸣)?伤害.*?提高(\d+d\d+)/i)
+      
+      if (higherLevelMatch) {
+        const extraDiceStr = higherLevelMatch[2]
+        const extraTypeRaw = higherLevelMatch[1]
+        const extraType = getDamageTypeLabel(extraTypeRaw) || extraTypeRaw
+        const extraDiceMatch = extraDiceStr.match(/(\d+)d(\d+)/)
+        
+        if (extraDiceMatch) {
+          const baseCount = parseInt(extraDiceMatch[1]) * levelDiff
+          const diceSize = extraDiceMatch[2]
+          const targetType = extraType || '钝击'
+          const existingIdx = baseDamages.findIndex(d => d.type === targetType)
+          
+          if (existingIdx >= 0) {
+            const existing = baseDamages[existingIdx]
+            const existingMatch = existing.dice.match(/(\d+)d(\d+)/)
+            if (existingMatch && existingMatch[2] === diceSize) {
+              const newCount = parseInt(existingMatch[1]) + baseCount
+              finalDamageList = [...baseDamages]
+              finalDamageList[existingIdx] = { dice: `${newCount}d${diceSize}`, type: targetType }
+            } else {
+              finalDamageList = [...baseDamages, { dice: `${baseCount}d${diceSize}`, type: targetType }]
+            }
+          } else {
+            finalDamageList = [...baseDamages, { dice: `${baseCount}d${diceSize}`, type: targetType }]
+          }
+        }
+      }
+    }
+    
+    const firstDice = finalDamageList[0].dice
+    const firstType = getDamageTypeLabel(finalDamageList[0].type) || finalDamageList[0].type || ''
+    const label = `${spellName} ${firstType}`
+    rollDamageDice(firstDice, label, 'creature-spell-save', 0, false, firstType)
   }
 
   const rollDamageDice = (diceExpr, label, key, modifier = 0, isCrit = false, damageTypeLabel = '', options = {}) => {
@@ -2840,6 +2966,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               consumeSpellSlotForMean, renderAutoGainBadges,
               // 状态设置
               setExplosiveUsePending, useScroll, setFocusUsePending, setFocusSpellMap,
+              setDamageRollConfirm, handleCreatureSpellAttackResult,
               // 数据源
               getMergedSpells,
               // 角色数据（道具卡需要）
@@ -2860,25 +2987,126 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                     key={cm.id}
                     className={`rounded-lg border border-gray-600 bg-gray-800/80 p-2 ${COMBAT_LIST_ROW_SHADOW}`}
                   >
-                    <>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <select
-                          value={cm.type}
-                          onChange={(e) => updateCombatMean(cm.id, { type: e.target.value, weaponInventoryIndex: null, spellId: null })}
-                          className={inputClass + ' !text-xs h-7 w-24'}
-                          disabled={!canEdit}
-                        >
-                          <option value="physical">物理攻击</option>
-                          <option value="spell">法术攻击</option>
-                        </select>
-                        <ActionLabelBadge source={spell?.castingTime || ''} />
-                        {canEdit && (
-                          <button type="button" onClick={() => removeCombatMean(cm.id)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red" title="移除">
+                    <div className={COMBAT_MEAN_ROW_GRID}>
+                      {/* 名称列 */}
+                      <div className="col-span-5 flex items-center gap-1 min-w-0 pr-2">
+                        {canEdit ? (
+                          <>
+                            <select
+                              value={cm.type}
+                              onChange={(e) => updateCombatMean(cm.id, { type: e.target.value, weaponInventoryIndex: null, spellId: null })}
+                              className={inputClass + ' !text-xs h-7 w-24'}
+                              disabled={!canEdit}
+                            >
+                              <option value="physical">物理攻击</option>
+                              <option value="spell">法术攻击</option>
+                            </select>
+                            <button type="button" onClick={() => removeCombatMean(cm.id)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red shrink-0" title="移除">
+                              <Trash2 size={12} />
+                            </button>
+                          </>
+                        ) : (
+                          <ActionLabelBadge source={spell?.castingTime || ''} />
+                        )}
+                        <span className={`text-white font-medium ${CM_MEAN_HI} truncate min-w-0`}>{spell?.name || cm.spellName || '法术'}</span>
+                      </div>
+
+                      {/* 环位列 */}
+                      <div className="pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden">
+                        <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>环位</span>
+                        <span className={`text-white ${CM_MEAN_HI} truncate`}>{spell ? (spell.level === 0 ? '戏法' : `${spell.level}环`) : '—'}</span>
+                      </div>
+
+                      {/* 攻击/豁免列 */}
+                      <div className="pl-2 border-l border-gray-600 flex items-center gap-x-1.5 min-w-0 overflow-hidden">
+                        {spell && (
+                          <>
+                            {spellIsAttack ? (
+                              <>
+                                <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums truncate`}>法攻 {spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : '—'}</span>
+                                {spellAttackBonus != null && (
+                                  <button type="button" onClick={() => { if (!consumeSpellSlotForMean(cm, spell.name)) return; openForCheck(spell.name + ' 法术攻击', spellAttackBonus, { quickRoll: true }) }} className={CM_BTN_RED} title={quickRollTitle('法术攻击')} aria-label={quickRollTitle('法术攻击')}>
+                                    <QuickRollIcon kind="d20" />
+                                  </button>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums truncate`}>
+                                  {(() => {
+                                    const saveType = inferSaveFromSpellDescription(spell.description)
+                                    const saveShortMap = {
+                                      dex_save: '敏豁', str_save: '力豁', con_save: '体豁',
+                                      wis_save: '感豁', int_save: '智豁', cha_save: '魅豁',
+                                    }
+                                    const shortLabel = saveShortMap[saveType] || '豁免'
+                                    return `${shortLabel} ${spellDC != null ? spellDC : '—'}`
+                                  })()}
+                                </span>
+                                {spellDC != null && (
+                                  <button type="button" onClick={() => { 
+                                    const saveType = inferSaveFromSpellDescription(spell.description)
+                                    const saveLabels = {
+                                      dex_save: '敏捷豁免', str_save: '力量豁免', con_save: '体质豁免',
+                                      wis_save: '感知豁免', int_save: '智力豁免', cha_save: '魅力豁免',
+                                    }
+                                    const label = saveLabels[saveType] || '豁免'
+                                    if (!consumeSpellSlotForMean(cm, spell.name)) return
+                                    openForCheck(spell.name + ' ' + label, spellDC, { quickRoll: true }) 
+                                  }} className={CM_BTN_RED} title={quickRollTitle('豁免检定')} aria-label={quickRollTitle('豁免检定')}>
+                                    <QuickRollIcon kind="d20" />
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </>
+                        )}
+                      </div>
+
+                      {/* 伤害列 */}
+                      <div className="pl-2 border-l border-gray-600 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1">
+                        <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
+                        {spell && spellDamageList.length > 0 ? (
+                          <>
+                            <span className={`min-w-0 flex-1 font-mono ${CM_MEAN_HI} tabular-nums text-white whitespace-nowrap sm:truncate`}>
+                              {spellDamageList.map((d, i) => (
+                                <span key={i}>
+                                  {i > 0 && ' + '}
+                                  {d.dice} {getDamageTypeLabel(d.type) || d.type}
+                                </span>
+                              ))}
+                            </span>
+                            {spellDamageList.map((d, i) => (
+                              <span key={`btn-${i}`} className="inline-flex items-center gap-0.5">
+                                <button type="button" onClick={() => { if (!consumeSpellSlotForMean(cm, spell.name)) return; rollDamageDice(d.dice, spell.name + ' ' + getDamageTypeLabel(d.type), 'spell-' + cm.id + '-' + i, 0, false, getDamageTypeLabel(d.type) || d.type || '') }} className={CM_BTN_GOLD} title={quickRollTitle('伤害')} aria-label={quickRollTitle('伤害')}>
+                                  <QuickRollIcon kind="damage" className={CM_DICE_IC_GOLD} />
+                                </button>
+                                {spellIsAttack && (
+                                  <button type="button" onClick={() => { if (!consumeSpellSlotForMean(cm, spell.name)) return; rollDamageDice(d.dice, spell.name + ' ' + getDamageTypeLabel(d.type), 'spell-' + cm.id + '-' + i, 0, true, getDamageTypeLabel(d.type) || d.type || '') }} className={CM_BTN_CRIT} title={quickRollTitle('伤害（重击×2伤害骰）')} aria-label={quickRollTitle('伤害（重击×2伤害骰）')}>
+                                    <QuickRollIcon kind="crit" className={CM_DICE_IC_GOLD} />
+                                  </button>
+                                )}
+                              </span>
+                            ))}
+                          </>
+                        ) : (
+                          <span className={`text-white ${CM_MEAN_HI}`}>—</span>
+                        )}
+                      </div>
+
+                      {/* 删除列 */}
+                      <div className="pl-1 border-l border-gray-600 flex items-center justify-end gap-0.5 shrink-0 min-w-0">
+                        {!canEdit && (
+                          <button type="button" onClick={() => removeCombatMean(cm.id)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red shrink-0" title="移除">
                             <Trash2 size={12} />
                           </button>
                         )}
                       </div>
-                      <div className="flex flex-wrap items-center gap-1.5">
+                    </div>
+                    
+                    {/* 编辑模式下的法术选择 */}
+                    {canEdit && (
+                      <div className="mt-2 flex items-center gap-1.5">
                         <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>法术</span>
                         <select
                           value={cm.spellId ?? ''}
@@ -2892,51 +3120,14 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                           ))}
                         </select>
                       </div>
-                      {spell && (
-                        <>
-                          {spellIsAttack ? (
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>法术攻击</span>
-                              <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums`}>{spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : '—'}</span>
-                              {spellAttackBonus != null && (
-                                <button type="button" onClick={() => { if (!consumeSpellSlotForMean(cm, spell.name)) return; openForCheck(spell.name + ' 法术攻击', spellAttackBonus, { quickRoll: true }) }} className={CM_BTN_RED} title={quickRollTitle('法术攻击')} aria-label={quickRollTitle('法术攻击')}>
-                                  <QuickRollIcon kind="d20" />
-                                </button>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>法术 DC</span>
-                              <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums`}>{spellDC != null ? spellDC : '—'}</span>
-                            </div>
-                          )}
-                          {spellDamageList.length > 0 && (
-                            <div className="flex flex-wrap items-center gap-2">
-                              {spellDamageList.map((d, i) => (
-                                <span key={i} className="inline-flex items-center gap-0.5">
-                                  <span className={`text-white font-mono ${CM_MEAN_HI}`}>{d.dice} {d.type}</span>
-                                  <button type="button" onClick={() => { if (!consumeSpellSlotForMean(cm, spell.name)) return; rollDamageDice(d.dice, spell.name + ' ' + d.type, 'spell-' + cm.id + '-' + i, 0, false, getDamageTypeLabel(d.type) || d.type || '') }} className={CM_BTN_GOLD} title={quickRollTitle('伤害')} aria-label={quickRollTitle('伤害')}>
-                                    <QuickRollIcon kind="damage" className={CM_DICE_IC_GOLD} />
-                                  </button>
-                                  {spellIsAttack && (
-                                    <button type="button" onClick={() => { if (!consumeSpellSlotForMean(cm, spell.name)) return; rollDamageDice(d.dice, spell.name + ' ' + d.type, 'spell-' + cm.id + '-' + i, 0, true, getDamageTypeLabel(d.type) || d.type || '') }} className={CM_BTN_CRIT} title={quickRollTitle('伤害（重击×2伤害骰）')} aria-label={quickRollTitle('伤害（重击×2伤害骰）')}>
-                                      <QuickRollIcon kind="crit" className={CM_DICE_IC_GOLD} />
-                                    </button>
-                                  )}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </>
+                    )}
                   </div>
                 )}
               </>
             )
 
           })}
-          {/* 变身后天生武器（临时战斗手段，可快捷投骰） */}
+          {/* 变身后天生武器（临时战斗手段，可快捷投） */}
           {(buffStats?.creatureTransform?.naturalWeapons || []).map((weapon, idx) => {
             const dmgStr = String(weapon.damage || '').trim()
             const dmgMatch = dmgStr.match(/^(\S+)\s*([\s\S]*)$/)
@@ -2944,39 +3135,70 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             const dmgTypeRaw = dmgMatch ? dmgMatch[2].trim() : ''
             const dmgTypeLabel = getDamageTypeLabel(dmgTypeRaw) || dmgTypeRaw
             const nwAttackBonus = Number(weapon.attackBonus) || 0
+            
+            // 从 BUFF 管线提取物理伤害加值（变身生物的天生武器视为近战攻击）
+            const physMeleeDmgBonus = buffStats?.meleeDamageBonus || 0
+            const weaponBuffBonuses = []
+            if (physMeleeDmgBonus !== 0) {
+              weaponBuffBonuses.push({ label: '物理伤害加值', value: physMeleeDmgBonus })
+            }
+            
+            // 构建额外伤害列表
+            const weaponExtraDamageDice = []
+            
             return (
               <div key={`nw_${idx}`} className={`rounded-lg border border-gray-600 bg-gray-800/80 p-2 ${COMBAT_LIST_ROW_SHADOW}`}>
                 <div className={COMBAT_MEAN_ROW_GRID}>
-                  {/* 名称列 */}
-                  <div className="col-span-7 flex items-center gap-1 min-w-0 pr-2">
+                  {/* 名称列 - 可点击触发释放 */}
+                  <div 
+                    className={`flex items-center gap-1 min-w-0 pr-2 cursor-pointer hover:bg-gray-700/30 transition-colors rounded px-1 -ml-1`}
+                    onClick={() => {
+                      // 攻击型：打开攻击检定弹窗（带回调）
+                      openForCheck(weapon.name + ' 攻击', nwAttackBonus, { 
+                        quickRoll: true,
+                        onResult: (total, rawD20) => {
+                          setDamageRollConfirm({
+                            spellName: weapon.name,
+                            damageList: dmgDice ? [{ dice: dmgDice, type: dmgTypeLabel }] : [],
+                            nwSpellAtk: nwAttackBonus,
+                            slotLevel: 0,
+                            spellData: null,
+                            isAttackType: true,
+                            attackRollResult: total,
+                            rawD20Result: rawD20,
+                            buffBonuses: weaponBuffBonuses,
+                            extraDamageDice: weaponExtraDamageDice,
+                          })
+                        },
+                      })
+                    }}
+                    title="点击释放"
+                  >
                     <ActionLabelBadge source="1 动作" />
                     <span className={`text-white font-medium ${CM_MEAN_HI} truncate min-w-0`}>{weapon.name}</span>
-                    <span className="text-[10px] text-amber-400/80 shrink-0" title="变身生物的天生武器">🐾 变身</span>
+                    <span className="text-[10px] text-amber-400/80 shrink-0" title="变身生物的天生武器"> 变身</span>
                   </div>
 
-                  {/* 攻击列 */}
-                  <div className="col-span-5 pl-2 border-l border-gray-600 flex items-center gap-x-1.5 min-w-0 overflow-hidden">
+                  {/* 射程列（占位） */}
+                  <div className="pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden">
+                    <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>射程</span>
+                    <span className={`text-white ${CM_MEAN_HI} truncate`}>触碰</span>
+                  </div>
+
+                  {/* 攻击列 - 只显示数值 */}
+                  <div className="pl-2 border-l border-gray-600 flex items-center gap-x-1.5 min-w-0 overflow-hidden">
                     <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>攻击</span>
                     <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums truncate`}>{nwAttackBonus >= 0 ? '+' : ''}{nwAttackBonus}</span>
-                    <button type="button" onClick={() => openForCheck(weapon.name + ' 攻击', nwAttackBonus, { quickRoll: true })} className={CM_BTN_RED} title={quickRollTitle('攻击')} aria-label={quickRollTitle('攻击')}>
-                      <QuickRollIcon kind="d20" />
-                    </button>
                   </div>
 
-                  {/* 伤害列 */}
-                  <div className="col-span-12 pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden">
+                  {/* 伤害列 - 只显示伤害文本 */}
+                  <div className="pl-2 border-l border-gray-600 flex min-w-0 items-center gap-x-1 overflow-hidden">
                     <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
-                    <span className={`min-w-0 flex-1 font-mono ${CM_MEAN_HI} tabular-nums text-white truncate`}>{dmgStr || '—'}</span>
-                    {dmgDice && (
-                      <>
-                        <button type="button" onClick={() => rollDamageDice(dmgDice, `${weapon.name} 伤害`, `nw_dmg_${idx}`, 0, false, dmgTypeLabel)} className={CM_BTN_GOLD} title={quickRollTitle('伤害')} aria-label={quickRollTitle('伤害')}>
-                          <QuickRollIcon kind="damage" className={CM_DICE_IC_GOLD} />
-                        </button>
-                        <button type="button" onClick={() => rollDamageDice(dmgDice, `${weapon.name} 伤害`, `nw_dmg_${idx}`, 0, true, dmgTypeLabel)} className={CM_BTN_CRIT} title={quickRollTitle('伤害（重击×2伤害骰）')} aria-label={quickRollTitle('伤害（重击×2伤害骰）')}>
-                          <QuickRollIcon kind="crit" />
-                        </button>
-                      </>
-                    )}
+                    <span className={`min-w-0 flex-1 font-mono ${CM_MEAN_HI} tabular-nums text-white whitespace-nowrap truncate`}>{dmgStr || '—'}</span>
+                  </div>
+
+                  {/* 删除列（占位） */}
+                  <div className="pl-1 border-l border-gray-600 flex items-center justify-end gap-0.5 shrink-0 min-w-0">
                   </div>
                 </div>
               </div>
@@ -2987,42 +3209,211 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           {(buffStats?.creatureTransform?.spells || []).map((spell, idx) => {
             const nwSpellDC = buffStats?.creatureTransform?.spellSaveDC
             const nwSpellAtk = buffStats?.creatureTransform?.spellAttackBonus
+            
+            // 尝试从法术数据库读取伤害和类型（通过名称匹配）
+            const normalizedSpellName = normalizeSpellName(spell.name)
+            // 去除括号内容后再匹配（如"冰风暴（五环版）" → "冰风暴"）
+            const cleanSpellName = normalizedSpellName.replace(/[（(][^）)]*[）)]/g, '').trim()
+            
+            const spellData = getMergedSpells().find(s => {
+              // 精确匹配（标准化后）
+              if (s.name === normalizedSpellName) return true
+              // 去除括号后的精确匹配
+              if (s.name === cleanSpellName) return true
+              // 模糊匹配：去除空格、括号内容后比较
+              const normalize = (n) => n.replace(/[\s（）()]/g, '').toLowerCase()
+              if (normalize(s.name) === normalize(normalizedSpellName)) return true
+              if (normalize(s.name) === normalize(cleanSpellName)) return true
+              
+              return false
+            })
+            
+            const spellDesc = spellData?.description || spell.description || ''
+            
+            // 从法术描述判断是攻击型还是豁免型
+            const isSpellAttackType = spellData ? spellUsesAttack(spellDesc) : (nwSpellAtk > 0)
+            const saveType = spellData ? inferSaveFromSpellDescription(spellDesc) : 'spell_attack'
+            
+            // 计算升级后的伤害（根据实际环位）
+            const actualSlotLevel = Number(spell.slotLevel) || spellData?.level || 0
+            const spellBaseLevel = Number(spellData?.level) || 0
+            const levelDiff = Math.max(0, actualSlotLevel - spellBaseLevel)
+            
+            // 解析基础伤害并应用升环加成
+            let spellDamageList = []
+            if (spellDesc) {
+              const baseDamages = parseSpellDamageFromDescription(spellDesc)
+              // 检查是否有升环描述（支持多种格式）
+              const higherLevelMatch = spellDesc.match(/升环施法[：:]?.*?(钝击|寒冷|火焰|光耀|力场|心灵|闪电|穿刺|挥砍|毒素|黯蚀|雷鸣)?伤害.*?提高(\d+d\d+)/i)
+              
+              if (higherLevelMatch && levelDiff > 0) {
+                const extraDiceStr = higherLevelMatch[2]
+                const extraTypeRaw = higherLevelMatch[1]
+                const extraType = getDamageTypeLabel(extraTypeRaw) || extraTypeRaw
+                
+                // 将升环增加的骰子乘以等级差
+                const extraDiceMatch = extraDiceStr.match(/(\d+)d(\d+)/)
+                if (extraDiceMatch) {
+                  const baseCount = parseInt(extraDiceMatch[1]) * levelDiff
+                  const diceSize = extraDiceMatch[2]
+                  const upgradedDice = `${baseCount}d${diceSize}`
+                  
+                  // 如果有对应类型的伤害，增加骰子数；否则添加新的伤害类型
+                  const targetType = extraType || '钝击'
+                  const existingIdx = baseDamages.findIndex(d => d.type === targetType)
+                  if (existingIdx >= 0) {
+                    // 合并同类型子
+                    const existing = baseDamages[existingIdx]
+                    const existingMatch = existing.dice.match(/(\d+)d(\d+)/)
+                    if (existingMatch && existingMatch[2] === diceSize) {
+                      const newCount = parseInt(existingMatch[1]) + baseCount
+                      spellDamageList = [...baseDamages]
+                      spellDamageList[existingIdx] = { dice: `${newCount}d${diceSize}`, type: targetType }
+                    } else {
+                      spellDamageList = [...baseDamages, { dice: upgradedDice, type: targetType }]
+                    }
+                  } else {
+                    spellDamageList = [...baseDamages, { dice: upgradedDice, type: targetType }]
+                  }
+                } else {
+                  spellDamageList = baseDamages
+                }
+              } else {
+                spellDamageList = baseDamages
+              }
+            }
+            
+            const hasSpellDamage = spellDamageList.length > 0
+            
+            // 构建BUFF加值列表（从buffStats提取）
+            const creatureSpellBuffBonuses = []
+            if (buffStats?.spellDamageBonuses?.length) {
+              const totalFlatBonus = buffStats.spellDamageBonuses.reduce((sum, b) => sum + (Number(b.flatBonus) || 0), 0)
+              if (totalFlatBonus !== 0) creatureSpellBuffBonuses.push({ label: '法术伤害加值', value: totalFlatBonus })
+            }
+            
+            // 构建额外伤害列表
+            const creatureSpellExtraDice = (buffStats?.spellDamageBonuses || [])
+              .filter(b => b.extraDice)
+              .map((b, eidx) => ({
+                label: `额外伤害${eidx + 1}`,
+                dice: b.extraDice,
+              }))
+            
+            // 构建攻击/豁免显示文本（仅数值，标签由列标题提供）
+            let attackValue = '—'
+            let showRollButton = false
+            let rollButtonType = ''
+            
+            if (isSpellAttackType && nwSpellAtk > 0) {
+              attackValue = `+${nwSpellAtk}`
+              showRollButton = true
+              rollButtonType = 'attack'
+            } else if (!isSpellAttackType && nwSpellDC > 0) {
+              // 豁免型法术 — 直接投伤害（豁免由敌人投）
+              const saveShortMap = {
+                dex_save: '敏豁', str_save: '力豁', con_save: '体豁',
+                wis_save: '感豁', int_save: '智豁', cha_save: '魅豁',
+              }
+              const shortLabel = saveShortMap[saveType] || '豁免'
+              attackValue = `${shortLabel} ${nwSpellDC}`
+              if (hasSpellDamage) {
+                showRollButton = true
+                rollButtonType = 'save'
+              }
+            } else if (nwSpellAtk > 0) {
+              // 回退：没有spellData时根据全局加值判断
+              attackValue = `+${nwSpellAtk}`
+              showRollButton = true
+              rollButtonType = 'attack'
+            } else if (nwSpellDC > 0) {
+              attackValue = `DC ${nwSpellDC}`
+            }
+            
+            // 环位显示
             const castLabel = spell.castMode === 'at-will' ? '随意'
               : spell.castMode === 'per-day' ? `${spell.timesPerDay || 1}/天`
               : `${spell.slotLevel || 1}环`
+            
             return (
               <div key={`cs_${idx}`} className={`rounded-lg border border-gray-600 bg-gray-800/80 p-2 ${COMBAT_LIST_ROW_SHADOW}`}>
                 <div className={COMBAT_MEAN_ROW_GRID}>
-                  {/* 名称列 */}
-                  <div className="col-span-9 flex items-center gap-1 min-w-0 pr-2">
+                  {/* 名称列 - 可点击触发释放 */}
+                  <div 
+                    className={`flex items-center gap-1 min-w-0 pr-2 ${(showRollButton && hasSpellDamage) ? 'cursor-pointer hover:bg-gray-700/30 transition-colors rounded px-1 -ml-1' : ''}`}
+                    onClick={(showRollButton && hasSpellDamage) ? () => {
+                      if (rollButtonType === 'attack') {
+                        // 攻击型：打开攻击检定弹窗（带回调）
+                        openForCheck(spell.name + ' 法术攻击', nwSpellAtk, { 
+                          quickRoll: true,
+                          onResult: (total, rawD20) => {
+                            setDamageRollConfirm({
+                              spellName: spell.name,
+                              damageList: spellDamageList,
+                              nwSpellAtk,
+                              slotLevel: spell.slotLevel,
+                              spellData,
+                              isAttackType: true,
+                              attackRollResult: total,
+                              rawD20Result: rawD20,
+                              buffBonuses: creatureSpellBuffBonuses,
+                              extraDamageDice: creatureSpellExtraDice,
+                            })
+                          },
+                        })
+                      } else if (rollButtonType === 'save') {
+                        // 豁免型：直接显示伤害确认弹窗
+                        setDamageRollConfirm({
+                          spellName: spell.name,
+                          damageList: spellDamageList,
+                          saveDC: nwSpellDC,
+                          isAttackType: false,
+                          onRollDamage: () => {
+                            handleCreatureSpellSaveDamage(spell.name, spellDamageList, spell.slotLevel, spellData)
+                          },
+                        })
+                      }
+                    } : undefined}
+                    title={(showRollButton && hasSpellDamage) ? '点击释放' : undefined}
+                  >
                     <ActionLabelBadge source="1 动作" />
                     <span className={`text-white font-medium ${CM_MEAN_HI} truncate min-w-0`}>{spell.name}</span>
                     <span className="text-[10px] text-purple-400/80 shrink-0" title="变身生物的天生法术">✦ 变身</span>
                   </div>
 
-                  {/* 施放列 */}
-                  <div className="col-span-5 pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden">
-                    <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>施放</span>
+                  {/* 环位列 */}
+                  <div className="pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden">
+                    <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>环位</span>
                     <span className={`text-white ${CM_MEAN_HI} truncate`}>{castLabel}</span>
                   </div>
 
-                  {/* DC / 攻击列 */}
-                  <div className="col-span-10 pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden">
-                    {nwSpellDC > 0 && (
-                      <>
-                        <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>DC</span>
-                        <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums`}>{nwSpellDC}</span>
-                      </>
-                    )}
-                    {nwSpellAtk > 0 && (
-                      <>
-                        <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0 ${nwSpellDC > 0 ? 'ml-2' : ''}`}>攻击</span>
-                        <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums`}>+{nwSpellAtk}</span>
-                      </>
-                    )}
-                    {!(nwSpellDC > 0) && !(nwSpellAtk > 0) && (
+                  {/* 攻击/豁免列 - 只显示数值 */}
+                  <div className="pl-2 border-l border-gray-600 flex items-center gap-x-1.5 min-w-0 overflow-hidden">
+                    <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>
+                      {rollButtonType === 'attack' ? '法攻' : ''}
+                    </span>
+                    <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums truncate`}>{attackValue}</span>
+                  </div>
+
+                  {/* 伤害列 - 只显示伤害文本 */}
+                  <div className="pl-2 border-l border-gray-600 flex min-w-0 items-center gap-x-1 overflow-hidden">
+                    <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
+                    {hasSpellDamage ? (
+                      <span className={`min-w-0 flex-1 font-mono ${CM_MEAN_HI} tabular-nums text-white whitespace-nowrap truncate`}>
+                        {spellDamageList.map((d, i) => (
+                          <span key={i}>
+                            {i > 0 && ' + '}
+                            {d.dice} {getDamageTypeLabel(d.type) || d.type}
+                          </span>
+                        ))}
+                      </span>
+                    ) : (
                       <span className={`text-white ${CM_MEAN_HI}`}>—</span>
                     )}
+                  </div>
+
+                  {/* 删除列（变身法术不可删除，保持占位） */}
+                  <div className="pl-1 border-l border-gray-600 flex items-center justify-end gap-0.5 shrink-0 min-w-0">
                   </div>
                 </div>
               </div>
@@ -3208,6 +3599,278 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           }}
           onClose={() => setExecuteAbilityModal(null)}
         />
+      )}
+      
+      {/* 战斗确认面板 - 攻击型 */}
+      {damageRollConfirm && damageRollConfirm.isAttackType && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60" onClick={() => setDamageRollConfirm(null)}>
+          <div 
+            className="rounded-lg border border-gray-600 bg-gray-800 shadow-xl max-w-lg w-full mx-4 z-[75] max-h-[90vh] overflow-y-auto" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 标题栏 */}
+            <div className="px-5 py-3 border-b border-gray-700">
+              <h3 className="text-dnd-gold-light text-base font-bold">战斗手段——{damageRollConfirm.spellName}</h3>
+            </div>
+            
+            <div className="p-5 space-y-4">
+              {/* 基础加值 */}
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400 text-sm">基础加值：</span>
+                <span className="text-white font-mono text-lg">{damageRollConfirm.nwSpellAtk >= 0 ? '+' : ''}{damageRollConfirm.nwSpellAtk}</span>
+              </div>
+              
+              {/* BUFF加值列表（可勾选） */}
+              {damageRollConfirm.buffBonuses && damageRollConfirm.buffBonuses.length > 0 && (
+                <div className="border-t border-gray-700 pt-3">
+                  <p className="text-xs text-gray-400 mb-2">BUFF加值（可勾选）：</p>
+                  <div className="space-y-1.5">
+                    {damageRollConfirm.buffBonuses.map((bonus, idx) => (
+                      <label key={idx} className="flex items-center gap-2 cursor-pointer hover:bg-gray-700/30 rounded px-2 py-1 transition-colors">
+                        <input
+                          type="checkbox"
+                          defaultChecked={true}
+                          data-bonus-idx={idx}
+                          className="w-4 h-4 rounded border-gray-600 bg-gray-900 text-dnd-gold focus:ring-dnd-gold"
+                        />
+                        <span className="text-sm text-gray-300">{bonus.label}</span>
+                        <span className="text-sm text-dnd-gold-light font-mono ml-auto">{bonus.value >= 0 ? '+' : ''}{bonus.value}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* 伤害骰显示 */}
+              <div className="border-t border-gray-700 pt-3">
+                <p className="text-xs text-gray-400 mb-2">伤害骰：</p>
+                <div className="bg-gray-900/50 rounded px-3 py-2 text-white font-mono text-base">
+                  {(damageRollConfirm.damageList || []).map((d, i) => (
+                    <span key={i}>
+                      {i > 0 && ' + '}
+                      {d.dice} {d.type}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              
+              {/* 额外伤害（可勾选） */}
+              {damageRollConfirm.extraDamageDice && damageRollConfirm.extraDamageDice.length > 0 && (
+                <div className="border-t border-gray-700 pt-3">
+                  <p className="text-xs text-gray-400 mb-2">额外伤害骰（可勾选）：</p>
+                  <div className="space-y-1.5">
+                    {damageRollConfirm.extraDamageDice.map((extra, idx) => (
+                      <label key={idx} className="flex items-center gap-2 cursor-pointer hover:bg-gray-700/30 rounded px-2 py-1 transition-colors">
+                        <input
+                          type="checkbox"
+                          defaultChecked={true}
+                          data-extra-idx={idx}
+                          className="w-4 h-4 rounded border-gray-600 bg-gray-900 text-dnd-gold focus:ring-dnd-gold"
+                        />
+                        <span className="text-sm text-gray-300">+{extra.label}</span>
+                        <span className="text-sm text-dnd-gold-light font-mono ml-auto">{extra.dice}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* 命中结果空白层 */}
+              <div className="border-t border-gray-700 pt-3">
+                <p className="text-xs text-gray-400 mb-2">命中结果：</p>
+                <div 
+                  id="attack-result-display"
+                  className="bg-gray-900/50 rounded px-3 py-4 min-h-[3rem] flex items-center justify-center text-lg font-mono"
+                >
+                  {damageRollConfirm.attackRollResult ? (
+                    <span className="text-dnd-gold-light text-2xl font-bold">{damageRollConfirm.attackRollResult}</span>
+                  ) : (
+                    <span className="text-gray-600 text-sm">点击下方按钮投掷</span>
+                  )}
+                </div>
+              </div>
+              
+              {/* 重击选择（仅在已投攻击且在重击威胁范围内时显示） */}
+              {damageRollConfirm.attackRollResult && damageRollConfirm.critThreatMinNatural && (() => {
+                const rawD20 = damageRollConfirm.rawD20Result || (Number(damageRollConfirm.attackRollResult) - (damageRollConfirm.nwSpellAtk || 0))
+                const isCritThreat = rawD20 >= damageRollConfirm.critThreatMinNatural
+                if (!isCritThreat) return null
+                
+                return (
+                  <div className="border-t border-gray-700 pt-3">
+                    <div className="bg-red-900/20 border border-red-700/50 rounded px-3 py-2">
+                      <p className="text-xs text-red-300 mb-2">⚠ 重击威胁！自然骰 {rawD20} ≥ {damageRollConfirm.critThreatMinNatural}</p>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          id="combat-confirm-crit-checkbox"
+                          defaultChecked={true}
+                          className="w-4 h-4 rounded border-red-600 bg-gray-900 text-red-500 focus:ring-red-500"
+                        />
+                        <span className="text-sm text-red-300">确认为重击（伤害骰翻倍）</span>
+                      </label>
+                    </div>
+                  </div>
+                )
+              })()}
+              
+              {/* 伤害结果空白层 */}
+              <div className="border-t border-gray-700 pt-3">
+                <p className="text-xs text-gray-400 mb-2">伤害结果：</p>
+                <div 
+                  id="damage-result-display"
+                  className="bg-gray-900/50 rounded px-3 py-4 min-h-[3rem] flex items-center justify-center"
+                >
+                  <span className="text-gray-600 text-sm">点击下方按钮投掷</span>
+                </div>
+              </div>
+              
+              {/* 操作按钮 */}
+              <div className="flex gap-3 pt-2">
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    // 命中投掷 - 触发3D骰子动画
+                    const attackBonus = damageRollConfirm.nwSpellAtk || 0
+                    openForCheck(damageRollConfirm.spellName + ' 攻击', attackBonus, { 
+                      quickRoll: true,
+                      critThreatMinNatural: damageRollConfirm.critThreatMinNatural,
+                      onResult: (total, rawD20) => {
+                        // 更新命中结果显示
+                        const display = document.getElementById('attack-result-display')
+                        if (display) {
+                          display.innerHTML = `<span class="text-dnd-gold-light text-2xl font-bold">${total}</span>`
+                        }
+                        // 更新弹窗数据中的攻击结果和原始骰值
+                        setDamageRollConfirm(prev => prev ? {...prev, attackRollResult: total, rawD20Result: rawD20} : null)
+                      },
+                    })
+                  }} 
+                  className="flex-1 py-3 rounded bg-blue-900/50 border border-blue-700 text-blue-300 font-medium hover:bg-blue-900/70 transition-colors"
+                >
+                  命中投掷
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    // 检查是否已投攻击
+                    if (!damageRollConfirm.attackRollResult) {
+                      alert('请先点击"命中投掷"按钮进行攻击检定')
+                      return
+                    }
+                    
+                    // 检查重击
+                    const critCheckbox = document.getElementById('combat-confirm-crit-checkbox')
+                    const isCrit = critCheckbox ? critCheckbox.checked : false
+                    
+                    // 收集选中的BUFF加值
+                    const selectedBonuses = Array.from(document.querySelectorAll('[data-bonus-idx]'))
+                      .filter(cb => cb.checked)
+                      .map(cb => {
+                        const idx = Number(cb.dataset.bonusIdx)
+                        return damageRollConfirm.buffBonuses?.[idx]?.value || 0
+                      })
+                      .reduce((a, b) => a + b, 0)
+                    
+                    // 收集选中的额外伤害骰
+                    const selectedExtras = Array.from(document.querySelectorAll('[data-extra-idx]'))
+                      .filter(cb => cb.checked)
+                      .map(cb => {
+                        const idx = Number(cb.dataset.extraIdx)
+                        return damageRollConfirm.extraDamageDice?.[idx]?.dice || ''
+                      })
+                      .filter(Boolean)
+                    
+                    // 构建完整伤害表达式
+                    const baseDice = (damageRollConfirm.damageList || []).map(d => d.dice).join('+')
+                    const allDice = [baseDice, ...selectedExtras].filter(Boolean).join('+')
+                    const totalMod = selectedBonuses
+                    
+                    // 触发伤害投掷（支持重击）
+                    rollDamageDice(allDice, damageRollConfirm.spellName, 'combat-confirm', totalMod, isCrit, '', {
+                      onResult: (result) => {
+                        // 更新伤害结果显示
+                        const display = document.getElementById('damage-result-display')
+                        if (display) {
+                          const critLabel = isCrit ? ' (重击!)' : ''
+                          display.innerHTML = `<span class="text-red-400 text-2xl font-bold">${result.total}${critLabel}</span>`
+                        }
+                      },
+                    })
+                  }} 
+                  className="flex-1 py-3 rounded bg-red-900/50 border border-red-700 text-red-300 font-medium hover:bg-red-900/70 transition-colors"
+                >
+                  伤害投掷
+                </button>
+              </div>
+              
+              {/* 关闭按钮 */}
+              <button 
+                type="button" 
+                onClick={() => setDamageRollConfirm(null)} 
+                className="w-full py-2 rounded border border-gray-600 text-gray-400 text-sm hover:bg-gray-700 transition-colors"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* 豁免型法术直接显示伤害 */}
+      {damageRollConfirm && !damageRollConfirm.isAttackType && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60" onClick={() => setDamageRollConfirm(null)}>
+          <div className="rounded-lg border border-gray-600 bg-gray-800 p-5 shadow-xl max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-dnd-gold-light text-base font-bold mb-3">豁免检定</h3>
+            
+            <div className="space-y-3 mb-4">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400 text-sm">技能名称：</span>
+                <span className="text-white font-medium">{damageRollConfirm.spellName}</span>
+              </div>
+              
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400 text-sm">豁免DC：</span>
+                <span className="text-white font-mono">{damageRollConfirm.saveDC || '—'}</span>
+              </div>
+              
+              <div className="border-t border-gray-700 pt-3">
+                <p className="text-xs text-gray-400 mb-2">伤害骰：</p>
+                <div className="bg-gray-900 rounded px-3 py-2 text-white font-mono text-sm">
+                  {(damageRollConfirm.damageList || []).map((d, i) => (
+                    <span key={i}>
+                      {i > 0 && ' + '}
+                      {d.dice} {d.type}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex gap-2">
+              <button 
+                type="button" 
+                onClick={() => setDamageRollConfirm(null)} 
+                className="flex-1 py-2 rounded border border-gray-500 text-gray-400 text-sm hover:bg-gray-700 transition-colors"
+              >
+                取消
+              </button>
+              <button 
+                type="button" 
+                onClick={() => {
+                  // 直接投伤害
+                  if (damageRollConfirm.onRollDamage) {
+                    damageRollConfirm.onRollDamage()
+                  }
+                  setDamageRollConfirm(null)
+                }} 
+                className="flex-1 py-2 rounded bg-dnd-gold hover:bg-dnd-gold-hover text-black font-medium text-sm transition-colors"
+              >
+                投掷伤害
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       
       {/* 召唤物管理面板 */}

@@ -103,6 +103,10 @@ export default function DiceRoller() {
         key: Date.now(),
       })
       setRollHistory((prev) => [...prev, result])
+      // 调用回调，传递原始骰值和总计
+      if (pendingCheck.onResult) {
+        pendingCheck.onResult(total, result)
+      }
     })
   }, [pendingCheck, d20Mode, animateRolling, isRolling])
   const effectiveCheckMode = pendingCheck?.advantage ?? d20Mode

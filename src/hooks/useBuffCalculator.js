@@ -637,6 +637,9 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
     let initBonus = 0
     const saveDcValues = []
     const spellAttackValues = []
+    // 重击威胁范围：默认自然20，通过BUFF可扩展
+    let critThreatMinNatural = 20
+    let critRangeIncrement = 0
     const spellDamageBonuses = [] // { type, diceFloor, perDieBonus, extraDice, flatBonus }
     let flightSpeed = 0
     let flightHover = false
@@ -694,6 +697,23 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       }
       else if (b.effectType === 'save_dc_bonus') { const dv = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw) || 0; saveDcValues.push(dv) }
       else if (b.effectType === 'spell_attack_bonus') { const sv = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw) || 0; spellAttackValues.push(sv) }
+      // 重击威胁范围聚合
+      else if (b.effectType === 'crit_range_override') {
+        const n = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
+        if (!Number.isNaN(n) && n >= 1 && n <= 20) critThreatMinNatural = Math.min(critThreatMinNatural, Math.floor(n))
+      }
+      else if (b.effectType === 'crit_range_expand') {
+        const mn = parseCritRangeThreatMin(raw)
+        if (mn != null) critThreatMinNatural = Math.min(critThreatMinNatural, mn)
+      }
+      else if (b.effectType === 'crit_range_increment') {
+        const n = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
+        if (!Number.isNaN(n) && n >= 1) critRangeIncrement += Math.floor(n)
+      }
+      else if (b.effectType === 'crit_range_reduction') {
+        const n = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
+        if (!Number.isNaN(n) && n >= 1) critRangeIncrement += Math.floor(n)
+      }
       else if (b.effectType === 'spell_damage_bonus' && raw && typeof raw === 'object' && !Array.isArray(raw)) {
         const sdb = {
           type: raw.type ? String(raw.type).trim() : '',
@@ -1014,6 +1034,8 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
         spellSaveDC: creatureTransformData.creature.spellSaveDC || 0,
         spellAttackBonus: creatureTransformData.creature.spellAttackBonus || 0,
       } : null,
+      // 重击威胁范围（从 BUFF 管线聚合）
+      critThreatMinNatural: Math.max(1, critThreatMinNatural - critRangeIncrement),
     }
 }
 
