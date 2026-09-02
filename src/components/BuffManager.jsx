@@ -528,6 +528,7 @@ export default function BuffManager({
               width: editorPos.width || 'auto',
               maxHeight: editorPos.maxHeight,
             } : undefined}
+            onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 shrink-0">
                 <div className="flex items-center gap-2">
