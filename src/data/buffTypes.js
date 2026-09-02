@@ -419,13 +419,13 @@ export const BUFF_TYPES = {
       { key: 'damage_piercing_traits', label: '伤害穿透', dataType: 'array', subSelect: 'damagePiercingTraits' },
       // 暴击范围扩大：仅本件物品；武器攻击快捷投掷威胁高亮按「当前这把武器」自己的附魔，不因其它已装备武器串用
       // 互动调整方式：范围选项：默认 20，可选 19-20、18-20。
-      { key: 'crit_range_expand', label: '暴击范围扩大', dataType: 'text' },
+      { key: 'crit_range_expand', label: '重击范围', dataType: 'text' },
       // 暴击范围覆盖：明确范围（19-20、18-20），多个效果取最低威胁下限
-      { key: 'crit_range_override', label: '暴击范围（覆盖）', dataType: 'number' },
+      { key: 'crit_range_override', label: '重击下限', dataType: 'number' },
       // 暴击范围增量：-N，多个效果可叠加
-      { key: 'crit_range_increment', label: '暴击范围（+N）', dataType: 'number' },
+      { key: 'crit_range_increment', label: '重击+N', dataType: 'number' },
       // 暴击范围缩减：专用于火铳手"致命专注"等-N机制，与crit_range_increment计算逻辑相同但语义独立
-      { key: 'crit_range_reduction', label: '暴击范围缩减', dataType: 'number' },
+      { key: 'crit_range_reduction', label: '重击-N', dataType: 'number' },
       // 暴击×：仅作用于「该件物品」自身；战斗手段里每把武器单独读自己的附魔，不会因其它已装备武器上的×4而串用
       { key: 'crit_extra_dice', label: '暴击×', dataType: 'number' },
       // 表格：伤害骰（自定义一行：箭 - 数字 + 骰子 箭 类型 箭，箭为下拉）
