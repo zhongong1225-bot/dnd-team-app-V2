@@ -151,6 +151,7 @@ export default function SpellAttackCard({ displayMean, comboSuffix = '', ctx }) 
                     isAttackType: true,
                     attackRollResult: total,
                     rawD20Result: rawD20,
+                    critThreatMinNatural: buffStats?.critThreatMinNatural,
                     buffBonuses,
                     extraDamageDice,
                   })

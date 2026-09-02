@@ -242,7 +242,7 @@ function FocusItemCard({ itemMeanOpt, currentCharge, chargeMax, spellRange, hitT
                 openForCheck(selectedSub.spellName + ' 法器法术攻击', selectedSub._atkValue || 0, { 
                   quickRoll: true,
                   onResult: (total, rawD20) => {
-                    setDamageRollConfirm(prev => prev ? {...prev, attackRollResult: total, rawD20Result: rawD20} : null)
+                    setDamageRollConfirm(prev => prev ? {...prev, attackRollResult: total, rawD20Result: rawD20, critThreatMinNatural: buffStats?.critThreatMinNatural} : null)
                   },
                 })
               } else {
@@ -484,6 +484,7 @@ export default function ItemUseCard({ displayMean, itemMeanOpt, ctx }) {
                     isAttackType: true,
                     attackRollResult: total,
                     rawD20Result: rawD20,
+                    critThreatMinNatural: buffStats?.critThreatMinNatural,
                   })
                 },
               })
