@@ -4048,12 +4048,13 @@ export default function CharacterSheet() {
                               getEffectSummaryShort({ effectType: c.effectType, value: c.value, customText: c.customText, scope: c.scope, scopeDetail: c.scopeDetail }, {})
                             ).filter(Boolean)
                             
-                            // 从 allCards 中查找该特性的主动技能卡
+                            // 从 allCards 中查找该特性的主动技能卡，并使用 findActiveAbilityFromCard 转换
                             const raceActiveCard = allCards.find(c => 
                               c.sourceType === 'race' && 
                               c.activeAbility && 
                               (c.name === t.name || c.buffEffects?.some(e => e._traitName === t.name))
                             )
+                            const raceAbility = raceActiveCard ? findActiveAbilityFromCard(raceActiveCard.sourceKey, allCards, 'race') : null
                             
                             return (
                               <div key={t.id} className="bg-white/[0.03] rounded-md border border-gray-700/40 px-3 py-2">
@@ -4070,21 +4071,18 @@ export default function CharacterSheet() {
                                     </button>
                                   )}
                                   {/* 主动技能使用按钮 */}
-                                  {raceActiveCard && raceActiveCard.activeAbility && (() => {
-                                    const ability = raceActiveCard.activeAbility
-                                    const check = canUseAbility(ability, char)
-                                    const costText = ability.resourceType === 'charges' 
-                                      ? `${ability.charges}充能` 
-                                      : ability.resourceType === 'spell_slot' 
-                                        ? '法术位' 
-                                        : ''
+                                  {raceAbility && (() => {
+                                    const check = canUseAbility(raceAbility, char)
+                                    const costText = raceAbility.cost.type === 'class_resource' 
+                                      ? `${raceAbility.cost.amount}${({ charges: '充', spell_slot: '法' }[raceAbility.cost.resourceKey] || '')}` 
+                                      : raceAbility.cost.type === 'none' ? '免费' : ''
                                     return (
                                       <button
                                         type="button"
                                         disabled={!check.usable}
                                         onClick={(e) => {
                                           e.stopPropagation()
-                                          setRaceActiveAbility({ ability, traitName: t.name })
+                                          setRaceActiveAbility({ ability: raceAbility, traitName: t.name })
                                         }}
                                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                                         title={check.usable ? `点击使用${t.name}` : check.reason}
