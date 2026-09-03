@@ -33,7 +33,6 @@ export const RACES = [
     speed: { walk: 30, climb: null, swim: null, fly: null, burrow: null },
     darkvision: null,
     abilityScoreBonuses: [],
-    bonusFeats: [{ featId: null }], // 赠送一个起源专长（玩家在UI中选择）
     traits: [
       {
         id: 'human_resourceful',
