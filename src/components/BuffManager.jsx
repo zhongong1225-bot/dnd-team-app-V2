@@ -503,60 +503,68 @@ export default function BuffManager({
         )}
       </div>
 
-      {/* ── 主动卡列表 ── */}
-      {cards.length > 0 && (
-        <div className="mb-3 rounded-lg border border-white/10 bg-[#1a2333]/60 p-2">
-          <div className="flex items-center gap-x-2 gap-y-0.5 mb-1.5 min-w-0">
-            <span className="text-dnd-gold-light text-[10px] font-bold tracking-wide shrink-0">主动卡</span>
-            <span className="text-gray-500 text-[10px] min-w-0 leading-snug">点击「使用」按钮释放技能</span>
-          </div>
-          <div className="space-y-1.5">
-            {cards.filter(c => c.activeAbility).map((card) => {
-              // 优先从 activeAbility 获取 charge_item（新架构）
-              const activeAbility = card.activeAbility
-              const chargeItemEffect = activeAbility ? { effectType: 'charge_item', value: activeAbility } : (card.effects?.find(e => e.effectType === 'charge_item'))
-              
-              const actionType = activeAbility?.actionCost || card.actionType || 'action'
-              const actionLabel = {
-                action: '主要动作',
-                bonus: '附赠动作',
-                reaction: '反应',
-                movement: '移动',
-              }[actionType] || '主要动作'
-              
-              // 提取消耗信息（引擎格式先转换，再归一化取标签）
-              let consumptionText = ''
-              if (activeAbility) {
-                const cv = activeAbilityToChargeValue(activeAbility)
-                const norm = normalizeChargeItemValue(cv)
-                consumptionText = getResourceLabel(norm)
-              } else if (chargeItemEffect?.value) {
-                const norm = normalizeChargeItemValue(chargeItemEffect.value)
-                consumptionText = getResourceLabel(norm)
-              }
-              
-              return (
-                <div
-                  key={card.id}
-                  className="flex items-center gap-2 min-w-0 max-w-full rounded-md border border-white/10 bg-[#243147]/50 pl-2 pr-1.5 py-1"
-                >
-                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                    <Zap className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs text-gray-200 font-medium truncate">
-                        {card.name || '未命名'}
-                      </div>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <span className="text-[9px] text-gray-500 px-1 py-0.5 rounded bg-white/5">
-                          {actionLabel}
-                        </span>
-                        {consumptionText && (
+      {/* ── 主动卡列表（仅显示临时BUFF和装备，种族/职业特性已有内联按钮）── */}
+      {cards.length > 0 && (() => {
+        // 过滤掉种族和职业特性的主动卡（它们已在对应位置有内联按钮）
+        const displayCards = cards.filter(c => 
+          c.activeAbility && 
+          c.sourceType !== 'race' && 
+          c.sourceType !== 'class'
+        )
+        
+        return displayCards.length > 0 ? (
+          <div className="mb-3 rounded-lg border border-white/10 bg-[#1a2333]/60 p-2">
+            <div className="flex items-center gap-x-2 gap-y-0.5 mb-1.5 min-w-0">
+              <span className="text-dnd-gold-light text-[10px] font-bold tracking-wide shrink-0">主动卡</span>
+              <span className="text-gray-500 text-[10px] min-w-0 leading-snug">点击「使用」按钮释放技能</span>
+            </div>
+            <div className="space-y-1.5">
+              {displayCards.map((card) => {
+                // 优先从 activeAbility 获取 charge_item（新架构）
+                const activeAbility = card.activeAbility
+                const chargeItemEffect = activeAbility ? { effectType: 'charge_item', value: activeAbility } : (card.effects?.find(e => e.effectType === 'charge_item'))
+                
+                const actionType = activeAbility?.actionCost || card.actionType || 'action'
+                const actionLabel = {
+                  action: '主要动作',
+                  bonus: '附赠动作',
+                  reaction: '反应',
+                  movement: '移动',
+                }[actionType] || '主要动作'
+                
+                // 提取消耗信息（引擎格式先转换，再归一化取标签）
+                let consumptionText = ''
+                if (activeAbility) {
+                  const cv = activeAbilityToChargeValue(activeAbility)
+                  const norm = normalizeChargeItemValue(cv)
+                  consumptionText = getResourceLabel(norm)
+                } else if (chargeItemEffect?.value) {
+                  const norm = normalizeChargeItemValue(chargeItemEffect.value)
+                  consumptionText = getResourceLabel(norm)
+                }
+                
+                return (
+                  <div
+                    key={card.id}
+                    className="flex items-center gap-2 min-w-0 max-w-full rounded-md border border-white/10 bg-[#243147]/50 pl-2 pr-1.5 py-1"
+                  >
+                    <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                      <Zap className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs text-gray-200 font-medium truncate">
+                          {card.name || '未命名'}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
                           <span className="text-[9px] text-gray-500 px-1 py-0.5 rounded bg-white/5">
-                            {consumptionText}
+                            {actionLabel}
                           </span>
-                        )}
+                          {consumptionText && (
+                            <span className="text-[9px] text-gray-500 px-1 py-0.5 rounded bg-white/5">
+                              {consumptionText}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
                   </div>
                   <button
                     type="button"
@@ -583,7 +591,8 @@ export default function BuffManager({
             })}
           </div>
         </div>
-      )}
+        ) : null
+      })()}
 
       {showStashSection && (
         <div className="mb-3 rounded-lg border border-white/10 bg-[#1a2333]/60 p-2">
