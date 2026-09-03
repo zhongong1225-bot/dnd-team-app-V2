@@ -698,7 +698,12 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
         setRaceBuffEditorOpen(true)
       }} className={`${selectedRace?.subraces?.length > 0 ? 'col-span-5' : 'col-span-7'} flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.03] border border-gray-700/40 text-xs text-gray-200 hover:border-dnd-gold/50 transition-colors min-w-0`}>
         <span className="text-gray-400 shrink-0 text-[11px] font-medium">种族</span>
-        <span className="truncate text-gray-200">{raceCard.customName || selectedRace?.name || '— 选择种族 —'}</span>
+        <span className="truncate text-gray-200">{
+          // 优先使用 raceId 匹配的种族名称，customName 仅用于纯自定义种族（无 raceId 或 raceId 无法匹配）
+          (raceCard.raceId && selectedRace?.name) 
+            ? selectedRace.name 
+            : (raceCard.customName || selectedRace?.name || '— 选择种族 —')
+        }</span>
         <Pencil size={12} className="text-dnd-gold/60 shrink-0 ml-auto" />
       </button>
       {selectedRace && selectedRace.subraces.length > 0 && (

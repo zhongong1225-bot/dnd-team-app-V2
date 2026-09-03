@@ -414,6 +414,8 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
         if (ev.hitResolution === 'spell_attack') {
           const atkBonus = spellAttack
           const d20 = rollDice('1d20')
+          out.animParts.push('1d20')
+          out.animValues.push(d20.total)
           out.lines.push(`${spellName} 攻击: d20=${d20.total}${atkBonus != null ? `${atkBonus >= 0 ? '+' : ''}${atkBonus}` : ''} = ${d20.total + (atkBonus || 0)}`)
         } else if (ev.hitResolution && ev.hitResolution !== 'none') {
           const dc = spellDC
@@ -933,6 +935,8 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
         if (ev.hitResolution === 'spell_attack') {
           const atkBonus = computeSpellAttack()
           const d20 = rollDice('1d20')
+          animParts.push('1d20')
+          animValues.push(d20.total)
           lines.push(
             `${spellName} 攻击: d20=${d20.total}${atkBonus != null ? `${atkBonus >= 0 ? '+' : ''}${atkBonus}` : ''} = ${d20.total + (atkBonus || 0)}`,
           )
