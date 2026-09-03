@@ -3,7 +3,7 @@ import { Plus, Pencil, Trash2, ArrowDownToLine, Library, Search, ChevronDown, Mi
 import { getBuffSummaryLine } from './BuffListItem'
 import BuffForm from './BuffForm'
 import BuffColumnBoard from './BuffColumnBoard'
-import AbilityUseModal from './AbilityUseModal'
+import AbilityUseModal, { activeAbilityToChargeValue } from './AbilityUseModal'
 import {
   normalizeBuffSourceKindKey,
   getColumnKeyForBuff,
@@ -13,6 +13,7 @@ import {
 } from '../lib/buffSourceKind'
 import { dataTransferHasType } from '../lib/dndTransferTypes'
 import { formatDurationBrief } from '../lib/durationModel'
+import { normalizeChargeItemValue, getResourceLabel } from '../lib/chargeItemModel'
 import { computeSuppressedEffects } from '../hooks/useBuffCalculator'
 import { useModule } from '../contexts/ModuleContext'
 import { clearDefaultBuffPatch, buildClassFeatureBuffKey } from '../lib/defaultBuffPatchStore'
@@ -56,12 +57,14 @@ export default function BuffManager({
       document.body.appendChild(panel)
     }
     
-    const activeCards = cards.filter(c => c.activeAbility || (c.effects && c.effects.some(e => e.effectType === 'charge_item')))
+    const activeCards = cards.filter(c => c.activeAbility)
+    const dragonbornCard = cards.find(c => c.name === 'dragonborn')
     panel.innerHTML = `
       <strong>BuffManager调试：</strong><br/>
       cards总数: ${cards.length}<br/>
       主动卡数: ${activeCards.length}<br/>
-      ${activeCards.map(c => `- ${c.name} (${c.sourceType})`).join('<br/>') || '（无）'}
+      ${activeCards.map(c => `- "${c.name}" [${c.slotKind}] (${c.sourceType}) id=${c.id}`).join('<br/>') || '（无）'}
+      ${dragonbornCard ? `<br/><br/><strong>dragonborn卡详情：</strong><br/>id: ${dragonbornCard.id}<br/>has activeAbility: ${!!dragonbornCard.activeAbility}<br/>activeAbility: ${JSON.stringify(dragonbornCard.activeAbility)?.slice(0, 100)}` : ''}
     `
   }, [cards])
 
@@ -490,7 +493,7 @@ export default function BuffManager({
             <span className="text-gray-500 text-[10px] min-w-0 leading-snug">点击「使用」按钮释放技能</span>
           </div>
           <div className="space-y-1.5">
-            {cards.map((card) => {
+            {cards.filter(c => c.activeAbility).map((card) => {
               // 优先从 activeAbility 获取 charge_item（新架构）
               const activeAbility = card.activeAbility
               const chargeItemEffect = activeAbility ? { effectType: 'charge_item', value: activeAbility } : (card.effects?.find(e => e.effectType === 'charge_item'))
@@ -503,19 +506,15 @@ export default function BuffManager({
                 movement: '移动',
               }[actionType] || '主要动作'
               
-              // 提取消耗信息
+              // 提取消耗信息（引擎格式先转换，再归一化取标签）
               let consumptionText = ''
-              if (chargeItemEffect?.value) {
-                const val = chargeItemEffect.value
-                if (val.resourceType === 'spell_slot') {
-                  if (val.consumptionMode === 'free') {
-                    consumptionText = `≤${val.maxSlotLevel || 1}环法术位`
-                  } else {
-                    consumptionText = `${val.slotLevel || 1}环法术位`
-                  }
-                } else if (val.resourceType && val.resourceType !== 'none' && val.charges) {
-                  consumptionText = `${val.charges}${val.resourceType}`
-                }
+              if (activeAbility) {
+                const cv = activeAbilityToChargeValue(activeAbility)
+                const norm = normalizeChargeItemValue(cv)
+                consumptionText = getResourceLabel(norm)
+              } else if (chargeItemEffect?.value) {
+                const norm = normalizeChargeItemValue(chargeItemEffect.value)
+                consumptionText = getResourceLabel(norm)
               }
               
               return (
@@ -527,7 +526,7 @@ export default function BuffManager({
                     <Zap className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="text-xs text-gray-200 font-medium truncate">
-                        {card.source || '未命名'}
+                        {card.name || '未命名'}
                       </div>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <span className="text-[9px] text-gray-500 px-1 py-0.5 rounded bg-white/5">

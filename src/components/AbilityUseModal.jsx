@@ -35,7 +35,7 @@ import CreatureSelectorModal from './CreatureSelectorModal'
  * 将 activeAbility 格式转换为 charge item value 格式，
  * 使其可以走 normalizeChargeItemValue 归一化管线。
  */
-function activeAbilityToChargeValue(ability) {
+export function activeAbilityToChargeValue(ability) {
   let resourceType = 'none'
   let charges = 0
   let consumptionMode = 'fixed'
@@ -92,6 +92,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
   const [amt, setAmt] = useState(1)
   const [maxAmount] = useState(() => getMaxSpendableAmount(norm, char))
   const [resultLines, setResultLines] = useState(null)
+  const [resultFailed, setResultFailed] = useState(false)
   
   // 检查是否需要选择生物（creature_transform 或 summon 效果但没有预置 creatureId）
   const needsCreatureSelection = useMemo(() => {
@@ -483,7 +484,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
             const buffName = (sv.buffName || '临时BUFF').trim()
             const modules = Array.isArray(sv.modules) ? sv.modules : []
             if (modules.length > 0) {
-              const newBuff = { id: String(Date.now()) + '_' + Math.random().toString(36).slice(2, 7), source: featureName || buffName, effects: modules.map(m => ({ ...m })), enabled: true, sourceKind: 'temporary' }
+              const newBuff = { id: String(Date.now()) + '_' + Math.random().toString(36).slice(2, 7), source: featureName || buffName, effects: modules.map(m => ({ ...m })), enabled: true, sourceKind: 'temporary', duration: sv.duration || { type: 'until_short_rest' } }
               out.buffAdditions.push(newBuff)
               out.lines.push(`  ✨ 临时BUFF: ${buffName}`)
             }
@@ -590,7 +591,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
         const buffName = (ev.buffName || '临时BUFF').trim()
         const modules = Array.isArray(ev.modules) ? ev.modules : []
         if (modules.length > 0) {
-          const newBuff = { id: String(Date.now()) + '_' + Math.random().toString(36).slice(2, 7), source: featureName || buffName, effects: modules.map(m => ({ ...m })), enabled: true, sourceKind: 'temporary' }
+          const newBuff = { id: String(Date.now()) + '_' + Math.random().toString(36).slice(2, 7), source: featureName || buffName, effects: modules.map(m => ({ ...m })), enabled: true, sourceKind: 'temporary', duration: ev.duration || { type: 'until_short_rest' } }
           out.buffAdditions.push(newBuff)
           out.lines.push(`✨ 安装临时BUFF: ${buffName}（${modules.length}个效果）`)
         } else {
@@ -789,6 +790,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
       const ring = norm.slotLevel || 1
       if ((char.spellSlots?.[ring] || 0) < amt) {
         lines.push(`⚠️ ${ring}环法术位不足（需要 ${amt}，剩余 ${char.spellSlots?.[ring] || 0}），无法释放`)
+        setResultFailed(true)
         setResultLines(lines)
         onConfirm({}, lines)
         return
@@ -797,6 +799,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
       const hasSlot = (() => { for (let r = (norm.slotLevel || 1); r <= 9; r++) { if ((char.spellSlots?.[r] || 0) > 0) return true } return false })()
       if (!hasSlot) {
         lines.push(`⚠️ 无法术位可用，无法释放`)
+        setResultFailed(true)
         setResultLines(lines)
         onConfirm({}, lines)
         return
@@ -805,6 +808,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
       const res = (char.classResources || []).find((r) => r.resourceKey === norm.resourceType)
       if (res && (res.current || 0) < amt) {
         lines.push(`⚠️ ${resLabel}不足（需要 ${amt}，剩余 ${res.current || 0}），无法释放`)
+        setResultFailed(true)
         setResultLines(lines)
         onConfirm({}, lines)
         return
@@ -816,6 +820,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
         const curCharge = Math.max(0, Number(char.inventory[invIdx].charge) || 0)
         if (curCharge < amt) {
           lines.push(`⚠️ 充能不足（需要 ${amt}，剩余 ${curCharge}），无法释放`)
+          setResultFailed(true)
           setResultLines(lines)
           onConfirm({}, lines)
           return
@@ -884,6 +889,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
       if (wsRes) {
         if ((wsRes.current || 0) <= 0) {
           lines.push('⚠️ 荒野变形次数已用尽，无法变身')
+          setResultFailed(true)
           setResultLines(lines)
           onConfirm({}, lines)
           return
@@ -896,6 +902,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
         }
       } else if (!costIsWildShape) {
         lines.push('⚠️ 未找到荒野变形资源条目，无法变身')
+        setResultFailed(true)
         setResultLines(lines)
         onConfirm({}, lines)
         return
@@ -1000,7 +1007,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
                   const preHealHp = runningHp
                   patch.hp = { ...(patch.hp || char.hp), current: sNewHp }
                   runningHp = sNewHp
-                  lines.push(`  💚 治疗: ${sDiceStr}${sModLabel} = ${sTotal}`)
+                  lines.push(`  💚 ${sv.title || '治疗'}: ${sDiceStr}${sModLabel} = ${sTotal}`)
                   if (!firstPendingConfirm) {
                     firstPendingConfirm = { type: 'healing', undoHeal: preHealHp }
                     setPendingHealing({
@@ -1010,10 +1017,10 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
                     setShowHealingConfirm(true)
                   }
                 } else {
-                  lines.push(`  💚 治疗: ${sDiceStr}${sModLabel} = ${sTotal}（已满血）`)
+                  lines.push(`  💚 ${sv.title || '治疗'}: ${sDiceStr}${sModLabel} = ${sTotal}（已满血）`)
                 }
               } else {
-                lines.push(`  ⚔️ 伤害: ${sDiceStr}${sModLabel} = ${sTotal}`)
+                lines.push(`  ⚔️ ${sv.title || '伤害'}: ${sDiceStr}${sModLabel} = ${sTotal}`)
               }
             }
           } else if (subEff.type === 'temp_buff') {
@@ -1025,6 +1032,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
                 source: featureName || buffName,
                 effects: modules.map((m) => ({ ...m })),
                 enabled: true, sourceKind: 'temporary',
+                duration: sv.duration || { type: 'until_short_rest' },
               }
               const currentBuffs = Array.isArray(char.buffs) ? char.buffs : []
               patch.buffs = [...(patch.buffs || currentBuffs), newBuff]
@@ -1237,7 +1245,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
               const preHealHp = runningHp
               patch.hp = { ...(patch.hp || char.hp), current: newHp }
               runningHp = newHp
-              lines.push(`💚 治疗: ${diceStr2}${modLabel2} = ${total}`)
+              lines.push(`💚 ${ev.title || '治疗'}: ${diceStr2}${modLabel2} = ${total}`)
               if (!firstPendingConfirm) {
                 firstPendingConfirm = { type: 'healing', undoHeal: preHealHp }
                 setPendingHealing({
@@ -1250,10 +1258,10 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
                 setShowHealingConfirm(true)
               }
             } else {
-              lines.push(`💚 治疗: ${diceStr2}${modLabel2} = ${total}（已满血）`)
+              lines.push(`💚 ${ev.title || '治疗'}: ${diceStr2}${modLabel2} = ${total}（已满血）`)
             }
           } else {
-            lines.push(`⚔️ 伤害: ${diceStr}${modLabel} = ${total}`)
+            lines.push(`⚔️ ${ev.title || '伤害'}: ${diceStr}${modLabel} = ${total}`)
           }
         } else if (ev.text) {
           lines.push(ev.text)
@@ -1287,6 +1295,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
               effects: modules.map((m) => ({ ...m })),
               enabled: true,
               sourceKind: 'temporary',
+              duration: ev.duration || { type: 'until_short_rest' },
             }
             const currentBuffs = Array.isArray(char.buffs) ? char.buffs : []
             patch.buffs = [...(patch.buffs || currentBuffs), newBuff]
@@ -1764,11 +1773,11 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
         <div className="fixed inset-0 z-[400] bg-black/60" onClick={onClose} aria-hidden />
         <div className="fixed inset-0 z-[401] flex items-center justify-center p-4" onClick={onClose}>
           <div
-            className="bg-[#1a1f2e] border border-dnd-gold/30 rounded-lg p-4 max-w-sm w-full shadow-xl"
+            className={`bg-[#1a1f2e] border rounded-lg p-4 max-w-sm w-full shadow-xl ${resultFailed ? 'border-red-500/40' : 'border-dnd-gold/30'}`}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-dnd-gold-light">使用结果</h3>
+              <h3 className={`text-sm font-bold ${resultFailed ? 'text-red-400' : 'text-dnd-gold-light'}`}>{resultFailed ? '释放失败' : '使用结果'}</h3>
               <button type="button" onClick={onClose} className="text-gray-400 hover:text-white">
                 <X size={14} />
               </button>

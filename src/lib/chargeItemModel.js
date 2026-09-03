@@ -422,6 +422,7 @@ export function normalizeChargeItemValue(value) {
     if (type === 'damage') {
       const dv = e.value && typeof e.value === 'object' ? e.value : {}
       return { id, type, applyMultiplier: e.applyMultiplier !== false, value: {
+        title: typeof dv.title === 'string' ? dv.title : '',
         diceCount: Math.max(1, Number(dv.diceCount) || 1),
         diceSides: [4, 6, 8, 10, 12, 20].includes(Number(dv.diceSides)) ? Number(dv.diceSides) : 6,
         diceBonus: isFormulaValue(dv.diceBonus) ? dv.diceBonus : (Number(dv.diceBonus) || 0),
@@ -432,6 +433,7 @@ export function normalizeChargeItemValue(value) {
     if (type === 'heal') {
       const hv = e.value && typeof e.value === 'object' ? e.value : {}
       return { id, type, applyMultiplier: e.applyMultiplier !== false, value: {
+        title: typeof hv.title === 'string' ? hv.title : '',
         mode: hv.mode === 'max' ? 'max' : 'dice',
         diceCount: Math.max(1, Number(hv.diceCount) || 1),
         diceSides: [4, 6, 8, 10, 12, 20].includes(Number(hv.diceSides)) ? Number(hv.diceSides) : 8,

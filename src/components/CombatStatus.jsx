@@ -31,6 +31,7 @@ import { RESOURCE_RULES, getAutoResources, computeResourceMax, createResourceEnt
 import { resetAbilityCooldowns } from '../lib/activeAbilityEngine'
 import { restoreChargesForEvent } from '../lib/chargeRecovery'
 import { recoverShieldsOnRest } from '../lib/shieldEngine'
+import { shouldAutoClearOnRest } from '../lib/durationModel'
 import WeaponAttackCard from './combat/WeaponAttackCard'
 import SpellAttackCard from './combat/SpellAttackCard'
 import ItemUseCard from './combat/ItemUseCard'
@@ -1922,6 +1923,14 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     // 重置短休冷却的主动技能
     const cooldownPatch = resetAbilityCooldowns(char, 'short', moduleId)
     if (cooldownPatch) onSave({ activeAbilityState: cooldownPatch })
+    // 清理短休后到期的临时BUFF
+    const currentBuffs = Array.isArray(char.buffs) ? char.buffs : []
+    const survivingBuffs = currentBuffs.filter(b => !shouldAutoClearOnRest(b.duration, 'short'))
+    if (survivingBuffs.length < currentBuffs.length) {
+      const cleared = currentBuffs.length - survivingBuffs.length
+      onSave({ buffs: survivingBuffs })
+      console.log(`短休清理了 ${cleared} 个到期BUFF`)
+    }
   }
 
   /* ── 长休：恢复所有资源 + 重置死亡豁免 + 恢复所有法术位 ── */
@@ -1968,6 +1977,14 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     // 重置长休冷却的主动技能（包括短休和长休冷却）
     const cooldownPatch = resetAbilityCooldowns(char, 'long', moduleId)
     if (cooldownPatch) onSave({ activeAbilityState: cooldownPatch })
+    // 清理长休后到期的临时BUFF
+    const currentBuffs = Array.isArray(char.buffs) ? char.buffs : []
+    const survivingBuffs = currentBuffs.filter(b => !shouldAutoClearOnRest(b.duration, 'long'))
+    if (survivingBuffs.length < currentBuffs.length) {
+      const cleared = currentBuffs.length - survivingBuffs.length
+      onSave({ buffs: survivingBuffs })
+      console.log(`长休清理了 ${cleared} 个到期BUFF`)
+    }
   }
 
   /* ── 黎明恢复：仅恢复黎明恢复类型的物品充能 ── */
