@@ -392,18 +392,64 @@ export function buildCardsFromCharacter(character, moduleId) {
     }
     // 手动编辑的 BUFF 效果（优先级最高，放在最后）
     const manualEffects = Array.isArray(raceCard.raceBuffPatch?.effects) ? raceCard.raceBuffPatch.effects : []
-    const allEffects = [...autoEffects, ...traitEffects, ...manualEffects]
+    
+    // 分离被动效果和主动技能效果
+    const passiveTraitEffects = []
+    const activeTraitCards = []
+    
+    traitEffects.forEach((effect, idx) => {
+      const hasChargeItem = effect.effectType === 'charge_item' && effect.value && typeof effect.value === 'object'
+      if (hasChargeItem) {
+        // 为每个包含 charge_item 的特性创建独立的主动卡
+        const traitName = effect._traitName || '种族特性'
+        const cardId = `race-${resolvedRaceId || 'custom'}-active-${idx}`
+        
+        // 提取 charge_item 作为 activeAbility
+        const chargeValue = effect.value
+        const subEffects = Array.isArray(chargeValue.effects) && chargeValue.effects.length > 0 
+          ? chargeValue.effects 
+          : null
+        
+        activeTraitCards.push(normalizeCard(createCard(SLOT_KIND.race, {
+          id: cardId,
+          name: traitName,
+          sourceType: 'race',
+          sourceKey: resolvedRaceId || '',
+          buffEffects: [], // 主动卡的被动效果为空
+          activeAbility: {
+            actionCost: chargeValue.actionCost || 'action',
+            movementFeet: chargeValue.movementFeet || 0,
+            resourceType: chargeValue.resourceType || 'charges',
+            charges: chargeValue.charges || 1,
+            recovery: chargeValue.recovery || { method: 'long_rest', kind: 'full' },
+            effects: subEffects,
+          },
+          enabled: true,
+        })))
+      } else {
+        // 非 charge_item 效果保留在被动列表中
+        passiveTraitEffects.push(effect)
+      }
+    })
+    
+    const allPassiveEffects = [...autoEffects, ...passiveTraitEffects, ...manualEffects]
 
-    if (allEffects.length > 0) {
+    // 如果有被动效果，创建种族被动卡
+    if (allPassiveEffects.length > 0) {
       const raceName = raceCard.customName || (resolvedRaceId === 'custom' ? 'custom-race' : resolvedRaceId)
       cards.push(normalizeCard(createCard(SLOT_KIND.race, {
         id: `race-${resolvedRaceId || 'custom'}`,
         name: raceName,
         sourceType: 'race',
         sourceKey: resolvedRaceId || '',
-        buffEffects: allEffects,
+        buffEffects: allPassiveEffects,
         enabled: raceCard.raceBuffPatch?.enabled !== false,
       })))
+    }
+    
+    // 添加主动技能卡
+    for (const card of activeTraitCards) {
+      cards.push(card)
     }
   }
 
