@@ -325,6 +325,14 @@ export function buildCardsFromCharacter(character, moduleId) {
     const traitChoices = raceCard.traitChoices || {}
     const traitEffects = []
     if (raceDef) {
+      console.log('[cardAdapter] Processing race traits:', {
+        raceId: raceDef.id,
+        raceName: raceDef.name,
+        traitsCount: (raceDef.traits || []).length,
+        traitIds: (raceDef.traits || []).map(t => t.id),
+        subraceId: raceCard.subraceId
+      })
+      
       ;(raceDef.traits || []).forEach(t => {
         const isChoice = Array.isArray(t.choiceOptions) && t.choiceOptions.length > 0
         
@@ -352,6 +360,15 @@ export function buildCardsFromCharacter(character, moduleId) {
             cards = (t.cards || [])
           }
         }
+        
+        console.log('[cardAdapter] Trait processed:', {
+          traitId: t.id,
+          traitName: t.name,
+          isChoice,
+          chosenOptionId: isChoice ? traitChoices[t.id] : undefined,
+          cardsCount: cards.length,
+          hasChargeItem: cards.some(c => c.effectType === 'charge_item')
+        })
         
         if (cards.length > 0) {
           cards.forEach(c => traitEffects.push({ ...c, _traitName: t.name }))
