@@ -74,23 +74,50 @@ export const RACES = [
         description: '你的血脉可以追溯到某种巨龙祖先。从龙族血统表格中选择一种龙。你选择的龙种将会影响你的吐息武器和伤害抗性特质，以及你的外表。',
         cards: [],
         choiceOptions: [
-          { id: 'white', label: '白龙', description: '寒冷伤害', cards: [] },
-          { id: 'black', label: '黑龙', description: '强酸伤害', cards: [] },
-          { id: 'green', label: '绿龙', description: '毒素伤害', cards: [] },
-          { id: 'blue', label: '蓝龙', description: '闪电伤害', cards: [] },
-          { id: 'red', label: '红龙', description: '火焰伤害', cards: [] },
-          { id: 'brass', label: '黄铜龙', description: '火焰伤害', cards: [] },
-          { id: 'copper', label: '赤铜龙', description: '强酸伤害', cards: [] },
-          { id: 'bronze', label: '青铜龙', description: '闪电伤害', cards: [] },
-          { id: 'silver', label: '银龙', description: '寒冷伤害', cards: [] },
-          { id: 'gold', label: '金龙', description: '火焰伤害', cards: [] },
+          { id: 'white', label: '白龙', description: '寒冷伤害', cards: [{ effectType: 'damage_type_relation', value: { types: ['cold'], relation: 'resist' } }] },
+          { id: 'black', label: '黑龙', description: '强酸伤害', cards: [{ effectType: 'damage_type_relation', value: { types: ['acid'], relation: 'resist' } }] },
+          { id: 'green', label: '绿龙', description: '毒素伤害', cards: [{ effectType: 'damage_type_relation', value: { types: ['poison'], relation: 'resist' } }] },
+          { id: 'blue', label: '蓝龙', description: '闪电伤害', cards: [{ effectType: 'damage_type_relation', value: { types: ['lightning'], relation: 'resist' } }] },
+          { id: 'red', label: '红龙', description: '火焰伤害', cards: [{ effectType: 'damage_type_relation', value: { types: ['fire'], relation: 'resist' } }] },
+          { id: 'brass', label: '黄铜龙', description: '火焰伤害', cards: [{ effectType: 'damage_type_relation', value: { types: ['fire'], relation: 'resist' } }] },
+          { id: 'copper', label: '赤铜龙', description: '强酸伤害', cards: [{ effectType: 'damage_type_relation', value: { types: ['acid'], relation: 'resist' } }] },
+          { id: 'bronze', label: '青铜龙', description: '闪电伤害', cards: [{ effectType: 'damage_type_relation', value: { types: ['lightning'], relation: 'resist' } }] },
+          { id: 'silver', label: '银龙', description: '寒冷伤害', cards: [{ effectType: 'damage_type_relation', value: { types: ['cold'], relation: 'resist' } }] },
+          { id: 'gold', label: '金龙', description: '火焰伤害', cards: [{ effectType: 'damage_type_relation', value: { types: ['fire'], relation: 'resist' } }] },
         ],
       },
       {
         id: 'dragonborn_breath_weapon',
         name: '吐息武器',
         description: '每当你在自己回合内进行攻击动作时，你可以将其中一次攻击替换为释放魔法性的能量，覆盖15尺锥状区域或30尺长5尺宽的线状区域（每次吐息时选择其范围）。区域内的生物必须进行一次敏捷豁免检定（DC=8+你的体质调整值+你的熟练加值）。豁免失败的生物受到1d10伤害，伤害类型为你龙族血统特质所选龙种对应的类型。豁免成功的生物只受到一半伤害。此伤害会在你达到5级（2d10），11级（3d10）和17级（4d10）时提升1d10。\n\n你可以使用此吐息武器的次数等于你的熟练加值，完成一次长休后，你重获全部已消耗的使用次数。',
-        cards: [],
+        cards: [
+          {
+            effectType: 'charge_item',
+            category: 'active_release',
+            scope: 'global',
+            scopeDetail: [],
+            value: {
+              resourceType: 'charges',
+              charges: 1, // 实际使用时会被角色熟练加值覆盖
+              actionCost: 'action',
+              movementFeet: 0,
+              recovery: { method: 'long_rest', kind: 'full' },
+              effects: [
+                {
+                  type: 'custom_logic',
+                  value: {
+                    title: '吐息武器',
+                    description: '15尺锥状或30尺线状区域，敏捷豁免 DC=8+体质调整值+熟练加值。豁免失败受到{damageDice}伤害，成功减半。伤害类型由龙族血统决定。',
+                    triggerCondition: 'on_use',
+                  },
+                },
+              ],
+              // 伤害骰子会随等级自动调整：1-4级1d10，5-10级2d10，11-16级3d10，17+级4d10
+              damageDice: '1d10',
+              damageTypeFromAncestry: true, // 标记：伤害类型从龙族血统选择继承
+            },
+          },
+        ],
       },
       {
         id: 'dragonborn_damage_resistance',
@@ -102,7 +129,35 @@ export const RACES = [
         id: 'dragonborn_draconic_flight',
         name: '龙族飞翼',
         description: '到达5级后，你可以引导体内龙之魔法的能力，让自己暂时获得飞行能力。以一个附赠动作，你的后背临时伸出两片灵体飞翼，持续10分钟，陷入失能状态时或你主动收起它时（无需动作）它将提前消失。飞翼存在期间，你获得等于你速度的飞行速度。你的翅膀看起来像是和你吐息武器相同的能量凝聚而成。使用此特质后，直到你完成一次长休为止你都不能再次使用它。',
-        cards: [],
+        cards: [
+          {
+            effectType: 'charge_item',
+            category: 'active_release',
+            scope: 'global',
+            scopeDetail: [],
+            value: {
+              resourceType: 'charges',
+              charges: 1,
+              actionCost: 'bonus',
+              movementFeet: 0,
+              recovery: { method: 'long_rest', kind: 'full' },
+              effects: [
+                {
+                  type: 'custom_logic',
+                  value: {
+                    title: '龙族飞翼',
+                    description: '5级后可用。附赠动作激活，获得飞行速度(等于行走速度)，持续10分钟。失能时或主动收起时提前结束。长休后恢复使用次数。',
+                    triggerCondition: 'on_use',
+                  },
+                },
+              ],
+              // 持续时间：10分钟
+              duration: { type: 'minutes', value: 10 },
+              // 等级要求标记
+              minLevel: 5,
+            },
+          },
+        ],
       },
     ],
     tables: [
@@ -227,9 +282,13 @@ export function getCustomRaces() {
   return list.map(normalizeRace)
 }
 
-/** 获取完整种族列表（内置 + 自定义） */
+/** 获取完整种族列表（内置 + 自定义，按 id 去重，内置优先） */
 export function getAllRaces() {
-  return [...RACES, ...getCustomRaces()]
+  const custom = getCustomRaces()
+  const builtInIds = new Set(RACES.map(r => r.id))
+  // 过滤掉自定义中与内置同 id 的旧数据
+  const uniqueCustom = custom.filter(r => !builtInIds.has(r.id))
+  return [...RACES, ...uniqueCustom]
 }
 
 /** 按 ID 查找种族（自定义 + 旧版兼容回退），返回 normalize 后的数据 */

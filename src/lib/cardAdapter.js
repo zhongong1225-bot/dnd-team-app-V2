@@ -20,6 +20,7 @@ import {
 import { createCard, normalizeCard, SLOT_KIND } from './cardModel'
 import { getRaceById, getAllRaces } from '../data/races'
 import { normalizeAbilityScoreBonuses, inferAsiAssignmentsFromLegacy } from '../data/raceModel'
+import { loadDefaultBuffPatch } from './defaultBuffPatchStore'
 
 /* ── BUFF 条目 → Card 映射 ───────────────────────────────────────── */
 
@@ -320,15 +321,38 @@ export function buildCardsFromCharacter(character, moduleId) {
       ? buildRaceDefinitionEffects(raceDef, subrace, raceCard)
       : buildLegacyRaceBaseInfoEffects(raceCard.raceBaseInfo)
 
-    // 种族定义中的特性 BUFF 效果（trait.cards），支持选择型特性
+    // 种族定义中的特性 BUFF 效果（trait.cards），支持选择型特性 + 默认补丁
     const traitChoices = raceCard.traitChoices || {}
     const traitEffects = []
     if (raceDef) {
       ;(raceDef.traits || []).forEach(t => {
         const isChoice = Array.isArray(t.choiceOptions) && t.choiceOptions.length > 0
-        const cards = isChoice
-          ? ((t.choiceOptions || []).find(o => o.id === traitChoices[t.id])?.cards || [])
-          : (t.cards || [])
+        
+        // 先检查特性级默认补丁
+        const traitPatchKey = `race|${raceDef.id}|${t.id}`
+        const traitDefaultPatch = moduleId ? loadDefaultBuffPatch(moduleId, 'race', traitPatchKey) : null
+        
+        let cards = []
+        if (isChoice) {
+          // 选择型：先读选项级默认补丁，再回退到硬编码 cards
+          const chosenOptionId = traitChoices[t.id]
+          const optionPatchKey = `race|${raceDef.id}|${t.id}:${chosenOptionId}`
+          const optionDefaultPatch = moduleId ? loadDefaultBuffPatch(moduleId, 'race', optionPatchKey) : null
+          
+          if (optionDefaultPatch && Array.isArray(optionDefaultPatch.effects) && optionDefaultPatch.effects.length > 0) {
+            cards = optionDefaultPatch.effects
+          } else {
+            cards = ((t.choiceOptions || []).find(o => o.id === chosenOptionId)?.cards || [])
+          }
+        } else {
+          // 非选择型：先读默认补丁，再回退到硬编码 cards
+          if (traitDefaultPatch && Array.isArray(traitDefaultPatch.effects) && traitDefaultPatch.effects.length > 0) {
+            cards = traitDefaultPatch.effects
+          } else {
+            cards = (t.cards || [])
+          }
+        }
+        
         if (cards.length > 0) {
           cards.forEach(c => traitEffects.push({ ...c, _traitName: t.name }))
         }
@@ -336,9 +360,30 @@ export function buildCardsFromCharacter(character, moduleId) {
       if (subrace) {
         ;(subrace.traits || []).forEach(t => {
           const isChoice = Array.isArray(t.choiceOptions) && t.choiceOptions.length > 0
-          const cards = isChoice
-            ? ((t.choiceOptions || []).find(o => o.id === traitChoices[t.id])?.cards || [])
-            : (t.cards || [])
+          
+          // 亚种特性也支持默认补丁
+          const subTraitPatchKey = `race|${raceDef.id}|sub:${subrace.id}|${t.id}`
+          const subTraitDefaultPatch = moduleId ? loadDefaultBuffPatch(moduleId, 'race', subTraitPatchKey) : null
+          
+          let cards = []
+          if (isChoice) {
+            const chosenOptionId = traitChoices[`sub:${subrace.id}|${t.id}`]
+            const subOptionPatchKey = `race|${raceDef.id}|sub:${subrace.id}|${t.id}:${chosenOptionId}`
+            const subOptionDefaultPatch = moduleId ? loadDefaultBuffPatch(moduleId, 'race', subOptionPatchKey) : null
+            
+            if (subOptionDefaultPatch && Array.isArray(subOptionDefaultPatch.effects) && subOptionDefaultPatch.effects.length > 0) {
+              cards = subOptionDefaultPatch.effects
+            } else {
+              cards = ((t.choiceOptions || []).find(o => o.id === chosenOptionId)?.cards || [])
+            }
+          } else {
+            if (subTraitDefaultPatch && Array.isArray(subTraitDefaultPatch.effects) && subTraitDefaultPatch.effects.length > 0) {
+              cards = subTraitDefaultPatch.effects
+            } else {
+              cards = (t.cards || [])
+            }
+          }
+          
           if (cards.length > 0) {
             cards.forEach(c => traitEffects.push({ ...c, _traitName: t.name }))
           }
