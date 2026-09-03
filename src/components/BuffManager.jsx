@@ -47,26 +47,44 @@ export default function BuffManager({
   onEditBackground,
   charClasses = [],
 }) {
+  const [debugVisible, setDebugVisible] = useState(true)
+  
   // BuffManager 内部调试面板
   useEffect(() => {
+    if (!debugVisible) {
+      const panel = document.getElementById('buffmanager-debug-panel')
+      if (panel) panel.style.display = 'none'
+      return
+    }
+    
     let panel = document.getElementById('buffmanager-debug-panel')
     if (!panel) {
       panel = document.createElement('div')
       panel.id = 'buffmanager-debug-panel'
       panel.style.cssText = 'position:fixed;top:10px;left:10px;width:300px;max-height:350px;overflow:auto;background:#1a2333;color:#fff;padding:10px;z-index:99998;font-size:11px;border:2px solid #c79a42;line-height:1.6;'
+      
+      const toggleBtn = document.createElement('button')
+      toggleBtn.textContent = '✕'
+      toggleBtn.style.cssText = 'position:absolute;top:4px;right:6px;background:none;border:none;color:#c79a42;cursor:pointer;font-size:14px;padding:0;line-height:1;'
+      toggleBtn.onclick = () => setDebugVisible(false)
+      panel.appendChild(toggleBtn)
+      
       document.body.appendChild(panel)
+    } else {
+      panel.style.display = 'block'
     }
     
     const activeCards = cards.filter(c => c.activeAbility)
     const dragonbornCard = cards.find(c => c.name === 'dragonborn')
     panel.innerHTML = `
+      <button onclick="document.getElementById('buffmanager-debug-panel').style.display='none'" style="position:absolute;top:4px;right:6px;background:none;border:none;color:#c79a42;cursor:pointer;font-size:14px;padding:0;line-height:1;"></button>
       <strong>BuffManager调试：</strong><br/>
       cards总数: ${cards.length}<br/>
       主动卡数: ${activeCards.length}<br/>
       ${activeCards.map(c => `- "${c.name}" [${c.slotKind}] (${c.sourceType}) id=${c.id}`).join('<br/>') || '（无）'}
       ${dragonbornCard ? `<br/><br/><strong>dragonborn卡详情：</strong><br/>id: ${dragonbornCard.id}<br/>has activeAbility: ${!!dragonbornCard.activeAbility}<br/>activeAbility: ${JSON.stringify(dragonbornCard.activeAbility)?.slice(0, 100)}` : ''}
     `
-  }, [cards])
+  }, [cards, debugVisible])
 
   const { moduleLibrary, currentModuleId } = useModule()
   const [formState, setFormState] = useState(null)

@@ -3565,6 +3565,7 @@ export default function CharacterSheet() {
   const [raceBuffEditorOpen, setRaceBuffEditorOpen] = useState(false)
   const [backgroundBuffEditorOpen, setBackgroundBuffEditorOpen] = useState(false)
   const [profileTraitChoiceModal, setProfileTraitChoiceModal] = useState(null)
+  const [raceActiveAbility, setRaceActiveAbility] = useState(null) // 种族主动技能释放弹窗
   const handleProfileTraitChoiceSelect = (traitId, optionId) => {
     const choices = { ...(char.raceCard?.traitChoices || {}), [traitId]: optionId }
     persist({ ...char, raceCard: { ...char.raceCard, traitChoices: choices } })
@@ -3597,14 +3598,30 @@ export default function CharacterSheet() {
   const isCreatureTemplate = char?.subordinateTemplate === 'creature'
 
   // 页面内调试面板（适用于无控制台的内置浏览器）
+  const [cardsDebugVisible, setCardsDebugVisible] = useState(true)
   useEffect(() => {
     if (!char) return
+    if (!cardsDebugVisible) {
+      const panel = document.getElementById('cards-debug-panel')
+      if (panel) panel.style.display = 'none'
+      return
+    }
+    
     let panel = document.getElementById('cards-debug-panel')
     if (!panel) {
       panel = document.createElement('div')
       panel.id = 'cards-debug-panel'
       panel.style.cssText = 'position:fixed;top:10px;right:10px;width:350px;max-height:400px;overflow:auto;background:#1a2333;color:#fff;padding:10px;z-index:99999;font-size:11px;border:2px solid #c79a42;line-height:1.6;'
+      
+      const toggleBtn = document.createElement('button')
+      toggleBtn.textContent = '✕'
+      toggleBtn.style.cssText = 'position:absolute;top:4px;right:6px;background:none;border:none;color:#c79a42;cursor:pointer;font-size:14px;padding:0;line-height:1;'
+      toggleBtn.onclick = () => setCardsDebugVisible(false)
+      panel.appendChild(toggleBtn)
+      
       document.body.appendChild(panel)
+    } else {
+      panel.style.display = 'block'
     }
     
     const raceActiveCards = allCards.filter(c => c.sourceType === 'race' && c.activeAbility)
@@ -3614,7 +3631,7 @@ export default function CharacterSheet() {
       种族主动卡: ${raceActiveCards.length}<br/>
       ${raceActiveCards.map(c => `- ${c.name} (${c.sourceType})`).join('<br/>') || '（无）'}
     `
-  }, [char, allCards])
+  }, [char, allCards, cardsDebugVisible])
 
   const characterClasses = useMemo(() => (char ? getCharacterClasses(char) : []), [char])
   const charClasses = useMemo(() => characterClasses.map(c => ({ className: c.name, level: c.level })), [characterClasses])
@@ -4030,6 +4047,14 @@ export default function CharacterSheet() {
                             const effectSummaries = activeCards.map(c =>
                               getEffectSummaryShort({ effectType: c.effectType, value: c.value, customText: c.customText, scope: c.scope, scopeDetail: c.scopeDetail }, {})
                             ).filter(Boolean)
+                            
+                            // 从 allCards 中查找该特性的主动技能卡
+                            const raceActiveCard = allCards.find(c => 
+                              c.sourceType === 'race' && 
+                              c.activeAbility && 
+                              (c.name === t.name || c.buffEffects?.some(e => e._traitName === t.name))
+                            )
+                            
                             return (
                               <div key={t.id} className="bg-white/[0.03] rounded-md border border-gray-700/40 px-3 py-2">
                                 <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -4044,6 +4069,32 @@ export default function CharacterSheet() {
                                       <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                                     </button>
                                   )}
+                                  {/* 主动技能使用按钮 */}
+                                  {raceActiveCard && raceActiveCard.activeAbility && (() => {
+                                    const ability = raceActiveCard.activeAbility
+                                    const check = canUseAbility(ability, char)
+                                    const costText = ability.resourceType === 'charges' 
+                                      ? `${ability.charges}充能` 
+                                      : ability.resourceType === 'spell_slot' 
+                                        ? '法术位' 
+                                        : ''
+                                    return (
+                                      <button
+                                        type="button"
+                                        disabled={!check.usable}
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          setRaceActiveAbility({ ability, traitName: t.name })
+                                        }}
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title={check.usable ? `点击使用${t.name}` : check.reason}
+                                      >
+                                        <Zap className="w-3 h-3" />
+                                        使用
+                                        {costText && <span className="text-[9px] opacity-70">({costText})</span>}
+                                      </button>
+                                    )
+                                  })()}
                                 </div>
                                 {t.description && <p className="text-[11px] text-gray-400 leading-relaxed mb-1">{t.description}</p>}
                                 {effectSummaries.length > 0 && (
@@ -4276,6 +4327,19 @@ export default function CharacterSheet() {
           <p className="mt-10 text-center text-xs text-dnd-text-muted">版本 {APP_VERSION_LABEL}</p>
         </>
       ) : null}
+
+      {/* 种族主动技能释放弹窗 */}
+      {raceActiveAbility && (
+        <AbilityUseModal
+          activeAbility={raceActiveAbility.ability}
+          char={char}
+          featureName={raceActiveAbility.traitName}
+          onConfirm={(patch, lines) => {
+            if (patch && Object.keys(patch).length > 0) persist(patch)
+          }}
+          onClose={() => setRaceActiveAbility(null)}
+        />
+      )}
     </div>
   )
 }
