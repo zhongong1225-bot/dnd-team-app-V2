@@ -527,9 +527,9 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
               const newSlots = { ...currentSlots, [slotLevel]: availableInSlot - 1 }
               out.spellSlotPatch = newSlots
               
-              // 恢复充能（通过 norm.itemInventoryId 找到对应物品并增加充能数）
-              if (norm?.itemInventoryId) {
-                out.chargeRestore = { itemInventoryId: norm.itemInventoryId, amount: restoreAmount }
+              // 恢复充能（通过 effectiveChargeValue.itemInventoryId 找到对应物品并增加充能数）
+              if (effectiveChargeValue?.itemInventoryId) {
+                out.chargeRestore = { itemInventoryId: effectiveChargeValue.itemInventoryId, amount: restoreAmount }
                 out.lines.push(`  ⚡ 消耗${slotLevel}环法术位，恢复 ${restoreAmount} 点充能`)
               } else {
                 out.lines.push(`  ⚡ 消耗${slotLevel}环法术位（未找到关联物品）`)
@@ -625,9 +625,9 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           const newSlots = { ...currentSlots, [slotLevel]: availableInSlot - 1 }
           out.spellSlotPatch = newSlots
           
-          // 恢复充能（通过 norm.itemInventoryId 找到对应物品并增加充能数）
-          if (norm?.itemInventoryId) {
-            out.chargeRestore = { itemInventoryId: norm.itemInventoryId, amount: restoreAmount }
+          // 恢复充能（通过 effectiveChargeValue.itemInventoryId 找到对应物品并增加充能数）
+          if (effectiveChargeValue?.itemInventoryId) {
+            out.chargeRestore = { itemInventoryId: effectiveChargeValue.itemInventoryId, amount: restoreAmount }
             out.lines.push(`⚡ 消耗${slotLevel}环法术位，恢复 ${restoreAmount} 点充能`)
           } else {
             out.lines.push(`⚡ 消耗${slotLevel}环法术位（未找到关联物品）`)
@@ -890,6 +890,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
 
     // 2. 逐个处理效果
     let runningHp = Number(char.hp?.current) || 0  // 累积 HP 变化，防止多效果互相覆盖
+    let firstPendingConfirm = null  // 记录第一个需要确认弹窗的效果
     for (const eff of (norm.effects || [])) {
       const ev = eff.value || {}
       const scaled = computeScaledEffect(ev, amt, isFreeSlot && eff.applyMultiplier !== false)
@@ -979,28 +980,19 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
                 const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
                 const sNewHp = Math.min(maxHp, runningHp + sTotal)
                 const healAmt = sNewHp - runningHp
-                const resourcePatch = {}
-                if (isSpellSlot) {
-                  const ring = norm.slotLevel || 1
-                  const cs = { ...(char.spellSlots || {}) }
-                  const c = cs[ring] || 0; const nc = Math.max(0, c - amt)
-                  if (nc !== c) { cs[ring] = nc; resourcePatch.spellSlots = cs }
-                } else if (isFreeSlot) {
-                  const { newSlots, consumed } = consumeFreeSpellSlot(char.spellSlots, amt)
-                  if (consumed) resourcePatch.spellSlots = newSlots
-                } else if (isClassResource) {
-                  resourcePatch.classResources = (char.classResources || []).map((r) => {
-                    if (r.resourceKey !== norm.resourceType) return r
-                    return { ...r, current: Math.max(0, r.current - amt) }
-                  })
-                }
                 if (healAmt > 0) {
-                  setPendingHealing({
-                    healAmount: sTotal, newHp: sNewHp, maxHp, currentHp: runningHp,
-                    diceExpr: `${sDiceStr}${sModLabel}`, resourcePatch, resultLines: [...lines],
-                  })
-                  setShowHealingConfirm(true)
-                  return
+                  const preHealHp = runningHp
+                  patch.hp = { ...(patch.hp || char.hp), current: sNewHp }
+                  runningHp = sNewHp
+                  lines.push(`  💚 治疗: ${sDiceStr}${sModLabel} = ${sTotal}`)
+                  if (!firstPendingConfirm) {
+                    firstPendingConfirm = { type: 'healing', undoHeal: preHealHp }
+                    setPendingHealing({
+                      healAmount: sTotal, newHp: sNewHp, maxHp, currentHp: preHealHp,
+                      diceExpr: `${sDiceStr}${sModLabel}`,
+                    })
+                    setShowHealingConfirm(true)
+                  }
                 } else {
                   lines.push(`  💚 治疗: ${sDiceStr}${sModLabel} = ${sTotal}（已满血）`)
                 }
@@ -1157,8 +1149,8 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
             if (avail > 0) {
               const newSlots = { ...curSlots, [slotLv]: avail - 1 }
               patch.spellSlots = newSlots
-              if (norm?.itemInventoryId) {
-                const invId = norm.itemInventoryId
+              if (effectiveChargeValue?.itemInventoryId) {
+                const invId = effectiveChargeValue.itemInventoryId
                 const invIdx = (char.inventory || []).findIndex(e => e.id === invId)
                 if (invIdx >= 0) {
                   const entry = char.inventory[invIdx]
@@ -1225,37 +1217,22 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
             const diceStr2 = rolls.length > 0 ? rolls.join('+') : `${scaledDice}d${sides}`
             const healAmount = newHp - runningHp
 
-            // 预计算资源消耗
-            const resourcePatch = {}
-            if (isSpellSlot) {
-              const ring = norm.slotLevel || 1
-              const currentSlots = { ...(char.spellSlots || {}) }
-              const current = currentSlots[ring] || 0
-              const newCurrent = Math.max(0, current - amt)
-              if (newCurrent !== current) { currentSlots[ring] = newCurrent; resourcePatch.spellSlots = currentSlots }
-            } else if (isFreeSlot) {
-              const { newSlots, consumed } = consumeFreeSpellSlot(char.spellSlots, amt)
-              if (consumed) resourcePatch.spellSlots = newSlots
-            } else if (isClassResource) {
-              resourcePatch.classResources = (char.classResources || []).map((r) => {
-                if (r.resourceKey !== norm.resourceType) return r
-                return { ...r, current: Math.max(0, r.current - amt) }
-              })
-            }
-            const resultLinesSoFar = [...lines]
-
             if (healAmount > 0) {
-              setPendingHealing({
-                healAmount: total,
-                newHp,
-                maxHp,
-                currentHp: runningHp,
-                diceExpr: `${diceStr2}${modLabel2}`,
-                resourcePatch,
-                resultLines: resultLinesSoFar,
-              })
-              setShowHealingConfirm(true)
-              return
+              const preHealHp = runningHp
+              patch.hp = { ...(patch.hp || char.hp), current: newHp }
+              runningHp = newHp
+              lines.push(`💚 治疗: ${diceStr2}${modLabel2} = ${total}`)
+              if (!firstPendingConfirm) {
+                firstPendingConfirm = { type: 'healing', undoHeal: preHealHp }
+                setPendingHealing({
+                  healAmount: total,
+                  newHp,
+                  maxHp,
+                  currentHp: preHealHp,
+                  diceExpr: `${diceStr2}${modLabel2}`,
+                })
+                setShowHealingConfirm(true)
+              }
             } else {
               lines.push(`💚 治疗: ${diceStr2}${modLabel2} = ${total}（已满血）`)
             }
@@ -1392,7 +1369,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           const newSlots = { ...currentSlots, [slotLevel]: availableInSlot - 1 }
           patch.spellSlots = newSlots
 
-          const invId = norm?.itemInventoryId || ''
+          const invId = effectiveChargeValue?.itemInventoryId || ''
           const invIdx = invId ? (char.inventory || []).findIndex(e => e.id === invId) : -1
           if (invIdx >= 0) {
             const entry = char.inventory[invIdx]
@@ -1501,62 +1478,23 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
         if (isHealing) {
           const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
           const healedAmount = maxHp - runningHp
-          // 预计算资源消耗（确认和取消都需要）
-          const resourcePatch = {}
-          let resourceLine = ''
-          if (isSpellSlot) {
-            const ring = norm.slotLevel || 1
-            const currentSlots = { ...(char.spellSlots || {}) }
-            const current = currentSlots[ring] || 0
-            const newCurrent = Math.max(0, current - amt)
-            if (newCurrent !== current) {
-              currentSlots[ring] = newCurrent
-              resourcePatch.spellSlots = currentSlots
-            }
-            resourceLine = `消耗 ${amt} 个${ring}环法术位（剩余 ${newCurrent}）`
-          } else if (isFreeSlot) {
-            const { newSlots, consumed, line } = consumeFreeSpellSlot(char.spellSlots, amt)
-            if (consumed) resourcePatch.spellSlots = newSlots
-            resourceLine = line
-          } else if (isClassResource) {
-            const res = (char.classResources || []).find((r) => r.resourceKey === norm.resourceType)
-            if (res) {
-              resourcePatch.classResources = (char.classResources || []).map((r) => {
-                if (r.resourceKey !== norm.resourceType) return r
-                return { ...r, current: Math.max(0, r.current - amt) }
-              })
-            }
-            resourceLine = `消耗 ${amt} ${resLabel}`
-          } else if (isNone) {
-            resourceLine = '无资源消耗'
-          } else {
-            const invId = effectiveChargeValue?.itemInventoryId || ''
-            const invIdx = invId ? (char.inventory || []).findIndex(e => e.id === invId) : -1
-            if (invIdx >= 0) {
-              const entry = char.inventory[invIdx]
-              const currentCharge = Math.max(0, Number(entry.charge) || 0)
-              const newCharge = Math.max(0, currentCharge - amt)
-              resourcePatch.inventory = (char.inventory || []).map((e, i) =>
-                i === invIdx ? { ...e, charge: newCharge } : e
-              )
-              resourceLine = `消耗 ${amt} 充能（剩余 ${newCharge}/${getEntryChargeMax(entry) ?? norm.charges}）`
-            } else {
-              resourceLine = `消耗 ${amt} 充能（共 ${norm.charges}）`
-            }
-          }
           if (healedAmount > 0) {
-            setPendingCustomLogic({
-              title: ev.title || '自定义效果',
-              description: desc,
-              healToFull: true,
-              maxHp,
-              currentHp: runningHp,
-              healedAmount,
-              resourcePatch,
-              resourceLine,
-            })
-            setShowCustomLogicConfirm(true)
-            return
+            const preHealHp = runningHp
+            patch.hp = { ...(patch.hp || char.hp), current: maxHp }
+            runningHp = maxHp
+            lines.push(`💚 生命值恢复至上限 ${maxHp}（+${healedAmount}）`)
+            if (!firstPendingConfirm) {
+              firstPendingConfirm = { type: 'custom_logic', undoHeal: preHealHp }
+              setPendingCustomLogic({
+                title: ev.title || '自定义效果',
+                description: desc,
+                healToFull: true,
+                maxHp,
+                currentHp: preHealHp,
+                healedAmount,
+              })
+              setShowCustomLogicConfirm(true)
+            }
           } else {
             lines.push(`💚 已满血，无需治疗`)
           }
@@ -1576,57 +1514,14 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
               animValues.push(...rolls.map(Number))
               // 继续处理后续效果，不弹手动输入框
             } else {
-            const resourcePatch = {}
-            let resourceLine = ''
-            if (isSpellSlot) {
-              const ring = norm.slotLevel || 1
-              const currentSlots = { ...(char.spellSlots || {}) }
-              const current = currentSlots[ring] || 0
-              const newCurrent = Math.max(0, current - amt)
-              if (newCurrent !== current) {
-                currentSlots[ring] = newCurrent
-                resourcePatch.spellSlots = currentSlots
-              }
-              resourceLine = `消耗 ${amt} 个${ring}环法术位（剩余 ${newCurrent}）`
-            } else if (isFreeSlot) {
-              const cs = { ...(char.spellSlots || {}) }
-              for (let r = amt; r <= 9; r++) { if (cs[r] > 0) { cs[r] -= 1; break } }
-              resourcePatch.spellSlots = cs
-              resourceLine = `自由消耗 ${amt} 环`
-            } else if (isClassResource) {
-              const res = (char.classResources || []).find((r) => r.resourceKey === norm.resourceType)
-              if (res) {
-                resourcePatch.classResources = (char.classResources || []).map((r) => {
-                  if (r.resourceKey !== norm.resourceType) return r
-                  return { ...r, current: Math.max(0, r.current - amt) }
-                })
-              }
-              resourceLine = `消耗 ${amt} ${resLabel}`
-            } else if (isNone) {
-              resourceLine = '无资源消耗'
-            } else {
-              const invId = norm?.itemInventoryId || ''
-              const invIdx = invId ? (char.inventory || []).findIndex(e => e.id === invId) : -1
-              if (invIdx >= 0) {
-                const entry = char.inventory[invIdx]
-                const currentCharge = Math.max(0, Number(entry.charge) || 0)
-                const newCharge = Math.max(0, currentCharge - amt)
-                resourcePatch.inventory = (char.inventory || []).map((e, i) =>
-                  i === invIdx ? { ...e, charge: newCharge } : e
-                )
-                resourceLine = `消耗 ${amt} 充能（剩余 ${newCharge}/${getEntryChargeMax(entry) ?? norm.charges}）`
-              } else {
-                resourceLine = `消耗 ${amt} 充能（共 ${norm.charges}）`
-              }
+            if (!firstPendingConfirm) {
+              firstPendingConfirm = { type: 'damage' }
+              setPendingDamage({
+                title: ev.title || '自定义效果',
+                description: desc,
+              })
+              setShowDamageInput(true)
             }
-            setPendingDamage({
-              title: ev.title || '自定义效果',
-              description: desc,
-              resourcePatch,
-              resourceLine,
-            })
-            setShowDamageInput(true)
-            return
             }
           } else {
             lines.push(`✨ ${desc}`)
@@ -1821,6 +1716,12 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
     }
 
     if (lines.length === 0) lines.push('(未配置效果)')
+
+    // 如果有确认弹窗待显示，保存完整累积状态后等待用户操作
+    if (firstPendingConfirm) {
+      suspendedResultRef.current = { patch, lines, animParts, animValues }
+      return
+    }
 
     // 派发 3D 骰子动画
     if (animParts.length > 0 && typeof window !== 'undefined') {

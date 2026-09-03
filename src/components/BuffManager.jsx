@@ -891,7 +891,9 @@ export default function BuffManager({
       {/* ── 主动卡使用弹窗 ── */}
       {useAbilityCard && char && (() => {
         const chargeItemEff = useAbilityCard.effects?.find(e => e.effectType === 'charge_item')
-        const chargeVal = chargeItemEff?.value || null
+        const chargeVal = chargeItemEff?.value
+          ? { ...chargeItemEff.value, itemInventoryId: useAbilityCard.itemInventoryId || useAbilityCard.sourceKey || '' }
+          : null
         return (
           <AbilityUseModal
             chargeValue={chargeVal}
