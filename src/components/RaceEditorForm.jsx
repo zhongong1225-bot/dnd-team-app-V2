@@ -10,6 +10,8 @@ import {
   createEmptyRaceSpell,
   normalizeAbilityScoreBonuses,
 } from '../data/raceModel'
+import { FEATS } from '../data/feats'
+import { SKILLS } from '../data/dndSkills'
 import BuffForm from './BuffForm'
 
 const inputCls = 'w-full bg-[#0d1520] border border-white/10 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-dnd-gold/50'
@@ -235,6 +237,28 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
   }
   const patchRaceSpell = (idx, key, val) => {
     onChange({ ...race, spells: (race.spells || []).map((s, i) => i === idx ? { ...s, [key]: val } : s) })
+  }
+
+  // ── 赠送专长编辑 ────────────────────────────────────────
+  const addGrantedFeat = () => {
+    onChange({ ...race, grantedFeats: [...(race.grantedFeats || []), ''] })
+  }
+  const removeGrantedFeat = (idx) => {
+    onChange({ ...race, grantedFeats: (race.grantedFeats || []).filter((_, i) => i !== idx) })
+  }
+  const patchGrantedFeat = (idx, val) => {
+    onChange({ ...race, grantedFeats: (race.grantedFeats || []).map((f, i) => i === idx ? val : f) })
+  }
+
+  // ── 技能熟练编辑 ────────────────────────────────────────
+  const addGrantedSkill = () => {
+    onChange({ ...race, grantedSkills: [...(race.grantedSkills || []), ''] })
+  }
+  const removeGrantedSkill = (idx) => {
+    onChange({ ...race, grantedSkills: (race.grantedSkills || []).filter((_, i) => i !== idx) })
+  }
+  const patchGrantedSkill = (idx, val) => {
+    onChange({ ...race, grantedSkills: (race.grantedSkills || []).map((s, i) => i === idx ? val : s) })
   }
 
   // ── 属性加值槽编辑 ────────────────────────────────────────
@@ -540,6 +564,60 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
                 <button onClick={() => removeRaceSpell(si)} className="text-dnd-red/60 hover:text-dnd-red text-xs px-1">×</button>
               </div>
             ))}
+          </div>
+
+          {/* Row2 Col4: 赠送专长 */}
+          <div className={sectionCls}>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-emerald-300/70">赠送专长</span>
+              <button onClick={addGrantedFeat} className="text-emerald-400/70 text-[10px] hover:text-emerald-300">+ 添加</button>
+            </div>
+            {(race.grantedFeats || []).length === 0 && <div className="text-[10px] text-gray-600">无</div>}
+            {(race.grantedFeats || []).map((featId, fi) => {
+              const feat = FEATS.find(f => f.id === featId)
+              return (
+                <div key={fi} className="flex items-center gap-1 mt-1">
+                  <select
+                    className={`${inputCls} flex-1`}
+                    value={featId}
+                    onChange={e => patchGrantedFeat(fi, e.target.value)}
+                  >
+                    <option value="">选择专长...</option>
+                    {FEATS.map(f => (
+                      <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
+                  <button onClick={() => removeGrantedFeat(fi)} className="text-dnd-red/60 hover:text-dnd-red text-xs px-1">×</button>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Row2 Col5: 技能熟练 */}
+          <div className={sectionCls}>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-cyan-300/70">技能熟练</span>
+              <button onClick={addGrantedSkill} className="text-cyan-400/70 text-[10px] hover:text-cyan-300">+ 添加</button>
+            </div>
+            {(race.grantedSkills || []).length === 0 && <div className="text-[10px] text-gray-600">无</div>}
+            {(race.grantedSkills || []).map((skillKey, si) => {
+              const skill = SKILLS.find(s => s.key === skillKey)
+              return (
+                <div key={si} className="flex items-center gap-1 mt-1">
+                  <select
+                    className={`${inputCls} flex-1`}
+                    value={skillKey}
+                    onChange={e => patchGrantedSkill(si, e.target.value)}
+                  >
+                    <option value="">选择技能...</option>
+                    {SKILLS.map(s => (
+                      <option key={s.key} value={s.key}>{s.name}</option>
+                    ))}
+                  </select>
+                  <button onClick={() => removeGrantedSkill(si)} className="text-dnd-red/60 hover:text-dnd-red text-xs px-1">×</button>
+                </div>
+              )
+            })}
           </div>
         </div>
 
