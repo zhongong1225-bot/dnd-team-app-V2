@@ -3598,7 +3598,7 @@ export default function CharacterSheet() {
   const isCreatureTemplate = char?.subordinateTemplate === 'creature'
 
   // 页面内调试面板（适用于无控制台的内置浏览器）
-  const [cardsDebugVisible, setCardsDebugVisible] = useState(true)
+  const [cardsDebugVisible, setCardsDebugVisible] = useState(false)
   useEffect(() => {
     if (!char) return
     if (!cardsDebugVisible) {
@@ -3963,6 +3963,19 @@ export default function CharacterSheet() {
           subordinates={subordinates}
         />
       ) : null}
+      
+      {/* 卡片调试面板切换按钮 */}
+      {char && canEdit && (
+        <button
+          type="button"
+          onClick={() => setCardsDebugVisible(v => !v)}
+          className={`fixed top-12 right-3 z-[100] flex items-center justify-center w-5 h-5 rounded text-[10px] font-mono transition-colors ${cardsDebugVisible ? 'bg-dnd-gold/30 text-dnd-gold-light border border-dnd-gold/40' : 'bg-white/5 text-gray-500 hover:text-gray-300 border border-white/10'}`}
+          title={cardsDebugVisible ? '隐藏卡片调试面板' : '显示卡片调试面板'}
+        >
+          D
+        </button>
+      )}
+      
       {char ? (
         <>
           {/* 统一卡片：左 核心（生物模版不显示外貌/基础与头像）| 右 大头像 */}
