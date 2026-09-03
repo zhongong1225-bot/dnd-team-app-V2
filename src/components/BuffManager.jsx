@@ -77,12 +77,12 @@ export default function BuffManager({
     const activeCards = cards.filter(c => c.activeAbility)
     const dragonbornCard = cards.find(c => c.name === 'dragonborn')
     panel.innerHTML = `
-      <button onclick="document.getElementById('buffmanager-debug-panel').style.display='none'" style="position:absolute;top:4px;right:6px;background:none;border:none;color:#c79a42;cursor:pointer;font-size:14px;padding:0;line-height:1;"></button>
+      <button onclick="document.getElementById('buffmanager-debug-panel').style.display='none'" style="position:absolute;top:4px;right:6px;background:none;border:none;color:#c79a42;cursor:pointer;font-size:14px;padding:0;line-height:1;">✕</button>
       <strong>BuffManager调试：</strong><br/>
       cards总数: ${cards.length}<br/>
       主动卡数: ${activeCards.length}<br/>
-      ${activeCards.map(c => `- "${c.name}" [${c.slotKind}] (${c.sourceType}) id=${c.id}`).join('<br/>') || '（无）'}
-      ${dragonbornCard ? `<br/><br/><strong>dragonborn卡详情：</strong><br/>id: ${dragonbornCard.id}<br/>has activeAbility: ${!!dragonbornCard.activeAbility}<br/>activeAbility: ${JSON.stringify(dragonbornCard.activeAbility)?.slice(0, 100)}` : ''}
+      ${activeCards.map(c => `- "${c.name}" [slotKind=${c.slotKind}] (sourceType=${c.sourceType}) id=${c.id}`).join('<br/>') || '（无）'}
+      ${dragonbornCard ? `<br/><br/><strong>dragonborn卡详情：</strong><br/>id: ${dragonbornCard.id}<br/>slotKind: ${dragonbornCard.slotKind}<br/>sourceType: ${dragonbornCard.sourceType}<br/>has activeAbility: ${!!dragonbornCard.activeAbility}` : ''}
     `
   }, [cards, debugVisible])
 
