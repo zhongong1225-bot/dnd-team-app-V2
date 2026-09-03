@@ -46,6 +46,25 @@ export default function BuffManager({
   onEditBackground,
   charClasses = [],
 }) {
+  // BuffManager 内部调试面板
+  useEffect(() => {
+    let panel = document.getElementById('buffmanager-debug-panel')
+    if (!panel) {
+      panel = document.createElement('div')
+      panel.id = 'buffmanager-debug-panel'
+      panel.style.cssText = 'position:fixed;top:10px;left:10px;width:300px;max-height:350px;overflow:auto;background:#1a2333;color:#fff;padding:10px;z-index:99998;font-size:11px;border:2px solid #c79a42;line-height:1.6;'
+      document.body.appendChild(panel)
+    }
+    
+    const activeCards = cards.filter(c => c.activeAbility || (c.effects && c.effects.some(e => e.effectType === 'charge_item')))
+    panel.innerHTML = `
+      <strong>BuffManager调试：</strong><br/>
+      cards总数: ${cards.length}<br/>
+      主动卡数: ${activeCards.length}<br/>
+      ${activeCards.map(c => `- ${c.name} (${c.sourceType})`).join('<br/>') || '（无）'}
+    `
+  }, [cards])
+
   const { moduleLibrary, currentModuleId } = useModule()
   const [formState, setFormState] = useState(null)
   const [useAbilityCard, setUseAbilityCard] = useState(null) // 正在使用的主动卡
