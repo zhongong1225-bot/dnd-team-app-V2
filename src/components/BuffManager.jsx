@@ -47,7 +47,7 @@ export default function BuffManager({
   onEditBackground,
   charClasses = [],
 }) {
-  const [debugVisible, setDebugVisible] = useState(true)
+  const [debugVisible, setDebugVisible] = useState(false)
   
   // BuffManager 内部调试面板
   useEffect(() => {
@@ -488,6 +488,15 @@ export default function BuffManager({
         <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wide shrink-0">BUFF</h3>
         {canEdit && (
           <div className="flex items-center gap-1.5">
+            {/* 调试面板切换按钮 */}
+            <button
+              type="button"
+              onClick={() => setDebugVisible(v => !v)}
+              className={`flex items-center justify-center w-5 h-5 rounded text-[10px] font-mono transition-colors shrink-0 ${debugVisible ? 'bg-dnd-gold/30 text-dnd-gold-light border border-dnd-gold/40' : 'bg-white/5 text-gray-500 hover:text-gray-300 border border-white/10'}`}
+              title={debugVisible ? '隐藏调试面板' : '显示调试面板'}
+            >
+              D
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -509,7 +518,7 @@ export default function BuffManager({
         const displayCards = cards.filter(c => 
           c.activeAbility && 
           c.sourceType !== 'race' && 
-          c.sourceType !== 'class'
+          c.sourceType !== 'classFeature'
         )
         
         return displayCards.length > 0 ? (
