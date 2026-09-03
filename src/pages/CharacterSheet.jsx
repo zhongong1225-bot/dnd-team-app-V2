@@ -699,6 +699,7 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
       }} className={`${selectedRace?.subraces?.length > 0 ? 'col-span-5' : 'col-span-7'} flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.03] border border-gray-700/40 text-xs text-gray-200 hover:border-dnd-gold/50 transition-colors min-w-0`}>
         <span className="text-gray-400 shrink-0 text-[11px] font-medium">种族</span>
         <span className="truncate text-gray-200">{raceCard.customName || selectedRace?.name || '— 选择种族 —'}</span>
+        <Pencil size={12} className="text-dnd-gold/60 shrink-0 ml-auto" />
       </button>
       {selectedRace && selectedRace.subraces.length > 0 && (
         <select value={raceCard.subraceId || ''} onChange={(e) => handleSubraceChange(e.target.value)} className="col-span-2 px-2 py-1.5 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
@@ -716,6 +717,7 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
       }} className="col-span-7 flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.03] border border-gray-700/40 text-xs text-gray-200 hover:border-dnd-gold/50 transition-colors min-w-0">
         <span className="text-gray-400 shrink-0 text-[11px] font-medium">背景</span>
         <span className="truncate text-gray-200">{backgroundCard.customName || selectedBackground?.name || '— 选择背景 —'}</span>
+        <Pencil size={12} className="text-dnd-gold/60 shrink-0 ml-auto" />
       </button>
 
       {/* 基础信息行 — 仅在选了种族后渲染，占满 14 列 */}
