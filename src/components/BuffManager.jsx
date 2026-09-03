@@ -472,8 +472,11 @@ export default function BuffManager({
           </div>
           <div className="space-y-1.5">
             {cards.map((card) => {
-              const chargeItemEffect = card.effects?.find(e => e.effectType === 'charge_item')
-              const actionType = card.actionType || 'action'
+              // 优先从 activeAbility 获取 charge_item（新架构）
+              const activeAbility = card.activeAbility
+              const chargeItemEffect = activeAbility ? { effectType: 'charge_item', value: activeAbility } : (card.effects?.find(e => e.effectType === 'charge_item'))
+              
+              const actionType = activeAbility?.actionCost || card.actionType || 'action'
               const actionLabel = {
                 action: '主要动作',
                 bonus: '附赠动作',
@@ -485,12 +488,14 @@ export default function BuffManager({
               let consumptionText = ''
               if (chargeItemEffect?.value) {
                 const val = chargeItemEffect.value
-                if (val.consumeSpellSlot && val.spellLevel) {
-                  consumptionText = `${val.spellLevel}环法术位`
-                } else if (val.chargeCost) {
-                  consumptionText = `${val.chargeCost}充能`
-                } else if (val.resourceType && val.resourceAmount) {
-                  consumptionText = `${val.resourceAmount}${val.resourceType}`
+                if (val.resourceType === 'spell_slot') {
+                  if (val.consumptionMode === 'free') {
+                    consumptionText = `≤${val.maxSlotLevel || 1}环法术位`
+                  } else {
+                    consumptionText = `${val.slotLevel || 1}环法术位`
+                  }
+                } else if (val.resourceType && val.resourceType !== 'none' && val.charges) {
+                  consumptionText = `${val.charges}${val.resourceType}`
                 }
               }
               
@@ -884,19 +889,23 @@ export default function BuffManager({
       )}
 
       {/* ── 主动卡使用弹窗 ── */}
-      {useAbilityCard && char && (
-        <AbilityUseModal
-          activeAbility={useAbilityCard}
-          char={char}
-          featureName={useAbilityCard.source || '主动技能'}
-          onConfirm={(patch, lines) => {
-            if (onUseAbility) {
-              onUseAbility(useAbilityCard, patch, lines)
-            }
-          }}
-          onClose={() => setUseAbilityCard(null)}
-        />
-      )}
+      {useAbilityCard && char && (() => {
+        const chargeItemEff = useAbilityCard.effects?.find(e => e.effectType === 'charge_item')
+        const chargeVal = chargeItemEff?.value || null
+        return (
+          <AbilityUseModal
+            chargeValue={chargeVal}
+            char={char}
+            featureName={useAbilityCard.source || '主动技能'}
+            onConfirm={(patch, lines) => {
+              if (onUseAbility) {
+                onUseAbility(useAbilityCard, patch, lines)
+              }
+            }}
+            onClose={() => setUseAbilityCard(null)}
+          />
+        )
+      })()}
     </>
   )
 }

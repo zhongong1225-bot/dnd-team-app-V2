@@ -5796,7 +5796,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
   }, [])
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-2 p-2 bg-gray-800 rounded-lg border border-gray-700">
+    <form onSubmit={handleSubmit} className="space-y-2 p-2 bg-gray-800 rounded-lg border border-gray-700 overflow-x-hidden">
       {!compact && (
       <div>
         <label className="block text-gray-300 text-xs mb-1">来源名称 *</label>

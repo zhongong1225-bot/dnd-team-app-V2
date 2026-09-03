@@ -386,3 +386,6 @@ Layout (RollProvider + max-w 容器)
 - **不要** 在护盾池系统中引入同调检查而不检查 `wornArmorWithShieldPool` 的一致性
 - **不要** 假设 `choice` 类型 BUFF 的 `choiceSelected` 始终为 0
 - **不要** 把内容逻辑写死在 JS 函数里（如 `classFeatureChoiceRegistry.js` 的 `getEffects()`），应使用数据驱动的效果数组
+- **不要** 部署时不更新版本号 — 每次部署前必须修改 `VERSIONING.md` 中的版本号
+- **不要** 在更新内容很少时直接部署 — 应先提醒用户本次变更量较小，得到确认后再部署
+- **不要** 随意创建新分支 — 默认在 main 分支上工作，除非用户明确要求

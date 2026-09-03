@@ -34,6 +34,7 @@ const DICE_OPTIONS = ['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'd100']
  */
 export default function RaceEditorForm({ race, onChange, onSave, onCancel, showSaveButtons = true }) {
   const [editingTraitBuffId, setEditingTraitBuffId] = useState(null) // { type:'race'|'subrace', subraceId?, traitId, optionId? }
+  const [collapsedTraits, setCollapsedTraits] = useState(new Set()) // 存储已折叠的特性 ID
 
   const patch = (key, val) => onChange({ ...race, [key]: val })
   const patchSpeed = (key, val) => onChange({
@@ -72,6 +73,14 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
     onChange({ ...race, traits: (race.traits || []).filter(t => t.id !== id) })
   }
   const patchTrait = (id, key, val) => updateTraitInRace(id, t => ({ ...t, [key]: val }))
+  const toggleTraitCollapse = (id) => {
+    setCollapsedTraits(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
   const saveTraitBuff = (traitId, buffPayload) => {
     updateTraitInRace(traitId, t => ({ ...t, cards: buffPayload?.effects || [] }))
     setEditingTraitBuffId(null)
@@ -261,8 +270,77 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
     onChange({ ...race, grantedSkills: (race.grantedSkills || []).map((s, i) => i === idx ? val : s) })
   }
 
-  // ── 属性加值槽编辑 ────────────────────────────────────────
+  // ── 属性加值编辑（统一6选3模式）───────────────────────────────────────
   const raceBonuses = normalizeAbilityScoreBonuses(race.abilityScoreBonuses, [])
+  
+  /** 切换属性勾选状态（自动分配+2或+1） */
+  const toggleAbilitySelection = (abilityKey) => {
+    // 收集当前所有已勾选的属性
+    const allAbilities = raceBonuses.flatMap(b => Array.isArray(b.allowedAbilities) ? b.allowedAbilities : [])
+    const isSelected = allAbilities.includes(abilityKey)
+    
+    if (isSelected) {
+      // 取消勾选：移除该属性的所有出现
+      const next = raceBonuses.map(b => {
+        if (!Array.isArray(b.allowedAbilities)) return b
+        const updated = b.allowedAbilities.filter(k => k !== abilityKey)
+        if (updated.length === 0) {
+          const slot = { ...b }
+          delete slot.allowedAbilities
+          return slot
+        }
+        return { ...b, allowedAbilities: updated }
+      }).filter(b => b.amount > 0 || Array.isArray(b.allowedAbilities))
+      
+      // 重新组织为槽位结构
+      onChange({ ...race, abilityScoreBonuses: reorganizeBonusSlots(next) })
+    } else {
+      // 新增勾选：检查总数是否已达上限3
+      if (allAbilities.length >= 3) {
+        alert('最多只能选择3个属性')
+        return
+      }
+      
+      // 添加到第一个空槽或创建新槽
+      const firstEmptyIdx = raceBonuses.findIndex(b => !Array.isArray(b.allowedAbilities) || b.allowedAbilities.length === 0)
+      let next
+      if (firstEmptyIdx >= 0) {
+        next = raceBonuses.map((b, i) => 
+          i === firstEmptyIdx 
+            ? { ...b, allowedAbilities: [abilityKey] }
+            : b
+        )
+      } else {
+        next = [...raceBonuses, { amount: 1, allowedAbilities: [abilityKey] }]
+      }
+      
+      onChange({ ...race, abilityScoreBonuses: next })
+    }
+  }
+  
+  /** 重新组织槽位：合并相同属性，确保结构合理 */
+  const reorganizeBonusSlots = (slots) => {
+    // 统计每个属性的出现次数
+    const countMap = {}
+    slots.forEach(b => {
+      if (Array.isArray(b.allowedAbilities)) {
+        b.allowedAbilities.forEach(k => {
+          countMap[k] = (countMap[k] || 0) + 1
+        })
+      }
+    })
+    
+    // 重建槽位：连勾的放前面（amount=2），单独的放后面（amount=1）
+    const strong = Object.entries(countMap).filter(([_, c]) => c >= 2).map(([k]) => k)
+    const weak = Object.entries(countMap).filter(([_, c]) => c === 1).map(([k]) => k)
+    
+    const newSlots = []
+    strong.forEach(k => newSlots.push({ amount: 2, allowedAbilities: [k] }))
+    weak.forEach(k => newSlots.push({ amount: 1, allowedAbilities: [k] }))
+    
+    return newSlots.length > 0 ? newSlots : [{ amount: 1 }]
+  }
+  
   const patchBonusAmount = (idx, val) => {
     const next = raceBonuses.map((b, i) => i === idx ? { ...b, amount: Number(val) || 0 } : b)
     onChange({ ...race, abilityScoreBonuses: next })
@@ -460,22 +538,67 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
             </div>
           </div>
 
-          {/* Row2 Col1: 黑暗视觉 + 天生施法属性 */}
+          {/* Row2 Col1: 技能熟练 */}
           <div className={sectionCls}>
-            <div>
-              <label className={labelCls}>黑暗视觉（尺）</label>
-              <input
-                className={inputCls}
-                type="number"
-                value={race.darkvision ?? ''}
-                onChange={e => patch('darkvision', e.target.value ? Number(e.target.value) : null)}
-                placeholder="例如：60"
-              />
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-cyan-300/70">技能熟练</span>
+              <button onClick={addGrantedSkill} className="text-cyan-400/70 text-[10px] hover:text-cyan-300">+ 添加</button>
             </div>
-            <div className="mt-2">
-              <label className={labelCls}>天生施法属性</label>
+            {(race.grantedSkills || []).length === 0 && <div className="text-[10px] text-gray-600">无</div>}
+            {(race.grantedSkills || []).map((skillKey, si) => {
+              const skill = SKILLS.find(s => s.key === skillKey)
+              return (
+                <div key={si} className="flex items-center gap-1 mt-1">
+                  <select
+                    className={`${inputCls} flex-1`}
+                    value={skillKey}
+                    onChange={e => patchGrantedSkill(si, e.target.value)}
+                  >
+                    <option value="">选择技能...</option>
+                    {SKILLS.map(s => (
+                      <option key={s.key} value={s.key}>{s.name}</option>
+                    ))}
+                  </select>
+                  <button onClick={() => removeGrantedSkill(si)} className="text-dnd-red/60 hover:text-dnd-red text-xs px-1">×</button>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Row2 Col2: 属性加值 */}
+          <div className={sectionCls}>
+            <div className="text-[10px] text-dnd-text-muted mb-2">选择3个属性（点1次+1，连点2次+2强项）</div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+              {ABILITY_KEYS.map(k => {
+                const allAbilities = raceBonuses.flatMap(b => Array.isArray(b.allowedAbilities) ? b.allowedAbilities : [])
+                const count = allAbilities.filter(a => a === k).length
+                return (
+                  <label key={k} className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={count > 0}
+                      onChange={() => toggleAbilitySelection(k)}
+                      className={`accent-[#c79a42] ${count >= 2 ? 'accent-red-500' : ''}`}
+                    />
+                    <span className={`${count >= 2 ? 'text-red-400 font-semibold' : 'text-white'}`}>
+                      {ABILITY_SHORT[k]} ({['力','敏','体','智','感','魅'][ABILITY_KEYS.indexOf(k)]})
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Row2 Col3: 天生法术 + 施法属性 */}
+          <div className={sectionCls}>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-purple-300/70">天生法术</span>
+              <button onClick={addRaceSpell} className="text-purple-400/70 text-[10px] hover:text-purple-300">+ 添加</button>
+            </div>
+            <div className="mt-1.5">
+              <label className={labelCls}>施法属性</label>
               <select
-                className={inputCls}
+                className={`${inputCls} w-full`}
                 value={race.spellcastingAbility || ''}
                 onChange={e => patch('spellcastingAbility', e.target.value || null)}
               >
@@ -485,85 +608,26 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
                 <option value="cha">魅力</option>
               </select>
             </div>
-          </div>
-
-          {/* Row2 Col2: 属性加值槽 */}
-          <div className={sectionCls}>
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-dnd-text-muted">属性加值槽</span>
-              <button onClick={addBonusSlot} className="text-dnd-gold text-xs hover:text-dnd-gold-light">+ 添加</button>
-            </div>
-            {raceBonuses.length === 0 && <div className="text-[10px] text-gray-600">无加值槽</div>}
-            {raceBonuses.map((b, idx) => {
-              const allowed = Array.isArray(b.allowedAbilities) ? b.allowedAbilities : null
-              return (
-                <div key={idx} className="mt-1 space-y-0.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-dnd-text-muted w-8 shrink-0">槽 {idx + 1}</span>
-                    <input
-                      className={`${inputCls} w-20`}
-                      type="number"
-                      value={b.amount}
-                      onChange={e => patchBonusAmount(idx, e.target.value)}
-                    />
-                    <button
-                      onClick={() => removeBonusSlot(idx)}
-                      className="text-dnd-red/60 hover:text-dnd-red text-xs shrink-0 px-1"
-                    >
-                      ×
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-1 pl-10">
-                    {ABILITY_KEYS.map(k => {
-                      const active = allowed === null || allowed.includes(k)
-                      return (
-                        <button
-                          key={k}
-                          type="button"
-                          onClick={() => toggleBonusAbility(idx, k)}
-                          className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
-                            allowed === null
-                              ? 'border-dnd-gold/30 text-dnd-gold/60 bg-dnd-gold/5'
-                              : active
-                                ? 'border-dnd-gold/60 text-dnd-gold bg-dnd-gold/10'
-                                : 'border-white/10 text-gray-600 bg-transparent hover:border-white/20'
-                          }`}
-                        >
-                          {ABILITY_SHORT[k]}
-                        </button>
-                      )
-                    })}
-                    {allowed === null && <span className="text-[9px] text-gray-600 ml-1">任意</span>}
-                  </div>
+            <div className="mt-2">
+              {(race.spells || []).length === 0 && <div className="text-[10px] text-gray-600">无</div>}
+              {(race.spells || []).map((sp, si) => (
+                <div key={si} className="flex items-center gap-1 flex-wrap mt-1">
+                  <input className={`${inputCls} w-20`} placeholder="法术名" value={sp.name} onChange={e => patchRaceSpell(si, 'name', e.target.value)} />
+                  <select className={`${inputCls} w-14`} value={sp.castMode} onChange={e => patchRaceSpell(si, 'castMode', e.target.value)}>
+                    <option value="at-will">随意</option>
+                    <option value="per-day">每天</option>
+                    <option value="slot">环位</option>
+                  </select>
+                  {sp.castMode === 'per-day' && (
+                    <input className={`${inputCls} w-10`} type="number" min="1" value={sp.timesPerDay || 1} onChange={e => patchRaceSpell(si, 'timesPerDay', Number(e.target.value))} placeholder="次" />
+                  )}
+                  {sp.castMode === 'slot' && (
+                    <input className={`${inputCls} w-10`} type="number" min="1" max="9" value={sp.slotLevel || 1} onChange={e => patchRaceSpell(si, 'slotLevel', Number(e.target.value))} placeholder="环" />
+                  )}
+                  <button onClick={() => removeRaceSpell(si)} className="text-dnd-red/60 hover:text-dnd-red text-xs px-1">×</button>
                 </div>
-              )
-            })}
-          </div>
-
-          {/* Row2 Col3: 天生法术 */}
-          <div className={sectionCls}>
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-purple-300/70">天生法术</span>
-              <button onClick={addRaceSpell} className="text-purple-400/70 text-[10px] hover:text-purple-300">+ 添加</button>
+              ))}
             </div>
-            {(race.spells || []).length === 0 && <div className="text-[10px] text-gray-600">无</div>}
-            {(race.spells || []).map((sp, si) => (
-              <div key={si} className="flex items-center gap-1 flex-wrap mt-1">
-                <input className={`${inputCls} w-20`} placeholder="法术名" value={sp.name} onChange={e => patchRaceSpell(si, 'name', e.target.value)} />
-                <select className={`${inputCls} w-14`} value={sp.castMode} onChange={e => patchRaceSpell(si, 'castMode', e.target.value)}>
-                  <option value="at-will">随意</option>
-                  <option value="per-day">每天</option>
-                  <option value="slot">环位</option>
-                </select>
-                {sp.castMode === 'per-day' && (
-                  <input className={`${inputCls} w-10`} type="number" min="1" value={sp.timesPerDay || 1} onChange={e => patchRaceSpell(si, 'timesPerDay', Number(e.target.value))} placeholder="次" />
-                )}
-                {sp.castMode === 'slot' && (
-                  <input className={`${inputCls} w-10`} type="number" min="1" max="9" value={sp.slotLevel || 1} onChange={e => patchRaceSpell(si, 'slotLevel', Number(e.target.value))} placeholder="环" />
-                )}
-                <button onClick={() => removeRaceSpell(si)} className="text-dnd-red/60 hover:text-dnd-red text-xs px-1">×</button>
-              </div>
-            ))}
           </div>
 
           {/* Row2 Col4: 赠送专长 */}
@@ -593,31 +657,18 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
             })}
           </div>
 
-          {/* Row2 Col5: 技能熟练 */}
+          {/* Row2 Col5: 黑暗视觉 */}
           <div className={sectionCls}>
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-cyan-300/70">技能熟练</span>
-              <button onClick={addGrantedSkill} className="text-cyan-400/70 text-[10px] hover:text-cyan-300">+ 添加</button>
+            <div>
+              <label className={labelCls}>黑暗视觉（尺）</label>
+              <input
+                className={inputCls}
+                type="number"
+                value={race.darkvision ?? ''}
+                onChange={e => patch('darkvision', e.target.value ? Number(e.target.value) : null)}
+                placeholder="例如：60"
+              />
             </div>
-            {(race.grantedSkills || []).length === 0 && <div className="text-[10px] text-gray-600">无</div>}
-            {(race.grantedSkills || []).map((skillKey, si) => {
-              const skill = SKILLS.find(s => s.key === skillKey)
-              return (
-                <div key={si} className="flex items-center gap-1 mt-1">
-                  <select
-                    className={`${inputCls} flex-1`}
-                    value={skillKey}
-                    onChange={e => patchGrantedSkill(si, e.target.value)}
-                  >
-                    <option value="">选择技能...</option>
-                    {SKILLS.map(s => (
-                      <option key={s.key} value={s.key}>{s.name}</option>
-                    ))}
-                  </select>
-                  <button onClick={() => removeGrantedSkill(si)} className="text-dnd-red/60 hover:text-dnd-red text-xs px-1">×</button>
-                </div>
-              )
-            })}
           </div>
         </div>
 
@@ -639,7 +690,7 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
         {(() => {
           const ctx = { type: 'race' }
           return (
-        <div className={sectionCls}>
+        <div className={`${sectionCls} overflow-x-hidden`}>
           <div className="flex items-center justify-between">
             <span className="text-[10px] text-dnd-text-muted">特性</span>
             <button onClick={addTrait} className="text-dnd-gold text-xs hover:text-dnd-gold-light">+ 添加</button>
@@ -647,8 +698,9 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
           {(race.traits || []).length === 0 && <div className="text-[10px] text-gray-600">无特性</div>}
           {(race.traits || []).map((t, idx) => {
             const isChoice = Array.isArray(t.choiceOptions)
+            const isCollapsed = collapsedTraits.has(t.id)
             return (
-            <div key={t.id} className="space-y-1.5 border-t border-white/5 pt-2">
+            <div key={t.id} className="space-y-1.5 border-t border-white/5 pt-2 min-w-0">
               <div className="flex items-center gap-1">
                 <span className="text-[10px] text-dnd-text-muted w-5 shrink-0">{idx + 1}.</span>
                 <input
@@ -657,8 +709,19 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
                   value={t.name}
                   onChange={e => patchTrait(t.id, 'name', e.target.value)}
                 />
+                <button
+                  onClick={() => toggleTraitCollapse(t.id)}
+                  className="text-gray-400 hover:text-white text-xs shrink-0 px-1 transition-transform"
+                  title={isCollapsed ? '展开' : '折叠'}
+                >
+                  <svg className={`w-3 h-3 transition-transform ${isCollapsed ? '' : 'rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
                 <button onClick={() => removeTrait(t.id)} className="text-dnd-red/60 hover:text-dnd-red text-xs shrink-0 px-1">×</button>
               </div>
+              {!isCollapsed && (
+                <>
               <textarea
                 className={`${inputCls} resize-none`}
                 rows={3}
@@ -683,13 +746,13 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
 
               {/* 选择型选项 */}
               {isChoice && (
-                <div className="pl-2 space-y-1.5">
+                <div className="pl-2 space-y-1.5 min-w-0">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-amber-300/70">可选效果（玩家从中选一个）</span>
                     <button onClick={() => addChoiceOption(ctx, t.id)} className="text-amber-400/70 text-[10px] hover:text-amber-300">+ 添加选项</button>
                   </div>
                   {(t.choiceOptions || []).map((opt) => (
-                    <div key={opt.id} className="space-y-1 border-l-2 border-amber-500/20 pl-2">
+                    <div key={opt.id} className="space-y-1 border-l-2 border-amber-500/20 pl-2 min-w-0">
                       <div className="flex items-center gap-1">
                         <input className={`${inputCls} flex-1`} placeholder="选项名称" value={opt.label} onChange={e => patchChoiceOption(ctx, t.id, opt.id, 'label', e.target.value)} />
                         <button onClick={() => removeChoiceOption(ctx, t.id, opt.id)} className="text-dnd-red/60 hover:text-dnd-red text-xs px-1">×</button>
@@ -731,6 +794,8 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
                     </div>
                   ))}
                 </div>
+              )}
+                </>
               )}
             </div>
             )
@@ -1019,7 +1084,7 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
         <>
           <div className="fixed inset-0 bg-black/50" style={{ zIndex: 400 }} onClick={() => setEditingTraitBuffId(null)} aria-hidden />
           <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: 401 }}>
-            <div className="w-full max-w-2xl max-h-[85vh] rounded-xl border border-white/10 bg-[#1a2332] flex flex-col overflow-hidden">
+            <div className="w-full max-w-4xl max-h-[90vh] rounded-xl border border-white/10 bg-[#1a2332] flex flex-col overflow-hidden overflow-x-hidden">
               <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
                 <h2 className="text-sm font-semibold text-dnd-gold-light/90">
                   编辑效果 — {buffLabel} · {buffTitleSuffix}
@@ -1031,7 +1096,7 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto p-4">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden w-full min-w-0 p-4">
                 <BuffForm
                   compact
                   initial={{ effects: findBuffCards(), source: buffOption?.label || buffTrait?.name }}

@@ -28,6 +28,7 @@ import { rollDice } from '../data/weaponDatabase'
 import { proficiencyBonus, abilityModifier, calcMaxHP, getHPBuffSum } from '../lib/formulas'
 import { getCharacterClasses, getPrimarySpellcastingAbility, getMaxSpellSlotsByRing } from '../data/classDatabase'
 import { getCreatureById, parseCreatureHp, listCreatures } from '../data/creatureLibrary'
+import { getEntryChargeMax } from '../lib/chargeRecovery'
 import CreatureSelectorModal from './CreatureSelectorModal'
 
 /**
@@ -80,6 +81,7 @@ function activeAbilityToChargeValue(ability) {
       value: e.value || {},
     })) : [],
     isStance: !!ability.isStance,
+    itemInventoryId: ability.sourceKey || '',
   }
 }
 
@@ -230,10 +232,6 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
     const patch = { ...savedPatch }
     const lines = [...savedLines]
     if (dmgVal > 0) {
-      // 应用 HP 扣减
-      const currentHp = Number(patch.hp?.current ?? char.hp?.current) || 0
-      const newHp = Math.max(0, currentHp - dmgVal)
-      patch.hp = { ...(patch.hp || char.hp || {}), current: newHp }
       lines.push(`⚔️ 造成伤害: ${dmgVal}`)
     } else {
       lines.push(`⚔️ 未记录伤害数值`)
@@ -383,6 +381,8 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
       stellarData: null,
       needsHealConfirm: null,
       needsDamageConfirm: null,
+      animParts: [],
+      animValues: [],
     }
     let runningHp = runningHpIn
     const patch = {}
@@ -409,6 +409,8 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           const diceExpr = `${scaledDice}d${ev.damageDiceSides || 6}`
           const { total, rolls } = rollDice(diceExpr)
           out.lines.push(`  伤害: ${rolls.join('+')} = ${total}${ev.damageType ? ` ${ev.damageType}` : ''}`)
+          out.animParts.push(diceExpr)
+          out.animValues.push(...rolls.map(Number))
         }
         const subEffects = Array.isArray(ev.subEffects) ? ev.subEffects : []
         for (const subEff of subEffects) {
@@ -427,6 +429,8 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
               const { total: sTotal, rolls: sRolls } = rollDice(sDiceExpr)
               const sIsHeal = sv.resultType !== 'damage'
               out.lines.push(`  ${sIsHeal ? '治疗' : '伤害'}: ${sRolls.join('+')} = ${sTotal}`)
+              out.animParts.push(`${sDice}d${sSides}`)
+              out.animValues.push(...sRolls.map(Number))
               if (sIsHeal && sTotal > 0) {
                 const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
                 const newHp = Math.min(maxHp, runningHp + sTotal)
@@ -506,10 +510,9 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
               const newSlots = { ...currentSlots, [slotLevel]: availableInSlot - 1 }
               out.spellSlotPatch = newSlots
               
-              // 恢复充能（需要找到对应的物品并增加充能数）
-              // 这里通过 itemInventoryId 找到物品，然后更新其充能数
-              if (card?.itemInventoryId) {
-                out.chargeRestore = { itemInventoryId: card.itemInventoryId, amount: restoreAmount }
+              // 恢复充能（通过 norm.itemInventoryId 找到对应物品并增加充能数）
+              if (norm?.itemInventoryId) {
+                out.chargeRestore = { itemInventoryId: norm.itemInventoryId, amount: restoreAmount }
                 out.lines.push(`  ⚡ 消耗${slotLevel}环法术位，恢复 ${restoreAmount} 点充能`)
               } else {
                 out.lines.push(`  ⚡ 消耗${slotLevel}环法术位（未找到关联物品）`)
@@ -534,14 +537,14 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
         const isHeal = ev.resultType !== 'damage'
         if (dice > 0) {
           const { total, rolls } = rollDice(expr)
+          out.animParts.push(expr)
+          out.animValues.push(...rolls.map(Number))
           out.lines.push(`${ev.text || '(能力)'}: ${rolls.join('+')} = ${total} ${isHeal ? '治疗' : '伤害'}`)
           if (isHeal && total > 0) {
             const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
             const newHp = Math.min(maxHp, runningHp + total)
             patch.hp = { ...char.hp, current: newHp }
             runningHp = newHp
-          } else if (!isHeal && total > 0) {
-            runningHp = Math.max(0, runningHp - total)
           }
         } else if (totalMod !== 0) {
           out.lines.push(`${ev.text || '(能力)'}: ${totalMod > 0 ? '+' : ''}${totalMod} ${isHeal ? '治疗' : '伤害'}`)
@@ -605,9 +608,9 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           const newSlots = { ...currentSlots, [slotLevel]: availableInSlot - 1 }
           out.spellSlotPatch = newSlots
           
-          // 恢复充能（需要找到对应的物品并增加充能数）
-          if (card?.itemInventoryId) {
-            out.chargeRestore = { itemInventoryId: card.itemInventoryId, amount: restoreAmount }
+          // 恢复充能（通过 norm.itemInventoryId 找到对应物品并增加充能数）
+          if (norm?.itemInventoryId) {
+            out.chargeRestore = { itemInventoryId: norm.itemInventoryId, amount: restoreAmount }
             out.lines.push(`⚡ 消耗${slotLevel}环法术位，恢复 ${restoreAmount} 点充能`)
           } else {
             out.lines.push(`⚡ 消耗${slotLevel}环法术位（未找到关联物品）`)
@@ -632,6 +635,25 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           const summonHp = parseCreatureHp(creature.hp)
           out.summonAdditions.push({ id: 'summon_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name: creature.name, type: 'summon', creatureId: finalCreatureId, hp: { current: summonHp, max: summonHp }, ac: creature.ac || 10, createdAt: Date.now() })
           out.lines.push(`📦 召唤: ${creature.name}（${summonHp}/${summonHp} HP, AC ${creature.ac || 10}）`)
+          if (ev.costType && ev.costAmount > 0 || ev.costDice) {
+            let costVal = ev.costAmount || 0
+            let costExpr = ''
+            if (ev.costDice) {
+              const { total: diceTotal, rolls } = rollDice(ev.costDice)
+              costVal = diceTotal
+              costExpr = `${ev.costDice}=${diceTotal}`
+              out.animParts.push(ev.costDice)
+              out.animValues.push(...rolls.map(Number))
+            }
+            if (ev.costType === 'hp' && costVal > 0) {
+              const newHp = Math.max(0, runningHp - costVal)
+              out.hpChange += (newHp - runningHp)
+              runningHp = newHp
+              out.lines.push(`  💔 召唤消耗: ${costExpr || costVal} HP（剩余 ${newHp}）`)
+            } else if (ev.costType === 'gold' && costVal > 0) {
+              out.lines.push(`  💰 召唤消耗: ${costExpr || costVal} gp（请手动扣除）`)
+            }
+          }
         }
       } else if (eff.type === 'custom_logic') {
         const desc = ev.description || ev.title || ''
@@ -659,6 +681,63 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
             out.lines.push(`✨ ${desc}`)
           }
         }
+      } else if (eff.type === 'attack_buff') {
+        const hitB = scaled.hitBonus || 0
+        const dmgB = scaled.damageBonus || 0
+        const parts = []
+        if (hitB > 0) parts.push(`命中+${hitB}`)
+        if (dmgB > 0) parts.push(`伤害+${dmgB}`)
+        if (parts.length > 0) {
+          const buffId = 'atkbuf_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
+          const atkEffects = []
+          if (hitB > 0) atkEffects.push({ effectType: 'attack_bonus', category: 'offense', scope: 'global', value: hitB })
+          if (dmgB > 0) atkEffects.push({ effectType: 'damage_bonus', category: 'offense', scope: 'global', value: dmgB })
+          const atkBuff = { id: buffId, source: featureName || ev.title || '攻击加成', effects: atkEffects, enabled: true, sourceKind: 'temporary', duration: { type: 'until_next_turn' } }
+          out.buffAdditions.push(atkBuff)
+          out.lines.push(`🎯 ${ev.title || '攻击加成'}: ${parts.join(', ')}（临时BUFF）`)
+        }
+      } else if (eff.type === 'damage') {
+        const dCount = scaled.diceCount ?? (ev.diceCount || 1)
+        const dSides = ev.diceSides || 6
+        const dBonus = scaled.flatBonus ?? (ev.diceBonus || 0)
+        const dType = ev.damageType || 'fire'
+        if (dCount > 0) {
+          const dExpr = `${dCount}d${dSides}`
+          const { total, rolls } = rollDice(dExpr)
+          const totalWithBonus = total + dBonus
+          const bonusStr = dBonus > 0 ? `+${dBonus}` : ''
+          out.lines.push(`⚔️ ${ev.title || '伤害'}: ${rolls.join('+')}${bonusStr} = ${totalWithBonus} ${dType}`)
+          out.animParts.push(dExpr)
+          out.animValues.push(...rolls.map(Number))
+        }
+      } else if (eff.type === 'heal') {
+        const hCount = scaled.diceCount ?? (ev.diceCount || 1)
+        const hSides = ev.diceSides || 8
+        const hBonus = scaled.flatBonus ?? (ev.diceBonus || 0)
+        if (hCount > 0) {
+          const hExpr = `${hCount}d${hSides}`
+          const { total, rolls } = rollDice(hExpr)
+          const totalWithBonus = total + hBonus
+          const bonusStr = hBonus > 0 ? `+${hBonus}` : ''
+          const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
+          const newHp = Math.min(maxHp, runningHp + totalWithBonus)
+          const healed = newHp - runningHp
+          if (healed > 0) {
+            patch.hp = { ...char.hp, current: newHp }
+            runningHp = newHp
+          }
+          out.lines.push(`💚 ${ev.title || '治疗'}: ${rolls.join('+')}${bonusStr} = ${totalWithBonus}${healed > 0 ? `（实际恢复 ${healed}）` : '（已满血）'}`)
+          out.animParts.push(hExpr)
+          out.animValues.push(...rolls.map(Number))
+        }
+      } else if (eff.type === 'shield') {
+        const shieldAmount = scaled.amount ?? (ev.amount || 0)
+        if (shieldAmount > 0) {
+          const currentTemp = Number(char.hp?.temp) || 0
+          const newTemp = Math.max(currentTemp, shieldAmount)
+          patch.hp = { ...(patch.hp || char.hp || {}), temp: newTemp }
+          out.lines.push(`🛡️ ${ev.title || '护盾'}: 获得 ${shieldAmount} 点临时生命`)
+        }
       }
     }
 
@@ -671,6 +750,47 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
   const handleConfirm = () => {
     const patch = {}
     const lines = []
+    const animParts = []
+    const animValues = []
+
+    // 0. 资源充足性预检
+    if (isSpellSlot) {
+      const ring = norm.slotLevel || 1
+      if ((char.spellSlots?.[ring] || 0) < amt) {
+        lines.push(`⚠️ ${ring}环法术位不足（需要 ${amt}，剩余 ${char.spellSlots?.[ring] || 0}），无法释放`)
+        setResultLines(lines)
+        onConfirm({}, lines)
+        return
+      }
+    } else if (isFreeSlot) {
+      const hasSlot = (() => { for (let r = (norm.slotLevel || 1); r <= 9; r++) { if ((char.spellSlots?.[r] || 0) > 0) return true } return false })()
+      if (!hasSlot) {
+        lines.push(`⚠️ 无法术位可用，无法释放`)
+        setResultLines(lines)
+        onConfirm({}, lines)
+        return
+      }
+    } else if (isClassResource) {
+      const res = (char.classResources || []).find((r) => r.resourceKey === norm.resourceType)
+      if (res && (res.current || 0) < amt) {
+        lines.push(`⚠️ ${resLabel}不足（需要 ${amt}，剩余 ${res.current || 0}），无法释放`)
+        setResultLines(lines)
+        onConfirm({}, lines)
+        return
+      }
+    } else if (!isNone && norm.resourceType === 'charges') {
+      const invId = effectiveChargeValue?.itemInventoryId || ''
+      const invIdx = invId ? (char.inventory || []).findIndex(e => e.id === invId) : -1
+      if (invIdx >= 0) {
+        const curCharge = Math.max(0, Number(char.inventory[invIdx].charge) || 0)
+        if (curCharge < amt) {
+          lines.push(`⚠️ 充能不足（需要 ${amt}，剩余 ${curCharge}），无法释放`)
+          setResultLines(lines)
+          onConfirm({}, lines)
+          return
+        }
+      }
+    }
 
     // 1. 资源消耗
     if (isSpellSlot) {
@@ -701,7 +821,21 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
     } else if (isNone) {
       lines.push('无资源消耗')
     } else {
-      lines.push(`消耗 ${amt} 充能（共 ${norm.charges}）`)
+      // charges 类型：从物品库存中扣减充能
+      const invId = effectiveChargeValue?.itemInventoryId || ''
+      const invIdx = invId ? (char.inventory || []).findIndex(e => e.id === invId) : -1
+      if (invIdx >= 0) {
+        const entry = char.inventory[invIdx]
+        const currentCharge = Math.max(0, Number(entry.charge) || 0)
+        const newCharge = Math.max(0, currentCharge - amt)
+        const nextInv = (char.inventory || []).map((e, i) =>
+          i === invIdx ? { ...e, charge: newCharge } : e
+        )
+        patch.inventory = nextInv
+        lines.push(`消耗 ${amt} 充能（剩余 ${newCharge}/${getEntryChargeMax(entry) ?? norm.charges}）`)
+      } else {
+        lines.push(`消耗 ${amt} 充能（共 ${norm.charges}）`)
+      }
     }
 
     // 荒野变形预检：扣减 wild_shape 资源，次数耗尽则阻止变身
@@ -715,6 +849,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
     })
     if (hasWildShapeTransform) {
       const wsRes = (char.classResources || []).find((r) => r.resourceKey === 'wild_shape')
+      const costIsWildShape = isClassResource && norm.resourceType === 'wild_shape'
       if (wsRes) {
         if ((wsRes.current || 0) <= 0) {
           lines.push('⚠️ 荒野变形次数已用尽，无法变身')
@@ -722,10 +857,17 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           onConfirm({}, lines)
           return
         }
-        patch.classResources = (patch.classResources || char.classResources || []).map((r) =>
-          r.resourceKey === 'wild_shape' ? { ...r, current: Math.max(0, r.current - 1) } : r
-        )
-        lines.push('🐾 荒野变形次数 -1')
+        if (!costIsWildShape) {
+          patch.classResources = (patch.classResources || char.classResources || []).map((r) =>
+            r.resourceKey === 'wild_shape' ? { ...r, current: Math.max(0, r.current - 1) } : r
+          )
+          lines.push('🐾 荒野变形次数 -1')
+        }
+      } else if (!costIsWildShape) {
+        lines.push('⚠️ 未找到荒野变形资源条目，无法变身')
+        setResultLines(lines)
+        onConfirm({}, lines)
+        return
       }
     }
 
@@ -736,20 +878,26 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
       const scaled = computeScaledEffect(ev, amt, isFreeSlot && eff.applyMultiplier !== false)
 
       if (eff.type === 'attack_buff') {
-        // 攻击加成：根据消耗环位计算动态加值
         const hitBonus = scaled.hitBonus || 0
         const damageBonus = scaled.damageBonus || 0
         const extraDiceCount = scaled.extraDiceCount || 0
         const diceSides = scaled.diceSides || 10
         const damageType = scaled.damageType || 'fire'
 
-        // 生成命中加值和伤害加值的掷骰结果（用于动画）
         if (hitBonus > 0 || damageBonus > 0) {
           const parts = []
           if (hitBonus > 0) parts.push(`命中+${hitBonus}`)
           if (damageBonus > 0) parts.push(`伤害+${damageBonus}`)
           if (extraDiceCount > 0) parts.push(`${extraDiceCount}d${diceSides}${damageType}`)
-          lines.push(`🎯 奥术之怒: ${parts.join(', ')}`)
+          lines.push(`🎯 ${ev.title || '攻击加成'}: ${parts.join(', ')}`)
+
+          const buffId = 'atkbuf_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
+          const atkEffects = []
+          if (hitBonus > 0) atkEffects.push({ effectType: 'attack_bonus', category: 'offense', scope: 'global', value: hitBonus })
+          if (damageBonus > 0) atkEffects.push({ effectType: 'damage_bonus', category: 'offense', scope: 'global', value: damageBonus })
+          const atkBuff = { id: buffId, source: featureName || ev.title || '攻击加成', effects: atkEffects, enabled: true, sourceKind: 'temporary', duration: { type: 'until_next_turn' } }
+          const currentBuffs = Array.isArray(char.buffs) ? char.buffs : []
+          patch.buffs = [...(patch.buffs || currentBuffs), atkBuff]
         }
 
         // 如果有额外骰子，立即掷出并记录
@@ -757,6 +905,8 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           const diceExpr = `${extraDiceCount}d${diceSides}`
           const { total, rolls } = rollDice(diceExpr)
           lines.push(`  额外伤害: ${rolls.join('+')} = ${total} ${damageType}`)
+          animParts.push(diceExpr)
+          animValues.push(...rolls.map(Number))
         }
       } else if (eff.type === 'spell') {
         const spellName = ev.spellName || '(未命名法术)'
@@ -781,6 +931,8 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           const { total, rolls } = rollDice(diceExpr)
           const damageType = ev.damageType || ''
           lines.push(`  伤害: ${rolls.join('+')} = ${total}${damageType ? ` ${damageType}` : ''}`)
+          animParts.push(diceExpr)
+          animValues.push(...rolls.map(Number))
         }
 
         // 处理法术子效果
@@ -803,6 +955,8 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
               const sIsHeal = sv.resultType !== 'damage'
               const sModLabel = sTotalMod !== 0 ? (sTotalMod > 0 ? `+${sTotalMod}` : `${sTotalMod}`) : ''
               const sDiceStr = sRolls.length > 0 ? sRolls.join('+') : `${sDice}d${sSides}`
+              animParts.push(`${sDice}d${sSides}`)
+              animValues.push(...sRolls.map(Number))
 
               if (sIsHeal) {
                 const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
@@ -920,6 +1074,113 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
               for (let r = 1; r <= 9; r++) { const d = (newSlots[r] || 0) - (currentSlots2[r] || 0); if (d > 0) restored.push(`${r}环+${d}`) }
               lines.push(`  🔮 恢复法术位: ${restored.join(', ')}`)
             }
+          } else if (subEff.type === 'shield') {
+            const shieldAmount = sScaled.amount ?? (sv.amount || 0)
+            if (shieldAmount > 0) {
+              const currentTemp = Number(char.hp?.temp) || 0
+              const newTemp = Math.max(currentTemp, shieldAmount)
+              patch.hp = { ...(patch.hp || char.hp || {}), temp: newTemp }
+              lines.push(`  🛡️ ${sv.title || '护盾'}: 获得 ${shieldAmount} 点临时生命`)
+            }
+          } else if (subEff.type === 'damage') {
+            const sDiceCount = sScaled.diceCount ?? (sv.diceCount || 1)
+            const sDiceSides = sv.diceSides || 6
+            const sDiceBonus = sScaled.flatBonus ?? (sv.diceBonus || 0)
+            const sDamageType = sv.damageType || 'fire'
+            if (sDiceCount > 0) {
+              const sDiceExpr = `${sDiceCount}d${sDiceSides}`
+              const { total: sTotal, rolls: sRolls } = rollDice(sDiceExpr)
+              const totalWithBonus = sTotal + sDiceBonus
+              const bonusStr = sDiceBonus > 0 ? `+${sDiceBonus}` : ''
+              lines.push(`  ⚔️ ${sv.title || '伤害'}: ${sRolls.join('+')}${bonusStr} = ${totalWithBonus} ${sDamageType}`)
+              animParts.push(sDiceExpr)
+              animValues.push(...sRolls.map(Number))
+            }
+          } else if (subEff.type === 'heal') {
+            const sDiceCount = sScaled.diceCount ?? (sv.diceCount || 1)
+            const sDiceSides = sv.diceSides || 8
+            const sDiceBonus = sScaled.flatBonus ?? (sv.diceBonus || 0)
+            if (sDiceCount > 0) {
+              const sDiceExpr = `${sDiceCount}d${sDiceSides}`
+              const { total: sTotal, rolls: sRolls } = rollDice(sDiceExpr)
+              const totalWithBonus = sTotal + sDiceBonus
+              const bonusStr = sDiceBonus > 0 ? `+${sDiceBonus}` : ''
+              const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
+              const newHp = Math.min(maxHp, runningHp + totalWithBonus)
+              const healed = newHp - runningHp
+              if (healed > 0) {
+                patch.hp = { ...char.hp, current: newHp }
+                runningHp = newHp
+              }
+              lines.push(`  💚 ${sv.title || '治疗'}: ${sRolls.join('+')}${bonusStr} = ${totalWithBonus}${healed > 0 ? `（实际恢复 ${healed}）` : '（已满血）'}`)
+              animParts.push(sDiceExpr)
+              animValues.push(...sRolls.map(Number))
+            }
+          } else if (subEff.type === 'attack_buff') {
+            const hitB = sScaled.hitBonus || 0
+            const dmgB = sScaled.damageBonus || 0
+            const parts = []
+            if (hitB > 0) parts.push(`命中+${hitB}`)
+            if (dmgB > 0) parts.push(`伤害+${dmgB}`)
+            if (parts.length > 0) {
+              const buffId = 'atkbuf_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
+              const atkEffects = []
+              if (hitB > 0) atkEffects.push({ effectType: 'attack_bonus', category: 'offense', scope: 'global', value: hitB })
+              if (dmgB > 0) atkEffects.push({ effectType: 'damage_bonus', category: 'offense', scope: 'global', value: dmgB })
+              const atkBuff = { id: buffId, source: featureName || '攻击加成', effects: atkEffects, enabled: true, sourceKind: 'temporary', duration: { type: 'until_next_turn' } }
+              const currentBuffs = Array.isArray(char.buffs) ? char.buffs : []
+              patch.buffs = [...(patch.buffs || currentBuffs), atkBuff]
+              lines.push(`  🎯 ${sv.title || '攻击加成'}: ${parts.join(', ')}（临时BUFF）`)
+            }
+          } else if (subEff.type === 'consume_spell_slot_to_restore_charges') {
+            const slotLv = sv.slotLevel || 2
+            const restoreAmt = sv.restoreAmount || 1
+            const curSlots = { ...(char.spellSlots || {}) }
+            const avail = curSlots[slotLv] || 0
+            if (avail > 0) {
+              const newSlots = { ...curSlots, [slotLv]: avail - 1 }
+              patch.spellSlots = newSlots
+              if (norm?.itemInventoryId) {
+                const invId = norm.itemInventoryId
+                const invIdx = (char.inventory || []).findIndex(e => e.id === invId)
+                if (invIdx >= 0) {
+                  const entry = char.inventory[invIdx]
+                  const chargeMax = getEntryChargeMax(entry) ?? 0
+                  const curCharge = Math.max(0, Number(entry.charge) || 0)
+                  const newCharge = chargeMax > 0 ? Math.min(chargeMax, curCharge + restoreAmt) : curCharge + restoreAmt
+                  const baseInv = Array.isArray(patch.inventory) ? patch.inventory : (char.inventory || [])
+                  patch.inventory = baseInv.map((e, i) => i === invIdx ? { ...e, charge: newCharge } : e)
+                  lines.push(`  ⚡ 消耗${slotLv}环法术位，恢复 ${restoreAmt} 点充能`)
+                }
+              }
+            }
+          } else if (subEff.type === 'custom_logic') {
+            const desc = sv.description || sv.title || ''
+            const isHealing = (desc.includes('恢复') && (desc.includes('HP') || desc.includes('生命') || desc.includes('血'))) || desc.includes('治疗') || desc.includes('回血') || desc.includes('回满')
+            if (isHealing) {
+              const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
+              const healedAmt = maxHp - runningHp
+              if (healedAmt > 0) {
+                patch.hp = { ...char.hp, current: maxHp }
+                runningHp = maxHp
+                lines.push(`  💚 ${sv.title || '自定义效果'}: 恢复至满血`)
+              } else {
+                lines.push(`  💚 ${sv.title || '自定义效果'}: 已满血`)
+              }
+            } else {
+              const isDmg = desc.includes('伤害') || desc.includes('damage') || (desc.includes('造成') && (desc.includes('点') || desc.includes('HP')))
+              const dc = sv.damageDiceCount || 0
+              const ds = sv.damageDiceSides || 6
+              if (isDmg && dc > 0) {
+                const dExpr = `${dc}d${ds}`
+                const { total: dTotal, rolls: dRolls } = rollDice(dExpr)
+                lines.push(`  ⚔️ ${sv.title || '伤害'}: ${dRolls.join('+')} = ${dTotal}`)
+                animParts.push(dExpr)
+                animValues.push(...dRolls.map(Number))
+              } else {
+                lines.push(`  ✨ ${desc}`)
+              }
+            }
           }
         }
       } else if (eff.type === 'ability') {
@@ -937,6 +1198,8 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           const isHeal = ev.resultType !== 'damage'
           const modLabel = totalMod !== 0 ? (totalMod > 0 ? `+${totalMod}` : `${totalMod}`) : ''
           const diceStr = rolls.length > 0 ? rolls.join('+') : `${scaledDice}d${sides}`
+          animParts.push(`${scaledDice}d${sides}`)
+          animValues.push(...rolls.map(Number))
 
           if (isHeal) {
             const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
@@ -980,9 +1243,6 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
               lines.push(`💚 治疗: ${diceStr2}${modLabel2} = ${total}（已满血）`)
             }
           } else {
-            const newHp = Math.max(0, runningHp - total)
-            patch.hp = { ...char.hp, current: newHp }
-            runningHp = newHp
             lines.push(`⚔️ 伤害: ${diceStr}${modLabel} = ${total}`)
           }
         } else if (ev.text) {
@@ -1105,6 +1365,34 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
         } else {
           lines.push(`🔮 法术位已满，无需恢复`)
         }
+      } else if (eff.type === 'consume_spell_slot_to_restore_charges') {
+        const slotLevel = ev.slotLevel || 2
+        const restoreAmount = ev.restoreAmount || 1
+        const currentSlots = { ...(char.spellSlots || {}) }
+        const availableInSlot = currentSlots[slotLevel] || 0
+
+        if (availableInSlot > 0) {
+          const newSlots = { ...currentSlots, [slotLevel]: availableInSlot - 1 }
+          patch.spellSlots = newSlots
+
+          const invId = norm?.itemInventoryId || ''
+          const invIdx = invId ? (char.inventory || []).findIndex(e => e.id === invId) : -1
+          if (invIdx >= 0) {
+            const entry = char.inventory[invIdx]
+            const chargeMax = getEntryChargeMax(entry) ?? 0
+            const curCharge = Math.max(0, Number(entry.charge) || 0)
+            const newCharge = chargeMax > 0 ? Math.min(chargeMax, curCharge + restoreAmount) : curCharge + restoreAmount
+            const baseInv = Array.isArray(patch.inventory) ? patch.inventory : (char.inventory || [])
+            patch.inventory = baseInv.map((e, i) =>
+              i === invIdx ? { ...e, charge: newCharge } : e
+            )
+            lines.push(`⚡ 消耗${slotLevel}环法术位，恢复 ${restoreAmount} 点充能（剩余 ${newCharge}/${chargeMax}）`)
+          } else {
+            lines.push(`⚡ 消耗${slotLevel}环法术位（未找到关联物品）`)
+          }
+        } else {
+          lines.push(`⚠️ ${slotLevel}环法术位不足，无法恢复充能`)
+        }
       } else if (eff.type === 'summon') {
         if (ev.preset === 'stellar_double') {
           const tempHp = Number(char.hp?.temp) || 0
@@ -1167,6 +1455,27 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           const currentSummons = Array.isArray(char.summonedCreatures) ? char.summonedCreatures : []
           patch.summonedCreatures = [...currentSummons, summonData]
           lines.push(`📦 召唤: ${creature.name}（${summonHp}/${summonHp} HP, AC ${creature.ac || 10}）`)
+
+          // 处理召唤成本
+          if (ev.costType && ev.costAmount > 0 || ev.costDice) {
+            let costVal = ev.costAmount || 0
+            let costExpr = ''
+            if (ev.costDice) {
+              const { total: diceTotal, rolls } = rollDice(ev.costDice)
+              costVal = diceTotal
+              costExpr = `${ev.costDice}=${diceTotal}`
+              animParts.push(ev.costDice)
+              animValues.push(...rolls.map(Number))
+            }
+            if (ev.costType === 'hp' && costVal > 0) {
+              const newHp = Math.max(0, runningHp - costVal)
+              patch.hp = { ...char.hp, current: newHp }
+              runningHp = newHp
+              lines.push(`  💔 召唤消耗: ${costExpr || costVal} HP（剩余 ${newHp}）`)
+            } else if (ev.costType === 'gold' && costVal > 0) {
+              lines.push(`  💰 召唤消耗: ${costExpr || costVal} gp（请手动扣除）`)
+            }
+          }
         }
       } else if (eff.type === 'custom_logic') {
         const desc = ev.description || ev.title || ''
@@ -1204,7 +1513,19 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           } else if (isNone) {
             resourceLine = '无资源消耗'
           } else {
-            resourceLine = `消耗 ${amt} 充能（共 ${norm.charges}）`
+            const invId = effectiveChargeValue?.itemInventoryId || ''
+            const invIdx = invId ? (char.inventory || []).findIndex(e => e.id === invId) : -1
+            if (invIdx >= 0) {
+              const entry = char.inventory[invIdx]
+              const currentCharge = Math.max(0, Number(entry.charge) || 0)
+              const newCharge = Math.max(0, currentCharge - amt)
+              resourcePatch.inventory = (char.inventory || []).map((e, i) =>
+                i === invIdx ? { ...e, charge: newCharge } : e
+              )
+              resourceLine = `消耗 ${amt} 充能（剩余 ${newCharge}/${getEntryChargeMax(entry) ?? norm.charges}）`
+            } else {
+              resourceLine = `消耗 ${amt} 充能（共 ${norm.charges}）`
+            }
           }
           if (healedAmount > 0) {
             setPendingCustomLogic({
@@ -1234,6 +1555,8 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
               const diceExpr = `${diceCount}d${diceSides}`
               const { total, rolls } = rollDice(diceExpr)
               lines.push(`⚔️ ${ev.title || '伤害'}: ${rolls.join('+')} = ${total}`)
+              animParts.push(diceExpr)
+              animValues.push(...rolls.map(Number))
               // 继续处理后续效果，不弹手动输入框
             } else {
             const resourcePatch = {}
@@ -1265,7 +1588,19 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
             } else if (isNone) {
               resourceLine = '无资源消耗'
             } else {
-              resourceLine = `消耗 ${amt} 充能（共 ${norm.charges}）`
+              const invId = norm?.itemInventoryId || ''
+              const invIdx = invId ? (char.inventory || []).findIndex(e => e.id === invId) : -1
+              if (invIdx >= 0) {
+                const entry = char.inventory[invIdx]
+                const currentCharge = Math.max(0, Number(entry.charge) || 0)
+                const newCharge = Math.max(0, currentCharge - amt)
+                resourcePatch.inventory = (char.inventory || []).map((e, i) =>
+                  i === invIdx ? { ...e, charge: newCharge } : e
+                )
+                resourceLine = `消耗 ${amt} 充能（剩余 ${newCharge}/${getEntryChargeMax(entry) ?? norm.charges}）`
+              } else {
+                resourceLine = `消耗 ${amt} 充能（共 ${norm.charges}）`
+              }
             }
             setPendingDamage({
               title: ev.title || '自定义效果',
@@ -1281,7 +1616,6 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           }
         }
       } else if (eff.type === 'damage') {
-        // 直接伤害效果：掷骰并记录
         const diceCount = scaled.diceCount ?? (ev.diceCount || 1)
         const diceSides = ev.diceSides || 6
         const diceBonus = scaled.flatBonus ?? (ev.diceBonus || 0)
@@ -1293,11 +1627,8 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           const bonusStr = diceBonus > 0 ? `+${diceBonus}` : ''
           const totalWithBonus = total + diceBonus
           lines.push(`⚔️ ${ev.title || '伤害'}: ${rolls.join('+')}${bonusStr} = ${totalWithBonus} ${damageType}`)
-          
-          // 扣减HP
-          const newHp = Math.max(0, runningHp - totalWithBonus)
-          patch.hp = { ...char.hp, current: newHp }
-          runningHp = newHp
+          animParts.push(diceBonus > 0 ? `${diceExpr}+${diceBonus}` : diceExpr)
+          animValues.push(...rolls.map(Number))
         }
       } else if (eff.type === 'heal') {
         // 直接治疗效果：掷骰并恢复HP
@@ -1322,6 +1653,8 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           const { total, rolls } = rollDice(diceExpr)
           const bonusStr = diceBonus > 0 ? `+${diceBonus}` : ''
           const totalWithBonus = total + diceBonus
+          animParts.push(diceBonus > 0 ? `${diceExpr}+${diceBonus}` : diceExpr)
+          animValues.push(...rolls.map(Number))
           const maxHp = Math.max(1, (calcMaxHP(char) || 0) + (getHPBuffSum(char) || 0))
           const newHp = Math.min(maxHp, runningHp + totalWithBonus)
           const healedAmount = newHp - runningHp
@@ -1333,6 +1666,14 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           } else {
             lines.push(`💚 ${ev.title || '治疗'}: ${rolls.join('+')}${bonusStr} = ${totalWithBonus}（已满血）`)
           }
+        }
+      } else if (eff.type === 'shield') {
+        const shieldAmount = scaled.amount ?? (ev.amount || 0)
+        if (shieldAmount > 0) {
+          const currentTemp = Number(char.hp?.temp) || 0
+          const newTemp = Math.max(currentTemp, shieldAmount)
+          patch.hp = { ...(patch.hp || char.hp || {}), temp: newTemp }
+          lines.push(`🛡️ ${ev.title || '护盾'}: 获得 ${shieldAmount} 点临时生命${newTemp > currentTemp ? '' : '（未超过现有临时生命）'}`)
         }
       } else if (eff.type === 'random_table') {
         const rv = ev
@@ -1392,8 +1733,35 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
             runningHpIn: runningHp,
           })
           lines.push(...subResult.lines)
-          // 合并子效果结果到 patch
-          if (subResult.spellSlotPatch) patch.spellSlots = subResult.spellSlotPatch
+          if (subResult.animParts.length > 0) {
+            animParts.push(...subResult.animParts)
+            animValues.push(...subResult.animValues)
+          }
+          // 合并子效果结果到 patch（法术位用差值合并，避免覆盖 Step 1 已扣除的值）
+          if (subResult.spellSlotPatch) {
+            const base = patch.spellSlots || { ...(char.spellSlots || {}) }
+            const orig = char.spellSlots || {}
+            const merged = { ...base }
+            for (let r = 1; r <= 9; r++) {
+              const delta = (subResult.spellSlotPatch[r] || 0) - (orig[r] || 0)
+              if (delta !== 0) merged[r] = Math.max(0, (base[r] || 0) + delta)
+            }
+            patch.spellSlots = merged
+          }
+          if (subResult.chargeRestore) {
+            const crInvId = subResult.chargeRestore.itemInventoryId
+            const crIdx = crInvId ? (char.inventory || []).findIndex(e => e.id === crInvId) : -1
+            if (crIdx >= 0) {
+              const crEntry = char.inventory[crIdx]
+              const crMax = getEntryChargeMax(crEntry) ?? 0
+              const crCurrent = Math.max(0, Number(crEntry.charge) || 0)
+              const crNew = crMax > 0 ? Math.min(crMax, crCurrent + subResult.chargeRestore.amount) : crCurrent + subResult.chargeRestore.amount
+              const baseInv = Array.isArray(patch.inventory) ? patch.inventory : (char.inventory || [])
+              patch.inventory = baseInv.map((e, i) =>
+                i === crIdx ? { ...e, charge: crNew } : e
+              )
+            }
+          }
           if (subResult.buffAdditions.length > 0) {
             const currentBuffs = Array.isArray(patch.buffs) ? patch.buffs : (Array.isArray(char.buffs) ? char.buffs : [])
             patch.buffs = [...currentBuffs, ...subResult.buffAdditions]
@@ -1436,6 +1804,17 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
     }
 
     if (lines.length === 0) lines.push('(未配置效果)')
+
+    // 派发 3D 骰子动画
+    if (animParts.length > 0 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('dnd-external-roll', {
+        detail: {
+          animate: true,
+          formula: animParts.join(','),
+          diceValues: animValues,
+        }
+      }))
+    }
 
     setResultLines(lines)
     onConfirm(patch, lines)

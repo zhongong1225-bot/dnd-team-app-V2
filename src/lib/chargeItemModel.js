@@ -798,14 +798,16 @@ export function getMaxSpendableAmount(norm, char) {
   if (norm.resourceType === 'charges') {
     return Math.max(1, Math.floor(Number(norm.charges) || 1))
   }
-  // 自由消耗法术位：最大可选环位 = maxSlotLevel
-  if (norm.resourceType === 'spell_slot_free') {
-    return Math.max(1, Math.min(9, Number(norm.maxSlotLevel) || 1))
-  }
-  // 法术位资源
-  if (/^spell_slot_[1-9]$/.test(norm.resourceType)) {
-    const ring = parseInt(norm.resourceType.replace('spell_slot_', ''), 10)
-    return Math.max(1, Math.floor(Number(char.spellSlots?.[ring]) || 0))
+  // 法术位消耗
+  if (norm.resourceType === 'spell_slot') {
+    if (norm.consumptionMode === 'free') {
+      // 自由消耗：最大可选环位 = maxSlotLevel
+      return Math.max(1, Math.min(9, Number(norm.maxSlotLevel) || 1))
+    } else {
+      // 固定消耗：该环位有多少可用法术位
+      const ring = Number(norm.slotLevel) || 1
+      return Math.max(1, Math.floor(Number(char.spellSlots?.[ring]) || 0))
+    }
   }
   const res = (char.classResources || []).find((r) => r.resourceKey === norm.resourceType)
   return res ? Math.max(1, Math.floor(Number(res.current) || 0)) : 1

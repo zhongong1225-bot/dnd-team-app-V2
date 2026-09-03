@@ -92,30 +92,41 @@ function buildAbilityFromCard(card) {
   if (!chargeEffect) return null
 
   const chargeValue = chargeEffect.value
-  const mainEffect = Array.isArray(chargeValue.effects) && chargeValue.effects.length > 0
-    ? chargeValue.effects[0]
-    : null
+  const allEffects = Array.isArray(chargeValue.effects) ? chargeValue.effects : []
 
-  if (!mainEffect) return null
+  if (allEffects.length === 0) return null
+
+  let cost
+  if (chargeValue.resourceType === 'spell_slot') {
+    cost = {
+      type: 'spell_slot',
+      consumptionMode: chargeValue.consumptionMode || 'fixed',
+      slotLevel: chargeValue.slotLevel || 1,
+      maxSlotLevel: chargeValue.maxSlotLevel || 1,
+    }
+  } else if (chargeValue.resourceType === 'none' || !chargeValue.resourceType) {
+    cost = { type: 'none' }
+  } else {
+    cost = { type: 'class_resource', resourceKey: chargeValue.resourceType, amount: chargeValue.charges || 1 }
+  }
 
   return {
     id: `${card.sourceKey}_active`,
     name: card.name || '主动技能',
     actionType: chargeValue.actionCost || 'action',
-    cost: chargeValue.resourceType === 'none'
-      ? { type: 'none' }
-      : { type: 'class_resource', resourceKey: chargeValue.resourceType || 'charges', amount: chargeValue.charges || 1 },
+    cost,
     cooldown: chargeValue.recovery?.method === 'long_rest' ? 'long_rest'
               : chargeValue.recovery?.method === 'short_rest' ? 'short_rest'
               : 'none',
     description: card.description || '',
     needsInteraction: 'confirm',
     isStance: !!chargeValue.isStance,
-    effects: [{
-      type: mainEffect.type,
-      value: mainEffect.value,
-      description: mainEffect.value?.description || mainEffect.text || '',
-    }],
+    sourceKey: card.sourceKey || '',
+    effects: allEffects.map(e => ({
+      type: e.type,
+      value: e.value,
+      description: e.value?.description || e.text || '',
+    })),
   }
 }
 
