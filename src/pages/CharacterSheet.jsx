@@ -3586,15 +3586,7 @@ export default function CharacterSheet() {
   const buffStats = useBuffCalculator(char, mergedBuffs)
 
   // 构建统一的 Card 数组，用于所有主动技能检测
-  const allCards = useMemo(() => {
-    const cards = buildCardsFromCharacter(char, sheetModuleId)
-    console.log('[CharacterSheet] allCards built:', {
-      totalCards: cards.length,
-      raceActiveCards: cards.filter(c => c.sourceType === 'race' && c.activeAbility),
-      raceActiveCardNames: cards.filter(c => c.sourceType === 'race' && c.activeAbility).map(c => c.name)
-    })
-    return cards
-  }, [char, sheetModuleId, buffPatchRev])
+  const allCards = useMemo(() => buildCardsFromCharacter(char, sheetModuleId), [char, sheetModuleId, buffPatchRev])
 
   const canEdit = isAdmin || char?.owner === user?.name
   const isCreatureTemplate = char?.subordinateTemplate === 'creature'

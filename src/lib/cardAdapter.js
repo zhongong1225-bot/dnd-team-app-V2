@@ -397,12 +397,6 @@ export function buildCardsFromCharacter(character, moduleId) {
     const passiveTraitEffects = []
     const activeTraitCards = []
     
-    console.log('[cardAdapter] Race trait processing:', {
-      raceId: resolvedRaceId,
-      traitEffectsCount: traitEffects.length,
-      traitEffects: traitEffects.map(e => ({ name: e._traitName, type: e.effectType }))
-    })
-    
     traitEffects.forEach((effect, idx) => {
       const hasChargeItem = effect.effectType === 'charge_item' && effect.value && typeof effect.value === 'object'
       if (hasChargeItem) {
@@ -415,14 +409,6 @@ export function buildCardsFromCharacter(character, moduleId) {
         const subEffects = Array.isArray(chargeValue.effects) && chargeValue.effects.length > 0 
           ? chargeValue.effects 
           : null
-        
-        console.log('[cardAdapter] Creating race active card:', {
-          cardId,
-          traitName,
-          actionCost: chargeValue.actionCost,
-          resourceType: chargeValue.resourceType,
-          charges: chargeValue.charges
-        })
         
         activeTraitCards.push(normalizeCard(createCard(SLOT_KIND.race, {
           id: cardId,
@@ -444,12 +430,6 @@ export function buildCardsFromCharacter(character, moduleId) {
         // 非 charge_item 效果保留在被动列表中
         passiveTraitEffects.push(effect)
       }
-    })
-    
-    console.log('[cardAdapter] Race cards summary:', {
-      passiveEffects: passiveTraitEffects.length,
-      activeCards: activeTraitCards.length,
-      activeCardNames: activeTraitCards.map(c => c.name)
     })
     
     const allPassiveEffects = [...autoEffects, ...passiveTraitEffects, ...manualEffects]
