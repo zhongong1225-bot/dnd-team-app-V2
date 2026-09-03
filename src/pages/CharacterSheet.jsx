@@ -3596,6 +3596,26 @@ export default function CharacterSheet() {
   const canEdit = isAdmin || char?.owner === user?.name
   const isCreatureTemplate = char?.subordinateTemplate === 'creature'
 
+  // 页面内调试面板（适用于无控制台的内置浏览器）
+  useEffect(() => {
+    if (!char) return
+    let panel = document.getElementById('cards-debug-panel')
+    if (!panel) {
+      panel = document.createElement('div')
+      panel.id = 'cards-debug-panel'
+      panel.style.cssText = 'position:fixed;top:10px;right:10px;width:350px;max-height:400px;overflow:auto;background:#1a2333;color:#fff;padding:10px;z-index:99999;font-size:11px;border:2px solid #c79a42;line-height:1.6;'
+      document.body.appendChild(panel)
+    }
+    
+    const raceActiveCards = allCards.filter(c => c.sourceType === 'race' && c.activeAbility)
+    panel.innerHTML = `
+      <strong>卡片调试：</strong><br/>
+      allCards总数: ${allCards.length}<br/>
+      种族主动卡: ${raceActiveCards.length}<br/>
+      ${raceActiveCards.map(c => `- ${c.name} (${c.sourceType})`).join('<br/>') || '（无）'}
+    `
+  }, [char, allCards])
+
   const characterClasses = useMemo(() => (char ? getCharacterClasses(char) : []), [char])
   const charClasses = useMemo(() => characterClasses.map(c => ({ className: c.name, level: c.level })), [characterClasses])
   const classLevels = useMemo(() => {

@@ -101,14 +101,22 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
     )
     if (topLevel) return true
     // Check inside random_table entries
-    return norm.effects.some(eff => {
+    if (norm.effects.some(eff => {
       if (eff.type !== 'random_table') return false
       const entries = eff.value?.entries || []
-      return entries.some(entry => 
-        (entry.effects || []).some(se => 
+      return entries.some(entry =>
+        (entry.effects || []).some(se =>
           (se.type === 'creature_transform' && !se.value?.creatureId) ||
           (se.type === 'summon' && se.value?.preset !== 'stellar_double' && !se.value?.creatureId)
         )
+      )
+    })) return true
+    // Check inside spell subEffects
+    return norm.effects.some(eff => {
+      if (eff.type !== 'spell' || !Array.isArray(eff.value?.subEffects)) return false
+      return eff.value.subEffects.some(se =>
+        (se.type === 'creature_transform' && !se.value?.creatureId) ||
+        (se.type === 'summon' && se.value?.preset !== 'stellar_double' && !se.value?.creatureId)
       )
     })
   }, [norm.effects])
@@ -118,11 +126,11 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
   const [showSummonConfirm, setShowSummonConfirm] = useState(false)
   const [pendingSummonData, setPendingSummonData] = useState(null)
   
-  // 获取可用生物列表（用于下拉选择）
+  // 获取可用生物列表（用于下拉选择），德鲁伊变身受 CR 限制
   const availableCreatures = useMemo(() => {
     if (!needsCreatureSelection) return []
-    return listCreatures()
-  }, [needsCreatureSelection])
+    return listCreatures(maxCR != null ? { maxCr: maxCR } : {})
+  }, [needsCreatureSelection, maxCR])
   
   // custom_logic 效果二次确认（如慈悲关怀询问是否对自己回满血）
   const [showCustomLogicConfirm, setShowCustomLogicConfirm] = useState(false)
@@ -142,11 +150,15 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
   const hasStellarDouble = useMemo(() => {
     const topLevel = norm.effects.some(eff => eff.type === 'summon' && eff.value?.preset === 'stellar_double')
     if (topLevel) return true
-    return norm.effects.some(eff => {
+    if (norm.effects.some(eff => {
       if (eff.type !== 'random_table') return false
       return (eff.value?.entries || []).some(entry =>
         (entry.effects || []).some(se => se.type === 'summon' && se.value?.preset === 'stellar_double')
       )
+    })) return true
+    return norm.effects.some(eff => {
+      if (eff.type !== 'spell' || !Array.isArray(eff.value?.subEffects)) return false
+      return eff.value.subEffects.some(se => se.type === 'summon' && se.value?.preset === 'stellar_double')
     })
   }, [norm.effects])
   
@@ -1713,10 +1725,13 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
       }
     }
 
-    // 3. 架势互斥：清除旧架势BUFF
+    // 3. 架势互斥：清除旧架势BUFF，若新架势未成功设置则清空引用
     if (norm.isStance && char.activeStance?.buffId) {
       const buffs = Array.isArray(patch.buffs) ? patch.buffs : (Array.isArray(char.buffs) ? char.buffs : [])
       patch.buffs = buffs.filter((b) => b.id !== char.activeStance.buffId)
+      if (!patch.activeStance) {
+        patch.activeStance = null
+      }
     }
 
     if (lines.length === 0) lines.push('(未配置效果)')
@@ -2042,7 +2057,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
           {needsCreatureSelection && availableCreatures.length > 0 && (
             <div className="mt-3 pt-3 border-t border-gray-700/50">
               <label className="block text-xs text-gray-400 mb-1.5">
-                选择{norm.effects.some(e => e.type === 'creature_transform') ? '变身' : '召唤'}目标生物：
+                选择{(norm.effects.some(e => e.type === 'creature_transform') || norm.effects.some(e => e.type === 'spell' && Array.isArray(e.value?.subEffects) && e.value.subEffects.some(se => se.type === 'creature_transform'))) ? '变身' : '召唤'}目标生物：
               </label>
               <select
                 value={selectedCreatureId || ''}
