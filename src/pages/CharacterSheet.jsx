@@ -4128,7 +4128,7 @@ export default function CharacterSheet() {
             <h3 className="section-title">被动BUFF</h3>
             <BuffManager
               buffs={mergedBuffs}
-              cards={char.cards ?? []}
+              cards={allCards}
               char={char}
               baseAbilities={char.abilities ?? {}}
               sourceNameOptions={sourceNameOptions}

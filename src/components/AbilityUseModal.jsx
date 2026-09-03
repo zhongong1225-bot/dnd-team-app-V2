@@ -136,6 +136,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
   // ability 治疗效果确认（掷骰后询问是否恢复HP）
   const [showHealingConfirm, setShowHealingConfirm] = useState(false)
   const [pendingHealing, setPendingHealing] = useState(null)
+  const suspendedResultRef = useRef(null)
   
   // 检查是否有星辰替身效果
   const hasStellarDouble = useMemo(() => {
@@ -179,132 +180,148 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
   // 处理 custom_logic 确认（回血）
   const handleCustomLogicConfirm = () => {
     setShowCustomLogicConfirm(false)
-    if (!pendingCustomLogic) return
-    const patch = { ...(pendingCustomLogic.resourcePatch || {}) }
-    const lines = [pendingCustomLogic.resourceLine || '']
+    if (!pendingCustomLogic || !suspendedResultRef.current) return
+    const { patch, lines, animParts, animValues } = suspendedResultRef.current
 
-    // 应用治疗
-    if (pendingCustomLogic.healToFull) {
-      const maxHp = pendingCustomLogic.maxHp
-      patch.hp = { ...char.hp, current: maxHp }
-      lines.push(`💚 生命值恢复至上限 ${maxHp}（+${pendingCustomLogic.healedAmount}）`)
+    if (animParts.length > 0 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('dnd-external-roll', {
+        detail: { animate: true, formula: animParts.join(','), diceValues: animValues }
+      }))
     }
 
-    // 架势互斥
-    if (norm.isStance && char.activeStance?.buffId) {
-      const buffs = Array.isArray(char.buffs) ? char.buffs : []
-      patch.buffs = buffs.filter((b) => b.id !== char.activeStance.buffId)
-    }
-
-    setResultLines(lines.filter(Boolean))
-    onConfirm(patch, lines.filter(Boolean))
+    setResultLines(lines)
+    onConfirm(patch, lines)
     setPendingCustomLogic(null)
+    suspendedResultRef.current = null
   }
 
   // 处理 custom_logic 取消（不回血，只消耗资源并显示数值）
   const handleCustomLogicCancel = () => {
     setShowCustomLogicConfirm(false)
-    if (!pendingCustomLogic) return
-    const patch = { ...(pendingCustomLogic.resourcePatch || {}) }
-    const lines = [pendingCustomLogic.resourceLine || '']
-    lines.push(`💚 可恢复 ${pendingCustomLogic.healedAmount} 点生命值（未恢复）`)
+    if (!pendingCustomLogic || !suspendedResultRef.current) return
+    const { patch, lines, animParts, animValues } = suspendedResultRef.current
 
-    if (norm.isStance && char.activeStance?.buffId) {
-      const buffs = Array.isArray(char.buffs) ? char.buffs : []
-      patch.buffs = buffs.filter((b) => b.id !== char.activeStance.buffId)
+    if (pendingCustomLogic.undoHeal != null && patch.hp) {
+      const postHealHp = patch.hp.current
+      const healDelta = postHealHp - pendingCustomLogic.undoHeal
+      patch.hp = { ...patch.hp, current: pendingCustomLogic.undoHeal }
+      const lastIdx = lines.length - 1
+      if (lastIdx >= 0 && lines[lastIdx].startsWith('💚')) {
+        lines[lastIdx] = `💚 可恢复 ${pendingCustomLogic.healedAmount} 点生命值（未恢复）`
+      }
+      if (healDelta !== 0) {
+        patch.hp = { ...patch.hp, current: Math.max(0, patch.hp.current + healDelta) }
+      }
+    } else {
+      lines.push(`💚 可恢复 ${pendingCustomLogic.healedAmount} 点生命值（未恢复）`)
     }
 
-    setResultLines(lines.filter(Boolean))
-    onConfirm(patch, lines.filter(Boolean))
+    if (animParts.length > 0 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('dnd-external-roll', {
+        detail: { animate: true, formula: animParts.join(','), diceValues: animValues }
+      }))
+    }
+
+    setResultLines(lines)
+    onConfirm(patch, lines)
     setPendingCustomLogic(null)
+    suspendedResultRef.current = null
   }
 
   // 处理伤害确认（记录伤害数值，消耗资源）
   const handleDamageConfirm = () => {
     setShowDamageInput(false)
-    if (!pendingDamage) return
+    if (!pendingDamage || !suspendedResultRef.current) return
     const dmgVal = parseInt(damageInputRef.current, 10) || 0
-    // 支持通用伤害效果：合并已计算的资源消耗 patch 和日志
-    const savedPatch = pendingDamage.resourcePatch || {}
-    const savedLines = Array.isArray(pendingDamage.resourceLines)
-      ? pendingDamage.resourceLines
-      : [pendingDamage.resourceLine || '']
-    const patch = { ...savedPatch }
-    const lines = [...savedLines]
+    const { patch, lines, animParts, animValues } = suspendedResultRef.current
+
     if (dmgVal > 0) {
       lines.push(`⚔️ 造成伤害: ${dmgVal}`)
     } else {
       lines.push(`⚔️ 未记录伤害数值`)
     }
 
-    if (norm.isStance && char.activeStance?.buffId) {
-      const buffs = Array.isArray(char.buffs) ? char.buffs : []
-      patch.buffs = buffs.filter((b) => b.id !== char.activeStance.buffId)
+    if (animParts.length > 0 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('dnd-external-roll', {
+        detail: { animate: true, formula: animParts.join(','), diceValues: animValues }
+      }))
     }
 
-    setResultLines(lines.filter(Boolean))
-    onConfirm(patch, lines.filter(Boolean))
+    setResultLines(lines)
+    onConfirm(patch, lines)
     setPendingDamage(null)
     damageInputRef.current = ''
+    suspendedResultRef.current = null
   }
 
   // 处理伤害取消（不记录伤害，只消耗资源）
   const handleDamageCancel = () => {
     setShowDamageInput(false)
-    if (!pendingDamage) return
-    const savedPatch = pendingDamage.resourcePatch || {}
-    const savedLines = Array.isArray(pendingDamage.resourceLines)
-      ? pendingDamage.resourceLines
-      : [pendingDamage.resourceLine || '']
-    const patch = { ...savedPatch }
-    const lines = [...savedLines]
+    if (!pendingDamage || !suspendedResultRef.current) return
+    const { patch, lines, animParts, animValues } = suspendedResultRef.current
 
-    if (norm.isStance && char.activeStance?.buffId) {
-      const buffs = Array.isArray(char.buffs) ? char.buffs : []
-      patch.buffs = buffs.filter((b) => b.id !== char.activeStance.buffId)
+    if (animParts.length > 0 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('dnd-external-roll', {
+        detail: { animate: true, formula: animParts.join(','), diceValues: animValues }
+      }))
     }
 
-    setResultLines(lines.filter(Boolean))
-    onConfirm(patch, lines.filter(Boolean))
+    setResultLines(lines)
+    onConfirm(patch, lines)
     setPendingDamage(null)
     damageInputRef.current = ''
+    suspendedResultRef.current = null
   }
 
   // 处理 ability 治疗确认（恢复HP）
   const handleHealingConfirm = () => {
     setShowHealingConfirm(false)
-    if (!pendingHealing) return
-    const patch = { ...pendingHealing.resourcePatch }
-    patch.hp = { ...char.hp, current: pendingHealing.newHp }
-    const lines = [...pendingHealing.resultLines]
-    lines.push(`💚 治疗: ${pendingHealing.diceExpr} = ${pendingHealing.healAmount}`)
+    if (!pendingHealing || !suspendedResultRef.current) return
+    const { patch, lines, animParts, animValues } = suspendedResultRef.current
 
-    if (norm.isStance && char.activeStance?.buffId) {
-      const buffs = Array.isArray(patch.buffs) ? patch.buffs : (Array.isArray(char.buffs) ? char.buffs : [])
-      patch.buffs = buffs.filter((b) => b.id !== char.activeStance.buffId)
+    if (animParts.length > 0 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('dnd-external-roll', {
+        detail: { animate: true, formula: animParts.join(','), diceValues: animValues }
+      }))
     }
 
-    setResultLines(lines.filter(Boolean))
-    onConfirm(patch, lines.filter(Boolean))
+    setResultLines(lines)
+    onConfirm(patch, lines)
     setPendingHealing(null)
+    suspendedResultRef.current = null
   }
 
   // 处理 ability 治疗取消（不恢复HP，只消耗资源）
   const handleHealingCancel = () => {
     setShowHealingConfirm(false)
-    if (!pendingHealing) return
-    const patch = { ...pendingHealing.resourcePatch }
-    const lines = [...pendingHealing.resultLines]
-    lines.push(`💚 可治疗 ${pendingHealing.healAmount} 点（未恢复）`)
+    if (!pendingHealing || !suspendedResultRef.current) return
+    const { patch, lines, animParts, animValues } = suspendedResultRef.current
 
-    if (norm.isStance && char.activeStance?.buffId) {
-      const buffs = Array.isArray(patch.buffs) ? patch.buffs : (Array.isArray(char.buffs) ? char.buffs : [])
-      patch.buffs = buffs.filter((b) => b.id !== char.activeStance.buffId)
+    if (pendingHealing.undoHeal != null && patch.hp) {
+      const postHealHp = patch.hp.current
+      const healDelta = postHealHp - pendingHealing.undoHeal
+      patch.hp = { ...patch.hp, current: pendingHealing.undoHeal }
+      const lastIdx = lines.length - 1
+      if (lastIdx >= 0 && lines[lastIdx].startsWith('💚')) {
+        lines[lastIdx] = `💚 可治疗 ${pendingHealing.healAmount} 点（未恢复）`
+      }
+      if (healDelta !== 0) {
+        patch.hp = { ...patch.hp, current: Math.max(0, patch.hp.current + healDelta) }
+      }
+    } else {
+      lines.push(`💚 可治疗 ${pendingHealing.healAmount} 点（未恢复）`)
     }
 
-    setResultLines(lines.filter(Boolean))
-    onConfirm(patch, lines.filter(Boolean))
+    if (animParts.length > 0 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('dnd-external-roll', {
+        detail: { animate: true, formula: animParts.join(','), diceValues: animValues }
+      }))
+    }
+
+    setResultLines(lines)
+    onConfirm(patch, lines)
     setPendingHealing(null)
+    suspendedResultRef.current = null
   }
 
   const isSpellSlot = isFixedSlotConsumption(norm)
