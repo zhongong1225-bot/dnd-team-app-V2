@@ -13,6 +13,7 @@
  *   speed: { walk, climb, swim, fly, burrow },
  *   darkvision: number | null,    // 黑暗视觉距离（尺）
  *   spellcastingAbility: 'int' | 'wis' | 'cha' | null,  // 天生施法关键属性
+ *   bonusFeats: [{ featId: string | null }], // 赠送的起源专长槽位（玩家在UI中选择具体专长）
  *   traits: [RaceTrait],         // 结构化特性列表
  *   tables: [RaceTable],         // 参考表格（纯展示）
  *   subraces: [RaceSubrace],     // 亚种

@@ -25,7 +25,7 @@ export const RACES = [
   {
     id: 'human',
     name: '人类',
-    description: '在整个多元宇宙中，人类因其数量庞大而各具特色。\n\n人类是多元宇宙中最年轻的主要种族之一。虽然他们建立的城市和帝国绵延千古，但人类个体的寿命却远短于精灵、龙裔等其他种族。人类在多元宇宙中分布最广，几乎在所有文明中都占据主导地位。\n\n人类的文化和外貌千差万别。他们的服饰、建筑、法律和风俗各不相同，反映出极强的适应力和多样性。人类的体型差异也很大，从矮小粗壮到高大瘦长，肤色从深棕到苍白，头发和眼睛的颜色更是五花八门。许多人类男性会留各种风格的胡须。\n\n人类的服饰风格从简朴的农装到华丽的宫廷礼服应有尽有，但他们普遍喜欢在衣着上点缀能展示个人成就或家族纹章的饰品。',
+    description: '人类的外貌就像地球上的人一样多样，他们也同样信奉许多的神祇。学者们对人类的起源争议不休，但据说已知最早的人类聚居地是在印记城，那座位于多元宇宙中心的环形城市，那座通用语诞生的城市。从那里开始，人类带着门之城的世界主义走到了多元宇宙的每个角落。',
     source: '',
     creatureType: 'humanoid',
     sizeOptions: ['Medium', 'Small'],
@@ -33,23 +33,24 @@ export const RACES = [
     speed: { walk: 30, climb: null, swim: null, fly: null, burrow: null },
     darkvision: null,
     abilityScoreBonuses: [],
+    bonusFeats: [{ featId: null }], // 赠送一个起源专长（玩家在UI中选择）
     traits: [
       {
-        id: 'human_adaptability',
+        id: 'human_resourceful',
         name: '适应力',
-        description: '你获得两项技能熟练。此外，你获得以下一项实用技能：额外生命骰（+1 生命骰）、一项你选择语言的熟练、或两项工具熟练。',
+        description: '每当你完成长休时，你都会获得英雄激励。',
         cards: [],
       },
       {
-        id: 'human_skills',
+        id: 'human_skillful',
         name: '技能熟练',
-        description: '你的技能熟练加值获得 +2 加值。',
+        description: '你获得一项自选技能的熟练。',
         cards: [],
       },
       {
-        id: 'human_versatility',
-        description: '你获得以下两项加值，每项可选不同类别：技能熟练加值 +1、工具熟练加值 +1、豁免熟练加值 +1、或武器与徒手攻击伤害 +1。',
+        id: 'human_versatile',
         name: '多才多艺',
+        description: '你获得一项自选的起源专长。推荐选择熟习（Skilled）专长。',
         cards: [],
       },
     ],
