@@ -206,6 +206,35 @@ export function serializeAttackDamageBonusForSave(value) {
   return out
 }
 
+/** 切换效果类型时的默认值结构（行内编辑器与弹窗编辑器共用） */
+function patchDefaultsForEffectType(effectType, currentValue) {
+  const patch = { effectType }
+  if (effectType === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
+  if (effectType === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(currentValue)
+  if (effectType === 'spell_damage_bonus') patch.value = { type: '', diceFloor: 0, perDieBonus: 0, extraDice: '', flatBonus: 0 }
+  if (effectType === 'spell_ability_attack') patch.value = { ability: 'int' }
+  if (effectType === 'base_speed_increment') patch.value = { walk: 0, fly: 0, swim: 0, climb: 0 }
+  if (effectType === 'ability_score_uncapped') patch.break20 = {}
+  if (effectType === 'choice') patch.value = { choiceOptions: [{ name: '选项 A', effects: [] }, { name: '选项 B', effects: [] }], choiceSelected: 0 }
+  return patch
+}
+
+/** 空效果模块骨架：统一三处创建点的 id 生成与字段集合 */
+function createEmptyEffectModule(overrides = {}) {
+  return {
+    id: 'e_' + Math.random().toString(36).slice(2),
+    category: '',
+    effectType: '',
+    scope: SCOPE_KIND.global,
+    scopeDetail: [],
+    value: 0,
+    break20: {},
+    customText: '',
+    upgrade: null,
+    ...overrides,
+  }
+}
+
 /** 从 initial 归一化为 effects 数组（兼容旧单条与新版 effects[]，旧 4 大类规范化为 6 大类） */
 function normalizeInitialEffects(initial) {
   const mapEffect = (e) => {
@@ -234,7 +263,7 @@ function normalizeInitialEffects(initial) {
   if (initial?.category != null || initial?.effectType != null) {
     return migrateProficiencyTextToArray([initial]).map(mapEffect)
   }
-  return [{ id: 'e_' + Math.random().toString(36).slice(2), category: '', effectType: '', scope: SCOPE_KIND.global, scopeDetail: [], value: 0, customText: '', upgrade: null }]
+  return [createEmptyEffectModule()]
 }
 
 /** 根据效果类型把 value 转为保存用的最终值 */
@@ -5342,16 +5371,7 @@ function ChoiceBUFFEditor({ choiceOptions = [], choiceSelected = 0, onChange }) 
   }
 
   const addModule = () => {
-    setEditingModule({
-      id: 'e_' + Math.random().toString(36).slice(2),
-      category: '',
-      effectType: '',
-      scope: SCOPE_KIND.global,
-      scopeDetail: [],
-      value: 0,
-      break20: {},
-      customText: '',
-    })
+    setEditingModule(createEmptyEffectModule())
   }
 
   const removeModule = (modId) => {
@@ -5480,7 +5500,8 @@ function ChoiceBUFFEditor({ choiceOptions = [], choiceSelected = 0, onChange }) 
 /** 等级升级编辑器：被动效果随职业等级升级为更高值 */
 function UpgradeEditor({ upgrade, baseValue, effectType, category, charClasses, catData, currentEffect, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData, subordinates, onChange }) {
   const [expanded, setExpanded] = useState(!!upgrade)
-  const upg = upgrade || { className: charClasses[0]?.className ?? '', level: 1, value: baseValue ?? 0 }
+  const makeDefaultUpgrade = () => ({ className: charClasses[0]?.className ?? '', level: 1, value: baseValue ?? 0 })
+  const upg = upgrade || makeDefaultUpgrade()
 
   const handleEnable = () => {
     if (expanded) {
@@ -5488,7 +5509,7 @@ function UpgradeEditor({ upgrade, baseValue, effectType, category, charClasses, 
       onChange(null)
     } else {
       setExpanded(true)
-      onChange({ className: charClasses[0]?.className ?? '', level: 1, value: baseValue ?? 0 })
+      onChange(makeDefaultUpgrade())
     }
   }
 
@@ -5683,16 +5704,11 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
 
   /** 直接添加指定类型效果到列表（不弹窗） */
   const addEffectDirectly = (category, effectKey) => {
-    const newMod = {
-      id: 'e_' + Math.random().toString(36).slice(2),
+    const newMod = createEmptyEffectModule({
       category,
       effectType: effectKey,
-      scope: SCOPE_KIND.global,
-      scopeDetail: [],
       value: effectKey === 'charge_item' ? normalizeChargeItemValue({}) : 0,
-      break20: {},
-      customText: '',
-    }
+    })
     setEffectModules((prev) => [...prev, newMod])
     setShowEffectPicker(false)
     // 添加后自动打开行内编辑
@@ -6106,15 +6122,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
                         <select
                           value={mod.effectType || ''}
                           onChange={(e) => {
-                            const patch = { effectType: e.target.value }
-                            if (e.target.value === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
-                            if (e.target.value === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(mod.value)
-                            if (e.target.value === 'spell_damage_bonus') patch.value = { type: '', diceFloor: 0, perDieBonus: 0, extraDice: '', flatBonus: 0 }
-                            if (e.target.value === 'spell_ability_attack') patch.value = { ability: 'int' }
-                            if (e.target.value === 'base_speed_increment') patch.value = { walk: 0, fly: 0, swim: 0, climb: 0 }
-                            if (e.target.value === 'ability_score_uncapped') patch.break20 = {}
-                            if (e.target.value === 'choice') patch.value = { choiceOptions: [{ name: '选项 A', effects: [] }, { name: '选项 B', effects: [] }], choiceSelected: 0 }
-                            updateModule(mod.id, patch)
+                            updateModule(mod.id, patchDefaultsForEffectType(e.target.value, mod.value))
                           }}
                           className="h-7 px-1.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-[10px] cursor-pointer flex-1 min-w-0"
                         >
@@ -6450,15 +6458,7 @@ function EffectModuleModal({
         <select
           value={effectiveEffectType || ''}
           onChange={(e) => {
-            const patch = { effectType: e.target.value }
-            if (e.target.value === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
-            if (e.target.value === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(draft.value)
-            if (e.target.value === 'spell_damage_bonus') patch.value = { type: '', diceFloor: 0, perDieBonus: 0, extraDice: '', flatBonus: 0 }
-            if (e.target.value === 'spell_ability_attack') patch.value = { ability: 'int' }
-            if (e.target.value === 'base_speed_increment') patch.value = { walk: 0, fly: 0, swim: 0, climb: 0 }
-            if (e.target.value === 'ability_score_uncapped') patch.break20 = {}
-            if (e.target.value === 'choice') patch.value = { choiceOptions: [{ name: '选项 A', effects: [] }, { name: '选项 B', effects: [] }], choiceSelected: 0 }
-            updateDraft(patch)
+            updateDraft(patchDefaultsForEffectType(e.target.value, draft.value))
           }}
           className="h-7 px-1.5 rounded border border-amber-500/30 bg-dnd-bg text-amber-300 text-[10px] cursor-pointer flex-1 min-w-0"
         >
