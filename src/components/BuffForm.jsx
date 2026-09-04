@@ -80,6 +80,18 @@ import {
 
 const ABILITY_LABELS = { str: '力量', dex: '敏捷', con: '体质', int: '智力', wis: '感知', cha: '魅力' }
 
+/** 命中判定下拉统一选项：六属性豁免 + 法术攻击 + 效应 */
+const HIT_RESOLUTION_OPTIONS = [
+  { value: 'dex_save', label: '敏捷' },
+  { value: 'str_save', label: '力量' },
+  { value: 'con_save', label: '体质' },
+  { value: 'wis_save', label: '感知' },
+  { value: 'int_save', label: '智力' },
+  { value: 'cha_save', label: '魅力' },
+  { value: 'spell_attack', label: '法攻' },
+  { value: 'none', label: '效应' },
+]
+
 /** 默认公式引用数据：调用方未提供 referenceData 时仍允许选择常见变量 */
 const DEFAULT_FORMULA_REFERENCE_DATA = [
   { label: '力量调整值', value: 0, ref: 'abilityModifier', ability: 'str' },
@@ -602,16 +614,6 @@ function ContainedSpellEditor({
   const labelCls = 'text-[10px] text-dnd-text-muted shrink-0 leading-none'
   const inputCls = inputClass.replace(/\bh-10\b/, 'h-7').replace(/\bpx-3\b/, 'px-1.5').replace(/\btext-sm\b/, 'text-[11px]').replace(/\bw-full\b/, 'flex-1 min-w-0')
   const selectCls = inputCls + ' cursor-pointer'
-  const HIT_RESOLUTION_OPTIONS = [
-    { value: 'dex_save', label: '敏捷' },
-    { value: 'str_save', label: '力量' },
-    { value: 'con_save', label: '体质' },
-    { value: 'wis_save', label: '感知' },
-    { value: 'int_save', label: '智力' },
-    { value: 'cha_save', label: '魅力' },
-    { value: 'spell_attack', label: '法攻' },
-    { value: 'none', label: '效应' },
-  ]
 
   const patchValue = (next) => onChange({ ...module, value: next })
   const patchSpells = (nextSpells) => patchValue({ ...cs, spells: nextSpells })
@@ -1277,16 +1279,6 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
   const inputCls = inputClass.replace(/\bh-10\b/, 'h-7').replace(/\bpx-3\b/, 'px-1.5').replace(/\btext-sm\b/, 'text-[11px]').replace(/\bw-full\b/, 'flex-1 min-w-0')
   const selectCls = inputCls + ' cursor-pointer'
 
-  const HIT_OPTIONS = [
-    { value: 'dex_save', label: '敏捷' },
-    { value: 'str_save', label: '力量' },
-    { value: 'con_save', label: '体质' },
-    { value: 'wis_save', label: '感知' },
-    { value: 'int_save', label: '智力' },
-    { value: 'cha_save', label: '魅力' },
-    { value: 'spell_attack', label: '法攻' },
-    { value: 'none', label: '效应' },
-  ]
 
   const isChargesMode = data.resourceType === 'charges'
   const isFreeSlotMode = data.resourceType === 'spell_slot' && data.consumptionMode === 'free'
@@ -1644,7 +1636,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
           if (eff.type === 'spell') {
             const sp = eff.value || {}
             const level = typeof sp.level === 'number' ? sp.level : (parseInt(sp.level, 10) || 0)
-            const hitRes = HIT_OPTIONS.some((o) => o.value === sp.hitResolution) ? sp.hitResolution : 'dex_save'
+            const hitRes = HIT_RESOLUTION_OPTIONS.some((o) => o.value === sp.hitResolution) ? sp.hitResolution : 'dex_save'
             const wandPower = useWandScrollTable ? getWandScrollSpellPower(level) : null
             const hitVal = hitRes === 'none' ? null
               : (useWandScrollTable && wandPower
@@ -1680,7 +1672,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                   <span className="text-gray-600 mx-0.5">|</span>
                   <span className={labelCls}>命中</span>
                   <select value={hitRes} onChange={(e) => updateEffect(idx, { value: { ...sp, hitResolution: e.target.value } })} className={selectCls + ' !w-[3rem]'}>
-                    {HIT_OPTIONS.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
+                    {HIT_RESOLUTION_OPTIONS.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
                   </select>
                   {hitVal != null && <span className="text-white font-mono tabular-nums text-xs shrink-0">{hitVal}</span>}
                   <span className={labelCls}>距离</span>
@@ -2023,13 +2015,6 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
   const inputCls = inputClass.replace(/\bh-10\b/, 'h-7').replace(/\bpx-3\b/, 'px-1.5').replace(/\btext-sm\b/, 'text-[11px]').replace(/\bw-full\b/, 'flex-1 min-w-0')
   const selectCls = inputCls + ' cursor-pointer'
 
-  const HIT_OPTIONS = [
-    { value: 'dex_save', label: '敏捷' }, { value: 'str_save', label: '力量' },
-    { value: 'con_save', label: '体质' }, { value: 'wis_save', label: '感知' },
-    { value: 'int_save', label: '智力' }, { value: 'cha_save', label: '魅力' },
-    { value: 'spell_attack', label: '法攻' }, { value: 'none', label: '效应' },
-  ]
-
   const isFreeSlotMode = data.resourceType === 'spell_slot' && data.consumptionMode === 'free'
   const multiplierCheckbox = (effIdx, eff) => isFreeSlotMode ? (
     <label className="flex items-center gap-0.5 text-[10px] text-amber-400 cursor-pointer select-none shrink-0" title="效果是否乘以消耗环位">
@@ -2094,7 +2079,7 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
         if (eff.type === 'spell') {
           const sp = eff.value || {}
           const level = typeof sp.level === 'number' ? sp.level : (parseInt(sp.level, 10) || 0)
-          const hitRes = HIT_OPTIONS.some((o) => o.value === sp.hitResolution) ? sp.hitResolution : 'dex_save'
+          const hitRes = HIT_RESOLUTION_OPTIONS.some((o) => o.value === sp.hitResolution) ? sp.hitResolution : 'dex_save'
           const wandPower = useWandScrollTable ? getWandScrollSpellPower(level) : null
           const hitVal = hitRes === 'none' ? null
             : (useWandScrollTable && wandPower
@@ -2124,7 +2109,7 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
                 <span className="text-gray-600 mx-0.5">|</span>
                 <span className={labelCls}>命中</span>
                 <select value={hitRes} onChange={(e) => updateEffect(idx, { value: { ...sp, hitResolution: e.target.value } })} className={selectCls + ' !w-[3.5rem]'}>
-                  {HIT_OPTIONS.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
+                  {HIT_RESOLUTION_OPTIONS.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
                 </select>
                 {hitVal != null && <span className="text-white font-mono tabular-nums text-xs shrink-0 w-[2rem] text-center">{hitVal}</span>}
                 <span className={labelCls}>距离</span>
@@ -2485,12 +2470,6 @@ function RandomTableEditor({ rv, patchValue, removeEffect, referenceData, spellD
   const labelCls = 'text-[10px] text-dnd-text-muted shrink-0 leading-none'
   const inputCls = inputClass.replace(/\bh-10\b/, 'h-7').replace(/\bpx-3\b/, 'px-1.5').replace(/\btext-sm\b/, 'text-[11px]').replace(/\bw-full\b/, 'flex-1 min-w-0')
   const selectCls = inputCls + ' cursor-pointer'
-  const HIT_OPTIONS = [
-    { value: 'dex_save', label: '敏捷' }, { value: 'str_save', label: '力量' },
-    { value: 'con_save', label: '体质' }, { value: 'wis_save', label: '感知' },
-    { value: 'int_save', label: '智力' }, { value: 'cha_save', label: '魅力' },
-    { value: 'spell_attack', label: '法攻' }, { value: 'none', label: '效应' },
-  ]
 
   // 切换模式时重建条目
   const switchMode = (newMode) => {
