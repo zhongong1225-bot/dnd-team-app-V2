@@ -944,15 +944,17 @@ export default function BuffManager({
 
       {/* ── 主动卡使用弹窗 ── */}
       {useAbilityCard && char && (() => {
-        const chargeItemEff = useAbilityCard.effects?.find(e => e.effectType === 'charge_item')
+        const allEff = [...(useAbilityCard.effects || []), ...(useAbilityCard.buffEffects || [])]
+        const chargeItemEff = allEff.find(e => e.effectType === 'charge_item')
         const chargeVal = chargeItemEff?.value
           ? { ...chargeItemEff.value, itemInventoryId: useAbilityCard.itemInventoryId || useAbilityCard.sourceKey || '' }
           : null
         return (
           <AbilityUseModal
             chargeValue={chargeVal}
+            activeAbility={!chargeVal ? useAbilityCard.activeAbility : null}
             char={char}
-            featureName={useAbilityCard.source || '主动技能'}
+            featureName={useAbilityCard.source || useAbilityCard.name || '主动技能'}
             onConfirm={(patch, lines) => {
               if (onUseAbility) {
                 onUseAbility(useAbilityCard, patch, lines)

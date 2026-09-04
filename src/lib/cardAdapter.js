@@ -93,7 +93,14 @@ function buffEntryToCard(buffEntry) {
         actionType: chargeValue.actionCost || 'action',
         cost: chargeValue.resourceType === 'none' 
           ? { type: 'none' }
-          : { type: 'class_resource', resourceKey: chargeValue.resourceType || 'charges', amount: chargeValue.charges || 1 },
+          : chargeValue.resourceType === 'spell_slot'
+            ? {
+                type: 'spell_slot',
+                consumptionMode: chargeValue.consumptionMode || 'fixed',
+                slotLevel: chargeValue.slotLevel || 1,
+                maxSlotLevel: chargeValue.maxSlotLevel || 1,
+              }
+            : { type: 'class_resource', resourceKey: chargeValue.resourceType || 'charges', amount: chargeValue.charges || 1 },
         cooldown: chargeValue.recovery?.method === 'long_rest' ? 'long_rest' 
                   : chargeValue.recovery?.method === 'short_rest' ? 'short_rest'
                   : 'none',

@@ -126,43 +126,23 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
   const [selectedCreatureId, setSelectedCreatureId] = useState(null)
   const [showSummonConfirm, setShowSummonConfirm] = useState(false)
   const [pendingSummonData, setPendingSummonData] = useState(null)
-  
-  // 获取可用生物列表（用于下拉选择），德鲁伊变身受 CR 限制
-  const availableCreatures = useMemo(() => {
-    if (!needsCreatureSelection) return []
-    return listCreatures(maxCR != null ? { maxCr: maxCR } : {})
-  }, [needsCreatureSelection, maxCR])
-  
-  // custom_logic 效果二次确认（如慈悲关怀询问是否对自己回满血）
   const [showCustomLogicConfirm, setShowCustomLogicConfirm] = useState(false)
   const [pendingCustomLogic, setPendingCustomLogic] = useState(null)
-  
-  // custom_logic 伤害效果确认（询问用户造成了多少伤害）
   const [showDamageInput, setShowDamageInput] = useState(false)
   const [pendingDamage, setPendingDamage] = useState(null)
-  const damageInputRef = useRef('')
-  
-  // ability 治疗效果确认（掷骰后询问是否恢复HP）
   const [showHealingConfirm, setShowHealingConfirm] = useState(false)
   const [pendingHealing, setPendingHealing] = useState(null)
   const suspendedResultRef = useRef(null)
-  
-  // 检查是否有星辰替身效果
-  const hasStellarDouble = useMemo(() => {
-    const topLevel = norm.effects.some(eff => eff.type === 'summon' && eff.value?.preset === 'stellar_double')
-    if (topLevel) return true
-    if (norm.effects.some(eff => {
-      if (eff.type !== 'random_table') return false
-      return (eff.value?.entries || []).some(entry =>
-        (entry.effects || []).some(se => se.type === 'summon' && se.value?.preset === 'stellar_double')
-      )
-    })) return true
-    return norm.effects.some(eff => {
-      if (eff.type !== 'spell' || !Array.isArray(eff.value?.subEffects)) return false
-      return eff.value.subEffects.some(se => se.type === 'summon' && se.value?.preset === 'stellar_double')
-    })
-  }, [norm.effects])
-  
+
+  const hasStellarDouble = norm.effects.some(eff =>
+    eff.type === 'summon' && eff.value?.preset === 'stellar_double'
+  ) || norm.effects.some(eff => {
+    if (eff.type !== 'random_table') return false
+    return (eff.value?.entries || []).some(entry =>
+      (entry.effects || []).some(se => se.type === 'summon' && se.value?.preset === 'stellar_double')
+    )
+  })
+
   // 计算德鲁伊等级用于 CR 限制
   const druidLevel = useMemo(() => {
     if (!char) return 0
@@ -170,13 +150,19 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
     const druidClass = classes.find(c => c.classKey === 'druid')
     return druidClass?.level || 0
   }, [char])
-  
+
   const maxCR = useMemo(() => {
     // 德鲁伊变身 CR 限制：等级/3（向下取整），最低 CR 1/4
     if (druidLevel <= 0) return null
     const cr = Math.max(0.25, Math.floor(druidLevel / 3))
     return cr >= 1 ? cr : 0.25
   }, [druidLevel])
+
+  // 获取可用生物列表（用于下拉选择），德鲁伊变身受 CR 限制
+  const availableCreatures = useMemo(() => {
+    if (!needsCreatureSelection) return []
+    return listCreatures(maxCR != null ? { maxCr: maxCR } : {})
+  }, [needsCreatureSelection, maxCR])
   
   // 处理生物选择
   const handleCreatureSelect = (creature) => {
