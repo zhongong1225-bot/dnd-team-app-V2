@@ -5640,55 +5640,63 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
     [effectModules]
   )
 
+  /** 保存数据统一打包：手动保存与防抖自动保存共用，保证字段一致 */
+  const buildSavePayload = (opts = {}) => {
+    const { requireSource = false } = opts
+    if (requireSource && !source.trim()) return null
+    const catDataByKey = BUFF_TYPES
+    const effects = effectModules.map((mod) => {
+      if (mod.effectType === 'charge_item') {
+        return { category: 'active_release', effectType: 'charge_item', scope: 'global', scopeDetail: [], value: { ...mod.value } }
+      }
+      const catData = catDataByKey[mod.category]
+      const effList = catData?.effects ?? []
+      const effectType = effList.some((e) => e.key === mod.effectType) ? mod.effectType : (effList[0]?.key ?? '')
+      const currentEffect = effList.find((x) => x.key === effectType)
+      let val = normalizeValueForSave(mod, currentEffect)
+      if (currentEffect?.key?.startsWith('custom_')) {
+        val = typeof mod.customText === 'string' ? mod.customText : (typeof val === 'string' ? val : '')
+      }
+      const { scope, scopeDetail } = normalizeScope(mod.scope, mod.scopeDetail)
+      const out = { category: mod.category, effectType, scope, scopeDetail, value: val }
+      if (mod.effectCondition) out.effectCondition = mod.effectCondition
+      if (effectType === 'ability_score_uncapped' && mod.break20 && typeof mod.break20 === 'object' && Object.keys(mod.break20).length) {
+        out.break20 = mod.break20
+      }
+      if (mod.upgrade && mod.upgrade.className && mod.upgrade.level >= 1) {
+        const upgradeVal = normalizeValueForSave({ ...mod, value: mod.upgrade.value, customText: '' }, currentEffect)
+        out.upgrade = { className: mod.upgrade.className, level: mod.upgrade.level, value: upgradeVal }
+      }
+      return out
+    }).filter((ef) => ef.effectType)
+    const durType = duration?.type || 'permanent'
+    const payloadHasChargeItem = effects.some((ef) => ef.effectType === 'charge_item')
+    const isTimedDuration = !['permanent', 'instant', 'custom'].includes(durType)
+    if (isTimedDuration && !payloadHasChargeItem) {
+      effects.push({ category: 'active_release', effectType: 'charge_item', scope: 'global', scopeDetail: [], value: normalizeChargeItemValue({}) })
+    }
+    const payload = {
+      ...initial,
+      source: source.trim(),
+      duration: duration?.type ? duration : (duration || undefined),
+      effects,
+      enabled: initial?.enabled !== false,
+      cardScope: !payloadHasChargeItem ? cardScope : undefined,
+    }
+    if (!initial?.fromFeat && !initial?.fromItem) {
+      payload.sourceKind = normalizeBuffSourceKindKey(sourceKind)
+    }
+    return payload
+  }
+
   /** 防抖自动保存：在用户停止编辑 800ms 后触发 */
   const triggerAutoSave = useCallback(() => {
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
     autoSaveTimerRef.current = setTimeout(() => {
-      // 构造当前状态并触发 onSave
-      const catDataByKey = BUFF_TYPES
-      const effects = effectModules.map((mod) => {
-        if (mod.effectType === 'charge_item') {
-          return { category: 'active_release', effectType: 'charge_item', scope: 'global', scopeDetail: [], value: { ...mod.value } }
-        }
-        const catData = catDataByKey[mod.category]
-        const effList = catData?.effects ?? []
-        const effectType = effList.some((e) => e.key === mod.effectType) ? mod.effectType : (effList[0]?.key ?? '')
-        const currentEffect = effList.find((x) => x.key === effectType)
-        let val = normalizeValueForSave(mod, currentEffect)
-        if (currentEffect?.key?.startsWith('custom_')) {
-          val = typeof mod.customText === 'string' ? mod.customText : (typeof val === 'string' ? val : '')
-        }
-        const { scope, scopeDetail } = normalizeScope(mod.scope, mod.scopeDetail)
-        const out = { category: mod.category, effectType, scope, scopeDetail, value: val }
-        if (mod.effectCondition) out.effectCondition = mod.effectCondition
-        if (effectType === 'ability_score_uncapped' && mod.break20 && typeof mod.break20 === 'object' && Object.keys(mod.break20).length) {
-          out.break20 = mod.break20
-        }
-        if (mod.upgrade && mod.upgrade.className && mod.upgrade.level >= 1) {
-          const upgradeVal = normalizeValueForSave({ ...mod, value: mod.upgrade.value, customText: '' }, currentEffect)
-          out.upgrade = { className: mod.upgrade.className, level: mod.upgrade.level, value: upgradeVal }
-        }
-        return out
-      }).filter((ef) => ef.effectType)
-      const durType = duration?.type || 'permanent'
-      const hasChargeItem = effects.some((ef) => ef.effectType === 'charge_item')
-      const isTimedDuration = !['permanent', 'instant', 'custom'].includes(durType)
-      if (isTimedDuration && !hasChargeItem) {
-        effects.push({ category: 'active_release', effectType: 'charge_item', scope: 'global', scopeDetail: [], value: normalizeChargeItemValue({}) })
-      }
-      const payload = {
-        ...initial,
-        source: source.trim(),
-        duration: duration?.type ? duration : (duration || undefined),
-        effects,
-        enabled: initial?.enabled !== false,
-      }
-      if (!initial?.fromFeat && !initial?.fromItem) {
-        payload.sourceKind = normalizeBuffSourceKindKey(sourceKind)
-      }
-      (onAutoSave || onSave)(payload)
+      const payload = buildSavePayload()
+      ;(onAutoSave || onSave)(payload)
     }, 800)
-  }, [effectModules, source, duration, sourceKind, initial, onSave, onAutoSave])
+  }, [effectModules, source, duration, sourceKind, cardScope, initial, onSave, onAutoSave])
 
   const addModule = () => {
     setShowEffectPicker((prev) => !prev)
@@ -5714,53 +5722,8 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    if (!source.trim()) return
-    const catDataByKey = BUFF_TYPES
-    const effects = effectModules.map((mod) => {
-      // charge_item 直接保存 value 对象
-      if (mod.effectType === 'charge_item') {
-        return { category: 'active_release', effectType: 'charge_item', scope: 'global', scopeDetail: [], value: { ...mod.value } }
-      }
-      const catData = catDataByKey[mod.category]
-      const effList = catData?.effects ?? []
-      const effectType = effList.some((e) => e.key === mod.effectType) ? mod.effectType : (effList[0]?.key ?? '')
-      const currentEffect = effList.find((x) => x.key === effectType)
-      let val = normalizeValueForSave(mod, currentEffect)
-      // 自由填写类：统一用 customText 写入 value，保证持久化与外层展示
-      if (currentEffect?.key?.startsWith('custom_')) {
-        val = typeof mod.customText === 'string' ? mod.customText : (typeof val === 'string' ? val : '')
-      }
-      const { scope, scopeDetail } = normalizeScope(mod.scope, mod.scopeDetail)
-      const out = { category: mod.category, effectType, scope, scopeDetail, value: val }
-      if (mod.effectCondition) out.effectCondition = mod.effectCondition
-      if (effectType === 'ability_score_uncapped' && mod.break20 && typeof mod.break20 === 'object' && Object.keys(mod.break20).length) {
-        out.break20 = mod.break20
-      }
-      // 等级升级配置
-      if (mod.upgrade && mod.upgrade.className && mod.upgrade.level >= 1) {
-        const upgradeVal = normalizeValueForSave({ ...mod, value: mod.upgrade.value, customText: '' }, currentEffect)
-        out.upgrade = { className: mod.upgrade.className, level: mod.upgrade.level, value: upgradeVal }
-      }
-      return out
-    }).filter((ef) => ef.effectType)
-    // 非永久持续时间 = 有结束时刻 = 必然有开始时刻 = 需要主动激活 → 自动添加 charge_item 使卡片变为主动
-    const durType = duration?.type || 'permanent'
-    const hasChargeItem = effects.some((ef) => ef.effectType === 'charge_item')
-    const isTimedDuration = !['permanent', 'instant', 'custom'].includes(durType)
-    if (isTimedDuration && !hasChargeItem) {
-      effects.push({ category: 'active_release', effectType: 'charge_item', scope: 'global', scopeDetail: [], value: normalizeChargeItemValue({}) })
-    }
-    const payload = {
-      ...initial,
-      source: source.trim(),
-      duration: duration?.type ? duration : (duration || undefined),
-      effects,
-      enabled: initial?.enabled !== false,
-      cardScope: !hasChargeItem ? cardScope : undefined, // 仅被动卡保存范围配置
-    }
-    if (!initial?.fromFeat && !initial?.fromItem) {
-      payload.sourceKind = normalizeBuffSourceKindKey(sourceKind)
-    }
+    const payload = buildSavePayload({ requireSource: true })
+    if (!payload) return
     onSave(payload)
   }
 
