@@ -108,6 +108,8 @@ import {
 import { InventoryItemBriefExpandedText } from './InventoryItemCardBrief'
 import InfoTooltip from './InfoTooltip'
 import { ItemTooltipContent } from '../lib/infoTooltipContent'
+import { buildUnifiedItemList, applySlotChange, getAvailableSlotsForItem } from '../lib/equipmentSlotUtils'
+import EquipmentItemCard from './EquipmentItemCard'
 
 const HELD_LABELS = ['主手', '副手']
 const WORN_SLOT_OPTIONS = [
@@ -130,16 +132,6 @@ const WORN_SLOT_ICONS = {
   hands: Hand,
   neck: Gem,
   eyes: Eye,
-}
-
-/** 槽位：与背包区一致，弱对比、无额外盒线 */
-function EquipSlotBadge({ Icon, label }) {
-  return (
-    <div className="flex w-[2.85rem] shrink-0 flex-col items-center justify-center gap-0.5 py-0.5 text-center" aria-hidden>
-      <Icon className="h-3.5 w-3.5 text-dnd-gold-light/55" strokeWidth={1.75} />
-      <span className="text-[9px] font-medium text-gray-500 leading-tight">{label}</span>
-    </div>
-  )
 }
 
 /** 装备护盾池计数器：从 entry.effects 检测 shield_pool 效果并渲染 */
@@ -166,44 +158,6 @@ function EquipmentShieldPoolCounter({ entry, character, onSave, compact = true }
   )
 }
 
-/** 同调：复选框样式，每个已装备栏位都显示 */
-function AttuneToggle({ entry, attunedCount, maxAttunementSlots, onToggle }) {
-  const proto = entry?.itemId ? getItemById(entry.itemId) : null
-  const requiresAttunement = itemRequiresAttunement(proto) || itemRequiresAttunement(entry)
-  const active = !!entry?.isAttuned
-  const disabled = !entry || (!active && attunedCount >= maxAttunementSlots)
-  if (!entry) return null
-  return (
-    <label
-      title={
-        active
-          ? '点击取消同调'
-          : attunedCount >= maxAttunementSlots
-            ? '同调位已满'
-            : requiresAttunement
-              ? '同调此物品'
-              : '同调此物品（该物品未标记为需要同调）'
-      }
-      className={`shrink-0 inline-flex items-center gap-1.5 h-7 px-2 rounded-lg border text-[11px] cursor-pointer transition-colors ${
-        disabled
-          ? 'border-gray-700 bg-gray-800/50 text-gray-600 opacity-50 cursor-not-allowed'
-          : active
-            ? 'border-dnd-gold/50 bg-dnd-gold/10 text-dnd-gold-light hover:bg-dnd-gold/20'
-            : 'border-gray-600 bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white'
-      }`}
-    >
-      <Sparkles className={`h-3.5 w-3.5 shrink-0 ${active ? 'text-dnd-gold-light' : 'text-gray-500'}`} strokeWidth={2} />
-      <input
-        type="checkbox"
-        checked={active}
-        disabled={disabled}
-        onChange={() => entry && !disabled && onToggle(entry.id, !active)}
-        className="sr-only"
-      />
-      同调
-    </label>
-  )
-}
 
 function getEntryDisplayName(entry) {
   if (!entry) return '—'
@@ -443,6 +397,15 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     [character?.backpackLayoutOrder, displayWallet, inv],
   )
 
+  const unifiedItems = useMemo(
+    () => buildUnifiedItemList(inv, heldSlots, wornSlots),
+    [inv, heldSlots, wornSlots]
+  )
+  const equippedItems = useMemo(
+    () => unifiedItems.filter(item => item.isEquipped),
+    [unifiedItems]
+  )
+
   useEffect(() => {
     if (!canEdit) return
     if (!inv.some((e) => !e?.inBagOfHolding && !e?.id)) return
@@ -519,6 +482,14 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     const idx = inv.findIndex((e) => e.id === inventoryId)
     if (idx < 0) return
     setAttuned(idx, checked)
+  }
+
+  const handleSlotChange = (invIndex, newSlotValue) => {
+    const result = applySlotChange(heldSlots, wornSlots, inv, invIndex, newSlotValue)
+    saveWithEquipment({
+      equippedHeld: result.heldSlots,
+      equippedWorn: result.wornSlots,
+    })
   }
 
   const HELD_FIXED = 2
@@ -1261,12 +1232,6 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     return appendContainedSpellsBrief(entry?.effects, out)
   }
 
-  /** 装备槽：与背包物品卡同系，避免多层盒线 */
-  const equipSelectClass =
-    'h-8 rounded-md bg-gray-800/90 border border-gray-600/50 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red text-white text-xs px-2 min-w-0'
-  const equipRowClass = 'flex flex-col gap-0.5 py-2.5'
-  const equipAddBtnClass =
-    'inline-flex items-center gap-1 h-7 px-2 rounded-lg border border-gray-600/55 text-gray-400 text-xs hover:bg-gray-800/70 hover:text-gray-300 transition-colors'
   const subTitleClass = 'text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-0.5'
   /**
    * 装备与背包整体最外框：与法术卡同系渐变与边框；阴影用黑系外投影（无 shadow-dnd-card 顶白 inset，圆角处不易像外发光）
@@ -1279,335 +1244,106 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     'rounded-xl border border-gray-500/55 bg-[#141c28]/90 overflow-hidden shadow-sm shadow-black/25'
   /** 与分区壳 #141c28 同色相，避免灰条 / #1a2430 与壳体发绿不一致 */
   const cardHeadClass = 'px-2.5 py-1.5 border-b border-gray-600/70 bg-[#161e2b]'
-  /** 装备卡内：手持卡、身穿卡；背包卡内：物品卡（钱包区已单独用 sectionCardShellClass，不再用本类） */
-  const nestedCardClass = 'rounded-lg bg-[#141c28] overflow-hidden min-w-0'
   /** 背包列表物品卡：与团队仓库 / 次元袋共用 inventoryItemCardStyles */
   const backpackItemCardClass = inventoryItemCardShellClass
 
   return (
     <div className={equipInvOuterShellClass}>
       <div className="p-2 md:p-2.5 space-y-3">
-        {/* —— 装备卡（内含同调、手持卡、身穿卡） —— */}
+        {/* —— 已装备物品 —— */}
+        {equippedItems.length > 0 && (
         <div className={sectionCardShellClass}>
-          <div className={`${cardHeadClass} flex flex-wrap items-center justify-between gap-x-3 gap-y-1`}>
-            <h4 className={subTitleClass + ' mb-0'}>装备</h4>
-            <p className="text-dnd-text-muted text-xs mb-0 tabular-nums shrink-0">
+          <div className={`${cardHeadClass} flex items-center justify-between`}>
+            <h4 className={subTitleClass + ' mb-0'}>已装备</h4>
+            <p className="text-dnd-text-muted text-xs mb-0 tabular-nums">
               同调位：<span className="text-white font-medium">{attunedCount}/{maxAttunementSlots}</span>
             </p>
           </div>
-          <div className="p-2 space-y-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {/* 手持卡 */}
-              <div className={nestedCardClass}>
-                <div className="px-2 pb-1 pt-0.5">
-            <div className="flex flex-col divide-y divide-gray-700/35">
-              {heldSlots.slice(0, HELD_FIXED).map((slot, i) => {
-                const entry = slot.inventoryId ? inv.find((e) => e.id === slot.inventoryId) ?? null : null
-                const proto = entry?.itemId ? getItemById(entry.itemId) : null
-                const isShield = proto?.类型 === '盔甲' && proto?.子类型 === '盾牌'
-                const shieldMagicBonus = Number(entry?.magicBonus) || 0
-                const options = getHeldOptions(inv, i)
-                const SlotIcon = i === 0 ? Swords : Shield
-                return (
-                  <div key={slot.id} className={equipRowClass}>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <EquipSlotBadge Icon={SlotIcon} label={HELD_LABELS[i]} />
-                      {canEdit ? (
-                        <>
-                          <select
-                            value={slot.inventoryId || ''}
-                            onChange={(e) => setHeldEquip(i, e.target.value)}
-                            className={equipSelectClass + ' flex-1 min-w-0' + (!slot.inventoryId ? ' border-dashed border-gray-600/40 text-gray-500' : '')}
-                          >
-                            <option value="">未装备 · 选择物品</option>
-                            {options.map((e) => (
-                              <option key={e.id} value={e.id}>{getEntryDisplayName(e)}</option>
-                            ))}
-                          </select>
-                          {i === 1 && isShield && entry && (
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <span className="text-gray-500 text-[10px] whitespace-nowrap">盾牌增强</span>
-                              <NumberStepper
-                                compact
-                                narrow
-                                min={0}
-                                max={99}
-                                value={shieldMagicBonus}
-                                onChange={(v) => setWornMagicBonus(entry.id, String(v))}
-                              />
-                            </div>
-                          )}
-                          <AttuneToggle
-                            entry={entry}
-                            attunedCount={attunedCount}
-                            maxAttunementSlots={maxAttunementSlots}
-                            onToggle={toggleAttunedForEntry}
-                          />
-                          <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-white text-sm flex-1 min-w-0 font-medium tracking-tight">{getEntryDisplayName(entry)}</span>
-                          {entry?.isAttuned && (
-                            <span className="inline-flex shrink-0 items-center gap-0.5 text-[10px] text-dnd-gold-light/85">
-                              <Sparkles className="h-2.5 w-2.5" strokeWidth={2} />
-                              同调
-                            </span>
-                          )}
-                          {i === 1 && isShield && shieldMagicBonus > 0 && (
-                            <span className="text-dnd-gold-light/90 text-xs font-mono shrink-0" title="盾牌增强加值">+{shieldMagicBonus}</span>
-                          )}
-                          <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
-                        </>
-                      )}
-                    </div>
-                    {i === 1 && entry && isShield && (() => {
-                      const parsed = parseArmorNote(entry.附注 ?? proto?.附注 ?? '')
-                      const baseAC = parsed?.isShield ? (parsed.bonus || 2) : 2
-                      return (
-                        <p className="text-dnd-gold-light/90 text-[10px]">
-                          AC +{baseAC}{shieldMagicBonus > 0 ? <span className="ml-1">盾牌增强 +{shieldMagicBonus}</span> : null}
-                        </p>
-                      )
-                    })()}
-                  </div>
-                )
-              })}
-              {heldSlots.slice(HELD_FIXED).map((slot, i) => {
-                  const idx = HELD_FIXED + i
-                  const entry = slot.inventoryId ? inv.find((e) => e.id === slot.inventoryId) ?? null : null
-                  const options = getHeldOptions(inv, idx)
-                  return (
-                    <div key={slot.id} className={equipRowClass}>
-                      <div className="flex items-center gap-2 min-w-0">
-                        <EquipSlotBadge Icon={Layers} label={`备用${i + 1}`} />
-                        {canEdit ? (
-                          <>
-                            <select
-                              value={slot.inventoryId || ''}
-                              onChange={(e) => setHeldEquip(idx, e.target.value)}
-                              className={equipSelectClass + ' flex-1 min-w-0' + (!slot.inventoryId ? ' border-dashed border-gray-600/40 text-gray-500' : '')}
-                            >
-                              <option value="">未装备 · 选择物品</option>
-                              {options.map((e) => (
-                                <option key={e.id} value={e.id}>{getEntryDisplayName(e)}</option>
-                              ))}
-                            </select>
-                            {heldSlots.length > HELD_FIXED && (
-                              <button
-                                type="button"
-                                onClick={() => removeHeldSlot(idx)}
-                                className="p-1 rounded text-gray-500 hover:text-dnd-red hover:bg-red-950/30 shrink-0"
-                                title="移除备用栏"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                            <AttuneToggle
-                              entry={entry}
-                              attunedCount={attunedCount}
-                              maxAttunementSlots={maxAttunementSlots}
-                              onToggle={toggleAttunedForEntry}
-                            />
-                            <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
-                          </>
-                        ) : (
-                          <>
-                            <span className="text-white text-sm flex-1 min-w-0 font-medium tracking-tight">{getEntryDisplayName(entry)}</span>
-                            {entry?.isAttuned && (
-                              <span className="inline-flex shrink-0 items-center gap-0.5 text-[10px] text-dnd-gold-light/85">
-                                <Sparkles className="h-2.5 w-2.5" strokeWidth={2} />
-                                同调
-                              </span>
-                            )}
-                            <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-            </div>
-              {canEdit && (
-                <div className="flex items-center justify-between border-t border-gray-700/30 px-0.5 pt-2 mt-1">
-                  <span className="text-gray-500 text-xs">可增加备用栏</span>
-                  <button type="button" onClick={addHeldSlot} className={equipAddBtnClass}>
-                    <Plus className="w-3.5 h-3.5" /> 添加备用
-                  </button>
-                </div>
-              )}
-                </div>
-              </div>
-
-              {/* 身穿卡 */}
-              <div className={nestedCardClass}>
-                <div className="px-2 pb-1 pt-0.5">
-            <div className="flex flex-col divide-y divide-gray-700/35">
-            {/* 身体（固定） */}
-            {(() => {
-              const bodyEntry = bodySlot.inventoryId ? inv.find((e) => e.id === bodySlot.inventoryId) ?? null : null
+          <div className="p-2">
+            {equippedItems.map((item) => {
+              const entry = item.entry
+              const idx = item.invIndex
+              const spEffect = Array.isArray(entry?.effects)
+                ? entry.effects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
+                : null
+              const spMax = spEffect ? (Number(spEffect.value.max) || 10) : null
+              const spThreshold = spEffect ? (Number(spEffect.value.threshold) || 0) : null
+              const spCurrent = spEffect ? getShieldPoolCurrent(character, 'equipment', entry.id, spMax) : null
+              const activeEntry = activeAbilities.find(a => a.inventoryId === entry.id)
+              const hasSpell = hasContainedSpellEffect(entry)
+              const totalLb = getInventoryEntryStackWeightLb(entry)
+              const qty = Math.max(1, Math.floor(Number(entry?.qty) || 1))
+              const bbKey = entry?.id ?? `eq-${idx}`
               return (
-            <div className={equipRowClass}>
-              <div className="flex items-center gap-2 min-w-0">
-                <EquipSlotBadge Icon={Shirt} label="身体" />
-                {canEdit ? (
-                  <>
-                    <select
-                      value={bodySlot.inventoryId || ''}
-                      onChange={(e) => setWornEquip(e.target.value)}
-                      className={equipSelectClass + ' flex-1 min-w-0' + (!bodySlot.inventoryId ? ' border-dashed border-gray-600/40 text-gray-500' : '')}
-                    >
-                      <option value="">未装备 · 选择盔甲/衣服</option>
-                      {getWornOptions(inv, 'body').map((e) => (
-                        <option key={e.id} value={e.id}>{getEntryDisplayName(e)}</option>
-                      ))}
-                    </select>
-                    {bodySlot.inventoryId && (() => {
-                      const entry = inv.find((e) => e.id === bodySlot.inventoryId)
-                      return (
-                        <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
-                      )
-                    })()}
-                    <AttuneToggle
-                      entry={bodyEntry}
-                      attunedCount={attunedCount}
-                      maxAttunementSlots={maxAttunementSlots}
-                      onToggle={toggleAttunedForEntry}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <span className="text-white text-sm flex-1 min-w-0 font-medium tracking-tight">{getEntryDisplayName(bodyEntry)}</span>
-                    {bodyEntry?.isAttuned && (
-                      <span className="inline-flex shrink-0 items-center gap-0.5 text-[10px] text-dnd-gold-light/85">
-                        <Sparkles className="h-2.5 w-2.5" strokeWidth={2} />
-                        同调
-                      </span>
-                    )}
-                    {bodySlot.inventoryId && (() => {
-                      const entry = inv.find((e) => e.id === bodySlot.inventoryId)
-                      return (
-                        <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
-                      )
-                    })()}
-                  </>
-                )}
-              </div>
-            </div>
+                <EquipmentItemCard
+                  key={entry.id}
+                  entry={entry}
+                  invIndex={idx}
+                  slotValue={item.slotValue}
+                  canEdit={canEdit}
+                  isAttuned={!!entry.isAttuned}
+                  attunedCount={attunedCount}
+                  maxAttunementSlots={maxAttunementSlots}
+                  onAttuneToggle={toggleAttunedForEntry}
+                  availableSlotGroups={getAvailableSlotsForItem(entry, inv)}
+                  onSlotChange={handleSlotChange}
+                  displayName={invDisplayName(entry)}
+                  magicBonus={Number(entry.magicBonus) || 0}
+                  brief={getEntryBriefFull(entry)}
+                  briefExpanded={!!backpackItemBriefOpen[bbKey]}
+                  onToggleBrief={() => setBackpackItemBriefOpen(prev => ({ ...prev, [bbKey]: !prev[bbKey] }))}
+                  charge={Number(entry.charge) || 0}
+                  maxCharge={Number(entry.maxCharge) || 0}
+                  onChargeChange={(v) => setCharge(idx, v)}
+                  shieldPoolCurrent={spCurrent}
+                  shieldPoolMax={spMax}
+                  shieldPoolThreshold={spThreshold}
+                  onShieldPoolChange={spEffect ? (v) => {
+                    const newState = setShieldPoolCurrent(character, 'equipment', entry.id, v)
+                    onSave({ shieldPoolStates: newState })
+                  } : undefined}
+                  activeAbility={activeEntry?.ability || null}
+                  canUseAbilityFn={(abilityId) => canUseAbility(character, abilityId)}
+                  onUseAbility={activeEntry ? async () => {
+                    if (!canUseAbility(character, activeEntry.ability.id)) {
+                      alert('该技能当前不可用（可能资源不足或处于冷却中）')
+                      return
+                    }
+                    try {
+                      const result = await executeAbility(character, activeEntry.ability.id)
+                      if (result.success) {
+                        if (result.classResources) onSave({ ...character, classResources: result.classResources })
+                        if (result.patch) onSave({ ...character, ...result.patch })
+                        alert(`✅ ${activeEntry.ability.name} 执行成功！`)
+                      } else {
+                        alert('❌ 技能执行失败')
+                      }
+                    } catch (err) {
+                      console.error('[Equipment] 执行装备主动技能失败', err)
+                      alert('执行失败，请查看控制台')
+                    }
+                  } : undefined}
+                  hasContainedSpell={hasSpell}
+                  onContainedSpellCharge={hasSpell ? (v) => setCharge(idx, v) : undefined}
+                  containedSpellEntry={hasSpell ? entry : null}
+                  qty={qty}
+                  onQtyChange={(v) => setQty(idx, v)}
+                  weightLb={totalLb}
+                  showQty={!entry?.walletCurrencyId}
+                  buffTags={[]}
+                  onEdit={() => startEdit(idx)}
+                  onStoreToVault={() => openStoreToVault(idx)}
+                  onDelete={() => removeItem(idx)}
+                  tooltipContent={entry?.itemId ? (
+                    <ItemTooltipContent proto={getItemById(entry.itemId)} entry={entry} />
+                  ) : null}
+                />
               )
-            })()}
-              {wornAddable.map((slot, i) => {
-                  const entry = slot.inventoryId ? inv.find((e) => e.id === slot.inventoryId) ?? null : null
-                  const proto = entry?.itemId ? getItemById(entry.itemId) : null
-                  const options = getWornOptions(inv, slot.slotId ?? 'head')
-                  const parsed = entry ? parseArmorNote(entry.附注 ?? proto?.附注 ?? '') : null
-                  const magicBonus = Number(entry?.magicBonus) || 0
-                  const isArmorOrShield = proto?.类型 === '盔甲'
-                  const slotLabel = WORN_SLOT_OPTIONS.find((o) => o.id === (slot.slotId ?? 'head'))?.label ?? '部位'
-                  const SlotIcon = WORN_SLOT_ICONS[slot.slotId ?? 'head'] ?? Crown
-                  return (
-                    <div key={slot.id} className={equipRowClass}>
-                      <div className="flex flex-wrap items-center gap-2 min-w-0">
-                        {canEdit ? (
-                          <>
-                            <EquipSlotBadge Icon={SlotIcon} label={slotLabel} />
-                            <div className="flex min-w-0 flex-1 items-center gap-2 basis-[min(100%,12rem)] sm:basis-auto sm:flex-1">
-                              <select
-                                value={slot.slotId ?? 'head'}
-                                onChange={(e) => setWornAddableSlotId(i, e.target.value)}
-                                className={equipSelectClass + ' w-[4.25rem] shrink-0'}
-                                title="部位"
-                              >
-                                {WORN_SLOT_OPTIONS.filter((o) => o.id !== 'body').map((o) => (
-                                  <option key={o.id} value={o.id}>{o.label}</option>
-                                ))}
-                              </select>
-                              <select
-                                value={slot.inventoryId || ''}
-                                onChange={(e) => setWornAddableEquip(i, e.target.value)}
-                                className={equipSelectClass + ' min-w-0 flex-1' + (!slot.inventoryId ? ' border-dashed border-gray-600/40 text-gray-500' : '')}
-                              >
-                                <option value="">未装备 · 选择物品</option>
-                                {options.map((e) => (
-                                  <option key={e.id} value={e.id}>{getEntryDisplayName(e)}</option>
-                                ))}
-                              </select>
-                            </div>
-                            {isArmorOrShield && entry && (
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <span className="text-gray-500 text-[10px] whitespace-nowrap">增强</span>
-                                <NumberStepper
-                                  compact
-                                  narrow
-                                  min={0}
-                                  max={99}
-                                  value={magicBonus}
-                                  onChange={(v) => setWornMagicBonus(entry.id, String(v))}
-                                />
-                              </div>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => removeWornSlot(i)}
-                              className="p-1 rounded text-gray-500 hover:text-dnd-red hover:bg-red-950/30 shrink-0"
-                              title="移除此身穿栏"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                            <AttuneToggle
-                              entry={entry}
-                              attunedCount={attunedCount}
-                              maxAttunementSlots={maxAttunementSlots}
-                              onToggle={toggleAttunedForEntry}
-                            />
-                            <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
-                          </>
-                        ) : (
-                          <>
-                            <EquipSlotBadge Icon={SlotIcon} label={slotLabel} />
-                            <span className="text-white text-sm flex-1 min-w-0 font-medium tracking-tight">{getEntryDisplayName(entry)}</span>
-                            {entry?.isAttuned && (
-                              <span className="inline-flex shrink-0 items-center gap-0.5 text-[10px] text-dnd-gold-light/85">
-                                <Sparkles className="h-2.5 w-2.5" strokeWidth={2} />
-                                同调
-                              </span>
-                            )}
-                            {entry && isArmorOrShield && magicBonus > 0 && (
-                              <span className="text-dnd-gold-light/90 text-xs font-mono shrink-0">+{magicBonus}</span>
-                            )}
-                            {(() => {
-                              const spEffect = Array.isArray(entry?.effects)
-                                ? entry.effects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
-                                : null
-                              if (!spEffect) return null
-                              const spMax = Number(spEffect.value.max) || 10
-                              const spCurrent = getShieldPoolCurrent(character, 'equipment', entry.id, spMax)
-                              return (
-                                <span className="text-dnd-gold-light/90 text-xs font-mono shrink-0" title="护盾池层数">
-                                  {spCurrent}层
-                                </span>
-                              )
-                            })()}
-                            <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-            </div>
-              {canEdit && (
-                <div className="flex items-center justify-end border-t border-gray-700/30 px-0.5 pt-2 mt-1">
-                  <button type="button" onClick={addWornSlot} className={equipAddBtnClass}>
-                    <Plus className="w-3.5 h-3.5" /> 添加身穿
-                  </button>
-                </div>
-              )}
-                </div>
-              </div>
-            </div>
+            })}
           </div>
         </div>
+        )}
+
 
         {/* —— 背包卡：下列每一张即一件物品（次元袋也是其中一种物品卡） —— */}
         <div className={sectionCardShellClass}>
@@ -1714,18 +1450,19 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                   const packBrief = getEntryBriefFull(entry)
                   const bbKey = entry?.id ?? `l-${layoutIdx}`
                   return (
-                    <div key={entry.id ?? `inv-${i}`} className="min-w-0">
-                      <div
-                        data-backpack-card
-                        className={`${backpackItemCardClass} ${isAnchor ? 'border-dnd-gold/35 bg-[#1b2738]/38' : ''}`}
-                        draggable={canEdit}
-                        onDragStart={canEdit ? (e) => handleBackpackRowDragStart(e, layoutIdx) : undefined}
-                        onDragEnd={canEdit ? handleBackpackRowDragEnd : undefined}
-                        onDragOver={canEdit ? handleDragOver : undefined}
-                        onDrop={canEdit ? (e) => handleBackpackRowDrop(e, layoutIdx) : undefined}
-                      >
-                        <div className={backpackRowGrid}>
-                          {isAnchor && modForAnchor ? (
+                    <>
+                      {isAnchor ? (
+                        <div
+                          data-backpack-card
+                          className={`${backpackItemCardClass} border-dnd-gold/35 bg-[#1b2738]/38`}
+                          draggable={canEdit}
+                          onDragStart={canEdit ? (e) => handleBackpackRowDragStart(e, layoutIdx) : undefined}
+                          onDragEnd={canEdit ? handleBackpackRowDragEnd : undefined}
+                          onDragOver={canEdit ? handleDragOver : undefined}
+                          onDrop={canEdit ? (e) => handleBackpackRowDrop(e, layoutIdx) : undefined}
+                        >
+                          <div className={backpackRowGrid}>
+                            {/* anchor name row (col-span-7) preserved above */}
                             <div
                               className={`${inventoryItemNameRowClass} col-span-7 cursor-pointer`}
                               onClick={(e) => {
@@ -1773,28 +1510,15 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                       type="button"
                                       onClick={async (e) => {
                                         e.stopPropagation()
-                                        // 检查是否可用
                                         if (!canUseAbility(character, ability.id)) {
                                           alert('该技能当前不可用（可能资源不足或处于冷却中）')
                                           return
                                         }
-                                        // 执行主动技能
                                         try {
                                           const result = await executeAbility(character, ability.id)
                                           if (result.success) {
-                                            // 应用资源消耗和状态更新
-                                            if (result.classResources) {
-                                              onSave({
-                                                ...character,
-                                                classResources: result.classResources,
-                                              })
-                                            }
-                                            if (result.patch) {
-                                              onSave({
-                                                ...character,
-                                                ...result.patch,
-                                              })
-                                            }
+                                            if (result.classResources) onSave({ ...character, classResources: result.classResources })
+                                            if (result.patch) onSave({ ...character, ...result.patch })
                                             alert(`✅ ${ability.name} 执行成功！`)
                                           } else {
                                             alert('❌ 技能执行失败')
@@ -1881,171 +1605,121 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                 </div>
                               </span>
                             </div>
-                          ) : (
-                            <>
-                              {/* Col 1: Name */}
-                              <div
-                                className={`${inventoryItemNameRowClass} cursor-pointer`}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setBackpackItemBriefOpen((prev) => ({ ...prev, [bbKey]: !prev[bbKey] }))
-                                }}
-                                title="点击展开/收起说明"
-                              >
-                                <div className={inventoryItemNameTitleGroupClass}>
-                                  <InfoTooltip
-                                    content={(() => {
-                                      const p = entry?.itemId ? getItemById(entry.itemId) : null
-                                      return <ItemTooltipContent proto={p} entry={entry} />
-                                    })()}
-                                    triggerClassName={inventoryItemNameTextClass}
-                                    disabled={!entry?.itemId}
-                                  >
-                                    <span className="break-words">{invDisplayName(entry)}</span>
-                                  </InfoTooltip>
-                                  <span className={inventoryItemNameExtrasClass}>
-                                    {(() => {
-                                      return (Number(entry.magicBonus) || 0) > 0 ? (
-                                        <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>
-                                      ) : null
-                                    })()}
-                                  </span>
-                                </div>
-                              </div>
-
-                              {/* Col 2: Charge stepper (7.5rem) */}
-                              {showChargeCol ? (
-                                <div className={chargeStepperClass} onMouseDown={(e) => e.stopPropagation()}>
-                                  <button
-                                    className={`${chargeStepperBtnClass} rounded-l-md border-r-0`}
-                                    onClick={(e) => { e.stopPropagation(); setCharge(i, Math.max(0, (Number(entry.charge) || 0) - 1)); }}
-                                  >
-                                    −
-                                  </button>
-                                  <div className={chargeBarWrapClass}>
-                                    <div
-                                      className={chargeBarFillClass}
-                                      style={{
-                                        width: `${Math.min(100, ((Number(entry.charge) || 0) / Math.max(1, Number(entry.charge) || 1)) * 100)}%`,
-                                        background: (Number(entry.charge) || 0) > 0 ? chargeBarFillGradient : 'transparent',
-                                      }}
-                                    />
-                                    <span className={chargeTextClass}>{Number(entry.charge) || 0}</span>
-                                  </div>
-                                  <button
-                                    className={`${chargeStepperBtnClass} rounded-r-md border-l-0`}
-                                    onClick={(e) => { e.stopPropagation(); setCharge(i, (Number(entry.charge) || 0) + 1); }}
-                                  >
-                                    +
-                                  </button>
-                                </div>
-                              ) : (
-                                <div />
-                              )}
-
-                              {/* Col 3: Release button (5rem) */}
-                              {(() => {
-                                const activeEntry = activeAbilities.find(a => a.inventoryId === entry.id)
-                                const hasSpell = hasContainedSpellEffect(entry)
-                                if (!activeEntry && !hasSpell) return <div />
-                                if (hasSpell) {
-                                  return (
-                                    <ContainedSpellUseButton
-                                      entry={entry}
-                                      onChargeChange={(v) => setCharge(i, v)}
-                                      compact
-                                    />
-                                  )
-                                }
-                                return (
-                                  <button
-                                    type="button"
-                                    onClick={async (e) => {
-                                      e.stopPropagation()
-                                      if (!canUseAbility(character, activeEntry.ability.id)) { alert('该技能当前不可用'); return }
-                                      try {
-                                        const result = await executeAbility(character, activeEntry.ability.id)
-                                        if (result.success) {
-                                          if (result.classResources) onSave({ ...character, classResources: result.classResources })
-                                          if (result.patch) onSave({ ...character, ...result.patch })
-                                          alert(`✅ ${activeEntry.ability.name} 执行成功！`)
-                                        } else { alert('❌ 技能执行失败') }
-                                      } catch (err) { console.error('[Equipment] 执行装备主动技能失败', err); alert('执行失败') }
-                                    }}
-                                    className={releaseBtnClass}
-                                    title={`使用主动技能: ${activeEntry.ability.name}`}
-                                  >
-                                    <Sparkles className="w-3 h-3" /> 释放
-                                  </button>
-                                )
-                              })()}
-
-                              {/* Col 4: Shield pool counter or spacer (1fr) */}
-                              <EquipmentShieldPoolCounter entry={entry} character={character} onSave={onSave} />
-
-                              {/* Col 5: Quantity (3.5rem) */}
-                              <div className="text-center text-xs tabular-nums" onMouseDown={(e) => e.stopPropagation()}>
-                                {canEdit && !entry?.walletCurrencyId ? (
-                                  <NumberStepper value={qty} onChange={(v) => setQty(i, v)} min={1} compact pill subtle />
-                                ) : (
-                                  <span className="text-dnd-text-body">{entry?.walletCurrencyId === 'gem_lb' ? formatDisplayGemLbQty(qty) : qty}</span>
-                                )}
-                              </div>
-
-                              {/* Col 7: Weight (4rem) */}
-                              <div className="text-center text-xs tabular-nums">
-                                {totalLb > 0 ? <span className="text-dnd-text-body">{formatDisplayWeightLb(totalLb)} lb</span> : <span className="opacity-0 select-none text-dnd-text-muted">—</span>}
-                              </div>
-                            </>
-                          )}
-
-                          {canEdit && (
-                            <div className="flex items-center justify-end gap-0.5" onMouseDown={(e) => e.stopPropagation()}>
-                              <button
-                                type="button"
-                                className={`${actionIconBtnClass} ${(isAnchor || walletRowOnBodyNoFunds) ? 'opacity-30 pointer-events-none' : ''}`}
-                                onClick={(e) => { e.stopPropagation(); if (!isAnchor && !walletRowOnBodyNoFunds) openStoreToVault(i); }}
-                                title={isAnchor ? '次元袋实体行不可整件存入仓库' : walletRowOnBodyNoFunds ? '身上该币种为 0，无法存仓库' : '存到团队仓库'}
-                              >
-                                <Package size={13} />
-                              </button>
-                              <button
-                                type="button"
-                                className={`${actionIconBtnClass} ${isAnchor ? 'opacity-30 pointer-events-none' : ''}`}
-                                onClick={(e) => { e.stopPropagation(); if (!isAnchor) startEdit(i); }}
-                                title={isAnchor ? '袋内物品请展开后点铅笔编辑' : '编辑'}
-                              >
-                                <Pencil size={13} />
-                              </button>
-                              {isAnchor && modForAnchor && (
+                            {canEdit && (
+                              <div className="flex items-center justify-end gap-0.5 col-span-7" onMouseDown={(e) => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  className={`${actionIconBtnClass} ${walletRowOnBodyNoFunds ? 'opacity-30 pointer-events-none' : ''}`}
+                                  onClick={(e) => { e.stopPropagation(); if (!walletRowOnBodyNoFunds) openStoreToVault(i); }}
+                                  title={walletRowOnBodyNoFunds ? '身上该币种为 0，无法存仓库' : '存到团队仓库'}
+                                >
+                                  <Package size={13} />
+                                </button>
                                 <button
                                   type="button"
                                   className={actionIconBtnClass}
-                                  onClick={(e) => { e.stopPropagation(); setBagModuleDeleteUnlocked((p) => ({ ...p, [modForAnchor.id]: !p[modForAnchor.id] })); }}
-                                  title={bagModuleDeleteUnlocked[modForAnchor.id] ? '重新上锁' : '解锁后可删除整模块'}
+                                  onClick={(e) => { e.stopPropagation(); startEdit(i); }}
+                                  title="袋内物品请展开后点铅笔编辑"
                                 >
-                                  {bagModuleDeleteUnlocked[modForAnchor.id] ? <Unlock size={13} /> : <Lock size={13} />}
+                                  <Pencil size={13} />
                                 </button>
-                              )}
-                              <button
-                                type="button"
-                                className={`${actionIconBtnDangerClass} ${isAnchor && modForAnchor && !bagModuleDeleteUnlocked[modForAnchor.id] ? 'opacity-30 pointer-events-none' : ''}`}
-                                onClick={(e) => { e.stopPropagation(); if (!(isAnchor && modForAnchor && !bagModuleDeleteUnlocked[modForAnchor.id])) removeItem(i); }}
-                                title={isAnchor && modForAnchor ? '请先点锁图标解锁' : '删除'}
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            </div>
-                          )}
+                                {modForAnchor && (
+                                  <button
+                                    type="button"
+                                    className={actionIconBtnClass}
+                                    onClick={(e) => { e.stopPropagation(); setBagModuleDeleteUnlocked((p) => ({ ...p, [modForAnchor.id]: !p[modForAnchor.id] })); }}
+                                    title={bagModuleDeleteUnlocked[modForAnchor.id] ? '重新上锁' : '解锁后可删除整模块'}
+                                  >
+                                    {bagModuleDeleteUnlocked[modForAnchor.id] ? <Unlock size={13} /> : <Lock size={13} />}
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  className={`${actionIconBtnDangerClass} ${modForAnchor && !bagModuleDeleteUnlocked[modForAnchor.id] ? 'opacity-30 pointer-events-none' : ''}`}
+                                  onClick={(e) => { e.stopPropagation(); if (!(modForAnchor && !bagModuleDeleteUnlocked[modForAnchor.id])) removeItem(i); }}
+                                  title={modForAnchor ? '请先点锁图标解锁' : '删除'}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
+                        ) : (
+                          <EquipmentItemCard
+                            key={entry.id ?? `inv-${i}`}
+                            entry={entry}
+                            invIndex={i}
+                            slotValue=""
+                            canEdit={canEdit}
+                            displayName={invDisplayName(entry)}
+                            magicBonus={Number(entry.magicBonus) || 0}
+                            brief={packBrief}
+                            briefExpanded={!!backpackItemBriefOpen[bbKey]}
+                            onToggleBrief={() => setBackpackItemBriefOpen(prev => ({ ...prev, [bbKey]: !prev[bbKey] }))}
+                            charge={showChargeCol ? (Number(entry.charge) || 0) : 0}
+                            maxCharge={Number(entry.maxCharge) || 0}
+                            onChargeChange={(v) => setCharge(i, v)}
+                            shieldPoolCurrent={null}
+                            shieldPoolMax={null}
+                            shieldPoolThreshold={null}
+                            onShieldPoolChange={undefined}
+                            activeAbility={(() => {
+                              const activeEntry = activeAbilities.find(a => a.inventoryId === entry.id)
+                              return activeEntry?.ability || null
+                            })()}
+                            canUseAbilityFn={(abilityId) => canUseAbility(character, abilityId)}
+                            onUseAbility={(() => {
+                              const activeEntry = activeAbilities.find(a => a.inventoryId === entry.id)
+                              if (!activeEntry) return undefined
+                              return async () => {
+                                if (!canUseAbility(character, activeEntry.ability.id)) {
+                                  alert('该技能当前不可用（可能资源不足或处于冷却中）')
+                                  return
+                                }
+                                try {
+                                  const result = await executeAbility(character, activeEntry.ability.id)
+                                  if (result.success) {
+                                    if (result.classResources) onSave({ ...character, classResources: result.classResources })
+                                    if (result.patch) onSave({ ...character, ...result.patch })
+                                    alert(`✅ ${activeEntry.ability.name} 执行成功！`)
+                                  } else {
+                                    alert('❌ 技能执行失败')
+                                  }
+                                } catch (err) {
+                                  console.error('[Equipment] 执行装备主动技能失败', err)
+                                  alert('执行失败，请查看控制台')
+                                }
+                              }
+                            })()}
+                            hasContainedSpell={hasContainedSpellEffect(entry)}
+                            onContainedSpellCharge={hasContainedSpellEffect(entry) ? (v) => setCharge(i, v) : undefined}
+                            containedSpellEntry={hasContainedSpellEffect(entry) ? entry : null}
+                            qty={qty}
+                            onQtyChange={(v) => setQty(i, v)}
+                            weightLb={totalLb}
+                            showQty={!entry?.walletCurrencyId && !isAnchor}
+                            buffTags={[]}
+                            onEdit={() => startEdit(i)}
+                            onStoreToVault={() => openStoreToVault(i)}
+                            onDelete={() => removeItem(i)}
+                            tooltipContent={entry?.itemId ? (
+                              <ItemTooltipContent proto={getItemById(entry.itemId)} entry={entry} />
+                            ) : null}
+                            draggable={canEdit}
+                            onDragStart={canEdit ? (e) => handleBackpackRowDragStart(e, layoutIdx) : undefined}
+                            onDragEnd={canEdit ? handleBackpackRowDragEnd : undefined}
+                            onDragOver={canEdit ? handleDragOver : undefined}
+                            onDrop={canEdit ? (e) => handleBackpackRowDrop(e, layoutIdx) : undefined}
+                          />
+                        )}
 
                         <InventoryItemBriefExpandedText
                           brief={packBrief}
                           expanded={!!backpackItemBriefOpen[bbKey]}
                           variant="body"
                         />
-
-                        {isContainer && !!backpackItemBriefOpen[bbKey] && (
+                          {isContainer && !!backpackItemBriefOpen[bbKey] && (
                           <div
                             className="border-t border-gray-700/45 bg-black/25 px-2 py-2 -mx-px -mb-px"
                             onDragOver={canEdit ? handleDragOver : undefined}
@@ -2320,10 +1994,9 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                             />
                           </div>
                         ) : null}
-                      </div>
-                    </div>
-                  )
-                })
+                      </>
+                    )
+                  })
               )}
               {inv.length === 0 && (
                 <p className="text-gray-500 text-sm py-2 text-center">暂无物品</p>
