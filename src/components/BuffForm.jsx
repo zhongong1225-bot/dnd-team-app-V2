@@ -212,6 +212,7 @@ function normalizeInitialEffects(initial) {
       value,
       break20,
       customText: typeof e.value === 'string' && e.effectType !== 'concentration_save_enhance' ? e.value : '',
+      effectCondition: typeof e.effectCondition === 'string' ? e.effectCondition : '',
       upgrade: e.upgrade && typeof e.upgrade === 'object' ? { className: e.upgrade.className ?? '', level: Math.max(1, Math.min(20, Number(e.upgrade.level) || 1)), value: e.upgrade.value ?? 0 } : null,
     }
   }
@@ -590,6 +591,7 @@ function ContainedSpellEditor({
   spellDC,
   spellAttackBonus,
   useWandScrollTable,
+  referenceData,
   primaryOnly = false,
   hideCharges = false,
   rowPrefix,
@@ -4927,6 +4929,7 @@ function EffectValueEditor({
           spellDC={spellDC}
           spellAttackBonus={spellAttackBonus}
           useWandScrollTable={useWandScrollTable}
+          referenceData={activeReferenceData}
           primaryOnly={containedSpellPrimaryOnly}
           hideCharges={containedSpellHideChargesInPrimary}
           rowPrefix={containedSpellRowPrefix}
@@ -5657,6 +5660,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
         }
         const { scope, scopeDetail } = normalizeScope(mod.scope, mod.scopeDetail)
         const out = { category: mod.category, effectType, scope, scopeDetail, value: val }
+        if (mod.effectCondition) out.effectCondition = mod.effectCondition
         if (effectType === 'ability_score_uncapped' && mod.break20 && typeof mod.break20 === 'object' && Object.keys(mod.break20).length) {
           out.break20 = mod.break20
         }
@@ -5728,6 +5732,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
       }
       const { scope, scopeDetail } = normalizeScope(mod.scope, mod.scopeDetail)
       const out = { category: mod.category, effectType, scope, scopeDetail, value: val }
+      if (mod.effectCondition) out.effectCondition = mod.effectCondition
       if (effectType === 'ability_score_uncapped' && mod.break20 && typeof mod.break20 === 'object' && Object.keys(mod.break20).length) {
         out.break20 = mod.break20
       }
