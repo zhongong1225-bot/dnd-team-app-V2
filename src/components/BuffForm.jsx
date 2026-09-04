@@ -10,7 +10,6 @@ import {
   ABILITY_KEYS,
   ADVANTAGE_OPTIONS,
   PIERCING_DAMAGE_OPTIONS,
-  DAMAGE_DICE_ARROW_OPTIONS,
   DICE_SIDES_OPTIONS,
   parseDamageString,
   SCOPE_KIND,
@@ -31,10 +30,9 @@ import {
   WEAPON_PROPERTY_OPTIONS,
   migrateProficiencyTextToArray,
 } from '../data/buffTypes'
-import { WEAPON_BUFF_CATEGORY_SELECT_OPTIONS } from '../data/itemDatabase'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
-import { CLASS_LIST, getClassDisplayName } from '../data/classDatabase'
-import { getMergedSpells, getSpellById, getWandScrollSpellPower } from '../data/spellDatabase'
+import { getClassDisplayName } from '../data/classDatabase'
+import { getSpellById, getWandScrollSpellPower } from '../data/spellDatabase'
 import { WEAPON_DATABASE } from '../data/weaponDatabase'
 import { inputClass, inputClassInline, textareaClass } from '../lib/inputStyles'
 import { formatDisplayOneDecimal } from '../lib/encumbrance'
@@ -52,7 +50,6 @@ import {
   ACTION_COST_OPTIONS,
   recoverySupportsAmount,
   recoveryIsDiceOnly,
-  formatRecoveryBrief,
   ALL_MOD_OPTIONS,
   RESULT_TYPE_OPTIONS,
   DICE_TYPE_OPTIONS,
@@ -70,7 +67,7 @@ import { loadCreatureLibrary, getCreatureById, CREATURE_SIZES } from '../data/cr
 import DurationEditor from './DurationEditor'
 import ActiveCardEditor from './ActiveCardEditor'
 import SpellNameAutocomplete from './SpellNameAutocomplete'
-import { SCOPE_TYPE, SCOPE_TYPE_OPTIONS } from '../lib/cardModel'
+import { SCOPE_TYPE_OPTIONS } from '../lib/cardModel'
 import { normalizeDuration, formatDurationBrief } from '../lib/durationModel'
 import {
   BUFF_SOURCE_KIND_OPTIONS_EDITABLE,
@@ -107,16 +104,6 @@ const DEFAULT_FORMULA_REFERENCE_DATA = [
 
 /** Buff 效果「起效类型」：用于命中/伤害加值等可选择起效范围的效果 */
 const SCOPE_OPTIONS = SCOPE_KIND_OPTIONS
-
-/** 读取属性对象里的值：保留公式对象，避免 Number() 把公式转成 NaN */
-function getAbilityFieldValue(obj, key) {
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return 0
-  if (key === 'all') {
-    const firstKey = ABILITY_KEYS.find((k) => obj[k] != null)
-    return firstKey != null ? obj[firstKey] : 0
-  }
-  return obj[key] ?? 0
-}
 
 function resolveInitialSourceKind(initial, defaultSourceKind) {
   if (initial?.sourceKind != null && String(initial.sourceKind).trim() !== '') {
@@ -3421,158 +3408,6 @@ function MultiSelectDropdown({ options, selected, onChange, placeholder, id, cla
   )
 }
 
-/** 命中/伤害加值：variant=all 时单行 flex-wrap；global / weapons 供 BuffForm 分两行且第二行全宽顶格；hideWeaponAddButtons 时由外侧「局部生效」统一添加行 */
-function AttackDamageBonusFields({ module, onChange, compactClass, inline, variant = 'all', hideWeaponAddButtons = false, referenceData }) {
-  const obj = normalizeAttackDamageBonusModuleValue(module.value)
-  const patch = (p) => onChange({ ...module, value: { ...obj, ...p } })
-  const rows = obj.categoryRows || []
-  const selectCls = inline
-    ? `${compactClass} min-w-0 max-w-[5.75rem] pr-6 w-auto shrink-0`
-    : `${inputClass.replace(/\bh-10\b/, 'h-7').replace(/\btext-sm\b/, 'text-[11px]')} min-w-0 max-w-[6.5rem] pr-6 shrink-0`
-  const chevCls = inline ? 'w-3 h-3 right-1.5' : 'w-4 h-4 right-2'
-  const rowSelectCls = inline
-    ? `${compactClass} min-w-0 flex-1 basis-[4.5rem] max-w-[min(100%,11rem)]`
-    : `${inputClass.replace(/\bh-10\b/, 'h-7').replace(/\btext-sm\b/, 'text-[11px]')} min-w-0 flex-1 basis-[5rem] max-w-[min(100%,14rem)]`
-  const delBtnClass = inline
-    ? 'h-7 w-7 shrink-0 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 flex items-center justify-center'
-    : 'h-7 w-7 shrink-0 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 flex items-center justify-center'
-  const addIconBtnClass = inline
-    ? 'h-7 w-7 shrink-0 rounded border border-amber-500/60 text-amber-400/90 hover:bg-amber-500/15 flex items-center justify-center'
-    : 'h-7 w-7 shrink-0 rounded border border-amber-500/60 text-amber-400/90 hover:bg-amber-500/15 flex items-center justify-center'
-  const stepperCompact = true
-  const stepperNarrow = true
-
-  const setRows = (nextRows) => patch({ categoryRows: nextRows })
-  const updateRow = (id, field, v) => {
-    setRows(rows.map((r) => (r.id === id ? { ...r, [field]: v } : r)))
-  }
-  const removeRow = (id) => {
-    setRows(rows.filter((r) => r.id !== id))
-  }
-  const addRow = () => setRows([...rows, newWeaponBonusRow('', 0)])
-
-  const advantageBlock = (
-    <div className="relative shrink-0">
-      <select
-        value={obj.advantage ?? ''}
-        onChange={(e) => patch({ advantage: e.target.value })}
-        className={selectCls}
-        title="优势/劣势"
-        aria-label="优势或劣势"
-      >
-        {ADVANTAGE_OPTIONS.map((o) => (
-          <option key={o.value || 'n'} value={o.value}>{o.label}</option>
-        ))}
-      </select>
-      <ChevronDown className={`${chevCls} text-gray-400 absolute top-1/2 -translate-y-1/2 pointer-events-none`} />
-    </div>
-  )
-
-  const weaponExtraTitle =
-    '在全局加值之外，仅对所选武器类型或类别再叠加；可选近战/远程等或具体类别（如长剑）。'
-
-  const globalTitle = `全局命中/伤害加值与优势/劣势。${weaponExtraTitle}`
-
-  const globalBlock = (
-    <>
-      <span className="text-[10px] font-bold uppercase tracking-wider text-dnd-gold-light shrink-0">全局生效</span>
-      <NumberStepper referenceData={referenceData}
-        value={obj.val ?? 0}
-        onChange={(v) => patch({ val: v })}
-        compact={stepperCompact}
-        narrow={stepperNarrow}
-      />
-      {advantageBlock}
-    </>
-  )
-
-  const weaponRowsContent = (
-    <>
-      {rows.map((r, idx) => (
-        <Fragment key={r.id}>
-          <select
-            value={r.key || ''}
-            onChange={(e) => updateRow(r.id, 'key', e.target.value)}
-            className={rowSelectCls}
-            title={weaponExtraTitle}
-            aria-label="武器类型或类别"
-          >
-            <option value="">— 选择武器 —</option>
-            {WEAPON_BUFF_CATEGORY_SELECT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-          <NumberStepper referenceData={referenceData}
-            value={r.val ?? 0}
-            onChange={(v) => updateRow(r.id, 'val', v)}
-            compact={stepperCompact}
-            narrow={stepperNarrow}
-          />
-          <button
-            type="button"
-            onClick={() => removeRow(r.id)}
-            className={delBtnClass}
-            title="删除此行"
-            aria-label="删除此行"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-          {!hideWeaponAddButtons && idx === rows.length - 1 && (
-            <button
-              type="button"
-              onClick={addRow}
-              className={addIconBtnClass}
-              title="添加武器限定行"
-              aria-label="添加武器限定行"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </Fragment>
-      ))}
-      {!hideWeaponAddButtons && rows.length === 0 && (
-        <button
-          type="button"
-          onClick={addRow}
-          className={addIconBtnClass}
-          title="添加武器限定行"
-          aria-label="添加武器限定行"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
-      )}
-    </>
-  )
-
-  if (variant === 'global') {
-    return (
-      <div className="flex flex-wrap items-center gap-1 min-w-0 overflow-x-hidden" title={globalTitle}>
-        {globalBlock}
-      </div>
-    )
-  }
-  if (variant === 'weapons') {
-    return (
-      <div
-        className="flex flex-wrap items-center gap-1 min-w-0 w-full overflow-x-hidden"
-        title={weaponExtraTitle}
-      >
-        {weaponRowsContent}
-      </div>
-    )
-  }
-
-  return (
-    <div
-      className="flex flex-wrap items-center gap-1 min-w-0 flex-1 basis-[min(100%,10rem)] overflow-x-hidden"
-      title={globalTitle}
-    >
-      {globalBlock}
-      {weaponRowsContent}
-    </div>
-  )
-}
-
 /** 单条效果的数值/选项编辑区；inline 时仅渲染紧凑控件（同一行用），无 label。可选 spellDC/spellAttackBonus 用于内含法术命中判断旁显示实际数值；useWandScrollTable 为真时改用魔杖/卷轴法强表按环阶显示 */
 function EffectValueEditor({
   module,
@@ -6505,4 +6340,4 @@ function EffectModuleModal({
   )
 }
 
-export { EffectValueEditor, isComplexValueType, DamageDiceInlineRow, NumberStepper, AttackDamageBonusFields, newWeaponBonusRow, EffectModuleModal, ArmorOverrideEditor, CreatureTransformEditor, RestoreSpellSlotsEditor, ChoiceBUFFEditor }
+export { EffectValueEditor, isComplexValueType, DamageDiceInlineRow, NumberStepper, newWeaponBonusRow, EffectModuleModal, ArmorOverrideEditor, CreatureTransformEditor, RestoreSpellSlotsEditor, ChoiceBUFFEditor }
