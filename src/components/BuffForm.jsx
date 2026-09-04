@@ -1649,8 +1649,6 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
               : (useWandScrollTable && wandPower
                 ? (hitRes === 'spell_attack' ? (wandPower.attackBonus >= 0 ? '+' : '') + wandPower.attackBonus : String(wandPower.dc))
                 : (hitRes === 'spell_attack' && spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : (spellDC != null ? String(spellDC) : null)))
-            const spellScalingEnabled = !!sp.scalingEnabled
-            const spellSU = sp.scalingPerUnit || {}
             return (
               <div key={eff.id} className="rounded-md border border-cyan-800/30 bg-[#0d1520]/50 px-2 py-1.5">
                 <div className="flex items-center gap-x-1.5 flex-wrap">
@@ -2092,8 +2090,6 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
             : (useWandScrollTable && wandPower
               ? (hitRes === 'spell_attack' ? (wandPower.attackBonus >= 0 ? '+' : '') + wandPower.attackBonus : String(wandPower.dc))
               : (hitRes === 'spell_attack' && spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : (spellDC != null ? String(spellDC) : null)))
-          const spellScalingEnabled = !!sp.scalingEnabled
-          const spellSU = sp.scalingPerUnit || {}
           const _spellObj = sp.spellId ? getSpellById(sp.spellId) : null
           const _combatPower = _spellObj?.description ? parseSpellCombatPower(_spellObj.description, level) : null
           return (
@@ -3432,22 +3428,6 @@ function EffectValueEditor({
   /** 附属卡列表，供召唤效果选择 */
   subordinates = [],
 }) {
-  const [selectedSkillId, setSelectedSkillId] = useState(() => {
-    const val = module?.value
-    if (val && typeof val === 'object' && !Array.isArray(val)) {
-      const found = SKILLS.find(sk => val[sk.id] != null && val[sk.id] !== 0)
-      if (found) return found.id
-    }
-    return SKILLS[0]?.id ?? 'acrobatics'
-  })
-  const [selectedAbilityId, setSelectedAbilityId] = useState(() => {
-    const val = module?.value
-    if (val && typeof val === 'object' && !Array.isArray(val)) {
-      const found = ABILITY_KEYS.find(k => val[k] != null && val[k] !== 0)
-      if (found) return found
-    }
-    return ABILITY_KEYS[0] ?? 'str'
-  })
   const [profSearch, setProfSearch] = useState('')
   const effects = catData?.effects ?? []
   const currentEffect = effects.find((e) => e.key === module.effectType)
@@ -3465,13 +3445,6 @@ function EffectValueEditor({
   const value = module.value
   const customText = module.customText ?? ''
   const textDisplay = typeof value === 'string' ? value : (isCustom ? customText : '')
-
-  useEffect(() => {
-    if (!['abilityScores', 'abilityScoresAndAdvantage'].includes(needsSubSelect)) return
-    if (!(value && typeof value === 'object' && !Array.isArray(value))) return
-    const preferred = ABILITY_KEYS.find((k) => value[k] != null && (typeof value[k] === 'object' || Number(value[k]) !== 0)) || ABILITY_KEYS.find((k) => value[k] != null)
-    if (preferred && preferred !== selectedAbilityId) setSelectedAbilityId(preferred)
-  }, [module.id, module.effectType, needsSubSelect])
 
   const compactClass = inputClass.replace(/\bh-10\b/, 'h-7').replace(/\btext-sm\b/, 'text-[11px]')
   const panelInputCls = inputClass.replace(/\bh-10\b/, 'h-7').replace(/\btext-sm\b/, 'text-[11px]').replace(/\bw-full\b/, '')
@@ -3928,22 +3901,6 @@ function EffectValueEditor({
             narrow
           />
           <p className="text-[10px] leading-tight text-gray-500">仅本件物品生效；各武器重击倍数互不串用；Buff 栏此项不参与投掷；法术重击×2</p>
-        </div>
-      )
-    }
-    if (currentEffect?.key === 'spell_ability_attack') {
-      const obj = value && typeof value === 'object' && !Array.isArray(value) ? value : { ability: 'int' }
-      return (
-        <div className="min-w-0 w-full">
-          <select
-            value={obj.ability || 'int'}
-            onChange={(e) => onChange({ ...module, value: { ...obj, ability: e.target.value || 'int' } })}
-            className={compactClass + ' w-full min-w-0'}
-          >
-            <option value="int">智力</option>
-            <option value="wis">感知</option>
-            <option value="cha">魅力</option>
-          </select>
         </div>
       )
     }
@@ -5458,6 +5415,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
   /** 行内效果类型选择器开关 */
   const [showEffectPicker, setShowEffectPicker] = useState(false)
   const [pickerCategory, setPickerCategory] = useState('ability')
+  const [editingModuleId, setEditingModuleId] = useState(null)
   /** 自动保存定时器 */
   const autoSaveTimerRef = useRef(null)
   /** 是否为主动卡（含 charge_item 效果） */
@@ -5548,8 +5506,6 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
     onSave(payload)
   }
 
-  const [editingModuleId, setEditingModuleId] = useState(null)
-
   const handleToggleEdit = (id) => {
     setEditingModuleId(prev => prev === id ? null : id)
   }
@@ -5557,8 +5513,6 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
   const updateModule = (id, patch) => {
     setEffectModules(prev => {
       const next = prev.map(m => m.id === id ? { ...m, ...patch } : m)
-      // 模块更新后触发自动保存 - 已禁用以避免虚拟BUFF编辑器关闭问题
-      // setTimeout(() => triggerAutoSave(), 0)
       return next
     })
   }
@@ -5568,19 +5522,10 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
     if (editingModuleId === id) setEditingModuleId(null)
   }
 
-  // 监控 initial 变化，用于调试编辑器关闭问题
-  useEffect(() => {
-    console.log('[BuffForm] initial changed', initial)
-    if (!initial) {
-      console.warn('[BuffForm] initial is undefined, editor may close')
-    }
-  }, [initial])
-
   // 组件卸载时清理自动保存定时器
   useEffect(() => {
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
-      console.log('[BuffForm] Unmounting')
     }
   }, [])
 
