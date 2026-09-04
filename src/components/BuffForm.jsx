@@ -312,16 +312,7 @@ function normalizeValueForSave(module, currentEffect) {
     return normalizeChargeItemValue(value)
   }
   if (needsSubSelect === 'armorOverride') {
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      return {
-        base: isFormulaValue(value.base) ? value.base : (Number(value.base) || 10),
-        applyDexMod: value.applyDexMod !== false,
-        maxDexBonus: Number(value.maxDexBonus) || null,
-        extra: Number(value.extra) || 0,
-        shieldCompatible: !!value.shieldCompatible,
-      }
-    }
-    return { base: 10, applyDexMod: true, maxDexBonus: null, extra: 0, shieldCompatible: false }
+    return normalizeArmorOverrideValue(value)
   }
   if (needsSubSelect === 'creatureTransform') {
     return normalizeCreatureTransformValue(value)
