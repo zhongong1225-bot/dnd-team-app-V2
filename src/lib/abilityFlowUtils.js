@@ -18,7 +18,7 @@ function hasSavingThrow(effects) {
   return false
 }
 
-function hasDiceEffects(effects) {
+export function hasDiceEffects(effects) {
   for (const eff of (effects || [])) {
     if (eff.type === 'damage' || eff.type === 'heal') return true
     if (eff.type === 'ability' && (eff.value?.diceCount > 0)) return true
