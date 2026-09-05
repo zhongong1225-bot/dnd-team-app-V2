@@ -181,6 +181,89 @@ export const RACES = [
     ],
     subraces: [],
   },
+  {
+    id: 'dhampir',
+    name: '半血裔',
+    description: '半血裔是活生生的人，他们拥有类似吸血鬼的超凡之力，但却被一种可怕的饥渴所诅咒。大多数半血裔渴望吸食鲜血，不过也有一些半血裔靠汲取梦境、生气或其他重要之物以获取养分。半血裔必须做出选择，是努力克制自身的饥渴，还是屈服于掠食的冲动本能。\n\n有些半血裔是强大吸血鬼的后代，而另一些则在被吸血鬼咬伤后发生了部分转变，可怕的交易以及死灵魔法的影响也可能催生出半血裔。',
+    source: '',
+    creatureType: 'humanoid',
+    sizeOptions: ['Medium', 'Small'],
+    sizeDefault: 'Medium',
+    speed: { walk: 35, climb: null, swim: null, fly: null, burrow: null },
+    darkvision: 60,
+    abilityScoreBonuses: [],
+    traits: [
+      {
+        id: 'dhampir_darkvision',
+        name: '黑暗视觉',
+        description: '你具有60尺黑暗视觉。',
+        cards: [],
+      },
+      {
+        id: 'dhampir_spider_climb',
+        name: '蛛行',
+        description: '你具有等于你速度的攀爬速度。当你到达3级后，你可以在垂直表面上上下左右移动，且能倒挂在天花板上，期间你的双手可以保持空闲。',
+        cards: [
+          {
+            effectType: 'speed_bonus',
+            category: 'mobility_casting',
+            scope: 'global',
+            scopeDetail: [],
+            value: { type: 'climb', bonus: 0 }, // 0 表示等于行走速度
+          },
+        ],
+      },
+      {
+        id: 'dhampir_trace_of_undeath',
+        name: '不死之痕',
+        description: '你具有对暗蚀伤害的抗性。',
+        cards: [
+          {
+            effectType: 'damage_type_relation',
+            category: 'defense',
+            scope: 'global',
+            scopeDetail: [],
+            value: { types: ['necrotic'], relation: 'resist' },
+          },
+        ],
+      },
+      {
+        id: 'dhampir_vampiric_bite',
+        name: '吸血啃咬',
+        description: '当你使用徒手打击造成伤害时，你可以选择使用你的獠牙啃咬敌人。你对目标造成1d4+体质调整值的穿刺伤害，而非徒手打击原本的伤害。\n\n此外，当你对非构装非亡灵的生物造成此伤害时，你可以选择以下方式之一来增福你自己：\n• 汲取Drain。你恢复等于此啃咬造成的穿刺伤害的生命值。\n• 强化Strengthen。在接下来的一分钟内，你进行的下一次属性检定或攻击检定获得加值，加值等于此啃咬造成的穿刺伤害。\n\n你能够以此啃咬增福你自己的次数等于你的熟练加值，在你完成长休时你将重获所有已消耗的增福次数。',
+        cards: [
+          {
+            effectType: 'charge_item',
+            category: 'active_release',
+            scope: 'global',
+            scopeDetail: [],
+            value: {
+              resourceType: 'charges',
+              charges: 1, // 实际使用时会被角色熟练加值覆盖
+              actionCost: 'action',
+              movementFeet: 0,
+              recovery: { method: 'long_rest', kind: 'full' },
+              effects: [
+                {
+                  type: 'custom_logic',
+                  value: {
+                    title: '吸血啃咬',
+                    description: '徒手打击替换为啃咬，造成1d4+体质调整值穿刺伤害。可选择：①恢复等量生命值；②下次属性/攻击检定获得等量加值(持续1分钟)。使用次数=熟练加值，长休恢复。',
+                    triggerCondition: 'on_use',
+                  },
+                },
+              ],
+              damageDice: '1d4',
+              damageAbility: 'con', // 体质调整值
+              damageType: 'piercing',
+            },
+          },
+        ],
+      },
+    ],
+    tables: [],
+    subraces: [],
+  },
 ]
 
 /** 旧版硬编码种族兼容表（仅用于回退显示，不会出现在选择列表中） */
