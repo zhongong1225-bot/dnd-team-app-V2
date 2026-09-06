@@ -264,6 +264,180 @@ export const RACES = [
     tables: [],
     subraces: [],
   },
+  {
+    id: 'elf',
+    name: '精灵',
+    description: '由大神科瑞隆所创造的原初精灵们可以随意改变自身的身体形态。但因为原初精灵们曾伙同另一位精灵神祇罗丝阴谋篡夺科瑞隆的神域，而被科瑞隆诅咒，他们失去了这种能力。当罗丝被逐入深渊时，大多数精灵都和她断绝了关系，并得到了科瑞隆的原谅，但科瑞隆从精灵身上收回的东西却是永远不再了。\n\n失去了随心所欲变形能力的精灵们退回到了妖精荒野，这个位面的影响又加深了他们的悲伤。随着时间推移，好奇心又使他们中的许多人前往探索其他存在位面，其中包括了物质位面的各个世界。\n\n精灵们双耳尖尖，少有胡须和体毛。他们的寿命长达750岁。他们不需要睡觉，而是在需要休息的时候进入一种出神状态取而代之。在这种状态下，精灵们在沉浸于自己的记忆和冥思中的同时，还能感知到周围的环境。\n\n精灵在一个地方居住千年以上后，环境会微妙的改变精灵，使他们获得特定的魔法。卓尔，高等精灵，木精灵，都是这种转变的例证。',
+    source: '',
+    creatureType: 'humanoid',
+    sizeOptions: ['Medium'],
+    sizeDefault: 'Medium',
+    speed: { walk: 30, climb: null, swim: null, fly: null, burrow: null },
+    darkvision: 60,
+    abilityScoreBonuses: [],
+    traits: [
+      {
+        id: 'elf_darkvision',
+        name: '黑暗视觉',
+        description: '你拥有60尺黑暗视觉。',
+        cards: [],
+      },
+      {
+        id: 'elf_elven_lineage',
+        name: '精灵血系',
+        description: '你属于一支精灵血系，并因此获得了超自然能力。从精灵血系表格中选择其一。你获得该血系的1级好处。当你到达3级和5级时，你分别习得一道表格上更高级的法术；你时刻准备着这道习得的法术，且可以不消耗法术位施展此法术一次，当你完成一次长休时，你重获施展该道法术的能力。你也可以用任何你拥有的相应环阶法术位施展该道法术。\n\n当你选择血系时，选择智力、感知、或魅力之一，该属性即是你用此特质施展法术时的施法属性。',
+        cards: [],
+        choiceOptions: [
+          {
+            id: 'drow',
+            label: '卓尔 Drow',
+            description: '黑暗视觉提升至120尺。习得戏法舞光术 Dancing Light。3级习得妖火 Faerie Fire，5级习得黑暗术 Darkness。',
+            cards: [
+              { effectType: 'darkvision_bonus', value: { bonus: 60 } }, // 基础60 + 额外60 = 120
+              { effectType: 'spell_granted', value: { cantrips: ['dancing_lights'], level1: ['faerie_fire'], level2: ['darkness'] } },
+            ],
+          },
+          {
+            id: 'high_elf',
+            label: '高等精灵 High Elf',
+            description: '知晓戏法魔法伎俩 Prestidigitation。每当你完成长休时，你可以将它替换为法师法术列表中的另一个戏法。3级习得侦测魔法 Detect Magic，5级习得迷踪步 Misty Step。',
+            cards: [
+              { effectType: 'spell_granted', value: { cantrips: ['prestidigitation'], level1: ['detect_magic'], level2: ['misty_step'] } },
+            ],
+          },
+          {
+            id: 'wood_elf',
+            label: '木精灵 Wood Elf',
+            description: '速度提升至35尺。知晓戏法德鲁伊伎俩 Druidcraft。3级习得大步奔行 Longstrider，5级习得行动无踪 Pass without Trace。',
+            cards: [
+              { effectType: 'speed_bonus', value: { type: 'walk', bonus: 5 } }, // 基础30 + 5 = 35
+              { effectType: 'spell_granted', value: { cantrips: ['druidcraft'], level1: ['longstrider'], level2: ['pass_without_trace'] } },
+            ],
+          },
+        ],
+      },
+      {
+        id: 'elf_fey_ancestry',
+        name: '妖精血统',
+        description: '你在进行避免或结束魅惑状态的豁免时具有优势。',
+        cards: [
+          {
+            effectType: 'saving_throw_advantage',
+            category: 'defense',
+            scope: 'global',
+            scopeDetail: [],
+            value: { condition: 'charmed' },
+          },
+        ],
+      },
+      {
+        id: 'elf_keen_senses',
+        name: '敏锐感官',
+        description: '你具有洞察、察觉或求生之一技能的熟练。',
+        cards: [],
+        choiceOptions: [
+          { id: 'insight', label: '洞察', description: '获得洞察技能熟练', cards: [{ effectType: 'skill_proficiency', value: { skill: 'insight' } }] },
+          { id: 'perception', label: '察觉', description: '获得察觉技能熟练', cards: [{ effectType: 'skill_proficiency', value: { skill: 'perception' } }] },
+          { id: 'survival', label: '求生', description: '获得求生技能熟练', cards: [{ effectType: 'skill_proficiency', value: { skill: 'survival' } }] },
+        ],
+      },
+      {
+        id: 'elf_trance',
+        name: '出神 Trance',
+        description: '你无需睡眠，魔法也无法使你陷入睡眠。利用出神冥想，你可以仅用4小时完成长休，且在这期间保持意识清醒。',
+        cards: [],
+      },
+    ],
+    tables: [
+      {
+        id: 'elven_lineages',
+        name: '精灵血系',
+        dice: 'd3',
+        rows: [
+          { roll: '1', text: '卓尔 Drow - 黑暗视觉120尺，舞光术，妖火(3级)，黑暗术(5级)' },
+          { roll: '2', text: '高等精灵 High Elf - 魔法伎俩，可替换戏法，侦测魔法(3级)，迷踪步(5级)' },
+          { roll: '3', text: '木精灵 Wood Elf - 速度35尺，德鲁伊伎俩，大步奔行(3级)，行动无踪(5级)' },
+        ],
+      },
+    ],
+    subraces: [],
+  },
+  {
+    id: 'tiefling',
+    name: '提夫林',
+    description: '提夫林要么出生在下层位面，要么有来自那里的祖先。提夫林（音近TEE-fling）会与魔鬼、恶魔或其他的什么邪魔有着血缘关系。而这种与下层次面的联系是提夫林所承继的邪魔遗赠，它带有着力量，但对提夫林的道德观念没有影响。\n\n提夫林需要选择他们想要接受或者厌恨的邪魔遗赠，以下是三种遗赠：\n\n深渊 Abyssal\n无底深渊中的腐殖、喧嚷空隙中的混乱、卡瑟利的绝望，都呼唤着带有深渊遗赠的提夫林。犄角、皮毛、长牙和特殊的气味是这些提夫林共同具有的身体特征，他们中大多数的血管里奔流着恶魔之血。\n\n幽冥 Chthonic\n拥有幽冥邪魔遗赠的提夫林不仅能感受到卡瑟利的泥淖，也能感受到焦炎火狱中的贪婪和哈迪斯中的阴暗。这些提夫林中，有的肤色苍白，彷如死尸。另一些则如同梦魇与魅魔般美丽，还有的则是有着与其那夜鬼魔、尤格罗斯魔或其他中立邪恶的邪魔祖先相似的身体特征。\n\n炼狱 Infernal\n炼狱遗赠将提夫林绑定于焦炎火狱、九层地狱、还有修罗场的狂暴战场。魔角、尖刺、尾巴，金色的眼睛和一股淡淡的硫磺或硝烟味，是这些提夫林共有的身体特征，他们中的大多数都有着一位魔鬼祖先。',
+    source: '',
+    creatureType: 'humanoid',
+    sizeOptions: ['Medium', 'Small'],
+    sizeDefault: 'Medium',
+    speed: { walk: 30, climb: null, swim: null, fly: null, burrow: null },
+    darkvision: 60,
+    abilityScoreBonuses: [],
+    traits: [
+      {
+        id: 'tiefling_darkvision',
+        name: '黑暗视觉 Darkvision',
+        description: '你拥有60尺黑暗视觉。',
+        cards: [],
+      },
+      {
+        id: 'tiefling_fiendish_legacy',
+        name: '邪魔遗赠 Fiendish Legacy',
+        description: '你承载着一份给予了你超自然能力的邪魔遗赠。从邪魔遗赠表格中选择其一。你获得该遗赠的1级好处。当你到达3级和5级时，你分别习得一道表格上更高级的法术；你时刻准备着这道习得的法术，且可以不消耗法术位施展此法术一次，当你完成一次长休时，你重获施展该道法术的能力。你也可以用任何你拥有的相应环阶法术位施展该道法术。\n\n选择遗赠时，从智力、感知、魅力中选择一项属性，该属性是你用此特质施展法术时的施法属性。',
+        cards: [],
+        choiceOptions: [
+          {
+            id: 'abyssal',
+            label: '深渊 Abyssal',
+            description: '获得对毒素伤害的抗性。习得戏法毒气喷涌 Poison Spray。3级习得致病射线 Ray of Sickness，5级习得定身类人 Hold Person。',
+            cards: [
+              { effectType: 'damage_type_relation', value: { types: ['poison'], relation: 'resist' } },
+              { effectType: 'spell_granted', value: { cantrips: ['poison_spray'], level1: ['ray_of_sickness'], level2: ['hold_person'] } },
+            ],
+          },
+          {
+            id: 'chthonic',
+            label: '幽冥 Chthonic',
+            description: '获得对暗蚀伤害的抗性。习得戏法枯萎之触 Chill Touch。3级习得虚假生命 False Life，5级习得衰弱射线 Ray of Enfeeblement。',
+            cards: [
+              { effectType: 'damage_type_relation', value: { types: ['necrotic'], relation: 'resist' } },
+              { effectType: 'spell_granted', value: { cantrips: ['chill_touch'], level1: ['false_life'], level2: ['ray_of_enfeeblement'] } },
+            ],
+          },
+          {
+            id: 'infernal',
+            label: '炼狱 Infernal',
+            description: '获得对火焰伤害的抗性。习得戏法火焰箭 Fire Bolt。3级习得炼狱叱喝 Hellish Rebuke，5级习得黑暗术 Darkness。',
+            cards: [
+              { effectType: 'damage_type_relation', value: { types: ['fire'], relation: 'resist' } },
+              { effectType: 'spell_granted', value: { cantrips: ['fire_bolt'], level1: ['hellish_rebuke'], level2: ['darkness'] } },
+            ],
+          },
+        ],
+      },
+      {
+        id: 'tiefling_otherworldly_presence',
+        name: '异界存在 Otherworldly Presence',
+        description: '你习得戏法奇术 Thaumaturgy。用此特质施展它时，这道法术使用与你的邪魔遗赠特质使用相同的施法属性。',
+        cards: [
+          { effectType: 'spell_granted', value: { cantrips: ['thaumaturgy'] } },
+        ],
+      },
+    ],
+    tables: [
+      {
+        id: 'fiendish_legacies',
+        name: '邪魔遗赠 Fiendish Legacies',
+        dice: 'd3',
+        rows: [
+          { roll: '1', text: '深渊 Abyssal - 毒素抗性，毒气喷涌，致病射线(3级)，定身类人(5级)' },
+          { roll: '2', text: '幽冥 Chthonic - 暗蚀抗性，枯萎之触，虚假生命(3级)，衰弱射线(5级)' },
+          { roll: '3', text: '炼狱 Infernal - 火焰抗性，火焰箭，炼狱叱喝(3级)，黑暗术(5级)' },
+        ],
+      },
+    ],
+    subraces: [],
+  },
 ]
 
 /** 旧版硬编码种族兼容表（仅用于回退显示，不会出现在选择列表中） */
