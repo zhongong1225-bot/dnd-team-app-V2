@@ -807,7 +807,7 @@ function ContainedSpellEditor({
                   <select
                     value={hitResolution}
                     onChange={(e) => updateSpell(idx, { hitResolution: e.target.value })}
-                    className={selectCls + ' !w-[3.5rem]'}
+                    className={selectCls + ' !w-[4.5rem]'}
                   >
                     {HIT_RESOLUTION_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>{o.label}</option>
@@ -822,7 +822,7 @@ function ContainedSpellEditor({
                     value={sp.range ?? ''}
                     onChange={(e) => updateSpell(idx, { range: e.target.value })}
                     placeholder="自身"
-                    className={inputCls + ' !w-[3rem]'}
+                    className={inputCls + ' !w-[4.5rem]'}
                   />
                   <span className={labelCls}>伤害</span>
                   <NumberStepper
@@ -837,7 +837,7 @@ function ContainedSpellEditor({
                   <select
                     value={sp.damageDiceSides}
                     onChange={(e) => updateSpell(idx, { damageDiceSides: Number(e.target.value) })}
-                    className={selectCls + ' !w-[2.8rem] shrink-0'}
+                    className={selectCls + ' !w-[4rem] shrink-0'}
                   >
                     {DICE_SIDES_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value} className="bg-gray-800 text-white">{o.label}</option>
@@ -846,7 +846,7 @@ function ContainedSpellEditor({
                   <select
                     value={sp.damageType ?? ''}
                     onChange={(e) => updateSpell(idx, { damageType: e.target.value })}
-                    className={selectCls + ' !w-[3rem]'}
+                    className={selectCls + ' !w-[4.5rem]'}
                     title="伤害类型"
                   >
                     <option value="">类型</option>
@@ -1259,7 +1259,7 @@ function SpellDamageBonusEditor({ value, onChange, referenceData }) {
           <select
             value={v.type || ''}
             onChange={(e) => update({ type: e.target.value })}
-            className={inputClass.replace(/\bh-10\b/, 'h-8').replace(/\btext-sm\b/, 'text-sm') + 'w-full min-w-0'}
+            className={inputClass.replace(/\bh-10\b/, 'h-8').replace(/\btext-sm\b/, 'text-sm') + ' w-full min-w-0'}
           >
             <option value="">全部</option>
             {DAMAGE_TYPES.map((d) => (
@@ -1296,7 +1296,7 @@ function SpellDamageBonusEditor({ value, onChange, referenceData }) {
             value={v.extraDice || ''}
             onChange={(e) => update({ extraDice: e.target.value })}
             placeholder="1d6"
-            className={inputClass.replace(/\bh-10\b/, 'h-8').replace(/\btext-sm\b/, 'text-sm') + 'w-full min-w-0'}
+            className={inputClass.replace(/\bh-10\b/, 'h-8').replace(/\btext-sm\b/, 'text-sm') + ' w-full min-w-0'}
           />
         </div>
       </div>
@@ -1324,7 +1324,7 @@ function ChargeRecoveryEditor({ value, onChange }) {
         <select
           value={v.kind}
           onChange={(e) => onChange({ kind: e.target.value, fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0 })}
-          className={inputClass.replace(/\bh-10\b/, 'h-8').replace(/\btext-sm\b/, 'text-sm') + 'w-28 min-w-0'}
+          className={inputClass.replace(/\bh-10\b/, 'h-8').replace(/\btext-sm\b/, 'text-sm') + ' w-28 min-w-0'}
         >
           <option value="fixed">固定值</option>
           <option value="dice">掷骰</option>
@@ -1768,12 +1768,12 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                   <NumberStepper value={sp.cost ?? 1} onChange={(v) => updateEffect(idx, { value: { ...sp, cost: Math.max(0, Math.min(99, v)) } })} min={0} max={99} compact narrow className="!h-7 !w-16 !min-w-0 !max-w-none" />
                   <span className="text-gray-600 mx-0.5">|</span>
                   <span className={labelCls}>命中</span>
-                  <select value={hitRes} onChange={(e) => updateEffect(idx, { value: { ...sp, hitResolution: e.target.value } })} className={selectCls + ' !w-[3rem]'}>
+                  <select value={hitRes} onChange={(e) => updateEffect(idx, { value: { ...sp, hitResolution: e.target.value } })} className={selectCls + ' !w-[4.5rem]'}>
                     {HIT_RESOLUTION_OPTIONS.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
                   </select>
                   {hitVal != null && <span className="text-white font-mono tabular-nums text-xs shrink-0">{hitVal}</span>}
                   <span className={labelCls}>距离</span>
-                  <input type="text" value={sp.range ?? ''} onChange={(e) => updateEffect(idx, { value: { ...sp, range: e.target.value } })} placeholder="自身" className={inputCls + ' !w-[4rem]'} />
+                  <input type="text" value={sp.range ?? ''} onChange={(e) => updateEffect(idx, { value: { ...sp, range: e.target.value } })} placeholder="自身" className={inputCls + ' !w-[4.5rem]'} />
                   {multiplierCheckbox(idx, eff)}
                 <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0" title="删除">
                     <Trash2 className="w-3.5 h-3.5" />
@@ -2203,12 +2203,12 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
                 <NumberStepper value={sp.cost ?? 1} onChange={(v) => updateEffect(idx, { value: { ...sp, cost: Math.max(0, Math.min(99, v)) } })} min={0} max={99} compact narrow className="!h-7 !w-16 !min-w-0 !max-w-none" />
                 <span className="text-gray-600 mx-0.5">|</span>
                 <span className={labelCls}>命中</span>
-                <select value={hitRes} onChange={(e) => updateEffect(idx, { value: { ...sp, hitResolution: e.target.value } })} className={selectCls + ' !w-[3.5rem]'}>
+                <select value={hitRes} onChange={(e) => updateEffect(idx, { value: { ...sp, hitResolution: e.target.value } })} className={selectCls + ' !w-[4.5rem]'}>
                   {HIT_RESOLUTION_OPTIONS.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
                 </select>
                 {hitVal != null && <span className="text-white font-mono tabular-nums text-xs shrink-0 w-[2rem] text-center">{hitVal}</span>}
                 <span className={labelCls}>距离</span>
-                <input type="text" value={sp.range ?? ''} onChange={(e) => updateEffect(idx, { value: { ...sp, range: e.target.value } })} placeholder="自身" className={inputCls + ' !w-[3rem]'} />
+                <input type="text" value={sp.range ?? ''} onChange={(e) => updateEffect(idx, { value: { ...sp, range: e.target.value } })} placeholder="自身" className={inputCls + ' !w-[4.5rem]'} />
                 {(_combatPower?.damage || _combatPower?.healing) && (
                   <span className="w-[6rem] shrink-0 flex items-center gap-x-2 font-mono text-xs">
                     {_combatPower?.damage && <span className="text-red-400 truncate" title="伤害">{_combatPower.damage}</span>}
@@ -3189,7 +3189,7 @@ function CreatureTransformEditor({ value, onChange }) {
         <select
           value={data.creatureId}
           onChange={(e) => patchData({ creatureId: e.target.value })}
-          className={selectCls + ' flex-1 min-w-0'}
+          className={selectCls + ' flex-1 min-w-[14rem]'}
         >
           <option value="">-- 选择生物 --</option>
           {creatures.map((c) => (
@@ -3253,7 +3253,7 @@ function CreatureTransformEditor({ value, onChange }) {
                 <select
                   value={data.acMode}
                   onChange={(e) => patchData({ acMode: e.target.value })}
-                  className={selectCls + ' !w-auto flex-1 min-w-0'}
+                  className={selectCls + ' flex-1 min-w-[10rem]'}
                 >
                   <option value="replace">替换为生物AC</option>
                   <option value="add">叠加生物AC</option>
@@ -5769,7 +5769,7 @@ function UpgradeEditor({ upgrade, baseValue, effectType, category, charClasses, 
             <select
               value={upg.className}
               onChange={(e) => update({ className: e.target.value })}
-              className={EDT_SELECT}
+              className={EDT_SELECT + ' min-w-[12rem]'}
             >
               <option value="" disabled>选择职业…</option>
               {charClasses.map((c) => (
@@ -6190,7 +6190,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
             <select
               value={pickerCategory}
               onChange={(e) => setPickerCategory(e.target.value)}
-              className={EDT_SELECT + ' shrink-0'}
+              className={EDT_SELECT + ' shrink-0 min-w-[8rem]'}
             >
               {Object.entries(BUFF_TYPES)
                 .map(([k, v]) => (
@@ -6316,7 +6316,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
                             const newEffects = BUFF_TYPES[e.target.value]?.effects ?? []
                             updateModule(mod.id, { category: e.target.value, effectType: newEffects[0]?.key ?? '' })
                           }}
-                          className={EDT_SELECT + ' shrink-0'}
+                          className={EDT_SELECT + ' shrink-0 min-w-[8rem]'}
                         >
                           {Object.entries(BUFF_TYPES)
                             .map(([k, v]) => (
@@ -6668,7 +6668,7 @@ function UnifiedScopeConditionEditor({ scope, scopeDetail, effectCondition, onCh
         <select
           value={getUnifiedValue()}
           onChange={(e) => handleUnifiedChange(e.target.value)}
-          className={selCls + 'w-full sm:w-64 min-w-0'}
+          className={selCls + ' w-full sm:w-64 min-w-0'}
         >
           {SCOPE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
@@ -6710,7 +6710,7 @@ function UnifiedScopeConditionEditor({ scope, scopeDetail, effectCondition, onCh
             value={details[0] ?? ''}
             onChange={(e) => handleCustomTextChange(e.target.value)}
             placeholder="例如：水下、风暴天气、夜间…"
-            className={selCls + 'w-full sm:w-64 min-w-0'}
+            className={selCls + ' w-full sm:w-64 min-w-0'}
           />
         </div>
       )}
@@ -6725,7 +6725,7 @@ function UnifiedScopeConditionEditor({ scope, scopeDetail, effectCondition, onCh
             value={details[0] ?? ''}
             onChange={(e) => handleCustomTextChange(e.target.value)}
             placeholder="例如：对 undead 类型生物、对龙类、对某件装备…"
-            className={selCls + 'w-full sm:w-64 min-w-0'}
+            className={selCls + ' w-full sm:w-64 min-w-0'}
           />
           <p className="text-xs text-gray-500 mt-0.5">特定目标范围需手动计算，系统不自动匹配。</p>
         </div>

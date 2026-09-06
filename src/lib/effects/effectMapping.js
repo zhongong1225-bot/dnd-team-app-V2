@@ -956,9 +956,12 @@ export function getBuffsFromEquipmentAndInventory(character) {
   const out = []
   for (const entry of inv) {
     if (!equippedIds.has(entry?.id)) continue
-    // 未同调装备不生效其 BUFF/效果（但有 shield_pool 效果的物品除外，护盾池是固有能力）
+    // 未同调装备不生效其 BUFF/效果（但有 shield_pool / charge_item / contained_spell 的物品除外）
     const hasShieldPool = Array.isArray(entry.effects) && entry.effects.some(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
-    if (entry.isAttuned !== true && !hasShieldPool) continue
+    const hasUsableEffect = Array.isArray(entry.effects) && entry.effects.some(e =>
+      (e.effectType === 'charge_item' || e.effectType === 'contained_spell') && e.value && typeof e.value === 'object'
+    )
+    if (entry.isAttuned !== true && !hasShieldPool && !hasUsableEffect) continue
     let effects = getEffectsFromItem(entry)
     // Defensive body/shield slots already contribute AC via formulas.getAC (magicBonus etc).
     // Avoid counting the same AC enchantment again through item effect mapping.

@@ -11,8 +11,6 @@ import {
   ArrowUpFromLine,
   Pencil,
   Package,
-  ChevronDown,
-  ChevronRight,
   Lock,
   Unlock,
   Sparkles,
@@ -58,7 +56,7 @@ import { inputClass, inputClassInline } from '../lib/inputStyles'
 import { logTeamActivity } from '../lib/activityLog'
 import { NumberStepper } from './BuffForm'
 import { appendContainedSpellsBrief } from '../lib/containedSpellBrief'
-import { hasContainedSpellEffect } from '../lib/containedSpellModel'
+import { hasContainedSpellEffect, buildActiveAbilityFromEntry, extractContainedSpellValueFromEntry } from '../lib/containedSpellModel'
 import ContainedSpellUseButton from './ContainedSpellUseButton'
 import { ShieldPoolCounter } from './CardView'
 import { getShieldPoolCurrent, setShieldPoolCurrent, decrementShieldPool, resetShieldPool, buildShieldPoolKey } from '../lib/shieldPoolUtils'
@@ -449,6 +447,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   const [openActionRow, setOpenActionRow] = useState(null)
   const [equipmentUseModal, setEquipmentUseModal] = useState(null)
   const actionMenuRef = useRef(null)
+  const autoIdMigratedRef = useRef(false)
 
   useEffect(() => {
     if (openActionRow === null) return
@@ -508,8 +507,9 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   )
 
   useEffect(() => {
-    if (!canEdit) return
+    if (!canEdit || autoIdMigratedRef.current) return
     if (!inv.some((e) => !e?.inBagOfHolding && !e?.id)) return
+    autoIdMigratedRef.current = true
     onSave({
       inventory: inv.map((e, idx) =>
         !e?.inBagOfHolding && !e?.id ? { ...e, id: `inv_${idx}_${(e.name || 'item').replace(/\s+/g, '_')}` } : e,
@@ -987,12 +987,12 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     e.dataTransfer.setData('text/plain', `nested:${containerInvIndex}:${nestedIndex}`)
     e.dataTransfer.setData('text/dnd-nested-source', `${containerInvIndex}:${nestedIndex}`)
     e.dataTransfer.effectAllowed = 'copyMove'
-    const card = e.currentTarget.closest('[data-nested-card]')
+    const card = e.currentTarget.closest('[data-equipment-card]')
     if (card) card.classList.add('opacity-50')
   }
 
   const handleNestedDragEnd = (e) => {
-    const card = e.currentTarget.closest('[data-nested-card]')
+    const card = e.currentTarget.closest('[data-equipment-card]')
     if (card) card.classList.remove('opacity-50')
   }
 
@@ -1067,6 +1067,13 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
         inventory: inv.map((row, idx) =>
           idx === invFromBag ? { ...row, inBagOfHolding: false, bagModuleId: undefined, bagSlotId: undefined } : row,
         ),
+        backpackLayoutOrder: (() => {
+          const tok = itemTokenForEntry(entry, invFromBag)
+          const next = [...layoutOrder]
+          const insertAt = Math.min(toLayoutIdx, next.length)
+          next.splice(insertAt, 0, tok)
+          return next
+        })(),
       })
       return
     }
@@ -1133,21 +1140,32 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
           inventory: inv.map((e, idx) =>
             idx === fromInv ? { ...e, inBagOfHolding: false, bagModuleId: undefined, bagSlotId: undefined } : e,
           ),
+          backpackLayoutOrder: (() => {
+            const tok = itemTokenForEntry(source, fromInv)
+            if (order.includes(tok)) return order
+            const next = [...order]
+            const insertAt = Math.min(toLayoutIdx, next.length)
+            next.splice(insertAt, 0, tok)
+            return next
+          })(),
         })
         return
       }
       if (source.inBagOfHolding || target.inBagOfHolding) return
       if (isSameItemForMerge(source, target)) {
+        if (!source.id || !target.id) return
         setEditingIndex(null)
-        const qtyT = Math.max(1, Number(target?.qty) ?? 1)
-        const qtyS = Math.max(1, Number(source?.qty) ?? 1)
+        const qtyT = Math.max(1, Number(target?.qty) || 1)
+        const qtyS = Math.max(1, Number(source?.qty) || 1)
         const chargeT = Number(target?.charge) || 0
         const chargeS = Number(source?.charge) || 0
         const merged = { ...target, qty: qtyT + qtyS, charge: chargeT + chargeS }
-        const nextInv = inv.filter((_, i) => i !== fromInv)
-        const newToIndex = fromInv < toInv ? toInv - 1 : toInv
-        nextInv[newToIndex] = merged
-        const nextLayout = order.filter((_, i) => i !== fromL)
+        const targetId = target.id
+        const sourceId = source.id
+        const nextInv = inv
+          .filter((e) => e.id !== sourceId)
+          .map((e) => (e.id === targetId ? merged : e))
+        const nextLayout = order.filter((tok) => tok !== `i:${sourceId}`)
         saveWithEquipment({ inventory: nextInv, backpackLayoutOrder: nextLayout })
         return
       }
@@ -1311,7 +1329,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
         : e.walletCurrencyId
           ? Math.max(0, Math.floor(Number(e.qty) || 0))
           : null
-    const q = qWallet != null ? qWallet : Math.max(1, Number(e.qty) ?? 1)
+    const q = qWallet != null ? qWallet : Math.max(1, Number(e.qty) || 1)
     const toStore = qWallet != null ? qWallet : Math.min(Math.max(1, storeToVaultQty), q)
     const moduleId = character?.moduleId ?? 'default'
 
@@ -1333,7 +1351,6 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
           if (latest) {
             saveWithEquipment({
               wallet: latest.wallet ?? {},
-              inventory: latest.inventory ?? inv,
             })
           } else {
             setWallet(getCharacterWallet(character.id))
@@ -1460,11 +1477,15 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                   ? entry.effects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
                   : null
                 const maxChargeFromEffect = chargeEffect ? (Number(chargeEffect.value?.charges) || 0) : 0
+                const hasSpell = hasContainedSpellEffect(entry)
+                const containedSpellValue = !chargeEffect && hasSpell ? extractContainedSpellValueFromEntry(entry) : null
+                const maxChargeFromContainedSpell = containedSpellValue ? (Number(containedSpellValue.totalCharges) || 0) : 0
                 const spMax = spEffect ? (Number(spEffect.value.max) || 10) : null
                 const spThreshold = spEffect ? (Number(spEffect.value.threshold) || 0) : null
                 const spCurrent = spEffect ? getShieldPoolCurrent(character, 'equipment', entry.id, spMax) : null
                 const activeEntry = activeAbilities.find(a => a.inventoryId === entry.id)
-                const hasSpell = hasContainedSpellEffect(entry)
+                const localAbility = !activeEntry ? buildActiveAbilityFromEntry(entry) : null
+                const finalAbility = activeEntry?.ability || localAbility
                 const totalLb = getInventoryEntryStackWeightLb(entry)
                 const qty = Math.max(1, Math.floor(Number(entry?.qty) || 1))
                 const bbKey = entry?.id ?? `eq-${idx}`
@@ -1489,7 +1510,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                     briefExpanded={!!backpackItemBriefOpen[bbKey]}
                     onToggleBrief={() => setBackpackItemBriefOpen(prev => ({ ...prev, [bbKey]: !prev[bbKey] }))}
                     charge={Number(entry.charge) || 0}
-                    maxCharge={maxChargeFromEffect || Number(entry.maxCharge) || 0}
+                    maxCharge={maxChargeFromEffect || maxChargeFromContainedSpell || Number(entry.maxCharge) || 0}
                     onChargeChange={(v) => setCharge(idx, v)}
                     shieldPoolCurrent={spCurrent}
                     shieldPoolMax={spMax}
@@ -1498,8 +1519,8 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                       const newState = setShieldPoolCurrent(character, 'equipment', entry.id, v)
                       onSave({ shieldPoolStates: newState })
                     } : undefined}
-                    activeAbility={activeEntry?.ability || null}
-                    onUseAbility={activeEntry ? () => setEquipmentUseModal(activeEntry) : undefined}
+                    activeAbility={finalAbility}
+                    onUseAbility={finalAbility ? () => setEquipmentUseModal(activeEntry || { inventoryId: entry.id, ability: finalAbility, chargeValue: null }) : undefined}
                     hasContainedSpell={hasSpell}
                     onContainedSpellCharge={hasSpell ? (v) => setCharge(idx, v) : undefined}
                     containedSpellEntry={hasSpell ? entry : null}
@@ -1542,299 +1563,82 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                           const nestedCharge = Number(nested?.charge) || 0
                           const nestedMagicBonus = Number(nested?.magicBonus) || 0
                           const nestedActiveEntry = activeAbilities.find(a => a.inventoryId === nested.id)
+                          const nestedLocalAbility = !nestedActiveEntry ? buildActiveAbilityFromEntry(nested) : null
+                          const nestedFinalAbility = nestedActiveEntry?.ability || nestedLocalAbility
                           const nestedChargeEffect = Array.isArray(nested?.effects)
                             ? nested.effects.find(ef => ef?.effectType === 'charge_item') : null
+                          const nestedCsValue = !nestedChargeEffect && hasContainedSpellEffect(nested) ? extractContainedSpellValueFromEntry(nested) : null
                           const nestedMaxCharge = nestedChargeEffect
                             ? (Number(nestedChargeEffect.value?.charges) || 0)
-                            : (Number(nested?.maxCharge) || 0)
-                          const nestedChargeRatio = nestedMaxCharge > 0 ? nestedCharge / nestedMaxCharge : 0
-                          const nestedIsLowCharge = nestedChargeRatio < 0.3
-                          const nestedHasActiveAbility = !!nestedActiveEntry
+                            : nestedCsValue
+                              ? (Number(nestedCsValue.totalCharges) || 0)
+                              : (Number(nested?.maxCharge) || 0)
                           const nestedHasContainedSpell = hasContainedSpellEffect(nested)
-                          const nestedHasChargeOnly = !nestedHasActiveAbility && !nestedHasContainedSpell && nestedMaxCharge > 0
-                          const nestedHasAnyUseAction = nestedHasActiveAbility || nestedHasContainedSpell || nestedHasChargeOnly
-                          const nestedBarWidth = nestedHasActiveAbility
-                            ? `${nestedChargeRatio * 100}%`
-                            : nestedHasChargeOnly
-                              ? `${nestedChargeRatio * 100}%`
-                              : '100%'
                           const nestedDisplayName = invDisplayName(nested)
                           const nestedBuffTags = getBuffTagsFromEffects(nested?.effects || [])
                           const nestedBrief = getEntryBriefFull(nested)
                           const nestedBriefKey = `nested-${entry.id}-${nested.id || nestedIdx}`
                           const nestedBriefExpanded = !!backpackItemBriefOpen[nestedBriefKey]
-
-                          const nestedChargeStepper = nestedMaxCharge > 0 ? (
-                            <div className="flex items-center gap-1 shrink-0" onMouseDown={(e) => e.stopPropagation()}>
-                              <button
-                                type="button"
-                                className="w-[22px] h-[22px] flex items-center justify-center border border-[rgba(255,215,0,0.4)] rounded-[4px] bg-black/40 text-[13px] cursor-pointer leading-none transition-colors hover:bg-black/60 hover:border-[rgba(255,215,0,0.7)] hover:text-[#ffd700]"
-                                style={{ color: '#e0e0e0', padding: 0 }}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  const nextNested = entry.nestedInventory.map((n, idx2) =>
-                                    idx2 === nestedIdx ? { ...n, charge: Math.max(0, nestedCharge - 1) } : n
-                                  )
-                                  onSave({ inventory: inv.map((e2, idx2) => idx2 === idx ? { ...e2, nestedInventory: nextNested } : e2) })
-                                }}
-                              >
-                                −
-                              </button>
-                              <span
-                                className="text-[13px] font-bold min-w-[44px] text-center tabular-nums"
-                                style={{ color: '#ffd700', textShadow: '0 1px 3px rgba(0,0,0,0.7)' }}
-                              >
-                                {nestedCharge}/{nestedMaxCharge}
-                              </span>
-                              <button
-                                type="button"
-                                className="w-[22px] h-[22px] flex items-center justify-center border border-[rgba(255,215,0,0.4)] rounded-[4px] bg-black/40 text-[13px] cursor-pointer leading-none transition-colors hover:bg-black/60 hover:border-[rgba(255,215,0,0.7)] hover:text-[#ffd700]"
-                                style={{ color: '#e0e0e0', padding: 0 }}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  const nextNested = entry.nestedInventory.map((n, idx2) =>
-                                    idx2 === nestedIdx ? { ...n, charge: nestedCharge + 1 } : n
-                                  )
-                                  onSave({ inventory: inv.map((e2, idx2) => idx2 === idx ? { ...e2, nestedInventory: nextNested } : e2) })
-                                }}
-                              >
-                                +
-                              </button>
-                            </div>
-                          ) : null
-
-                          const nestedUnifiedButton = nestedHasAnyUseAction ? (
-                            <div
-                              className="relative flex items-center w-full h-8 px-2.5 border border-[rgba(199,154,66,0.4)] rounded-md overflow-hidden cursor-pointer transition-all hover:border-[rgba(199,154,66,0.7)] hover:shadow-[0_0_12px_rgba(199,154,66,0.3)]"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                if (nestedHasActiveAbility) {
-                                  setEquipmentUseModal(nestedActiveEntry)
-                                }
-                              }}
-                              title={nestedHasActiveAbility ? `使用主动技能: ${nestedActiveEntry.ability.name}` : nestedHasChargeOnly ? `充能: ${nestedCharge}/${nestedMaxCharge}` : '使用内含法术'}
-                            >
-                              <div className="absolute inset-0 bg-[#1a2535] z-0" />
-                              <div
-                                className="absolute top-0 left-0 bottom-0 transition-[width] duration-300 z-10"
-                                style={{
-                                  width: nestedBarWidth,
-                                  background: nestedIsLowCharge
-                                    ? 'linear-gradient(90deg, #8a5030, #c77040, #a87040)'
-                                    : 'linear-gradient(90deg, #8a7030, #c79a42, #a89040)',
-                                }}
-                              >
-                                <div
-                                  className="absolute inset-0"
-                                  style={{
-                                    background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent)',
-                                    animation: 'shimmer 2s infinite',
-                                  }}
-                                />
-                              </div>
-                              <div className="relative z-20 flex items-center w-full gap-1.5">
-                                <span
-                                  className="text-sm font-semibold text-[#f0f0f0] whitespace-nowrap overflow-hidden text-ellipsis flex-1 min-w-0"
-                                  style={{ textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}
-                                >
-                                  {nestedDisplayName}
-                                </span>
-                                {nestedMagicBonus > 0 && (
-                                  <span className="shrink-0 text-[11px] font-semibold" style={{ color: '#c79a42' }}>
-                                    +{nestedMagicBonus}
-                                  </span>
-                                )}
-                                {nestedHasActiveAbility && (
-                                  <>
-                                    <Sparkles className="w-4 h-4 shrink-0" style={{ color: '#ffd700' }} />
-                                    <span
-                                      className="text-[13px] font-semibold whitespace-nowrap shrink-0"
-                                      style={{ color: '#ffd700', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}
-                                    >
-                                      使用
-                                    </span>
-                                    {nestedChargeStepper}
-                                  </>
-                                )}
-                                {nestedHasChargeOnly && (
-                                  <div onClick={(e) => e.stopPropagation()}>
-                                    {nestedChargeStepper}
-                                  </div>
-                                )}
-                                {nestedHasContainedSpell && !nestedHasActiveAbility && (
-                                  <div onClick={(e) => e.stopPropagation()}>
-                                    <ContainedSpellUseButton
-                                      entry={nested}
-                                      onChargeChange={(v) => {
-                                        const nextNested = entry.nestedInventory.map((n, idx2) =>
-                                          idx2 === nestedIdx ? { ...n, charge: v } : n
-                                        )
-                                        onSave({ inventory: inv.map((e2, idx2) => idx2 === idx ? { ...e2, nestedInventory: nextNested } : e2) })
-                                      }}
-                                      compact
-                                    />
-                                  </div>
-                                )}
-                                {nestedBrief && (
-                                  <button
-                                    type="button"
-                                    className="shrink-0 flex items-center justify-center w-5 h-5 rounded hover:bg-white/10 transition-colors"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setBackpackItemBriefOpen(prev => ({ ...prev, [nestedBriefKey]: !nestedBriefExpanded }))
-                                    }}
-                                    title={nestedBriefExpanded ? '收起详情' : '展开详情'}
-                                  >
-                                    {nestedBriefExpanded ? <ChevronDown className="w-3.5 h-3.5" style={{ color: '#8899aa' }} /> : <ChevronRight className="w-3.5 h-3.5" style={{ color: '#8899aa' }} />}
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          ) : null
-
-                          const nestedNameOnlyBar = (
-                            <div className="flex items-center w-full h-8 px-2.5 border border-[rgba(199,154,66,0.3)] rounded-md overflow-hidden bg-[#1a2535]">
-                              <div className="flex items-center gap-1.5 flex-1 min-w-0 overflow-hidden">
-                                <InfoTooltip
-                                  content={(() => {
-                                    const p = nested?.itemId ? getItemById(nested.itemId) : null
-                                    return <ItemTooltipContent proto={p} entry={nested} />
-                                  })()}
-                                  triggerClassName="min-w-0 shrink truncate text-white font-medium text-sm"
-                                  disabled={!nested?.itemId}
-                                >
-                                  <span className="break-words">{nestedDisplayName}</span>
-                                </InfoTooltip>
-                                {nestedMagicBonus > 0 && (
-                                  <span className="shrink-0 text-[11px] font-semibold" style={{ color: '#c79a42' }}>
-                                    +{nestedMagicBonus}
-                                  </span>
-                                )}
-                                {nestedBrief && (
-                                  <span className="shrink-0 text-[#556677]">
-                                    {nestedBriefExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          )
+                          const nestedSpEffect = Array.isArray(nested?.effects)
+                            ? nested.effects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
+                            : null
+                          const nestedSpMax = nestedSpEffect ? (Number(nestedSpEffect.value.max) || 10) : null
+                          const nestedSpThreshold = nestedSpEffect ? (Number(nestedSpEffect.value.threshold) || 0) : null
+                          const nestedSpCurrent = nestedSpEffect ? getShieldPoolCurrent(character, 'equipment', nested.id, nestedSpMax) : null
 
                           return (
-                            <div
-                              key={nested.id ?? `nested-eq-${nestedIdx}`}
-                              data-nested-card
-                              draggable={canEdit}
-                              onDragStart={canEdit ? (e) => { handleNestedDragStart(e, idx, nestedIdx); e.currentTarget.classList.add('opacity-50') } : undefined}
-                              onDragEnd={canEdit ? (e) => { handleNestedDragEnd(e); e.currentTarget.classList.remove('opacity-50') } : undefined}
-                              className="rounded-md overflow-hidden"
-                              style={{
-                                marginBottom: '8px',
-                                background: '#1e2a3a',
-                                cursor: canEdit ? 'grab' : undefined,
+                            <EquipmentItemCard
+                              key={nested.id ?? `nested-eq-${idx}-${nestedIdx}`}
+                              gridVariant="container"
+                              entry={nested}
+                              invIndex={nestedIdx}
+                              slotValue="backpack"
+                              canEdit={canEdit}
+                              displayName={nestedDisplayName}
+                              magicBonus={nestedMagicBonus}
+                              brief={nestedBrief}
+                              briefExpanded={nestedBriefExpanded}
+                              onToggleBrief={() => setBackpackItemBriefOpen(prev => ({ ...prev, [nestedBriefKey]: !nestedBriefExpanded }))}
+                              charge={nestedCharge}
+                              maxCharge={nestedMaxCharge}
+                              onChargeChange={(v) => {
+                                const nextNested = entry.nestedInventory.map((n, idx2) =>
+                                  idx2 === nestedIdx ? { ...n, charge: v } : n
+                                )
+                                onSave({ inventory: inv.map((e2, idx2) => idx2 === idx ? { ...e2, nestedInventory: nextNested } : e2) })
                               }}
-                            >
-                              <div
-                                className={`grid items-center${nestedBrief ? ' cursor-pointer' : ''}`}
-                                style={{
-                                  gridTemplateColumns: '376px 136px 1fr 90px 76px',
-                                  height: '52px',
-                                  gap: 0,
-                                }}
-                                onClick={nestedBrief ? () => setBackpackItemBriefOpen(prev => ({ ...prev, [nestedBriefKey]: !nestedBriefExpanded })) : undefined}
-                              >
-                                <div className="flex items-center h-full overflow-hidden" style={{ padding: '4px 12px', borderRight: '1px solid #2a3a4e' }}>
-                                  {nestedUnifiedButton || nestedNameOnlyBar}
-                                </div>
-
-                                <div className="flex flex-col items-start justify-center gap-0.5 h-full overflow-hidden" style={{ padding: '4px 6px', borderRight: '1px solid #2a3a4e' }}>
-                                  {nestedBuffTags.map((tag, tagI) => (
-                                    <span
-                                      key={tagI}
-                                      className="text-[8px] px-1 border border-[#2a3a4e] rounded-sm bg-[#1a2535] whitespace-nowrap leading-3 h-3"
-                                      style={{ color: '#8899aa' }}
-                                    >
-                                      {tag}
-                                    </span>
-                                  ))}
-                                </div>
-
-                                <div />
-
-                                <div className="flex items-center h-full" style={{ borderRight: '1px solid #2a3a4e' }}>
-                                  <div className="flex items-center justify-center gap-1" style={{ width: '48px', height: '100%' }} onMouseDown={(e) => e.stopPropagation()}>
-                                    {canEdit ? (
-                                      <>
-                                        <button
-                                          type="button"
-                                          className="flex items-center justify-center rounded-[3px] text-[11px] cursor-pointer leading-none transition-colors hover:bg-white/10"
-                                          style={{ color: '#667788', width: '18px', height: '18px', padding: 0 }}
-                                          onClick={(e) => { e.stopPropagation(); setNestedQty(entry.id, nestedIdx, Math.max(1, nestedQty - 1)) }}
-                                        >
-                                          −
-                                        </button>
-                                        <span className="text-[12px] font-semibold tabular-nums" style={{ color: '#ffd700' }}>{nestedQty}</span>
-                                        <button
-                                          type="button"
-                                          className="flex items-center justify-center rounded-[3px] text-[11px] cursor-pointer leading-none transition-colors hover:bg-white/10"
-                                          style={{ color: '#667788', width: '18px', height: '18px', padding: 0 }}
-                                          onClick={(e) => { e.stopPropagation(); setNestedQty(entry.id, nestedIdx, nestedQty + 1) }}
-                                        >
-                                          +
-                                        </button>
-                                      </>
-                                    ) : (
-                                      <span className="text-[11px] tabular-nums" style={{ color: '#e0e0e0' }}>×{nestedQty}</span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center justify-center" style={{ width: '42px', height: '100%' }}>
-                                    {nestedLb > 0 && (
-                                      <span className="text-[10px] whitespace-nowrap leading-none" style={{ color: '#aabbcc' }}>
-                                        {formatDisplayWeightLb(nestedLb)}磅
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {canEdit && (
-                                  <div className="flex items-center justify-center h-full px-2" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
-                                    <button
-                                      type="button"
-                                      className="flex items-center justify-center rounded-md text-dnd-text-muted cursor-pointer transition-colors hover:bg-white/[0.08] hover:text-gray-300"
-                                      style={{ width: '20px', height: '20px' }}
-                                      onClick={(e) => { e.stopPropagation(); openStoreToVaultForNested(idx, nestedIdx); }}
-                                      title="存到团队仓库"
-                                    >
-                                      <Package size={12} />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="flex items-center justify-center rounded-md text-dnd-text-muted cursor-pointer transition-colors hover:bg-white/[0.08] hover:text-gray-300"
-                                      style={{ width: '20px', height: '20px' }}
-                                      onClick={(e) => { e.stopPropagation(); setEditingNested({ containerId: entry.id, nestedIndex: nestedIdx }); }}
-                                      title="编辑"
-                                    >
-                                      <Pencil size={12} />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="flex items-center justify-center rounded-md text-dnd-text-muted cursor-pointer transition-colors hover:bg-white/[0.08] hover:text-gray-300"
-                                      style={{ width: '20px', height: '20px' }}
-                                      onClick={(e) => { e.stopPropagation(); removeItemFromContainer(entry.id, nestedIdx); }}
-                                      title="取出到背包"
-                                    >
-                                      <ArrowUpFromLine size={12} />
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                              {nestedBriefExpanded && nestedBrief && (
-                                <div className="px-3 py-2 border-t border-[#2a3a4e]">
-                                  <p className="text-[10.6px] leading-relaxed whitespace-pre-wrap break-words" style={{ color: '#e0e0e0' }}>
-                                    {nestedBrief}
-                                  </p>
-                                </div>
-                              )}
-                            </div>
+                              shieldPoolCurrent={nestedSpCurrent}
+                              shieldPoolMax={nestedSpMax}
+                              shieldPoolThreshold={nestedSpThreshold}
+                              onShieldPoolChange={nestedSpEffect ? (v) => {
+                                const newState = setShieldPoolCurrent(character, 'equipment', nested.id, v)
+                                onSave({ shieldPoolStates: newState })
+                              } : undefined}
+                              activeAbility={nestedFinalAbility}
+                              onUseAbility={nestedFinalAbility ? () => setEquipmentUseModal(nestedActiveEntry || { inventoryId: nested.id, ability: nestedFinalAbility, chargeValue: null }) : undefined}
+                              hasContainedSpell={nestedHasContainedSpell}
+                              onContainedSpellCharge={nestedHasContainedSpell ? (v) => {
+                                const nextNested = entry.nestedInventory.map((n, idx2) =>
+                                  idx2 === nestedIdx ? { ...n, charge: v } : n
+                                )
+                                onSave({ inventory: inv.map((e2, idx2) => idx2 === idx ? { ...e2, nestedInventory: nextNested } : e2) })
+                              } : undefined}
+                              containedSpellEntry={nestedHasContainedSpell ? nested : null}
+                              qty={nestedQty}
+                              onQtyChange={(v) => setNestedQty(entry.id, nestedIdx, v)}
+                              weightLb={nestedLb}
+                              showQty={!nested?.walletCurrencyId}
+                              buffTags={nestedBuffTags}
+                              onStoreToVault={() => openStoreToVaultForNested(idx, nestedIdx)}
+                              onEdit={() => setEditingNested({ containerId: entry.id, nestedIndex: nestedIdx })}
+                              onDelete={() => removeItemFromContainer(entry.id, nestedIdx)}
+                              tooltipContent={nested?.itemId ? (
+                                <ItemTooltipContent proto={getItemById(nested.itemId)} entry={nested} />
+                              ) : null}
+                              draggable={canEdit}
+                              onDragStart={canEdit ? (e) => handleNestedDragStart(e, idx, nestedIdx) : undefined}
+                              onDragEnd={canEdit ? handleNestedDragEnd : undefined}
+                            />
                           )
                         })}
                       </div>
@@ -1881,6 +1685,14 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                     ? entry.effects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
                     : null
                   const maxChargeFromEffect = chargeEffect ? (Number(chargeEffect.value?.charges) || 0) : 0
+                  const _bpContainedSpellValue = !chargeEffect && hasContainedSpellEffect(entry) ? extractContainedSpellValueFromEntry(entry) : null
+                  const maxChargeFromContainedSpell = _bpContainedSpellValue ? (Number(_bpContainedSpellValue.totalCharges) || 0) : 0
+                  const spEffect = Array.isArray(entry?.effects)
+                    ? entry.effects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
+                    : null
+                  const spMax = spEffect ? (Number(spEffect.value.max) || 10) : null
+                  const spThreshold = spEffect ? (Number(spEffect.value.threshold) || 0) : null
+                  const spCurrent = spEffect ? getShieldPoolCurrent(character, 'equipment', entry.id, spMax) : null
                   const isAnchor = isBagModuleAnchorEntry(entry)
                   const isContainer = !isAnchor && hasItemStorageEffect(entry)
                   const modForAnchor = isAnchor ? bagModules.find((m) => m.id === entry.bagModuleAnchorId) : null
@@ -1963,14 +1775,15 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                 )}
                                 {(() => {
                                   const activeEntry = activeAbilities.find(a => a.inventoryId === entry.id)
-                                  if (!activeEntry) return null
-                                  const { ability } = activeEntry
+                                  const localAbility = !activeEntry ? buildActiveAbilityFromEntry(entry) : null
+                                  const ability = activeEntry?.ability || localAbility
+                                  if (!ability) return null
                                   return (
                                     <button
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation()
-                                        setEquipmentUseModal(activeEntry)
+                                        setEquipmentUseModal(activeEntry || { inventoryId: entry.id, ability, chargeValue: null })
                                       }}
                                       className="inline-flex items-center justify-center h-6 w-6 shrink-0 rounded border border-cyan-600/70 bg-cyan-900/20 text-cyan-300 hover:bg-cyan-800/40 transition-colors"
                                       title={`使用主动技能: ${ability.name}`}
@@ -2108,20 +1921,26 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                             briefExpanded={!!backpackItemBriefOpen[bbKey]}
                             onToggleBrief={() => setBackpackItemBriefOpen(prev => ({ ...prev, [bbKey]: !prev[bbKey] }))}
                             charge={showChargeCol ? (Number(entry.charge) || 0) : 0}
-                            maxCharge={maxChargeFromEffect || Number(entry.maxCharge) || 0}
+                            maxCharge={maxChargeFromEffect || maxChargeFromContainedSpell || Number(entry.maxCharge) || 0}
                             onChargeChange={(v) => setCharge(i, v)}
-                            shieldPoolCurrent={null}
-                            shieldPoolMax={null}
-                            shieldPoolThreshold={null}
-                            onShieldPoolChange={undefined}
+                            shieldPoolCurrent={spCurrent}
+                            shieldPoolMax={spMax}
+                            shieldPoolThreshold={spThreshold}
+                            onShieldPoolChange={spEffect ? (v) => {
+                              const newState = setShieldPoolCurrent(character, 'equipment', entry.id, v)
+                              onSave({ shieldPoolStates: newState })
+                            } : undefined}
                             activeAbility={(() => {
                               const activeEntry = activeAbilities.find(a => a.inventoryId === entry.id)
-                              return activeEntry?.ability || null
+                              if (activeEntry) return activeEntry.ability
+                              return buildActiveAbilityFromEntry(entry)
                             })()}
                             onUseAbility={(() => {
                               const activeEntry = activeAbilities.find(a => a.inventoryId === entry.id)
-                              if (!activeEntry) return undefined
-                              return () => setEquipmentUseModal(activeEntry)
+                              if (activeEntry) return () => setEquipmentUseModal(activeEntry)
+                              const localAbility = buildActiveAbilityFromEntry(entry)
+                              if (localAbility) return () => setEquipmentUseModal({ inventoryId: entry.id, ability: localAbility, chargeValue: null })
+                              return undefined
                             })()}
                             hasContainedSpell={hasContainedSpellEffect(entry)}
                             onContainedSpellCharge={hasContainedSpellEffect(entry) ? (v) => setCharge(i, v) : undefined}
@@ -2168,299 +1987,82 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                 const nestedCharge = Number(nested?.charge) || 0
                                 const nestedMagicBonus = Number(nested?.magicBonus) || 0
                                 const nestedActiveEntry = activeAbilities.find(a => a.inventoryId === nested.id)
+                                const nestedLocalAbility = !nestedActiveEntry ? buildActiveAbilityFromEntry(nested) : null
+                                const nestedFinalAbility = nestedActiveEntry?.ability || nestedLocalAbility
                                 const nestedChargeEffect = Array.isArray(nested?.effects)
                                   ? nested.effects.find(ef => ef?.effectType === 'charge_item') : null
+                                const nestedCsValue = !nestedChargeEffect && hasContainedSpellEffect(nested) ? extractContainedSpellValueFromEntry(nested) : null
                                 const nestedMaxCharge = nestedChargeEffect
                                   ? (Number(nestedChargeEffect.value?.charges) || 0)
-                                  : (Number(nested?.maxCharge) || 0)
-                                const nestedChargeRatio = nestedMaxCharge > 0 ? nestedCharge / nestedMaxCharge : 0
-                                const nestedIsLowCharge = nestedChargeRatio < 0.3
-                                const nestedHasActiveAbility = !!nestedActiveEntry
+                                  : nestedCsValue
+                                    ? (Number(nestedCsValue.totalCharges) || 0)
+                                    : (Number(nested?.maxCharge) || 0)
                                 const nestedHasContainedSpell = hasContainedSpellEffect(nested)
-                                const nestedHasChargeOnly = !nestedHasActiveAbility && !nestedHasContainedSpell && nestedMaxCharge > 0
-                                const nestedHasAnyUseAction = nestedHasActiveAbility || nestedHasContainedSpell || nestedHasChargeOnly
-                                const nestedBarWidth = nestedHasActiveAbility
-                                  ? `${nestedChargeRatio * 100}%`
-                                  : nestedHasChargeOnly
-                                    ? `${nestedChargeRatio * 100}%`
-                                    : '100%'
                                 const nestedDisplayName = invDisplayName(nested)
                                 const nestedBuffTags = getBuffTagsFromEffects(nested?.effects || [])
                                 const nestedBrief = getEntryBriefFull(nested)
                                 const nestedBriefKey = `nested-${entry.id}-${nested.id || nestedIdx}`
                                 const nestedBriefExpanded = !!backpackItemBriefOpen[nestedBriefKey]
-
-                                const nestedChargeStepper = nestedMaxCharge > 0 ? (
-                                  <div className="flex items-center gap-1 shrink-0" onMouseDown={(e) => e.stopPropagation()}>
-                                    <button
-                                      type="button"
-                                      className="w-[22px] h-[22px] flex items-center justify-center border border-[rgba(255,215,0,0.4)] rounded-[4px] bg-black/40 text-[13px] cursor-pointer leading-none transition-colors hover:bg-black/60 hover:border-[rgba(255,215,0,0.7)] hover:text-[#ffd700]"
-                                      style={{ color: '#e0e0e0', padding: 0 }}
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        const nextNested = entry.nestedInventory.map((n, idx2) =>
-                                          idx2 === nestedIdx ? { ...n, charge: Math.max(0, nestedCharge - 1) } : n
-                                        )
-                                        onSave({ inventory: inv.map((e2, idx2) => idx2 === i ? { ...e2, nestedInventory: nextNested } : e2) })
-                                      }}
-                                    >
-                                      −
-                                    </button>
-                                    <span
-                                      className="text-[13px] font-bold min-w-[44px] text-center tabular-nums"
-                                      style={{ color: '#ffd700', textShadow: '0 1px 3px rgba(0,0,0,0.7)' }}
-                                    >
-                                      {nestedCharge}/{nestedMaxCharge}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      className="w-[22px] h-[22px] flex items-center justify-center border border-[rgba(255,215,0,0.4)] rounded-[4px] bg-black/40 text-[13px] cursor-pointer leading-none transition-colors hover:bg-black/60 hover:border-[rgba(255,215,0,0.7)] hover:text-[#ffd700]"
-                                      style={{ color: '#e0e0e0', padding: 0 }}
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        const nextNested = entry.nestedInventory.map((n, idx2) =>
-                                          idx2 === nestedIdx ? { ...n, charge: nestedCharge + 1 } : n
-                                        )
-                                        onSave({ inventory: inv.map((e2, idx2) => idx2 === i ? { ...e2, nestedInventory: nextNested } : e2) })
-                                      }}
-                                    >
-                                      +
-                                    </button>
-                                  </div>
-                                ) : null
-
-                                const nestedUnifiedButton = nestedHasAnyUseAction ? (
-                                  <div
-                                    className="relative flex items-center w-full h-8 px-2.5 border border-[rgba(199,154,66,0.4)] rounded-md overflow-hidden cursor-pointer transition-all hover:border-[rgba(199,154,66,0.7)] hover:shadow-[0_0_12px_rgba(199,154,66,0.3)]"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      if (nestedHasActiveAbility) {
-                                        setEquipmentUseModal(nestedActiveEntry)
-                                      }
-                                    }}
-                                    title={nestedHasActiveAbility ? `使用主动技能: ${nestedActiveEntry.ability.name}` : nestedHasChargeOnly ? `充能: ${nestedCharge}/${nestedMaxCharge}` : '使用内含法术'}
-                                  >
-                                    <div className="absolute inset-0 bg-[#1a2535] z-0" />
-                                    <div
-                                      className="absolute top-0 left-0 bottom-0 transition-[width] duration-300 z-10"
-                                      style={{
-                                        width: nestedBarWidth,
-                                        background: nestedIsLowCharge
-                                          ? 'linear-gradient(90deg, #8a5030, #c77040, #a87040)'
-                                          : 'linear-gradient(90deg, #8a7030, #c79a42, #a89040)',
-                                      }}
-                                    >
-                                      <div
-                                        className="absolute inset-0"
-                                        style={{
-                                          background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent)',
-                                          animation: 'shimmer 2s infinite',
-                                        }}
-                                      />
-                                    </div>
-                                    <div className="relative z-20 flex items-center w-full gap-1.5">
-                                      <span
-                                        className="text-sm font-semibold text-[#f0f0f0] whitespace-nowrap overflow-hidden text-ellipsis flex-1 min-w-0"
-                                        style={{ textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}
-                                      >
-                                        {nestedDisplayName}
-                                      </span>
-                                      {nestedMagicBonus > 0 && (
-                                        <span className="shrink-0 text-[11px] font-semibold" style={{ color: '#c79a42' }}>
-                                          +{nestedMagicBonus}
-                                        </span>
-                                      )}
-                                      {nestedHasActiveAbility && (
-                                        <>
-                                          <Sparkles className="w-4 h-4 shrink-0" style={{ color: '#ffd700' }} />
-                                          <span
-                                            className="text-[13px] font-semibold whitespace-nowrap shrink-0"
-                                            style={{ color: '#ffd700', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}
-                                          >
-                                            使用
-                                          </span>
-                                          {nestedChargeStepper}
-                                        </>
-                                      )}
-                                      {nestedHasChargeOnly && (
-                                        <div onClick={(e) => e.stopPropagation()}>
-                                          {nestedChargeStepper}
-                                        </div>
-                                      )}
-                                      {nestedHasContainedSpell && !nestedHasActiveAbility && (
-                                        <div onClick={(e) => e.stopPropagation()}>
-                                          <ContainedSpellUseButton
-                                            entry={nested}
-                                            onChargeChange={(v) => {
-                                              const nextNested = entry.nestedInventory.map((n, idx2) =>
-                                                idx2 === nestedIdx ? { ...n, charge: v } : n
-                                              )
-                                              onSave({ inventory: inv.map((e2, idx2) => idx2 === i ? { ...e2, nestedInventory: nextNested } : e2) })
-                                            }}
-                                            compact
-                                          />
-                                        </div>
-                                      )}
-                                      {nestedBrief && (
-                                        <button
-                                          type="button"
-                                          className="shrink-0 flex items-center justify-center w-5 h-5 rounded hover:bg-white/10 transition-colors"
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            setBackpackItemBriefOpen(prev => ({ ...prev, [nestedBriefKey]: !nestedBriefExpanded }))
-                                          }}
-                                          title={nestedBriefExpanded ? '收起详情' : '展开详情'}
-                                        >
-                                          {nestedBriefExpanded ? <ChevronDown className="w-3.5 h-3.5" style={{ color: '#8899aa' }} /> : <ChevronRight className="w-3.5 h-3.5" style={{ color: '#8899aa' }} />}
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
-                                ) : null
-
-                                const nestedNameOnlyBar = (
-                                  <div className="flex items-center w-full h-8 px-2.5 border border-[rgba(199,154,66,0.3)] rounded-md overflow-hidden bg-[#1a2535]">
-                                    <div className="flex items-center gap-1.5 flex-1 min-w-0 overflow-hidden">
-                                      <InfoTooltip
-                                        content={(() => {
-                                          const p = nested?.itemId ? getItemById(nested.itemId) : null
-                                          return <ItemTooltipContent proto={p} entry={nested} />
-                                        })()}
-                                        triggerClassName="min-w-0 shrink truncate text-white font-medium text-sm"
-                                        disabled={!nested?.itemId}
-                                      >
-                                        <span className="break-words">{nestedDisplayName}</span>
-                                      </InfoTooltip>
-                                      {nestedMagicBonus > 0 && (
-                                        <span className="shrink-0 text-[11px] font-semibold" style={{ color: '#c79a42' }}>
-                                          +{nestedMagicBonus}
-                                        </span>
-                                      )}
-                                      {nestedBrief && (
-                                        <span className="shrink-0 text-[#556677]">
-                                          {nestedBriefExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                )
+                                const nestedSpEffect = Array.isArray(nested?.effects)
+                                  ? nested.effects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
+                                  : null
+                                const nestedSpMax = nestedSpEffect ? (Number(nestedSpEffect.value.max) || 10) : null
+                                const nestedSpThreshold = nestedSpEffect ? (Number(nestedSpEffect.value.threshold) || 0) : null
+                                const nestedSpCurrent = nestedSpEffect ? getShieldPoolCurrent(character, 'equipment', nested.id, nestedSpMax) : null
 
                                 return (
-                                  <div
+                                  <EquipmentItemCard
                                     key={nested.id ?? `nested-bag-${i}-${nestedIdx}`}
-                                    data-nested-card
-                                    draggable={canEdit}
-                                    onDragStart={canEdit ? (e) => { handleNestedDragStart(e, i, nestedIdx); e.currentTarget.classList.add('opacity-50') } : undefined}
-                                    onDragEnd={canEdit ? (e) => { handleNestedDragEnd(e); e.currentTarget.classList.remove('opacity-50') } : undefined}
-                                    className="rounded-md overflow-hidden"
-                                    style={{
-                                      marginBottom: '8px',
-                                      background: '#1e2a3a',
-                                      cursor: canEdit ? 'grab' : undefined,
+                                    gridVariant="container"
+                                    entry={nested}
+                                    invIndex={nestedIdx}
+                                    slotValue="backpack"
+                                    canEdit={canEdit}
+                                    displayName={nestedDisplayName}
+                                    magicBonus={nestedMagicBonus}
+                                    brief={nestedBrief}
+                                    briefExpanded={nestedBriefExpanded}
+                                    onToggleBrief={() => setBackpackItemBriefOpen(prev => ({ ...prev, [nestedBriefKey]: !nestedBriefExpanded }))}
+                                    charge={nestedCharge}
+                                    maxCharge={nestedMaxCharge}
+                                    onChargeChange={(v) => {
+                                      const nextNested = entry.nestedInventory.map((n, idx2) =>
+                                        idx2 === nestedIdx ? { ...n, charge: v } : n
+                                      )
+                                      onSave({ inventory: inv.map((e2, idx2) => idx2 === i ? { ...e2, nestedInventory: nextNested } : e2) })
                                     }}
-                                  >
-                                    <div
-                                      className={`grid items-center${nestedBrief ? ' cursor-pointer' : ''}`}
-                                      style={{
-                                        gridTemplateColumns: '376px 136px 1fr 90px 76px',
-                                        height: '52px',
-                                        gap: 0,
-                                      }}
-                                      onClick={nestedBrief ? () => setBackpackItemBriefOpen(prev => ({ ...prev, [nestedBriefKey]: !nestedBriefExpanded })) : undefined}
-                                    >
-                                      <div className="flex items-center h-full overflow-hidden" style={{ padding: '4px 12px', borderRight: '1px solid #2a3a4e' }}>
-                                        {nestedUnifiedButton || nestedNameOnlyBar}
-                                      </div>
-
-                                      <div className="flex flex-col items-start justify-center gap-0.5 h-full overflow-hidden" style={{ padding: '4px 6px', borderRight: '1px solid #2a3a4e' }}>
-                                        {nestedBuffTags.map((tag, tagI) => (
-                                          <span
-                                            key={tagI}
-                                            className="text-[8px] px-1 border border-[#2a3a4e] rounded-sm bg-[#1a2535] whitespace-nowrap leading-3 h-3"
-                                            style={{ color: '#8899aa' }}
-                                          >
-                                            {tag}
-                                          </span>
-                                        ))}
-                                      </div>
-
-                                      <div />
-
-                                      <div className="flex items-center h-full" style={{ borderRight: '1px solid #2a3a4e' }}>
-                                        <div className="flex items-center justify-center gap-1" style={{ width: '48px', height: '100%' }} onMouseDown={(e) => e.stopPropagation()}>
-                                          {canEdit ? (
-                                            <>
-                                              <button
-                                                type="button"
-                                                className="flex items-center justify-center rounded-[3px] text-[11px] cursor-pointer leading-none transition-colors hover:bg-white/10"
-                                                style={{ color: '#667788', width: '18px', height: '18px', padding: 0 }}
-                                                onClick={(e) => { e.stopPropagation(); setNestedQty(entry.id, nestedIdx, Math.max(1, nestedQty - 1)) }}
-                                              >
-                                                −
-                                              </button>
-                                              <span className="text-[12px] font-semibold tabular-nums" style={{ color: '#ffd700' }}>{nestedQty}</span>
-                                              <button
-                                                type="button"
-                                                className="flex items-center justify-center rounded-[3px] text-[11px] cursor-pointer leading-none transition-colors hover:bg-white/10"
-                                                style={{ color: '#667788', width: '18px', height: '18px', padding: 0 }}
-                                                onClick={(e) => { e.stopPropagation(); setNestedQty(entry.id, nestedIdx, nestedQty + 1) }}
-                                              >
-                                                +
-                                              </button>
-                                            </>
-                                          ) : (
-                                            <span className="text-[11px] tabular-nums" style={{ color: '#e0e0e0' }}>×{nestedQty}</span>
-                                          )}
-                                        </div>
-                                        <div className="flex items-center justify-center" style={{ width: '42px', height: '100%' }}>
-                                          {nestedLb > 0 && (
-                                            <span className="text-[10px] whitespace-nowrap leading-none" style={{ color: '#aabbcc' }}>
-                                              {formatDisplayWeightLb(nestedLb)}磅
-                                            </span>
-                                          )}
-                                        </div>
-                                      </div>
-
-                                      {canEdit && (
-                                        <div className="flex items-center justify-center h-full px-2" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
-                                          <button
-                                            type="button"
-                                            className="flex items-center justify-center rounded-md text-dnd-text-muted cursor-pointer transition-colors hover:bg-white/[0.08] hover:text-gray-300"
-                                            style={{ width: '20px', height: '20px' }}
-                                            onClick={(e) => { e.stopPropagation(); openStoreToVaultForNested(i, nestedIdx); }}
-                                            title="存到团队仓库"
-                                          >
-                                            <Package size={12} />
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="flex items-center justify-center rounded-md text-dnd-text-muted cursor-pointer transition-colors hover:bg-white/[0.08] hover:text-gray-300"
-                                            style={{ width: '20px', height: '20px' }}
-                                            onClick={(e) => { e.stopPropagation(); setEditingNested({ containerId: entry.id, nestedIndex: nestedIdx }); }}
-                                            title="编辑"
-                                          >
-                                            <Pencil size={12} />
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="flex items-center justify-center rounded-md text-dnd-text-muted cursor-pointer transition-colors hover:bg-white/[0.08] hover:text-gray-300"
-                                            style={{ width: '20px', height: '20px' }}
-                                            onClick={(e) => { e.stopPropagation(); removeItemFromContainer(entry.id, nestedIdx); }}
-                                            title="取出到背包"
-                                          >
-                                            <ArrowUpFromLine size={12} />
-                                          </button>
-                                        </div>
-                                      )}
-                                    </div>
-                                    {nestedBriefExpanded && nestedBrief && (
-                                      <div className="px-3 py-2 border-t border-[#2a3a4e]">
-                                        <p className="text-[10.6px] leading-relaxed whitespace-pre-wrap break-words" style={{ color: '#e0e0e0' }}>
-                                          {nestedBrief}
-                                        </p>
-                                      </div>
-                                    )}
-                                  </div>
+                                    shieldPoolCurrent={nestedSpCurrent}
+                                    shieldPoolMax={nestedSpMax}
+                                    shieldPoolThreshold={nestedSpThreshold}
+                                    onShieldPoolChange={nestedSpEffect ? (v) => {
+                                      const newState = setShieldPoolCurrent(character, 'equipment', nested.id, v)
+                                      onSave({ shieldPoolStates: newState })
+                                    } : undefined}
+                                    activeAbility={nestedFinalAbility}
+                                    onUseAbility={nestedFinalAbility ? () => setEquipmentUseModal(nestedActiveEntry || { inventoryId: nested.id, ability: nestedFinalAbility, chargeValue: null }) : undefined}
+                                    hasContainedSpell={nestedHasContainedSpell}
+                                    onContainedSpellCharge={nestedHasContainedSpell ? (v) => {
+                                      const nextNested = entry.nestedInventory.map((n, idx2) =>
+                                        idx2 === nestedIdx ? { ...n, charge: v } : n
+                                      )
+                                      onSave({ inventory: inv.map((e2, idx2) => idx2 === i ? { ...e2, nestedInventory: nextNested } : e2) })
+                                    } : undefined}
+                                    containedSpellEntry={nestedHasContainedSpell ? nested : null}
+                                    qty={nestedQty}
+                                    onQtyChange={(v) => setNestedQty(entry.id, nestedIdx, v)}
+                                    weightLb={nestedLb}
+                                    showQty={!nested?.walletCurrencyId}
+                                    buffTags={nestedBuffTags}
+                                    onStoreToVault={() => openStoreToVaultForNested(i, nestedIdx)}
+                                    onEdit={() => setEditingNested({ containerId: entry.id, nestedIndex: nestedIdx })}
+                                    onDelete={() => removeItemFromContainer(entry.id, nestedIdx)}
+                                    tooltipContent={nested?.itemId ? (
+                                      <ItemTooltipContent proto={getItemById(nested.itemId)} entry={nested} />
+                                    ) : null}
+                                    draggable={canEdit}
+                                    onDragStart={canEdit ? (e) => handleNestedDragStart(e, i, nestedIdx) : undefined}
+                                    onDragEnd={canEdit ? handleNestedDragEnd : undefined}
+                                  />
                                 )
                               })}
                             </div>
@@ -2505,6 +2107,10 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                               modIndex={modIndexAnchor}
                               modules={bagModules}
                               characterId={character?.id}
+                              character={character}
+                              onSave={onSave}
+                              getShieldPoolCurrent={getShieldPoolCurrent}
+                              setShieldPoolCurrent={setShieldPoolCurrent}
                               inventory={inv}
                               canEdit={canEdit}
                               patchBag={patchBagItem}
@@ -2535,7 +2141,12 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                               activeAbilities={activeAbilities}
                               onUseBagAbility={(entry) => {
                                 const activeEntry = activeAbilities.find(a => a.inventoryId === entry.id)
-                                if (activeEntry) setEquipmentUseModal(activeEntry)
+                                if (activeEntry) {
+                                  setEquipmentUseModal(activeEntry)
+                                } else {
+                                  const localAbility = buildActiveAbilityFromEntry(entry)
+                                  if (localAbility) setEquipmentUseModal({ inventoryId: entry.id, ability: localAbility, chargeValue: null })
+                                }
                               }}
                               getBuffTagsFromEffects={getBuffTagsFromEffects}
                               onBagRowEdit={startEdit}

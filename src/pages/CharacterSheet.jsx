@@ -107,14 +107,36 @@ function findActiveAbilityFromCard(sourceKey, cards, slotKind = null) {
   
   if (!card) return null
   
-  // 从 charge_item 效果提取主动释放配置（BUFF 编辑器用 effectType）
+  // 从 charge_item 或 contained_spell 效果提取主动释放配置
   const chargeEffect = Array.isArray(card.buffEffects)
     ? card.buffEffects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
     : null
+  const containedSpellEffect = !chargeEffect && Array.isArray(card.buffEffects)
+    ? card.buffEffects.find(e => e.effectType === 'contained_spell' && e.value && typeof e.value === 'object')
+    : null
 
   // 优先从 buffEffects 构造，其次用 buffEntryToCard 已构建的 activeAbility
-  if (!chargeEffect && card.activeAbility) return card.activeAbility
-  if (!chargeEffect) return null
+  if (!chargeEffect && !containedSpellEffect && card.activeAbility) return card.activeAbility
+  if (!chargeEffect && !containedSpellEffect) return null
+
+  // contained_spell：将法术列表转为 spell 效果数组
+  if (containedSpellEffect) {
+    const csValue = containedSpellEffect.value
+    const spells = Array.isArray(csValue.spells) ? csValue.spells : []
+    if (spells.length > 0) {
+      return {
+        id: `${sourceKey}_active`,
+        name: card.name || '施法',
+        actionType: 'action',
+        cost: { type: 'class_resource', resourceKey: 'charges', amount: Math.max(1, Number(spells[0].cost) || 1) },
+        cooldown: 'none',
+        description: card.description || '',
+        needsInteraction: 'confirm',
+        effects: spells.map(s => ({ type: 'spell', value: s })),
+      }
+    }
+    return card.activeAbility || null
+  }
 
   const chargeValue = chargeEffect.value
   // 从 effects 中提取第一个子效果作为主效果
@@ -141,7 +163,6 @@ function findActiveAbilityFromCard(sourceKey, cards, slotKind = null) {
     effects: [{
       type: mainEffect.type,
       value: mainEffect.value,
-      // custom_logic 的描述在 value.description，其他类型可能在 text
       description: mainEffect.value?.description || mainEffect.text || '',
     }],
   }
@@ -4307,7 +4328,10 @@ export default function CharacterSheet() {
                 const chargeEffect = Array.isArray(itemCard.buffEffects)
                   ? itemCard.buffEffects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
                   : null
-                return { inventoryId: itemCard.sourceKey, ability, chargeValue: chargeEffect?.value || null }
+                const containedSpellEffect = !chargeEffect && Array.isArray(itemCard.buffEffects)
+                  ? itemCard.buffEffects.find(e => e.effectType === 'contained_spell' && e.value && typeof e.value === 'object')
+                  : null
+                return { inventoryId: itemCard.sourceKey, ability, chargeValue: chargeEffect?.value || containedSpellEffect?.value || null }
               }).filter(Boolean)}
             />
           </section>

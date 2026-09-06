@@ -381,7 +381,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     setIsAttuned(!!entry?.isAttuned)
     setName((entry?.name && entry.name.trim()) || (proto ? getItemDisplayName(proto) : '') || '')
     setIntro((entry?.详细介绍 != null && entry.详细介绍 !== '') ? String(entry.详细介绍) : (proto?.详细介绍 ?? '') || '')
-    setQty(Math.max(1, Number(entry?.qty) ?? 1))
+    setQty(Math.max(1, Number(entry?.qty) || 1))
     setEffectModules(entryToEffectModules(entry, proto))
     const note = (entry?.附注 != null && entry.附注 !== '') ? String(entry.附注) : (proto?.附注 ?? '')
     if (proto && proto.类型 === '盔甲') {

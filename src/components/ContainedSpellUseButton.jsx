@@ -18,7 +18,7 @@ const HIT_RESOLUTION_LABELS = {
  * 背包/仓库等物品卡中的「使用内含法术」入口。
  * 点击后弹出选择法术并确认，确认后通过 onChargeChange 回传新的 charge 值。
  */
-export default function ContainedSpellUseButton({ entry, onChargeChange, className = '', buttonClassName = '', compact = false }) {
+export default function ContainedSpellUseButton({ entry, onChargeChange, className = '', buttonClassName = '', compact = false, children }) {
   const [pending, setPending] = useState(false)
   const [selected, setSelected] = useState(null)
 
@@ -62,8 +62,7 @@ export default function ContainedSpellUseButton({ entry, onChargeChange, classNa
         className={`inline-flex items-center justify-center gap-1 rounded-md bg-dnd-gold/[0.12] border border-dnd-gold/25 text-dnd-gold-light text-[10px] font-medium cursor-pointer transition-colors hover:bg-dnd-gold/[0.22] hover:border-dnd-gold/40 active:scale-[0.96] disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap shrink-0 ${compact ? 'h-7 px-1.5' : 'h-7 px-2'} ${buttonClassName}`}
         title="使用内含法术"
       >
-        <Sparkles className="w-3 h-3" />
-        施法
+        {children || (<><Sparkles className="w-3 h-3" />施法</>)}
       </button>
       {pending && (
         <div className={`fixed inset-0 z-[120] flex items-center justify-center bg-black/50 ${className}`} onClick={() => setPending(false)}>

@@ -1890,11 +1890,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     // 物品充能短休恢复（仅 recharge_short_rest 类型）
     const inv = char?.inventory ?? []
     if (inv.length > 0) {
-      const { inventory: nextInv, logs } = restoreChargesForEvent(inv, 'short_rest')
-      if (logs.length > 0) {
-        onSave({ inventory: nextInv })
-        const summary = logs.map((l) => `${l.name}：${l.from} → ${l.to}`).join('\n')
-        console.log('短休恢复充能：', summary)
+      try {
+        const { inventory: nextInv, logs } = restoreChargesForEvent(inv, 'short_rest')
+        if (logs.length > 0) {
+          onSave({ inventory: nextInv })
+          const summary = logs.map((l) => `${l.name}：${l.from} → ${l.to}`).join('\n')
+          console.log('短休恢复充能：', summary)
+        }
+      } catch (err) {
+        console.error('[CombatStatus] 短休恢复充能失败', err)
       }
     }
     // 魔契师短休恢复契约法术位
@@ -1945,11 +1949,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     // 物品充能长休恢复（recharge_long_rest）
     const inv = char?.inventory ?? []
     if (inv.length > 0) {
-      const { inventory: nextInv, logs } = restoreChargesForEvent(inv, 'long_rest')
-      if (logs.length > 0) {
-        onSave({ inventory: nextInv })
-        const summary = logs.map((l) => `${l.name}：${l.from} → ${l.to}`).join('\n')
-        console.log('长休恢复充能：', summary)
+      try {
+        const { inventory: nextInv, logs } = restoreChargesForEvent(inv, 'long_rest')
+        if (logs.length > 0) {
+          onSave({ inventory: nextInv })
+          const summary = logs.map((l) => `${l.name}：${l.from} → ${l.to}`).join('\n')
+          console.log('长休恢复充能：', summary)
+        }
+      } catch (err) {
+        console.error('[CombatStatus] 长休恢复充能失败', err)
       }
     }
     const ds = getDefaultDeathSaves()
@@ -1991,11 +1999,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const handleDawn = () => {
     const inv = char?.inventory ?? []
     if (inv.length > 0) {
-      const { inventory: nextInv, logs } = restoreChargesForEvent(inv, 'dawn')
-      if (logs.length > 0) {
-        onSave({ inventory: nextInv })
-        const summary = logs.map((l) => `${l.name}：${l.from} → ${l.to}`).join('\n')
-        console.log('黎明恢复充能：', summary)
+      try {
+        const { inventory: nextInv, logs } = restoreChargesForEvent(inv, 'dawn')
+        if (logs.length > 0) {
+          onSave({ inventory: nextInv })
+          const summary = logs.map((l) => `${l.name}：${l.from} → ${l.to}`).join('\n')
+          console.log('黎明恢复充能：', summary)
+        }
+      } catch (err) {
+        console.error('[CombatStatus] 黎明恢复充能失败', err)
       }
     }
   }
@@ -2412,7 +2424,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             <div className="arc-horizontal-stripes absolute inset-0 rounded-lg pointer-events-none" />
           )}
           <div
-            className={`relative rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-2 sm:p-3 min-h-[4rem] flex flex-row flex-nowrap items-center justify-center gap-1.5 sm:gap-2 min-w-0 ${COMBAT_INNER_RIM_ONLY} ${wornArmorWithShieldPool && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold ? 'bg-[#1a2740]/40' : ''}`}
+            className={`relative rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-2 sm:p-3 min-h-[4rem] flex flex-row flex-nowrap items-center justify-end gap-1.5 sm:gap-2 min-w-0 ${COMBAT_INNER_RIM_ONLY} ${wornArmorWithShieldPool && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold ? 'bg-[#1a2740]/40' : ''}`}
           title={[
             buffStats?.ac != null ? `由 Buff 计算器得出: ${acTotal}` : null,
             acResult.acFormulaNote ? `职业特性：${acResult.acFormulaNote}` : null,
@@ -2445,8 +2457,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               {acModeOptions.find((o) => o.value === acModeEffective)?.label ?? ''}
             </span>
           ) : null}
-          <div className="flex flex-col items-center justify-center gap-1 sm:gap-1.5 shrink-0 min-h-[3rem]">
-            <div className="flex items-center justify-center gap-1 sm:gap-2">
+          <div className="flex flex-col items-end justify-center gap-1 sm:gap-1.5 shrink-0 min-h-[3rem]">
+            <div className="flex items-center justify-end gap-1 sm:gap-2">
               <span className="text-gray-400 text-xl sm:text-2xl font-medium">AC</span>
               <span className="text-gray-600 text-xl sm:text-2xl">|</span>
               <span className={`font-bold text-3xl sm:text-4xl font-mono tabular-nums ${wornArmorWithShieldPool && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold ? 'text-cyan-100 arc-text-glow' : 'text-white'}`}>{acTotal}</span>

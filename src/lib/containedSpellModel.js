@@ -195,3 +195,33 @@ export function extractContainedSpellValueFromEntry(entry) {
   }
   return null
 }
+
+/**
+ * 从物品条目直接构造主动技能对象（不依赖卡片）。
+ * 仅处理 charge_item 效果；contained_spell 由 ContainedSpellUseButton 独立处理。
+ */
+export function buildActiveAbilityFromEntry(entry) {
+  if (!entry || !Array.isArray(entry.effects)) return null
+  const displayName = (entry.name && String(entry.name).trim()) ? String(entry.name).trim() : '未命名物品'
+
+  const chargeEffect = entry.effects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
+  if (!chargeEffect) return null
+  const cv = chargeEffect.value
+  const mainEffect = Array.isArray(cv.effects) && cv.effects.length > 0 ? cv.effects[0] : null
+  if (!mainEffect) return null
+  return {
+    id: `${entry.id}_active`,
+    name: displayName,
+    actionType: cv.actionCost || 'action',
+    cost: cv.resourceType === 'none'
+      ? { type: 'none' }
+      : { type: 'class_resource', resourceKey: cv.resourceType || 'charges', amount: cv.charges || 1 },
+    cooldown: cv.recovery?.method === 'long_rest' ? 'long_rest'
+              : cv.recovery?.method === 'short_rest' ? 'short_rest'
+              : 'none',
+    description: '',
+    needsInteraction: 'confirm',
+    isStance: !!cv.isStance,
+    effects: [{ type: mainEffect.type, value: mainEffect.value, description: mainEffect.value?.description || mainEffect.text || '' }],
+  }
+}

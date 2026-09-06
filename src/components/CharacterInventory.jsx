@@ -26,6 +26,7 @@ import { inputClass, textareaClass, labelClass } from '../lib/inputStyles'
 import { NumberStepper } from './BuffForm'
 import { appendContainedSpellsBrief } from '../lib/containedSpellBrief'
 import { hasContainedSpellEffect } from '../lib/containedSpellModel'
+import { getShieldPoolCurrent, setShieldPoolCurrent } from '../lib/shieldPoolUtils'
 import ContainedSpellUseButton from './ContainedSpellUseButton'
 import BagOfHoldingPanel from './BagOfHoldingPanel'
 import {
@@ -1263,6 +1264,10 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
             onBagRowStore={openStoreToVault}
             onBagRowRemove={removeBagItemByGlobalIndex}
             characterId={character?.id}
+            character={character}
+            onSave={onSave}
+            getShieldPoolCurrent={getShieldPoolCurrent}
+            setShieldPoolCurrent={setShieldPoolCurrent}
           />
         </div>
 

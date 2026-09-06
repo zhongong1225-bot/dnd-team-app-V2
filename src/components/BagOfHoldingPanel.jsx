@@ -19,7 +19,8 @@ import {
 import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { NumberStepper } from './BuffForm'
 import { inputClassInline } from '../lib/inputStyles'
-import { hasContainedSpellEffect } from '../lib/containedSpellModel'
+import { hasContainedSpellEffect, buildActiveAbilityFromEntry, extractContainedSpellValueFromEntry } from '../lib/containedSpellModel'
+import { getShieldPoolCurrent, setShieldPoolCurrent } from '../lib/shieldPoolUtils'
 import {
   inventoryItemCardListGapClass,
   inventoryItemActionsCellClass,
@@ -108,6 +109,10 @@ export default function BagOfHoldingPanel({
   onBagRowRemove,
   /** 用于折叠状态持久化 */
   characterId,
+  character,
+  onSave,
+  getShieldPoolCurrent: getShieldPoolCurrentFn = getShieldPoolCurrent,
+  setShieldPoolCurrent: setShieldPoolCurrentFn = setShieldPoolCurrent,
   /** 为 true 时不列出各模块（模块已在背包表锚点行下展开），仅保留标题栏与说明 */
   hideModuleList = false,
   /** 主动技能列表（用于袋内物品卡显示能量条按钮） */
@@ -405,6 +410,10 @@ export default function BagOfHoldingPanel({
                 modIndex={modIndex}
                 modules={modules}
                 characterId={characterId}
+                character={character}
+                onSave={onSave}
+                getShieldPoolCurrent={getShieldPoolCurrentFn}
+                setShieldPoolCurrent={setShieldPoolCurrentFn}
                 inventory={inventory}
                 canEdit={canEdit}
                 patchBag={patchBag}
@@ -460,6 +469,10 @@ export function BagModuleSection({
   modIndex,
   modules,
   characterId,
+  character,
+  onSave,
+  getShieldPoolCurrent: getShieldPoolCurrentFn = getShieldPoolCurrent,
+  setShieldPoolCurrent: setShieldPoolCurrentFn = setShieldPoolCurrent,
   inventory,
   canEdit,
   patchBag,
@@ -662,8 +675,18 @@ export function BagModuleSection({
                     ? entry.effects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
                     : null
                   const maxChargeFromEffect = chargeEffect ? (Number(chargeEffect.value?.charges) || 0) : 0
-                  const activeEntry = activeAbilities?.find(a => a.inventoryId === entry.id)
                   const hasSpell = hasContainedSpellEffect(entry)
+                  const csValue = !chargeEffect && hasSpell ? extractContainedSpellValueFromEntry(entry) : null
+                  const maxChargeFromContainedSpell = csValue ? (Number(csValue.totalCharges) || 0) : 0
+                  const spEffect = Array.isArray(entry?.effects)
+                    ? entry.effects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
+                    : null
+                  const spMax = spEffect ? (Number(spEffect.value.max) || 10) : null
+                  const spThreshold = spEffect ? (Number(spEffect.value.threshold) || 0) : null
+                  const spCurrent = spEffect && character ? getShieldPoolCurrentFn(character, 'equipment', entry.id, spMax) : null
+                  const activeEntry = activeAbilities?.find(a => a.inventoryId === entry.id)
+                  const localAbility = !activeEntry ? buildActiveAbilityFromEntry(entry) : null
+                  const finalAbility = activeEntry?.ability || localAbility
                   const ibKey = itemBriefKey(entry, i)
 
                   return (
@@ -679,22 +702,17 @@ export function BagModuleSection({
                       briefExpanded={!!itemBriefOpen[ibKey]}
                       onToggleBrief={() => toggleItemBrief(ibKey)}
                       charge={Number(entry.charge) || 0}
-                      maxCharge={maxChargeFromEffect || Number(entry.maxCharge) || 0}
+                      maxCharge={maxChargeFromEffect || maxChargeFromContainedSpell || Number(entry.maxCharge) || 0}
                       onChargeChange={canEdit && patchBag ? (v) => patchBag(i, { charge: v }) : undefined}
-                      shieldPoolCurrent={null}
-                      shieldPoolMax={null}
-                      shieldPoolThreshold={null}
-                      activeAbility={activeEntry?.ability || null}
-                      onUseAbility={
-                        typeof onUseBagAbility === 'function'
-                          ? () => onUseBagAbility(entry)
-                          : activeEntry
-                            ? () => {
-                                const ae = activeAbilities?.find(a => a.inventoryId === entry.id)
-                                if (ae) onUseBagAbility?.(entry)
-                              }
-                            : undefined
-                      }
+                      shieldPoolCurrent={spCurrent}
+                      shieldPoolMax={spMax}
+                      shieldPoolThreshold={spThreshold}
+                      onShieldPoolChange={spEffect && character && onSave ? (v) => {
+                        const newState = setShieldPoolCurrentFn(character, 'equipment', entry.id, v)
+                        onSave({ shieldPoolStates: newState })
+                      } : undefined}
+                      activeAbility={finalAbility}
+                      onUseAbility={finalAbility ? () => onUseBagAbility?.(entry) : undefined}
                       hasContainedSpell={hasSpell}
                       onContainedSpellCharge={hasSpell && canEdit && patchBag ? (v) => patchBag(i, { charge: v }) : undefined}
                       containedSpellEntry={hasSpell ? entry : null}

@@ -12,6 +12,7 @@ export function sumBagWalletBalances(inventory) {
     const q = Number(e.qty) || 0
     out[cid] += cid === 'gem_lb' ? q : Math.floor(q)
   }
+  if ('gem_lb' in out) out.gem_lb = Math.round(out.gem_lb * 10) / 10
   return out
 }
 

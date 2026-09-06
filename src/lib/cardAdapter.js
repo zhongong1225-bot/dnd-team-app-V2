@@ -76,22 +76,23 @@ function buffEntryToCard(buffEntry) {
   const sourceKey = inferSourceKey(buffEntry)
   const effects = Array.isArray(buffEntry.effects) ? buffEntry.effects : []
   
-  // 从 effects 中提取 charge_item 效果作为主动技能（新系统）
+  // 从 effects 中提取 charge_item 或 contained_spell 效果作为主动技能
   const chargeEffect = effects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
+  const containedSpellEffect = !chargeEffect ? effects.find(e => e.effectType === 'contained_spell' && e.value && typeof e.value === 'object') : null
   let activeAbility = null
-  
+
   if (chargeEffect) {
     const chargeValue = chargeEffect.value
-    const allEffects = Array.isArray(chargeValue.effects) && chargeValue.effects.length > 0 
+    const allEffects = Array.isArray(chargeValue.effects) && chargeValue.effects.length > 0
       ? chargeValue.effects
       : null
-    
+
     if (allEffects) {
       activeAbility = {
         id: `${sourceKey}_active`,
         name: buffEntry.source || '主动技能',
         actionType: chargeValue.actionCost || 'action',
-        cost: chargeValue.resourceType === 'none' 
+        cost: chargeValue.resourceType === 'none'
           ? { type: 'none' }
           : chargeValue.resourceType === 'spell_slot'
             ? {
@@ -101,7 +102,7 @@ function buffEntryToCard(buffEntry) {
                 maxSlotLevel: chargeValue.maxSlotLevel || 1,
               }
             : { type: 'class_resource', resourceKey: chargeValue.resourceType || 'charges', amount: chargeValue.charges || 1 },
-        cooldown: chargeValue.recovery?.method === 'long_rest' ? 'long_rest' 
+        cooldown: chargeValue.recovery?.method === 'long_rest' ? 'long_rest'
                   : chargeValue.recovery?.method === 'short_rest' ? 'short_rest'
                   : 'none',
         description: '',
@@ -111,6 +112,21 @@ function buffEntryToCard(buffEntry) {
           value: eff.value,
           description: eff.value?.description || eff.text || '',
         })),
+      }
+    }
+  } else if (containedSpellEffect) {
+    const csValue = containedSpellEffect.value
+    const spells = Array.isArray(csValue.spells) ? csValue.spells : []
+    if (spells.length > 0) {
+      activeAbility = {
+        id: `${sourceKey}_active`,
+        name: buffEntry.source || '施法',
+        actionType: 'action',
+        cost: { type: 'class_resource', resourceKey: 'charges', amount: Math.max(1, Number(spells[0].cost) || 1) },
+        cooldown: 'none',
+        description: '',
+        needsInteraction: 'confirm',
+        effects: spells.map(s => ({ type: 'spell', value: s })),
       }
     }
   }

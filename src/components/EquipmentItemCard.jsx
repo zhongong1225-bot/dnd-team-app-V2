@@ -1,5 +1,4 @@
-import React from 'react'
-import { Sparkles, Shield, Pencil, Package, Trash2 } from 'lucide-react'
+import { Sparkles, Shield, Pencil, Package, Trash2, Lock } from 'lucide-react'
 import { ShieldPoolCounter } from './CardView'
 import { formatDisplayWeightLb } from '../lib/encumbrance'
 import InfoTooltip from './InfoTooltip'
@@ -145,7 +144,7 @@ export default function EquipmentItemCard({
         : '0%'
 
   const barTitle = hasActiveAbility
-    ? `使用主动技能: ${activeAbility.name || ''}`
+    ? `释放主动技能: ${activeAbility.name || ''}`
     : hasShieldPool
       ? `护盾池: ${shieldPoolCurrent}/${shieldPoolMax}`
       : hasChargeOnly
@@ -259,14 +258,8 @@ export default function EquipmentItemCard({
                 textShadow: `0 0 6px ${energyColor.highlight}88`,
               }}
             >
-              使用
+              释放
             </span>
-            {chargeStepper}
-          </div>
-        )}
-        {hasChargeOnly && (
-          <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-            {chargeStepper}
           </div>
         )}
         {hasShieldPool && (
@@ -321,7 +314,43 @@ export default function EquipmentItemCard({
               entry={containedSpellEntry}
               onChargeChange={onContainedSpellCharge}
               compact
-            />
+              buttonClassName="!bg-transparent !border-0 !p-0 !h-auto"
+            >
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Sparkles className="w-5 h-5" style={{ color: energyColor.highlight, filter: `drop-shadow(0 0 6px ${energyColor.highlight}cc)` }} />
+                <span
+                  className="text-[11px] font-bold px-1.5 py-0.5 rounded tracking-wide"
+                  style={{
+                    color: energyColor.text,
+                    background: energyColor.badge,
+                    border: `1px solid ${energyColor.badgeBorder}`,
+                    textShadow: `0 0 6px ${energyColor.highlight}88`,
+                  }}
+                >
+                  施法
+                </span>
+              </div>
+            </ContainedSpellUseButton>
+          </div>
+        )}
+        {hasChargeOnly && (
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span
+              className="text-[11px] font-bold px-1.5 py-0.5 rounded tracking-wide"
+              style={{
+                color: energyColor.text,
+                background: energyColor.badge,
+                border: `1px solid ${energyColor.badgeBorder}`,
+                textShadow: `0 0 6px ${energyColor.highlight}88`,
+              }}
+            >
+              充能
+            </span>
+          </div>
+        )}
+        {maxCharge > 0 && (
+          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+            {chargeStepper}
           </div>
         )}
         </div>
@@ -333,7 +362,7 @@ export default function EquipmentItemCard({
   const nameOnlyNode = (
     <div className="flex items-center gap-1.5 min-w-0">
       <span
-        className="text-base font-semibold text-[#f0f0f0] select-none hover:text-gray-100 transition-colors truncate"
+        className="text-[13px] font-semibold text-[#f0f0f0] select-none hover:text-gray-100 transition-colors truncate"
       >
         {displayName}
       </span>
@@ -409,7 +438,7 @@ export default function EquipmentItemCard({
         >
           {!isContainer && (
           <>
-          {/* Col 1 (46px) — Attunement (竖排文字) */}
+          {/* Col 1 (46px) — Attunement */}
           <div
             className="flex items-center justify-center h-full"
             style={cellBorder}
@@ -422,29 +451,40 @@ export default function EquipmentItemCard({
                     ? '同调位已满'
                     : '同调此物品'
               }
-              className={`shrink-0 flex items-center justify-center cursor-pointer select-none transition-colors ${
-                attuneDisabled
-                  ? 'opacity-50 cursor-not-allowed'
-                  : 'hover:bg-[rgba(45,107,101,0.15)]'
-              }`}
+              className="shrink-0 flex flex-col items-center justify-center cursor-pointer select-none transition-colors"
               style={{
-                writingMode: 'vertical-rl',
-                textOrientation: 'mixed',
-                fontSize: '12px',
-                fontWeight: 600,
-                letterSpacing: '3px',
-                padding: '8px 8px',
-                color: attuneActive ? '#4ecdc4' : '#2d6b65',
-                background: attuneActive ? 'rgba(78,205,196,0.08)' : 'transparent',
+                padding: '6px 8px',
+                gap: '3px',
+                background: attuneActive ? 'rgba(199,154,66,0.06)' : 'transparent',
               }}
               onClick={(e) => {
                 e.stopPropagation()
-                if (!attuneDisabled && canEdit) {
+                if (attuneDisabled) {
+                  alert('同调位已满')
+                  return
+                }
+                if (canEdit) {
                   onAttuneToggle?.(entry?.id, !attuneActive)
                 }
               }}
             >
-              同调
+              {attuneActive ? (
+                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#c79a42', boxShadow: '0 0 4px rgba(199,154,66,0.5)' }} />
+              ) : (
+                <Lock size={11} style={{ color: '#445566' }} />
+              )}
+              <span
+                style={{
+                  writingMode: 'vertical-rl',
+                  textOrientation: 'mixed',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  letterSpacing: '2px',
+                  color: attuneActive ? '#c79a42' : '#445566',
+                }}
+              >
+                同调
+              </span>
             </div>
           </div>
 
@@ -586,14 +626,6 @@ export default function EquipmentItemCard({
           </div>
         )}
       </div>
-
-      {/* 动画 keyframes */}
-      <style>{`
-        @keyframes shimmer {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(100%); }
-        }
-      `}</style>
     </div>
   )
 }
