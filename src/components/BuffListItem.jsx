@@ -246,6 +246,7 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
         else label += '（含DEX）'
       }
       if (v.extra) label += `+${v.extra}`
+      if (v.acBonus) label += `，额外AC+${v.acBonus}`
       if (v.shieldCompatible) label += '，可叠盾'
       return label
     }
@@ -332,6 +333,32 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       const text = formatSpellDamageBonusValue(v)
       return text ? effectLabel + text : effectLabel
     }
+    if (buff.effectType === 'attack_enhancement_bonus' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const val = v.val ?? 0
+      if (isFormulaValue(val)) return `${effectLabel}${formatFormulaLabelWithEval(val, context)}`
+      const num = Number(val) || 0
+      const sign = num >= 0 ? '+' : ''
+      return `${effectLabel}${sign}${num}`
+    }
+    if (buff.effectType === 'hit_bonus' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const parts = []
+      const val = v.val ?? 0
+      if (isFormulaValue(val)) parts.push(formatFormulaLabelWithEval(val, context))
+      else { const num = Number(val) || 0; if (num !== 0) parts.push((num >= 0 ? '+' : '') + num) }
+      if (v.advantage === 'advantage') parts.push('优势')
+      else if (v.advantage === 'disadvantage') parts.push('劣势')
+      return parts.length ? `${effectLabel} ${parts.join(' ')}`.trim() : effectLabel
+    }
+    if (buff.effectType === 'extra_weapon_damage' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const count = v.diceCount ?? 1
+      const sides = v.diceSides ?? 6
+      const flat = v.flatBonus ?? 0
+      const type = v.damageType ? getDamageTypeLabel(v.damageType) : ''
+      let diceStr = `${count}d${sides}`
+      if (flat) diceStr += `+${flat}`
+      if (type) diceStr += ` ${type}`
+      return `${effectLabel} ${diceStr}`.trim()
+    }
     if (buff.effectType === 'extra_damage_dice') {
       if (typeof v === 'string' && v.trim()) return `${effectLabel} ${v.trim()}`.trim()
       if (v && typeof v === 'object' && !Array.isArray(v)) {
@@ -341,6 +368,78 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
         const valueText = v.onlySpellDamage ? `${signed}（仅法术伤害）` : signed
         return `${effectLabel} ${valueText}`.trim()
       }
+    }
+    // === 复合效果显示 ===
+    if (buff.effectType === 'ability_adjustment' && v && typeof v === 'object') {
+      const parts = []
+      const profLabels = []
+      if (v.proficiency && typeof v.proficiency === 'object') {
+        for (const [k, val] of Object.entries(v.proficiency)) {
+          if (val) profLabels.push(`${ABILITY_NAMES_ZH[k] ?? k}熟练`)
+        }
+      }
+      if (profLabels.length) parts.push(profLabels.join('，'))
+      if (v.override && typeof v.override === 'object') {
+        for (const [k, val] of Object.entries(v.override)) {
+          if (val != null && val !== 0) parts.push(`${ABILITY_NAMES_ZH[k] ?? k}上限${val}`)
+        }
+      }
+      if (v.increase && typeof v.increase === 'object') {
+        for (const [k, val] of Object.entries(v.increase)) {
+          if (val != null && val !== 0) {
+            const sign = val >= 0 ? '+' : ''
+            parts.push(`${ABILITY_NAMES_ZH[k] ?? k}${sign}${val}`)
+          }
+        }
+      }
+      return parts.join('，') || effectLabel
+    }
+    if (buff.effectType === 'extra_attacks' && v && typeof v === 'object') {
+      const parts = []
+      if (v.attacks > 0) parts.push(`额外攻击+${v.attacks}`)
+      if (v.actions > 0) parts.push(`额外动作+${v.actions}`)
+      return parts.join('，') || effectLabel
+    }
+    if (buff.effectType === 'max_hp_bonus' && v && typeof v === 'object') {
+      const parts = []
+      if (v.maxHp) parts.push(`生命上限${v.maxHp >= 0 ? '+' : ''}${v.maxHp}`)
+      if (v.regen > 0) parts.push(`再生${v.regen}`)
+      return parts.join('，') || effectLabel
+    }
+    if (buff.effectType === 'spell_attack_bonus' && v && typeof v === 'object') {
+      const modeLabel = v.mode === 'attack' ? '攻击' : v.mode === 'dc' ? 'DC' : '攻击/DC'
+      const val = v.value || 0
+      const sign = val >= 0 ? '+' : ''
+      return `${modeLabel}${sign}${val}`
+    }
+    if (buff.effectType === 'crit_range' && v && typeof v === 'object') {
+      const parts = []
+      if (v.threatMin < 20) parts.push(`${v.threatMin}-20`)
+      if (v.increment > 0) parts.push(`+${v.increment}`)
+      if (v.increment < 0) parts.push(`${v.increment}`)
+      return parts.length ? `${effectLabel} ${parts.join(' ')}`.trim() : effectLabel
+    }
+    if (buff.effectType === 'attack_distance_range' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const parts = []
+      if (v.distance) parts.push(`距离${v.distance}尺`)
+      if (v.area && v.area.size > 0) {
+        const kindLabel = { cone: '锥形', cube: '立方', sphere: '球形', line: '线形', radius: '半径' }[v.area.kind] || v.area.kind
+        parts.push(`${kindLabel}${v.area.size}尺`)
+      }
+      return parts.join('，') || effectLabel
+    }
+    if (buff.effectType === 'healing_bonus' && v && typeof v === 'object') {
+      const parts = []
+      if (v.perRoll) parts.push(`每治疗+${v.perRoll}`)
+      if (v.perSlotLevel > 0) parts.push(`每环位+${v.perSlotLevel}`)
+      return parts.join('，') || effectLabel
+    }
+    if (buff.effectType === 'death_save_bonus' && v && typeof v === 'object') {
+      const parts = []
+      if (v.bonus) parts.push(`${v.bonus >= 0 ? '+' : ''}${v.bonus}`)
+      if (v.advantage === 'advantage') parts.push('优势')
+      if (v.advantage === 'disadvantage') parts.push('劣势')
+      return parts.length ? `${effectLabel} ${parts.join(' ')}`.trim() : effectLabel
     }
     return effectLabel
   }
@@ -379,12 +478,20 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
   }
   // 新版统一抗性格式：damage_type_relation
   if (buff.effectType === 'damage_type_relation' && v && typeof v === 'object' && !Array.isArray(v)) {
+    const parts = []
     const types = Array.isArray(v.types) ? v.types : []
-    if (types.length === 0) return ''
-    const relation = v.relation || 'resist'
-    const suffix = relation === 'resist' ? '抗性' : relation === 'immune' ? '免疫' : '易伤'
-    const labels = types.map(getDamageTypeLabel)
-    return labels.map((l) => `${l}${suffix}`).join('，')
+    if (types.length > 0) {
+      const relation = v.relation || 'resist'
+      const suffix = relation === 'resist' ? '抗性' : relation === 'immune' ? '免疫' : '易伤'
+      parts.push(types.map(getDamageTypeLabel).map((l) => `${l}${suffix}`).join('，'))
+    }
+    if (v.reduction > 0) parts.push(`通用减免${v.reduction}`)
+    if (Array.isArray(v.typedReduction)) {
+      for (const tr of v.typedReduction) {
+        if (tr.amount > 0) parts.push(`${getDamageTypeLabel(tr.type)}减免${tr.amount}`)
+      }
+    }
+    return parts.join('；')
   }
   // 按伤害类型固定减免
   if (buff.effectType === 'damage_reduction_typed' && v && typeof v === 'object' && !Array.isArray(v)) {
@@ -582,6 +689,31 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
       const core = (numStr || adv) ? `${numStr}${adv ? ' ' + adv : ''}` : ''
       return { label: effectLabel, value: core || null }
     }
+    if (buff.effectType === 'attack_enhancement_bonus' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const val = v.val ?? 0
+      if (isFormulaValue(val)) return { label: effectLabel, value: formatFormulaLabelWithEval(val, context) }
+      const num = Number(val) || 0
+      return { label: effectLabel, value: num !== 0 ? (num >= 0 ? `+${num}` : String(num)) : null }
+    }
+    if (buff.effectType === 'hit_bonus' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const parts = []
+      const val = v.val ?? 0
+      if (isFormulaValue(val)) parts.push(formatFormulaLabelWithEval(val, context))
+      else { const num = Number(val) || 0; if (num !== 0) parts.push((num >= 0 ? '+' : '') + num) }
+      if (v.advantage === 'advantage') parts.push('优势')
+      else if (v.advantage === 'disadvantage') parts.push('劣势')
+      return { label: effectLabel, value: parts.length ? parts.join(' ') : null }
+    }
+    if (buff.effectType === 'extra_weapon_damage' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const count = v.diceCount ?? 1
+      const sides = v.diceSides ?? 6
+      const flat = v.flatBonus ?? 0
+      const type = v.damageType ? getDamageTypeLabel(v.damageType) : ''
+      let diceStr = `${count}d${sides}`
+      if (flat) diceStr += `+${flat}`
+      if (type) diceStr += ` ${type}`
+      return { label: effectLabel, value: diceStr }
+    }
     if (info.effect.subSelect === 'flightSpeed') {
       const speed = evaluateBuffValue(v.speed, context) ?? (typeof v === 'number' ? v : 0)
       const hover = v.hover ? '悬浮' : ''
@@ -674,6 +806,76 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
       const signed = /^[+-]/.test(str) ? str : `+${str}`
       return { label: effectLabel, value: v?.onlySpellDamage ? `${signed}（仅法术伤害）` : signed }
     }
+    // === 复合效果显示（胶囊） ===
+    if (buff.effectType === 'ability_adjustment' && v && typeof v === 'object') {
+      const parts = []
+      if (v.proficiency && typeof v.proficiency === 'object') {
+        for (const [k, val] of Object.entries(v.proficiency)) {
+          if (val) parts.push(`${ABILITY_NAMES_ZH[k] ?? k}熟练`)
+        }
+      }
+      if (v.override && typeof v.override === 'object') {
+        for (const [k, val] of Object.entries(v.override)) {
+          if (val != null && val !== 0) parts.push(`${ABILITY_NAMES_ZH[k] ?? k}上限${val}`)
+        }
+      }
+      if (v.increase && typeof v.increase === 'object') {
+        for (const [k, val] of Object.entries(v.increase)) {
+          if (val != null && val !== 0) {
+            const sign = val >= 0 ? '+' : ''
+            parts.push(`${ABILITY_NAMES_ZH[k] ?? k}${sign}${val}`)
+          }
+        }
+      }
+      return { label: '属性调整', value: parts.length ? parts.join('、') : null }
+    }
+    if (buff.effectType === 'extra_attacks' && v && typeof v === 'object') {
+      const parts = []
+      if (v.attacks > 0) parts.push(`攻击+${v.attacks}`)
+      if (v.actions > 0) parts.push(`动作+${v.actions}`)
+      return { label: effectLabel, value: parts.length ? parts.join('，') : null }
+    }
+    if (buff.effectType === 'max_hp_bonus' && v && typeof v === 'object') {
+      const parts = []
+      if (v.maxHp) parts.push(`HP${v.maxHp >= 0 ? '+' : ''}${v.maxHp}`)
+      if (v.regen > 0) parts.push(`再生${v.regen}`)
+      return { label: effectLabel, value: parts.length ? parts.join('，') : null }
+    }
+    if (buff.effectType === 'spell_attack_bonus' && v && typeof v === 'object') {
+      const modeLabel = v.mode === 'attack' ? '攻击' : v.mode === 'dc' ? 'DC' : '攻击/DC'
+      const val = v.value || 0
+      const sign = val >= 0 ? '+' : ''
+      return { label: '法术强度', value: `${modeLabel}${sign}${val}` }
+    }
+    if (buff.effectType === 'crit_range' && v && typeof v === 'object') {
+      const parts = []
+      if (v.threatMin < 20) parts.push(`${v.threatMin}-20`)
+      if (v.increment > 0) parts.push(`范围+${v.increment}`)
+      if (v.increment < 0) parts.push(`范围${v.increment}`)
+      return { label: effectLabel, value: parts.length ? parts.join(' ') : null }
+    }
+    if (buff.effectType === 'attack_distance_range' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const parts = []
+      if (v.distance) parts.push(`${v.distance}尺`)
+      if (v.area && v.area.size > 0) {
+        const kindLabel = { cone: '锥', cube: '立方', sphere: '球', line: '线', radius: '半径' }[v.area.kind] || v.area.kind
+        parts.push(`${kindLabel}${v.area.size}尺`)
+      }
+      return { label: effectLabel, value: parts.length ? parts.join('，') : null }
+    }
+    if (buff.effectType === 'healing_bonus' && v && typeof v === 'object') {
+      const parts = []
+      if (v.perRoll) parts.push(`每掷+${v.perRoll}`)
+      if (v.perSlotLevel > 0) parts.push(`每环+${v.perSlotLevel}`)
+      return { label: effectLabel, value: parts.length ? parts.join('，') : null }
+    }
+    if (buff.effectType === 'death_save_bonus' && v && typeof v === 'object') {
+      const parts = []
+      if (v.bonus) parts.push(`${v.bonus >= 0 ? '+' : ''}${v.bonus}`)
+      if (v.advantage === 'advantage') parts.push('优势')
+      if (v.advantage === 'disadvantage') parts.push('劣势')
+      return { label: effectLabel, value: parts.length ? parts.join(' ') : null }
+    }
     if (isPlainAbilityObject(v)) {
       const parts = Object.entries(v).filter(([k, val]) => k !== 'advantage' && val != null && val !== 0).map(([k, val]) => `${ABILITY_NAMES_ZH[k] ?? k}+${formatSignedEntryVal(val, context)}`)
       return { label: effectLabel, value: parts.length ? parts.join(', ') : null }
@@ -701,10 +903,20 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
     return { label: effectLabel, value: `${labels.join('、')}-${reduction}` }
   }
   if (buff.effectType === 'damage_type_relation' && buff.value && typeof buff.value === 'object' && !Array.isArray(buff.value)) {
+    const parts = []
     const types = Array.isArray(buff.value.types) ? buff.value.types : []
-    const relation = buff.value.relation || 'resist'
-    const suffix = relation === 'resist' ? '抗性' : relation === 'immune' ? '免疫' : '易伤'
-    return { label: effectLabel, value: types.map(getDamageTypeLabel).map(l => `${l}${suffix}`).join('，') }
+    if (types.length > 0) {
+      const relation = buff.value.relation || 'resist'
+      const suffix = relation === 'resist' ? '抗性' : relation === 'immune' ? '免疫' : '易伤'
+      parts.push(types.map(getDamageTypeLabel).map(l => `${l}${suffix}`).join('，'))
+    }
+    if (buff.value.reduction > 0) parts.push(`通用减免${buff.value.reduction}`)
+    if (Array.isArray(buff.value.typedReduction)) {
+      for (const tr of buff.value.typedReduction) {
+        if (tr.amount > 0) parts.push(`${getDamageTypeLabel(tr.type)}减免${tr.amount}`)
+      }
+    }
+    return { label: effectLabel, value: parts.join('；') }
   }
   return { label: effectLabel, value: buff.value != null ? String(buff.value) : null }
 }

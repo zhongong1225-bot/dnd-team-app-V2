@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect, useCallback } from 'react'
 import { Package, Plus, Trash2, Pencil, ChevronDown, ChevronRight, Lock, Unlock } from 'lucide-react'
 import DragHandleIcon from './DragHandleIcon'
+import EquipmentItemCard from './EquipmentItemCard'
 import {
   getBagOfHoldingSelfWeightLb,
   getInventoryEntryStackWeightLb,
@@ -19,20 +20,13 @@ import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { NumberStepper } from './BuffForm'
 import { inputClassInline } from '../lib/inputStyles'
 import { hasContainedSpellEffect } from '../lib/containedSpellModel'
-import ContainedSpellUseButton from './ContainedSpellUseButton'
 import {
   inventoryItemCardListGapClass,
   inventoryItemActionsCellClass,
   inventoryItemCardShellClass,
-  inventoryItemChargeCellClass,
-  inventoryItemNameExtrasClass,
   inventoryItemNameRowClass,
-  inventoryItemNameTextClass,
-  inventoryItemNameTitleGroupClass,
   inventoryItemQtyWeightCellClass,
-  inventoryItemRowGridEditableNoCharge,
   inventoryItemRowGridEditableWithCharge,
-  inventoryItemRowGridReadNoCharge,
   inventoryItemRowGridReadWithCharge,
 } from '../lib/inventoryItemCardStyles'
 import { InventoryItemBriefExpandedText } from './InventoryItemCardBrief'
@@ -57,11 +51,22 @@ export function parseDragInventoryIndex(dataTransfer) {
   return Number.isNaN(raw) ? NaN : raw
 }
 
-export function deliverBagDrop(e, { canEdit, mod, totalBags, onMoveToBag, onMoveCurrencyToBag }) {
+export function deliverBagDrop(e, { canEdit, mod, totalBags, onMoveToBag, onMoveCurrencyToBag, onMoveNestedToBag }) {
   e.preventDefault()
   /** 阻止冒泡到背包表外层 td/tr 的 handleBackpackRowDrop，否则会再执行一次「排序」把物品插到次元袋下一行 */
   e.stopPropagation()
   if (!canEdit || !mod || totalBags <= 0) return
+
+  const nestedSource = e.dataTransfer.getData('text/dnd-nested-source')
+  if (nestedSource && onMoveNestedToBag) {
+    const parts = nestedSource.split(':').map(Number)
+    const [containerIdx, nestedIdx] = parts
+    if (!Number.isNaN(containerIdx) && !Number.isNaN(nestedIdx)) {
+      onMoveNestedToBag(containerIdx, nestedIdx, mod.id)
+    }
+    return
+  }
+
   const wc = e.dataTransfer.getData('text/dnd-wallet-currency')
   const wcQty = Number(e.dataTransfer.getData('text/dnd-wallet-currency-qty'))
   if (wc && onMoveCurrencyToBag) {
@@ -91,6 +96,7 @@ export default function BagOfHoldingPanel({
   inventory,
   onMoveToBag,
   onMoveCurrencyToBag,
+  onMoveNestedToBag,
   canEdit,
   invDisplayName,
   getEntryBriefFull,
@@ -104,6 +110,12 @@ export default function BagOfHoldingPanel({
   characterId,
   /** 为 true 时不列出各模块（模块已在背包表锚点行下展开），仅保留标题栏与说明 */
   hideModuleList = false,
+  /** 主动技能列表（用于袋内物品卡显示能量条按钮） */
+  activeAbilities,
+  /** 点击袋内物品使用按钮回调 */
+  onUseBagAbility,
+  /** 从 effects 数组生成 BUFF 标签 */
+  getBuffTagsFromEffects,
 }) {
   const modules = Array.isArray(bagModules) ? bagModules : []
   const canAddMoreModules = modules.length < MAX_BAG_OF_HOLDING_MODULES
@@ -198,10 +210,10 @@ export default function BagOfHoldingPanel({
       e.dataTransfer.setData('text/dnd-bag-source-char-id', characterId)
     }
     e.dataTransfer.effectAllowed = 'copyMove'
-    ;(e.currentTarget.closest('[data-bag-item-card]') ?? e.currentTarget).classList.add('opacity-60')
+    ;(e.currentTarget.closest('[data-bag-item-card]') ?? e.currentTarget.closest('[data-equipment-card]') ?? e.currentTarget).classList.add('opacity-60')
   }
   const handleDragEnd = (e) =>
-    (e.currentTarget.closest('[data-bag-item-card]') ?? e.currentTarget).classList.remove('opacity-60')
+    (e.currentTarget.closest('[data-bag-item-card]') ?? e.currentTarget.closest('[data-equipment-card]') ?? e.currentTarget).classList.remove('opacity-60')
   const handleDragOver = (e) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'copyMove'
@@ -343,6 +355,7 @@ export default function BagOfHoldingPanel({
                             totalBags: tb,
                             onMoveToBag,
                             onMoveCurrencyToBag,
+                            onMoveNestedToBag,
                           })
                       : undefined
                   }
@@ -414,8 +427,15 @@ export default function BagOfHoldingPanel({
                 handleDragOver={handleDragOver}
                 onMoveToBag={onMoveToBag}
                 onMoveCurrencyToBag={onMoveCurrencyToBag}
+                onMoveNestedToBag={onMoveNestedToBag}
                 expanded={moduleExpanded[mod.id] !== false}
                 onToggleExpanded={() => toggleModuleExpanded(mod.id)}
+                activeAbilities={activeAbilities}
+                onUseBagAbility={onUseBagAbility}
+                getBuffTagsFromEffects={getBuffTagsFromEffects}
+                onBagRowEdit={onBagRowEdit}
+                onBagRowStore={onBagRowStore}
+                onBagRowRemove={onBagRowRemove}
               />
             ))
           )}
@@ -462,10 +482,21 @@ export function BagModuleSection({
   handleDragOver,
   onMoveToBag,
   onMoveCurrencyToBag,
+  onMoveNestedToBag,
   expanded,
   onToggleExpanded,
   /** 为 true 时不渲染模块标题行（模块/个数/可见性/锁删），仅袋内表+拖放区；用于背包「锚点行」已承载这些控件时 */
   hideModuleChrome = false,
+  /** 主动技能列表 */
+  activeAbilities,
+  /** 点击使用按钮回调 */
+  onUseBagAbility,
+  /** 从 effects 生成 BUFF 标签 */
+  getBuffTagsFromEffects,
+  /** 操作回调（EquipmentItemCard 用） */
+  onBagRowEdit,
+  onBagRowStore,
+  onBagRowRemove,
 }) {
   const totalBags = mod ? mod.bagCount : 0
   const selfLb = getBagOfHoldingSelfWeightLb(totalBags)
@@ -496,7 +527,7 @@ export function BagModuleSection({
         : { maxLb: 0, maxCuFt: 0, bagCount: 0 }
 
   const handleDropZone = (e) =>
-    deliverBagDrop(e, { canEdit, mod, totalBags, onMoveToBag, onMoveCurrencyToBag })
+    deliverBagDrop(e, { canEdit, mod, totalBags, onMoveToBag, onMoveCurrencyToBag, onMoveNestedToBag })
 
   /** 物品卡详情：默认折叠，点名称行右侧 chevron 展开（与背包、团队仓库一致） */
   const [itemBriefOpen, setItemBriefOpen] = useState({})
@@ -627,107 +658,59 @@ export function BagModuleSection({
                     )
                   }
 
-                  const showChargeCol = (Number(entry.charge) || 0) > 0 || hasContainedSpellEffect(entry)
-                  const bagRowGridItem = canEdit
-                    ? showChargeCol
-                      ? inventoryItemRowGridEditableWithCharge
-                      : inventoryItemRowGridEditableNoCharge
-                    : showChargeCol
-                      ? inventoryItemRowGridReadWithCharge
-                      : inventoryItemRowGridReadNoCharge
+                  const chargeEffect = Array.isArray(entry?.effects)
+                    ? entry.effects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
+                    : null
+                  const maxChargeFromEffect = chargeEffect ? (Number(chargeEffect.value?.charges) || 0) : 0
+                  const activeEntry = activeAbilities?.find(a => a.inventoryId === entry.id)
+                  const hasSpell = hasContainedSpellEffect(entry)
                   const ibKey = itemBriefKey(entry, i)
 
                   return (
-                    <div
+                    <EquipmentItemCard
                       key={entry.id ?? `bag-${mod.id}-${i}`}
-                      data-bag-item-card
+                      entry={entry}
+                      invIndex={i}
+                      canEdit={canEdit}
+                      gridVariant="container"
+                      displayName={invDisplayName(entry)}
+                      magicBonus={Number(entry.magicBonus) || 0}
+                      brief={brief}
+                      briefExpanded={!!itemBriefOpen[ibKey]}
+                      onToggleBrief={() => toggleItemBrief(ibKey)}
+                      charge={Number(entry.charge) || 0}
+                      maxCharge={maxChargeFromEffect || Number(entry.maxCharge) || 0}
+                      onChargeChange={canEdit && patchBag ? (v) => patchBag(i, { charge: v }) : undefined}
+                      shieldPoolCurrent={null}
+                      shieldPoolMax={null}
+                      shieldPoolThreshold={null}
+                      activeAbility={activeEntry?.ability || null}
+                      onUseAbility={
+                        typeof onUseBagAbility === 'function'
+                          ? () => onUseBagAbility(entry)
+                          : activeEntry
+                            ? () => {
+                                const ae = activeAbilities?.find(a => a.inventoryId === entry.id)
+                                if (ae) onUseBagAbility?.(entry)
+                              }
+                            : undefined
+                      }
+                      hasContainedSpell={hasSpell}
+                      onContainedSpellCharge={hasSpell && canEdit && patchBag ? (v) => patchBag(i, { charge: v }) : undefined}
+                      containedSpellEntry={hasSpell ? entry : null}
+                      qty={qty}
+                      onQtyChange={canEdit && patchBag ? (v) => patchBag(i, { qty: v }) : undefined}
+                      weightLb={stackLb}
+                      showQty={!entry?.walletCurrencyId}
+                      buffTags={typeof getBuffTagsFromEffects === 'function' ? getBuffTagsFromEffects(entry?.effects || []) : []}
+                      onEdit={typeof onBagRowEdit === 'function' ? () => onBagRowEdit(i) : undefined}
+                      onStoreToVault={typeof onBagRowStore === 'function' ? () => onBagRowStore(i) : undefined}
+                      onDelete={typeof onBagRowRemove === 'function' ? () => onBagRowRemove(i) : undefined}
                       draggable={!!canEdit}
                       onDragStart={canEdit ? (e) => handleDragStart(e, i) : undefined}
                       onDragEnd={canEdit ? handleDragEnd : undefined}
-                      className={`${bagItemCardClass} cursor-pointer ${canEdit ? 'cursor-grab active:cursor-grabbing hover:border-gray-500/65' : ''}`}
-                      onClick={() => toggleItemBrief(ibKey)}
-                    >
-                      <div className={bagRowGridItem}>
-                        {canEdit && (
-                          <div
-                            className="shrink-0 text-dnd-text-muted pointer-events-none select-none"
-                            title="拖回背包"
-                            aria-hidden
-                          >
-                            <DragHandleIcon className="w-3.5 h-3.5" />
-                          </div>
-                        )}
-                        <div className={inventoryItemNameRowClass}>
-                          <div className={inventoryItemNameTitleGroupClass}>
-                            <span className={inventoryItemNameTextClass}>{invDisplayName(entry)}</span>
-                            <span className={inventoryItemNameExtrasClass}>{renderNameExtras(entry)}</span>
-                          </div>
-                          {hasContainedSpellEffect(entry) && (
-                            <ContainedSpellUseButton
-                              entry={entry}
-                              onChargeChange={(v) => patchBag(i, { charge: v })}
-                              compact
-                            />
-                          )}
-                        </div>
-                        {showChargeCol ? (
-                          <span
-                            className={`${inventoryItemChargeCellClass} flex items-center`}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            onClick={(e) => e.stopPropagation()}
-                            role="presentation"
-                          >
-                            <span className="shrink-0 leading-none">充能</span>
-                            {canEdit && patchBag ? (
-                              <NumberStepper
-                                value={Number(entry.charge) || 0}
-                                onChange={(v) => patchBag(i, { charge: v })}
-                                min={0}
-                                compact
-                                pill
-                                subtle
-                              />
-                            ) : (
-                              <span className="text-dnd-text-body text-xs tabular-nums">{entry.charge}</span>
-                            )}
-                          </span>
-                        ) : null}
-                        <span
-                          className={`${inventoryItemQtyWeightCellClass} self-stretch`}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onClick={(e) => e.stopPropagation()}
-                          role="presentation"
-                        >
-                          <span className="shrink-0 leading-none">数量</span>
-                          {canEdit && patchBag ? (
-                            <NumberStepper
-                              value={qty}
-                              onChange={(v) => patchBag(i, { qty: v })}
-                              min={1}
-                              compact
-                              pill
-                              subtle
-                            />
-                          ) : (
-                            <span className="text-dnd-text-body text-xs tabular-nums">{qty}</span>
-                          )}
-                          {stackLb > 0 ? (
-                            <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
-                          ) : null}
-                        </span>
-                        {canEdit && (
-                          <div
-                            className={inventoryItemActionsCellClass}
-                            onMouseDown={(e) => e.stopPropagation()}
-                            onClick={(e) => e.stopPropagation()}
-                            role="presentation"
-                          >
-                            {renderBagActionCell(entry, i)}
-                          </div>
-                        )}
-                      </div>
-                      <InventoryItemBriefExpandedText brief={brief} expanded={!!itemBriefOpen[ibKey]} variant="body" />
-                    </div>
+                      onDragOver={canEdit ? handleDragOver : undefined}
+                    />
                   )
                 })
               )}

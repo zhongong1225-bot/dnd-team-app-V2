@@ -376,10 +376,11 @@ export const BUFF_TYPES = {
     label: '属性/移动',
     color: 'gold',
     effects: [
-      { key: 'ability_score', label: '属性熟练调整', dataType: 'object', subSelect: 'abilityProficiency' },
-      { key: 'ability_override', label: '属性值上限', dataType: 'object', subSelect: 'abilityScores' },
-      { key: 'ability_score_uncapped', label: '属性增加', dataType: 'object', subSelect: 'abilityScores' },
-      { key: 'ability_score_bonus', label: '专长属性加成', dataType: 'object', subSelect: 'abilityScores' },
+      // 属性统一编辑器（合并：熟练+上限+增加）
+      { key: 'ability_adjustment', label: '属性调整', dataType: 'object', subSelect: 'abilityAdjustment' },
+      { key: 'ability_score', label: '属性熟练调整', dataType: 'object', subSelect: 'abilityProficiency', hidden: true },
+      { key: 'ability_override', label: '属性值上限', dataType: 'object', subSelect: 'abilityScores', hidden: true },
+      { key: 'ability_score_uncapped', label: '属性增加', dataType: 'object', subSelect: 'abilityScores', hidden: true },
       { key: 'extra_attunement_slots', label: '额外同调位', dataType: 'number' },
       // 豁免检定增强：数值加值+优势配置
       { key: 'save_bonus', label: '豁免检定增强', dataType: 'object', subSelect: 'abilityScoresAndAdvantage' },
@@ -400,15 +401,18 @@ export const BUFF_TYPES = {
       // 表格：命中加值（仅影响攻击检定）
       { key: 'attack_bonus', label: '命中加值', dataType: 'object', subSelect: 'numberAndAdvantage' },
       // 表格：伤害加值（仅影响伤害）
-      { key: 'damage_bonus', label: '固定伤害加值', dataType: 'object', subSelect: 'numberAndAdvantage' },
+      { key: 'damage_bonus', label: '伤害加值', dataType: 'object', subSelect: 'numberAndAdvantage' },
       // 旧版：命中/伤害加值。保留以兼容旧 Buff，但新建时隐藏。
       { key: 'attack_damage_bonus', label: '命中/伤害加值', dataType: 'object', subSelect: 'numberAndAdvantage', hidden: true },
-      // 表格：攻击距离
-      // 互动调整方式：数字输入（尺），用于记录近战/远程的基础攻击距离。
-      { key: 'attack_distance_range', label: '攻击距离', dataType: 'number' },
-      // 表格：攻击范围（影响到的区域/目标）
-      // 互动调整方式：下拉选择「半径/直径」，配合数字输入（尺，步进 5），例如「半径 10 尺」。
-      { key: 'attack_area', label: '攻击范围', dataType: 'object', subSelect: 'attackAreaSize' },
+      // 攻击增强加值：同时加到命中和伤害，支持起效范围（全局/本武器）
+      { key: 'attack_enhancement_bonus', label: '攻击增强加值', dataType: 'object', subSelect: 'attackEnhancementBonus' },
+      // 命中加值（新版）：仅加命中，带优势/劣势，支持起效范围
+      { key: 'hit_bonus', label: '命中加值', dataType: 'object', subSelect: 'hitBonus' },
+      // 额外武器伤害：XdX+X 子伤害 + 伤害类型，支持起效范围
+      { key: 'extra_weapon_damage', label: '额外武器伤害', dataType: 'object', subSelect: 'extraWeaponDamage' },
+      // 攻击距离+范围（合并）
+      { key: 'attack_distance_range', label: '距离和范围', dataType: 'object', subSelect: 'attackDistanceRange' },
+      { key: 'attack_area', label: '攻击范围', dataType: 'object', subSelect: 'attackAreaSize', hidden: true },
       // 表格：伤害穿透特性
       // 互动调整方式：标签多选：
       //   ☑️ 视为魔法
@@ -419,54 +423,58 @@ export const BUFF_TYPES = {
       { key: 'damage_piercing_traits', label: '伤害穿透', dataType: 'array', subSelect: 'damagePiercingTraits' },
       // 暴击范围扩大：仅本件物品；武器攻击快捷投掷威胁高亮按「当前这把武器」自己的附魔，不因其它已装备武器串用
       // 互动调整方式：范围选项：默认 20，可选 19-20、18-20。
-      { key: 'crit_range_expand', label: '重击范围', dataType: 'text' },
+      { key: 'crit_range_expand', label: '重击范围', dataType: 'text', hidden: true },
       // 暴击范围覆盖：明确范围（19-20、18-20），多个效果取最低威胁下限
-      { key: 'crit_range_override', label: '重击下限', dataType: 'number' },
+      { key: 'crit_range_override', label: '重击下限', dataType: 'number', hidden: true },
       // 暴击范围增量：-N，多个效果可叠加
-      { key: 'crit_range_increment', label: '重击+N', dataType: 'number' },
+      { key: 'crit_range_increment', label: '重击+N', dataType: 'number', hidden: true },
       // 暴击范围缩减：专用于火铳手"致命专注"等-N机制，与crit_range_increment计算逻辑相同但语义独立
-      { key: 'crit_range_reduction', label: '重击-N', dataType: 'number' },
+      { key: 'crit_range_reduction', label: '重击-N', dataType: 'number', hidden: true },
+      // 重击范围统一编辑器（合并：下限+增量）
+      { key: 'crit_range', label: '重击范围', dataType: 'object', subSelect: 'critRange' },
       // 暴击×：仅作用于「该件物品」自身；战斗手段里每把武器单独读自己的附魔，不会因其它已装备武器上的×4而串用
       { key: 'crit_extra_dice', label: '暴击×', dataType: 'number' },
       // 表格：伤害骰（自定义一行：箭 - 数字 + 骰子 箭 类型 箭，箭为下拉）
-      { key: 'extra_damage_dice', label: '伤害骰', dataType: 'object', subSelect: 'damageDiceInline' },
+      { key: 'extra_damage_dice', label: '伤害骰', dataType: 'object', subSelect: 'damageDiceInline', hidden: true },
       // 表格：弹药无限
       // 互动调整方式：勾选开关，表示「远程攻击不消耗弹药」。
       { key: 'infinite_ammo', label: '弹药无限', dataType: 'boolean' },
       // 武器攻击改为使用施法属性（智力/感知/魅力）计算命中与伤害
       { key: 'spell_ability_attack', label: '施法属性命中', dataType: 'object', subSelect: 'spellAbilityForAttack' },
-      // 额外攻击次数（如 haste 给一次额外攻击）
-      { key: 'extra_attack', label: '额外攻击', dataType: 'number' },
-      // 额外动作资源（如 action surge 给额外动作）
-      { key: 'extra_action_resource', label: '额外动作资源', dataType: 'number' },
+      // 额外攻击次数+动作资源（合并）
+      { key: 'extra_attacks', label: '额外攻击', dataType: 'object', subSelect: 'extraAttacks' },
+      // 旧 key 保留供兼容
+      { key: 'extra_attack', label: '额外攻击数', dataType: 'number', hidden: true },
+      // 额外动作资源（如 action surge 给额外动作）— 已合并到额外攻击数
+      { key: 'extra_action_resource', label: '额外动作资源', dataType: 'number', hidden: true },
     ],
   },
   defense: {
     label: '防御/生存',
     color: 'orange',
     effects: [
-      { key: 'ac_bonus', label: '额外AC', dataType: 'number' },
+      { key: 'ac_bonus', label: '额外AC', dataType: 'number', hidden: true },
       /** AC覆盖：用于法师护甲、武僧无甲护甲等修改基础AC的效果。value: { base, applyDexMod, maxDexBonus?, extra, shieldCompatible? } */
       { key: 'armor_override', label: 'AC覆盖', dataType: 'object', subSelect: 'armorOverride' },
-      /** 统一伤害关系：抗性/免疫/易伤合并为一个效果。value: { types: string[], relation: 'resist'|'immune'|'vulnerable' } */
-      { key: 'damage_type_relation', label: '伤害关系', dataType: 'object', subSelect: 'damageTypeRelation' },
+      /** 统一伤害关系：抗性/免疫/易伤+减免合并。value: { types: string[], relation: 'resist'|'immune'|'vulnerable' } */
+      { key: 'damage_type_relation', label: '伤害抗性', dataType: 'object', subSelect: 'damageTypeRelation' },
       { key: 'resist_type', label: '伤害抗性', dataType: 'array', subSelect: 'damageType', hidden: true },
       { key: 'immune_type', label: '伤害免疫', dataType: 'array', subSelect: 'damageType', hidden: true },
       { key: 'vulnerable_type', label: '伤害易伤', dataType: 'array', subSelect: 'damageType', hidden: true },
-      /** 固定值：每次受到伤害时再减去该数值（在免疫/易伤/抗性之后结算，见 useBuffCalculator.calculateDamage） */
-      { key: 'damage_reduction', label: '伤害减免', dataType: 'number' },
-      /** 按伤害类型的固定减免。value: { types: string[], reduction: number } */
-      { key: 'damage_reduction_typed', label: '类型减免', dataType: 'object', subSelect: 'damageReductionTyped' },
-      { key: 'max_hp_bonus', label: '生命上限', dataType: 'number' },
+      /** 固定值：每次受到伤害时再减去该数值 — 已合并到伤害抗性 */
+      { key: 'damage_reduction', label: '伤害减免', dataType: 'number', hidden: true },
+      /** 按伤害类型的固定减免 — 已合并到伤害抗性 */
+      { key: 'damage_reduction_typed', label: '类型减免', dataType: 'object', subSelect: 'damageReductionTyped', hidden: true },
+      { key: 'max_hp_bonus', label: '生命上限', dataType: 'object', subSelect: 'maxHpAndRegen' },
       { key: 'temp_hp', label: '临时生命', dataType: 'number' },
-      { key: 'regeneration', label: '再生', dataType: 'number' },
+      { key: 'regeneration', label: '再生', dataType: 'number', hidden: true },
       { key: 'condition_immunity', label: '状态免疫', dataType: 'array', subSelect: 'condition' },
       /** 特殊感官：黑暗视觉、盲视等。value: { senses: string[], range: number } */
       { key: 'special_senses', label: '特殊感官', dataType: 'object', subSelect: 'specialSenses' },
-      /** 治疗增强：治疗效果加值。value: number */
-      { key: 'healing_bonus', label: '治疗增强', dataType: 'number' },
+      /** 治疗增强：每治疗投掷+N / 每环位+N */
+      { key: 'healing_bonus', label: '治疗增强', dataType: 'object', subSelect: 'healingBonus' },
       /** 死亡豁免加值。value: number */
-      { key: 'death_save_bonus', label: '死亡豁免加值', dataType: 'number' },
+      { key: 'death_save_bonus', label: '死亡豁免', dataType: 'object', subSelect: 'deathSaveBonus' },
       /** 防死：一次 HP 降至 0 以下时，强制改为 1 并消耗该效果 */
       { key: 'death_ward', label: '防死', dataType: 'boolean' },
       /** 护盾池：追踪可消耗的护盾/护甲层数，当 current ≤ threshold 时同卡其他效果全部禁用 */
@@ -479,12 +487,12 @@ export const BUFF_TYPES = {
     color: 'purple',
     effects: [
       { key: 'concentration_save_enhance', label: '专注增强', dataType: 'object', subSelect: 'numberAndAdvantage' },
-      { key: 'spell_range_extension', label: '施法距离延伸', dataType: 'text' },
-      { key: 'spell_attack_bonus', label: '法术攻击加值', dataType: 'number' },
-      { key: 'save_dc_bonus', label: 'DC', dataType: 'number' },
+      { key: 'spell_range_extension', label: '施法距离延伸', dataType: 'number' },
+      { key: 'spell_attack_bonus', label: '法术强度', dataType: 'object', subSelect: 'spellPower' },
+      { key: 'save_dc_bonus', label: 'DC', dataType: 'number', hidden: true },
       { key: 'spell_damage_bonus', label: '施法增伤', dataType: 'object', subSelect: 'spellDamageBonus' },
-      { key: 'damage_dice_bonus', label: '每伤害骰+1', dataType: 'number' },
-      { key: 'min_dice_value', label: '最低骰子数', dataType: 'number' },
+      { key: 'damage_dice_bonus', label: '每伤害骰+1', dataType: 'number', hidden: true },
+      { key: 'min_dice_value', label: '最低骰子数', dataType: 'number', hidden: true },
       // 以下保留旧 key，供已有数据与计算器解析
       { key: 'init_bonus', label: '先攻', dataType: 'number', hidden: true },
       { key: 'concentration', label: '专注', dataType: 'object', subSelect: 'numberAndAdvantage', hidden: true },

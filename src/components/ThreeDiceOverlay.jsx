@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import * as THREE from 'three'
 
 /** 投掷线速度倍率、自转角速度幅值、滚动阶段阻尼（数值越大转得越久） */
@@ -849,13 +850,15 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
     })
 
     let prev = performance.now()
+    const _center = new THREE.Vector3(0, 0, 0)
+    const _toCenter = new THREE.Vector3()
+    const _qTarget = new THREE.Quaternion()
     const step = () => {
       const now = performance.now()
       const dt = Math.min(0.033, (now - prev) / 1000)
       prev = now
       const g = -3.8
       const floorY = -4.0
-      const center = new THREE.Vector3(0, 0, 0)
       const minX = -7.2
       const maxX = 7.2
       const minY = -4.6
@@ -865,9 +868,9 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
       for (let i = 0; i < dice.length; i++) {
         const a = dice[i]
         const root = a.group
-        const toCenter = new THREE.Vector3().subVectors(center, root.position)
-        toCenter.z = 0
-        a.v.addScaledVector(toCenter, CENTER_PULL * dt)
+        _toCenter.subVectors(_center, root.position)
+        _toCenter.z = 0
+        a.v.addScaledVector(_toCenter, CENTER_PULL * dt)
         a.v.y += g * dt
         a.v.z = 0
         root.position.addScaledVector(a.v, dt)
@@ -919,17 +922,16 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
             const fi = fv - 1
             const ln = faceOutwardNormal(a.bodyMesh.geometry, fi, 3)
             if (ln.lengthSq() > 1e-12) {
-              const qTarget = new THREE.Quaternion().setFromUnitVectors(ln, resultFaceDir)
-              // 使用极小的 slerp 值让旋转非常平缓，避免"突然找面"的感觉
-              a.group.quaternion.slerp(qTarget, 0.03)
+              _qTarget.setFromUnitVectors(ln, resultFaceDir)
+              a.group.quaternion.slerp(_qTarget, 0.03)
               a.group.quaternion.normalize()
             }
           } else if (sd === 6) {
             const fv = Math.max(1, Math.min(6, Math.round(Number(a.finalValue))))
             const ln = d6FaceNormalByValue(fv)
             if (ln.lengthSq() > 1e-12) {
-              const qTarget = new THREE.Quaternion().setFromUnitVectors(ln, resultFaceDir)
-              a.group.quaternion.slerp(qTarget, 0.03)
+              _qTarget.setFromUnitVectors(ln, resultFaceDir)
+              a.group.quaternion.slerp(_qTarget, 0.03)
               a.group.quaternion.normalize()
             }
           } else if (sd === 10) {
@@ -946,8 +948,8 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
             }
             const ln = faceOutwardNormal(a.bodyMesh.geometry, fi, 6)
             if (ln.lengthSq() > 1e-12) {
-              const qTarget = new THREE.Quaternion().setFromUnitVectors(ln, resultFaceDir)
-              a.group.quaternion.slerp(qTarget, 0.03)
+              _qTarget.setFromUnitVectors(ln, resultFaceDir)
+              a.group.quaternion.slerp(_qTarget, 0.03)
               a.group.quaternion.normalize()
             }
           } else if (sd === 12) {
@@ -955,8 +957,8 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
             const fi = fv - 1
             const ln = faceOutwardNormal(a.bodyMesh.geometry, fi, 9)
             if (ln.lengthSq() > 1e-12) {
-              const qTarget = new THREE.Quaternion().setFromUnitVectors(ln, resultFaceDir)
-              a.group.quaternion.slerp(qTarget, 0.03)
+              _qTarget.setFromUnitVectors(ln, resultFaceDir)
+              a.group.quaternion.slerp(_qTarget, 0.03)
               a.group.quaternion.normalize()
             }
           }
@@ -1035,13 +1037,14 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
     }
   }, [normalized])
 
-  return (
+  return createPortal(
     <div
       ref={mountRef}
-      className="pointer-events-none fixed inset-0 z-[72]"
+      className="pointer-events-none fixed inset-0 z-[500]"
       data-testid="three-dice-overlay"
       role="presentation"
       aria-hidden
-    />
+    />,
+    document.body
   )
 }

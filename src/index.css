@@ -85,6 +85,28 @@ input, textarea, select, button, [class*="font-mono"], [class*="font-sans"], [cl
   -webkit-user-drag: element;
 }
 
+/* 装备物品卡 / 嵌套物品：拖放源声明 */
+[data-equipment-card][draggable='true'],
+[data-equipment-card][draggable=''],
+[data-nested-card][draggable='true'],
+[data-nested-card][draggable=''] {
+  -webkit-user-drag: element;
+}
+
+/* 拖动中半透明 */
+[data-equipment-card].opacity-50,
+[data-nested-card].opacity-50 {
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+}
+
+/* 拖放目标高亮 */
+[data-backpack-card].drag-over-highlight,
+[data-equipment-card].drag-over-highlight {
+  border-color: rgba(199, 154, 66, 0.6) !important;
+  box-shadow: 0 0 12px rgba(199, 154, 66, 0.25);
+}
+
 /* BottomNav 投掷时的 3D 骰子滚动 */
 .dice3d-wrap {
   position: relative;

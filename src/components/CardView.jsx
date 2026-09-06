@@ -30,7 +30,15 @@ function CardView({
   onToggleExpand,
   onConfigure,
   configureTitle,
-  gridLayout = false, // 是否使用8列网格布局
+  gridLayout = false,
+  narrow = true,
+  category,
+  categoryColor = '#8899aa',
+  sourceMain,
+  sourceSub,
+  buffTags = [],
+  onCategoryClick,
+  categoryActive = false,
 }) {
   const hasDescription = Boolean(description || descriptionNode)
   const hasChildren = Boolean(children)
@@ -60,96 +68,148 @@ function CardView({
     })()
     : null
 
-  // 8列网格布局模式
+  const gridTemplateColumns = narrow
+    ? '46px 76px 286px 136px 1fr 46px'
+    : '46px 76px 376px 136px 1fr 46px'
+
+  const cellBorder = { borderRight: '1px solid #2a3a4e' }
+
+  // 6列统一网格布局模式
   if (gridLayout) {
-    const isExpanded = expanded && (hasDescription || hasChildren)
-    
     return (
-      <div className={`panel-card-compact ${disabled ? 'opacity-50' : ''} ${className}`}>
-        {/* 8列网格标题行 - 收起态固定高度52px，展开态自适应 */}
-        {!isExpanded ? (
-          /* 收起态：单行 grid，严格 52px，内容垂直居中 */
-          <div 
-            className="grid grid-cols-[repeat(7,minmax(0,1fr))_0.5fr] items-center" 
-            style={{ height: '52px', gridTemplateRows: '1fr' }}
+      <div
+        className={`${disabled ? 'opacity-50' : ''} ${className}`}
+        style={{
+          background: '#1e2a3a',
+          border: '1px solid #2a3a4e',
+          borderRadius: '8px',
+          marginBottom: '8px',
+          overflow: 'hidden',
+        }}
+      >
+        {/* 6列网格标题行 — 固定52px */}
+        <div
+          className="grid items-center"
+          style={{
+            gridTemplateColumns,
+            height: '52px',
+            gridTemplateRows: '1fr',
+            gap: 0,
+          }}
+        >
+          {/* 第1列：类别标签（竖排） */}
+          <div
+            className="flex items-center justify-center h-full"
+            style={{
+              ...cellBorder,
+              writingMode: 'vertical-rl',
+              textOrientation: 'mixed',
+              fontSize: '12px',
+              fontWeight: 600,
+              letterSpacing: '3px',
+              color: categoryColor,
+              cursor: onCategoryClick ? 'pointer' : 'default',
+              userSelect: 'none',
+              transition: 'color 0.15s, background 0.15s',
+              ...(categoryActive ? { color: '#4ecdc4', background: 'rgba(78,205,196,0.08)' } : {}),
+            }}
+            onClick={onCategoryClick}
           >
-            {/* 第1列：等级+来源（两行小字） */}
-            <div className="col-span-1">
-              {headerLeft}
-            </div>
-            
-            {/* 第2-3列：名称+选项标签 */}
-            <div className="col-span-2 min-w-0">
-              {name && (
-                typeof name === 'string' ? (
-                  <span
-                    className="text-base font-bold text-white cursor-pointer select-none hover:text-gray-100 transition-colors truncate block"
-                    onClick={toggleExpand}
-                  >
-                    {name}
-                  </span>
-                ) : (
-                  <div onClick={toggleExpand}>
-                    {name}
-                  </div>
-                )
-              )}
-            </div>
-            
-            {/* 第4-7列：释放按钮区域 */}
-            <div className="col-span-4 flex justify-end gap-2">
-              {footer}
-            </div>
-            
-            {/* 第8列：编辑按钮 - 0.5格宽，齿轮在格内居中 */}
-            <div className="col-span-1 flex justify-center">
-              {headerRight !== undefined ? headerRight : defaultRight}
-            </div>
+            {category}
           </div>
-        ) : (
-          /* 展开态：用 grid 三行自适应 */
-          <div 
-            className="grid grid-cols-[repeat(7,minmax(0,1fr))_0.5fr]" 
-            style={{ gridTemplateRows: 'auto auto auto' }}
+
+          {/* 第2列：来源信息（两行） */}
+          <div
+            className="flex flex-col items-center justify-center gap-px h-full"
+            style={cellBorder}
           >
-            <div className="col-span-1 row-start-2 flex flex-col justify-center">
-              {headerLeft}
-            </div>
-            <div className="col-span-2 row-start-2 min-w-0 flex items-center">
-              {name && (typeof name === 'string' ? (
-                <span className="text-base font-bold text-white cursor-pointer select-none hover:text-gray-100 transition-colors truncate block" onClick={toggleExpand}>{name}</span>
+            {sourceMain && (
+              <div style={{ fontSize: '9px', color: '#8899aa', whiteSpace: 'nowrap' }}>
+                {sourceMain}
+              </div>
+            )}
+            {sourceSub && (
+              <div style={{ fontSize: '8px', color: '#667788', whiteSpace: 'nowrap' }}>
+                {sourceSub}
+              </div>
+            )}
+          </div>
+
+          {/* 第3列：特性区（名称 + 按钮） */}
+          <div
+            className="flex items-center justify-center gap-3 h-full"
+            style={{ ...cellBorder, padding: '4px 8px', overflow: 'hidden' }}
+          >
+            {name && (
+              typeof name === 'string' ? (
+                <span
+                  className="cursor-pointer select-none hover:text-gray-100 transition-colors truncate shrink-0"
+                  style={{ fontSize: '16px', fontWeight: 600, color: '#f0f0f0' }}
+                  onClick={toggleExpand}
+                >
+                  {name}
+                </span>
               ) : (
-                <div className="flex items-center h-full" onClick={toggleExpand}>{name}</div>
-              ))}
-            </div>
-            <div className="col-span-4 row-start-2 flex items-center justify-end gap-2">{footer}</div>
-            <div className="col-span-1 row-start-2 flex items-center justify-center">{headerRight !== undefined ? headerRight : defaultRight}</div>
+                <div className="shrink-0" onClick={toggleExpand}>{name}</div>
+              )
+            )}
+            {footer}
+          </div>
+
+          {/* 第4列：BUFF简称标签 */}
+          <div
+            className="flex flex-col items-start justify-center gap-0.5 h-full"
+            style={{ ...cellBorder, padding: '4px 8px', overflow: 'hidden' }}
+          >
+            {buffTags.map((tag, i) => (
+              <span
+                key={i}
+                style={{
+                  fontSize: '8px',
+                  padding: '0 4px',
+                  border: '1px solid #2a3a4e',
+                  borderRadius: '2px',
+                  background: '#1a2535',
+                  color: '#8899aa',
+                  whiteSpace: 'nowrap',
+                  lineHeight: '12px',
+                  height: '12px',
+                }}
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+
+          {/* 第5列：留白 */}
+          <div className="h-full" />
+
+          {/* 第6列：齿轮按钮 */}
+          <div
+            className="flex items-center justify-center h-full"
+            style={{ color: '#556677', transition: 'color 0.15s' }}
+          >
+            {headerRight !== undefined ? headerRight : defaultRight}
+          </div>
+        </div>
+
+        {/* 展开后的内容（网格下方，全宽） */}
+        {expanded && hasDescription && (
+          <div style={{ padding: '8px 12px', borderTop: '1px solid #2a3a4e' }}>
+            {descriptionNode || (
+              <p className="text-sm text-gray-400 leading-relaxed whitespace-pre-line">
+                {description}
+              </p>
+            )}
           </div>
         )}
-
-        {/* 展开后的内容 */}
-        {expanded && (
-          <>
-            {hasDescription && (
-              <div className="mt-2 pt-2 border-t border-gray-700/40">
-                {descriptionNode || (
-                  <p className="text-sm text-gray-400 leading-relaxed whitespace-pre-line">
-                    {description}
-                  </p>
-                )}
-              </div>
-            )}
-            {hasChildren && (
-              <div className="mt-2">
-                {children}
-              </div>
-            )}
-          </>
+        {expanded && hasChildren && (
+          <div style={{ padding: '8px 12px' }}>
+            {children}
+          </div>
         )}
-
-        {/* 无描述时子内容始终显示 */}
         {!hasDescription && hasChildren && (
-          <div className="mt-2">
+          <div style={{ padding: '8px 12px' }}>
             {children}
           </div>
         )}
@@ -296,13 +356,15 @@ export function SlotPanel({ title, count, headerActions, children, className = '
  * @param {function} props.onChange - 值变化回调 (newValue) => void
  * @param {boolean} [props.compact=false] - 紧凑模式（更小尺寸）
  */
-export function ShieldPoolCounter({ current, max, threshold = 0, onChange, compact = false }) {
+export function ShieldPoolCounter({ current, max, threshold = 0, onChange, compact = false, iconColor, textColor, hideIcon = false }) {
   const isDepleted = current <= threshold
-  const iconSize = compact ? 'w-3 h-3' : 'w-3.5 h-3.5'
+  const iconSize = compact ? 'w-4 h-4' : 'w-4 h-4'
 
   return (
     <div className="inline-flex items-center gap-1">
-      <Shield className={`${iconSize} ${isDepleted ? 'text-red-400' : 'text-dnd-gold'}`} />
+      {!hideIcon && (
+        <Shield className={`${iconSize}`} style={{ color: isDepleted ? '#ef4444' : (iconColor || '#38bdf8'), filter: `drop-shadow(0 0 4px ${isDepleted ? '#ef4444' : (iconColor || '#38bdf8')}88)` }} />
+      )}
       <NumberStepper
         value={current}
         min={0}

@@ -764,6 +764,128 @@ export function getFlatEffectEntries(buffs, char) {
         }
         continue
       }
+
+      // === 复合效果展开 ===
+
+      // 属性三合一 → ability_score + ability_override + ability_score_uncapped
+      if (e.effectType === 'ability_adjustment' && e.value && typeof e.value === 'object') {
+        const v = e.value
+        const proto = { scope: e.scope, scopeDetail: e.scopeDetail, itemInventoryId: b?.itemInventoryId, break20: e.break20 }
+        if (v.proficiency && typeof v.proficiency === 'object') {
+          const profAbilities = {}
+          for (const [k, val] of Object.entries(v.proficiency)) { if (val) profAbilities[k] = true }
+          if (Object.keys(profAbilities).length > 0) {
+            out.push({ ...proto, effectType: 'ability_score', value: { abilities: profAbilities } })
+          }
+        }
+        if (v.override && typeof v.override === 'object') {
+          const overAbilities = {}
+          for (const [k, val] of Object.entries(v.override)) { if (val != null && val !== 0) overAbilities[k] = Number(val) }
+          if (Object.keys(overAbilities).length > 0) {
+            out.push({ ...proto, effectType: 'ability_override', value: { abilities: overAbilities } })
+          }
+        }
+        if (v.increase && typeof v.increase === 'object') {
+          const incAbilities = {}
+          for (const [k, val] of Object.entries(v.increase)) { if (val != null && val !== 0) incAbilities[k] = Number(val) }
+          if (Object.keys(incAbilities).length > 0) {
+            out.push({ ...proto, effectType: 'ability_score_uncapped', value: { abilities: incAbilities } })
+          }
+        }
+        continue
+      }
+
+      // 额外攻击+动作 → extra_attack + extra_action_resource
+      if (e.effectType === 'extra_attacks' && e.value && typeof e.value === 'object') {
+        const v = e.value
+        const proto = { scope: e.scope, scopeDetail: e.scopeDetail, itemInventoryId: b?.itemInventoryId, break20: e.break20 }
+        if (v.attacks > 0) out.push({ ...proto, effectType: 'extra_attack', value: v.attacks })
+        if (v.actions > 0) out.push({ ...proto, effectType: 'extra_action_resource', value: v.actions })
+        continue
+      }
+
+      // 生命上限+再生 → max_hp_bonus (number) + regeneration (number)
+      if (e.effectType === 'max_hp_bonus' && e.value && typeof e.value === 'object') {
+        const v = e.value
+        const proto = { scope: e.scope, scopeDetail: e.scopeDetail, itemInventoryId: b?.itemInventoryId, break20: e.break20 }
+        if (v.maxHp) out.push({ ...proto, effectType: 'max_hp_bonus', value: v.maxHp })
+        if (v.regen > 0) out.push({ ...proto, effectType: 'regeneration', value: v.regen })
+        continue
+      }
+
+      // 法术强度 → spell_attack_bonus (number) + save_dc_bonus (number)
+      if (e.effectType === 'spell_attack_bonus' && e.value && typeof e.value === 'object') {
+        const v = e.value
+        const proto = { scope: e.scope, scopeDetail: e.scopeDetail, itemInventoryId: b?.itemInventoryId, break20: e.break20 }
+        const val = v.value || 0
+        if (v.mode === 'both' || v.mode === 'attack') {
+          if (val) out.push({ ...proto, effectType: 'spell_attack_bonus', value: val })
+        }
+        if (v.mode === 'both' || v.mode === 'dc') {
+          if (val) out.push({ ...proto, effectType: 'save_dc_bonus', value: { val, advantage: '' } })
+        }
+        continue
+      }
+
+      // 重击范围 → crit_range_override + crit_range_increment/crit_range_reduction
+      if (e.effectType === 'crit_range' && e.value && typeof e.value === 'object') {
+        const v = e.value
+        const proto = { scope: e.scope, scopeDetail: e.scopeDetail, itemInventoryId: b?.itemInventoryId, break20: e.break20 }
+        if (v.threatMin < 20) out.push({ ...proto, effectType: 'crit_range_override', value: v.threatMin })
+        if (v.increment > 0) out.push({ ...proto, effectType: 'crit_range_increment', value: v.increment })
+        if (v.increment < 0) out.push({ ...proto, effectType: 'crit_range_reduction', value: Math.abs(v.increment) })
+        continue
+      }
+
+      // 攻击距离+范围 → attack_distance_range (number) + attack_area (object)
+      if (e.effectType === 'attack_distance_range' && e.value && typeof e.value === 'object' && !Array.isArray(e.value)) {
+        const v = e.value
+        const proto = { scope: e.scope, scopeDetail: e.scopeDetail, itemInventoryId: b?.itemInventoryId, break20: e.break20 }
+        if (v.distance) out.push({ ...proto, effectType: 'attack_distance_range', value: v.distance })
+        if (v.area && v.area.size > 0) out.push({ ...proto, effectType: 'attack_area', value: v.area })
+        continue
+      }
+
+      // 施法距离：旧 string 格式兼容
+      if (e.effectType === 'spell_range_extension' && typeof e.value === 'string') {
+        const num = parseInt(e.value, 10)
+        if (!Number.isNaN(num)) {
+          out.push({ effectType: 'spell_range_extension', value: num, scope: e.scope, scopeDetail: e.scopeDetail, itemInventoryId: b?.itemInventoryId, break20: e.break20 })
+        }
+        continue
+      }
+
+      // 治疗增强 → healing_bonus (number from perRoll)
+      if (e.effectType === 'healing_bonus' && e.value && typeof e.value === 'object') {
+        const v = e.value
+        const proto = { scope: e.scope, scopeDetail: e.scopeDetail, itemInventoryId: b?.itemInventoryId, break20: e.break20 }
+        if (v.perRoll) out.push({ ...proto, effectType: 'healing_bonus', value: v.perRoll })
+        continue
+      }
+
+      // 死亡豁免：对象格式直接传递（计算器需处理）
+      if (e.effectType === 'death_save_bonus' && e.value && typeof e.value === 'object') {
+        out.push({ effectType: 'death_save_bonus', value: e.value, scope: e.scope, scopeDetail: e.scopeDetail, itemInventoryId: b?.itemInventoryId, break20: e.break20 })
+        continue
+      }
+
+      // AC合并：armor_override 中的 acBonus → 额外 ac_bonus 条目
+      if (e.effectType === 'armor_override' && e.value && typeof e.value === 'object' && e.value.acBonus) {
+        out.push({ effectType: 'ac_bonus', value: e.value.acBonus, scope: e.scope, scopeDetail: e.scopeDetail, itemInventoryId: b?.itemInventoryId, break20: e.break20 })
+      }
+
+      // 伤害抗性统一：damage_type_relation 中的 reduction/typedReduction
+      if (e.effectType === 'damage_type_relation' && e.value && typeof e.value === 'object') {
+        const v = e.value
+        const proto = { scope: e.scope, scopeDetail: e.scopeDetail, itemInventoryId: b?.itemInventoryId, break20: e.break20 }
+        if (v.reduction > 0) out.push({ ...proto, effectType: 'damage_reduction', value: v.reduction })
+        if (Array.isArray(v.typedReduction)) {
+          for (const tr of v.typedReduction) {
+            if (tr.amount > 0) out.push({ ...proto, effectType: 'damage_reduction_typed', value: { types: [tr.type], reduction: tr.amount } })
+          }
+        }
+      }
+
       out.push({
         effectType: e.effectType,
         value: resolveUpgradeValue(e, char),

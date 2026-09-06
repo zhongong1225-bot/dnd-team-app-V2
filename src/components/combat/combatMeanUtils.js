@@ -8,7 +8,7 @@ import { getItemById } from '../../data/itemDatabase'
 import { MARTIAL_TECHNIQUES, getMartialTechniqueById } from '../../data/martialTechniques'
 import { parseCombatDiceExpression } from '../../data/weaponDatabase'
 import { sumWeaponCategoryAttackDamageBonus } from '../../hooks/useBuffCalculator'
-import { abilityModifier } from '../../lib/formulas'
+import { abilityModifier, evaluateBuffValue } from '../../lib/formulas'
 
 /* ═══════════════════ 常量 ═══════════════════ */
 
@@ -366,8 +366,8 @@ export function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
   const weaponCategoryAttackFlat = weaponOpt?.proto
     ? sumWeaponCategoryAttackDamageBonus(buffStats?.weaponCategoryAttackDamageBonuses ?? [], weaponOpt.proto)
     : 0
-  const buffAttackBonus = (isRangedWeapon ? (buffStats?.rangedAttackBonus ?? 0) : (buffStats?.meleeAttackBonus ?? 0)) + weaponCategoryAttackFlat
-  const buffDamageBonus = (isRangedWeapon ? (buffStats?.rangedDamageBonus ?? 0) : (buffStats?.meleeDamageBonus ?? 0)) + weaponCategoryAttackFlat
+  let buffAttackBonus = (isRangedWeapon ? (buffStats?.rangedAttackBonus ?? 0) : (buffStats?.meleeAttackBonus ?? 0)) + weaponCategoryAttackFlat
+  let buffDamageBonus = (isRangedWeapon ? (buffStats?.rangedDamageBonus ?? 0) : (buffStats?.meleeDamageBonus ?? 0)) + weaponCategoryAttackFlat
   const weaponProficient = cm.weaponProficient !== false
   const weaponExpertiseCategories = buffStats?.weaponExpertiseCategories ?? []
   const weaponIsExpert = weaponProficient && weaponExpertiseCategories.length > 0 && weaponOpt?.proto && weaponProtoMatchesBuffWeaponCategories(weaponOpt.proto, weaponExpertiseCategories)
@@ -382,6 +382,48 @@ export function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
     ? parseWeaponAttack(getWeaponAttackStringForParsing(weaponOpt, cm.weaponVersatileMode))
     : { dice: null, diceList: [], type: '—' }
   const rawDamageType = cm.damageType || attackParsed.type
+  const newEffectScopeCtx = {
+    sourceKind: 'physical',
+    weaponProto: weaponOpt?.proto,
+    damageType: rawDamageType,
+    sourceItemInventoryId: weaponOpt?.entry?.id,
+  }
+  let newEffectAttackBonus = 0
+  let newEffectDamageBonus = 0
+  let newEffectHitBonusAdvantage = 0
+  const newEffectExtraDice = []
+  if (Array.isArray(flatBuffEffects)) {
+    const evalVal = (raw) => evaluateBuffValue(raw, itemFormulaContext || {})
+    for (const e of flatBuffEffects) {
+      if (!e) continue
+      if (e.effectType !== 'attack_enhancement_bonus' && e.effectType !== 'hit_bonus' && e.effectType !== 'extra_weapon_damage') continue
+      const { scope } = normalizeScope(e.scope, e.scopeDetail)
+      if (scope !== SCOPE_KIND.global && scope !== '') {
+        if (!scopeMatchesCombatMean(e, newEffectScopeCtx)) continue
+      }
+      if (e.effectType === 'attack_enhancement_bonus') {
+        const v = evalVal(e.value?.val ?? e.value)
+        if (!Number.isNaN(v)) { newEffectAttackBonus += v; newEffectDamageBonus += v }
+      } else if (e.effectType === 'hit_bonus') {
+        const v = evalVal(e.value?.val ?? e.value)
+        if (!Number.isNaN(v)) newEffectAttackBonus += v
+        if (e.value?.advantage === 'advantage') newEffectHitBonusAdvantage++
+        else if (e.value?.advantage === 'disadvantage') newEffectHitBonusAdvantage--
+      } else if (e.effectType === 'extra_weapon_damage') {
+        const dv = e.value || {}
+        const count = dv.diceCount ?? 1
+        const sides = dv.diceSides ?? 6
+        const flat = dv.flatBonus ?? 0
+        const type = dv.damageType || ''
+        let diceStr = `${count}d${sides}`
+        if (flat) diceStr += `+${flat}`
+        if (type) diceStr += ` ${getDamageTypeLabel(type)}`
+        newEffectExtraDice.push(diceStr)
+      }
+    }
+  }
+  buffAttackBonus += newEffectAttackBonus
+  buffDamageBonus += newEffectDamageBonus
   const spellAbilityOverride = getSpellAbilityForAttackFromBuffs(flatBuffEffects, {
     weaponProto: weaponOpt?.proto,
     damageType: rawDamageType,
@@ -392,7 +434,7 @@ export function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
   const abilityMod = abilityModifier(effectiveAbilities?.[abilityKey] ?? 10)
   const physicalAttackBonus = abilityMod + (weaponProficient ? (weaponIsExpert ? prof * 2 : prof) : 0) + buffAttackBonus + gainAttackBonus
   const damageMod = cm.weaponVersatileMode === 'bonus_action' ? 0 : abilityMod
-  const weaponExtraDiceStrings = [...getMergedWeaponExtraDiceStrings(cm, weaponOpt), ...gainExtraDice]
+  const weaponExtraDiceStrings = [...getMergedWeaponExtraDiceStrings(cm, weaponOpt), ...gainExtraDice, ...newEffectExtraDice]
   const allWeaponDiceCount = (attackParsed.diceList || []).reduce((s, d) => s + (parseCombatDiceExpression(d)?.count || 0), 0) +
     weaponExtraDiceStrings.reduce((s, d) => s + (parseCombatDiceExpression(String(d).split(' ')[0])?.count || 0), 0)
   const weaponPerDieMod = gainPerDieBonus * allWeaponDiceCount
@@ -403,7 +445,7 @@ export function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
     buffAttackBonus, buffDamageBonus, weaponProficient, weaponIsExpert, gains, gainAttackBonus, gainDamageBonus,
     gainPerDieBonus, gainExtraDice, gainAdvantage, gainDiceFloor2, attackParsed, rawDamageType,
     physicalAttackBonus, damageMod, weaponExtraDiceStrings, allWeaponDiceCount,
-    weaponPerDieMod, totalDamageMod, displayDamageType,
+    weaponPerDieMod, totalDamageMod, displayDamageType, newEffectHitBonusAdvantage,
   }
 }
 
@@ -584,6 +626,26 @@ export function buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellMe
           if (!advantageValue) advantageValue = e.value || 'advantage'
         } else if (e.effectType === 'dice_floor_2') {
           if (!hasAutoGain('diceFloor2')) pushOnce('diceFloor2', {})
+        } else if (e.effectType === 'attack_enhancement_bonus') {
+          const v = evaluateBuffValue(e.value?.val ?? e.value, formulaContext)
+          if (!Number.isNaN(v)) { totalAttackBonus += v; totalDamageBonus += v }
+        } else if (e.effectType === 'hit_bonus') {
+          const v = evaluateBuffValue(e.value?.val ?? e.value, formulaContext)
+          if (!Number.isNaN(v)) totalAttackBonus += v
+          if (!advantageValue && e.value?.advantage === 'advantage') advantageValue = 'advantage'
+          else if (!advantageValue && e.value?.advantage === 'disadvantage') advantageValue = 'disadvantage'
+        } else if (e.effectType === 'extra_weapon_damage') {
+          if (!hasAutoGain('extraDice')) {
+            const dv = e.value || {}
+            const count = dv.diceCount ?? 1
+            const sides = dv.diceSides ?? 6
+            const flat = dv.flatBonus ?? 0
+            const type = dv.damageType || ''
+            let diceStr = `${count}d${sides}`
+            if (flat) diceStr += `+${flat}`
+            if (type) diceStr += ` ${getDamageTypeLabel(type)}`
+            pushOnce('extraDice', { dice: diceStr })
+          }
         }
       }
     }

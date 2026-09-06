@@ -620,29 +620,28 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
               getEffectSummaryShort({ effectType: c.effectType, value: c.value, customText: c.customText, scope: c.scope, scopeDetail: c.scopeDetail }, {})
             ).filter(Boolean)
             return (
-              <div key={t.id} className="bg-white/[0.03] rounded-md border border-gray-700/40 px-3 py-2">
-                <div className="flex items-center gap-2 mb-1 flex-wrap">
-                  <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{t._isSubrace ? '亚种特性' : '种族特性'}</span>
-                  <span className="text-xs font-semibold text-gray-200">{t.name}</span>
-                  {isChoice && (
-                    <button
-                      onClick={() => setRaceTraitChoiceModal(t.id)}
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-amber-300/80 hover:text-amber-200 hover:bg-amber-500/15 border border-amber-400/20"
-                    >
-                      {chosenOpt ? chosenOpt.label : '未选择'}
-                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                    </button>
-                  )}
-                </div>
-                {t.description && <p className="text-[11px] text-gray-400 leading-relaxed mb-1">{t.description}</p>}
-                {effectSummaries.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {effectSummaries.map((s, i) => (
-                      <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-[10px] text-blue-300/80">{s}</span>
-                    ))}
-                  </div>
+              <CardView
+                key={t.id}
+                gridLayout={true}
+                narrow={true}
+                category="种族"
+                categoryColor="#6ba3d6"
+                sourceMain={selectedRace.name}
+                sourceSub={t._isSubrace ? '亚种特性' : '种族特性'}
+                name={t.name}
+                buffTags={effectSummaries.slice(0, 3)}
+                description={t.description || undefined}
+              >
+                {isChoice && (
+                  <button
+                    onClick={() => setRaceTraitChoiceModal(t.id)}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-amber-300/80 hover:text-amber-200 hover:bg-amber-500/15 border border-amber-400/20"
+                  >
+                    {chosenOpt ? chosenOpt.label : '未选择'}
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                  </button>
                 )}
-              </div>
+              </CardView>
             )
           })}
       </div>
@@ -2115,53 +2114,50 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
                 expanded={isExpanded}
                 onToggleExpand={() => toggleFeatureExpand(key)}
                 gridLayout={true}
-                headerLeft={
-                  <div className="text-left">
-                    <div className="text-[11px] text-gray-500 leading-tight">{f.level}级获得</div>
-                    <div className="text-[11px] text-gray-500 leading-tight truncate">{f.sourceSubclass || f.sourceClass}</div>
-                  </div>
-                }
+                narrow={true}
+                category="职业"
+                categoryColor="#c79a42"
+                sourceMain={`${f.level}级获得`}
+                sourceSub={f.sourceSubclass || f.sourceClass}
+                buffTags={cfScopeLabel ? [cfScopeLabel] : []}
                 headerRight={
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {cfShieldPoolEffect && (() => {
-                      const spVal = cfShieldPoolEffect.value
-                      const spMax = Number(spVal.max) || 10
-                      const spThreshold = Number(spVal.threshold) || 0
-                      return (
-                        <ShieldPoolCounter
-                          current={cfShieldCurrent}
-                          max={spMax}
-                          threshold={spThreshold}
-                          compact
-                          onChange={(v) => {
-                            const newState = setShieldPoolCurrent(char, 'classFeature', cfBuffKey, v)
-                            onSave({ shieldPoolStates: newState })
-                          }}
-                        />
-                      )
-                    })()}
-                    {cfScopeLabel && (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/15 text-indigo-300 border border-indigo-500/20">{cfScopeLabel}</span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (isChoiceType) {
-                          setChoiceModalFeature(f)
-                        } else {
-                          setBuffEditorFeature(f)
-                        }
-                      }}
-                      className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
-                      title={isChoiceType ? '选择特性选项' : '配置 BUFF 效果'}
-                    >
-                      <Settings className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (isChoiceType) {
+                        setChoiceModalFeature(f)
+                      } else {
+                        setBuffEditorFeature(f)
+                      }
+                    }}
+                    className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
+                    title={isChoiceType ? '选择特性选项' : '配置 BUFF 效果'}
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                  </button>
                 }
                 footer={<ClassFeatureActions feature={f} moduleId={moduleId} char={char} onSave={onSave} />}
               >
+                {cfShieldPoolEffect && (() => {
+                  const spVal = cfShieldPoolEffect.value
+                  const spMax = Number(spVal.max) || 10
+                  const spThreshold = Number(spVal.threshold) || 0
+                  return (
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs text-gray-500">护盾池：</span>
+                      <ShieldPoolCounter
+                        current={cfShieldCurrent}
+                        max={spMax}
+                        threshold={spThreshold}
+                        onChange={(v) => {
+                          const newState = setShieldPoolCurrent(char, 'classFeature', cfBuffKey, v)
+                          onSave({ shieldPoolStates: newState })
+                        }}
+                      />
+                    </div>
+                  )
+                })()}
                 {f.id === 'eldritch_invocations' && (
                   <EldritchInvocationsBlock char={char} canEdit={canEdit} onSave={onSave} moduleId={moduleId} />
                 )}
@@ -2734,12 +2730,23 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
             return (
               <li key={slot.id}>
                 <CardView
-                  name={row?.featId ? name : ''}
                   subtitle={subtitleText}
                   description={row?.featId && descText ? descText : undefined}
                   expanded={isExpanded}
                   onToggleExpand={() => toggleFeatExpand(row.featId)}
-                  headerLeft={row?.featId ? (
+                  gridLayout={true}
+                  narrow={true}
+                  category="专长"
+                  categoryColor="#a78bfa"
+                  sourceMain={`${row?.level || slot?.level || 1}级获得`}
+                  sourceSub={name || slot?.category || ''}
+                  buffTags={(() => {
+                    const fScope = row?.featBuffPatch?.cardScope
+                    return fScope?.type && fScope.type !== 'global'
+                      ? [SCOPE_TYPE_OPTIONS.find(o => o.value === fScope.type)?.label || fScope.type]
+                      : []
+                  })()}
+                  name={row?.featId ? (
                     <InfoTooltip
                       content={
                         <FeatTooltipContent
@@ -2762,43 +2769,17 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                       disabled={!feat && !legacyStyle}
                     >
                       <span
-                        className="text-base font-bold text-white cursor-pointer select-none hover:text-gray-100 transition-colors truncate block"
+                        style={{ fontSize: '16px', fontWeight: 600, color: '#f0f0f0' }}
+                        className="cursor-pointer select-none hover:text-gray-100 transition-colors truncate block"
                         onClick={() => toggleFeatExpand(row.featId)}
                       >
                         {name}
                       </span>
                     </InfoTooltip>
-                  ) : (
-                    <span className="text-sm text-gray-500">{slot.level || 1}级，{slot.category || '专长'}</span>
-                  )}
+                  ) : ''}
                   headerRight={
-                    canEdit && row?.featId ? (() => {
-                      const fScope = row.featBuffPatch?.cardScope
-                      const fScopeLabel = fScope?.type && fScope.type !== 'global'
-                        ? (SCOPE_TYPE_OPTIONS.find(o => o.value === fScope.type)?.label || fScope.type)
-                        : null
-                      return (
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {featShieldPoolEffect && (() => {
-                          const spVal = featShieldPoolEffect.value
-                          const spMax = Number(spVal.max) || 10
-                          const spThreshold = Number(spVal.threshold) || 0
-                          return (
-                            <ShieldPoolCounter
-                              current={featShieldCurrent}
-                              max={spMax}
-                              threshold={spThreshold}
-                              compact
-                              onChange={(v) => {
-                                const newState = setShieldPoolCurrent(char, 'feat', row.featId, v)
-                                onSave({ shieldPoolStates: newState })
-                              }}
-                            />
-                          )
-                        })()}
-                        {fScopeLabel && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/15 text-indigo-300 border border-indigo-500/20">{fScopeLabel}</span>
-                        )}
+                    canEdit && row?.featId ? (
+                      <div className="flex items-center gap-0.5">
                         <button
                           type="button"
                           onClick={() => setFeatBuffEditor({ row, slot })}
@@ -2824,15 +2805,14 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
-                      )
-                    })() : canEdit && !row?.featId ? (
+                    ) : canEdit && !row?.featId ? (
                       <button
                         type="button"
                         onClick={() => openPickerForSlot(slot)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-dnd-gold/15 text-dnd-gold-light hover:bg-dnd-gold/25 border border-dnd-gold/40 transition-all active:scale-95 shrink-0"
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium bg-dnd-gold/15 text-dnd-gold-light hover:bg-dnd-gold/25 border border-dnd-gold/40 transition-all active:scale-95"
                       >
-                        <Plus className="w-3.5 h-3.5" />
-                        无专长
+                        <Plus className="w-3 h-3" />
+                        选择
                       </button>
                     ) : null
                   }
@@ -2861,6 +2841,25 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                     )
                   })() : undefined}
                 >
+                  {featShieldPoolEffect && (() => {
+                    const spVal = featShieldPoolEffect.value
+                    const spMax = Number(spVal.max) || 10
+                    const spThreshold = Number(spVal.threshold) || 0
+                    return (
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs text-gray-500">护盾池：</span>
+                        <ShieldPoolCounter
+                          current={featShieldCurrent}
+                          max={spMax}
+                          threshold={spThreshold}
+                          onChange={(v) => {
+                            const newState = setShieldPoolCurrent(char, 'feat', row.featId, v)
+                            onSave({ shieldPoolStates: newState })
+                          }}
+                        />
+                      </div>
+                    )
+                  })()}
                   {/* 获取描述 */}
                   {isExpanded && row?.featId && !legacyStyle && (
                     <p className="text-xs text-gray-500 mt-1.5 pt-1.5 border-t border-gray-700/30">
@@ -2912,12 +2911,17 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
             return (
               <li key={`free-${row.featId}-${i}`}>
                 <CardView
-                  name={name}
                   subtitle={subtitleText}
                   description={descText || undefined}
                   expanded={isExpanded}
                   onToggleExpand={() => toggleFeatExpand(row.featId)}
-                  headerLeft={
+                  gridLayout={true}
+                  narrow={true}
+                  category="专长"
+                  categoryColor="#a78bfa"
+                  sourceMain={`${row?.level || 1}级获得`}
+                  sourceSub={name}
+                  name={
                     <InfoTooltip
                       content={
                         <FeatTooltipContent
@@ -2940,7 +2944,8 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                       disabled={!feat && !legacyStyle}
                     >
                       <span
-                        className="text-base font-bold text-white cursor-pointer select-none hover:text-gray-100 transition-colors truncate block"
+                        style={{ fontSize: '16px', fontWeight: 600, color: '#f0f0f0' }}
+                        className="cursor-pointer select-none hover:text-gray-100 transition-colors truncate block"
                         onClick={() => toggleFeatExpand(row.featId)}
                       >
                         {name}
@@ -2949,16 +2954,14 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                   }
                   headerRight={
                     canEdit ? (
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => removeFreeFeat(i)}
-                          className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-red-400 hover:bg-red-900/20 transition-all active:scale-95"
-                          title="移除"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeFreeFeat(i)}
+                        className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-red-400 hover:bg-red-900/20 transition-all active:scale-95"
+                        title="移除"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     ) : null
                   }
                   footer={hasActiveAbility ? (() => {
@@ -4070,24 +4073,20 @@ export default function CharacterSheet() {
                             const raceAbility = raceActiveCard ? findActiveAbilityFromCard(raceActiveCard.sourceKey, allCards, 'race') : null
                             
                             return (
-                              <div key={t.id} className="bg-white/[0.03] rounded-md border border-gray-700/40 px-3 py-2">
-                                <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                  <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{t._isSubrace ? '亚种特性' : '种族特性'}</span>
-                                  <span className="text-xs font-semibold text-gray-200">{t.name}</span>
-                                  {isChoice && (
-                                    <button
-                                      onClick={() => setProfileTraitChoiceModal(t.id)}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-amber-300/80 hover:text-amber-200 hover:bg-amber-500/15 border border-amber-400/20"
-                                    >
-                                      {chosenOpt ? chosenOpt.label : '未选择'}
-                                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                                    </button>
-                                  )}
-                                  {/* 主动技能使用按钮 */}
-                                  {raceAbility && (() => {
+                              <div key={t.id}>
+                                <CardView
+                                  gridLayout={true}
+                                  narrow={true}
+                                  category="种族"
+                                  categoryColor="#6ba3d6"
+                                  sourceMain={selRace.name}
+                                  sourceSub={t._isSubrace ? '亚种特性' : '种族特性'}
+                                  name={t.name}
+                                  buffTags={effectSummaries.slice(0, 3)}
+                                  footer={raceAbility ? (() => {
                                     const check = canUseAbility(raceAbility, char)
-                                    const costText = raceAbility.cost.type === 'class_resource' 
-                                      ? `${raceAbility.cost.amount}${({ charges: '充', spell_slot: '法' }[raceAbility.cost.resourceKey] || '')}` 
+                                    const costText = raceAbility.cost.type === 'class_resource'
+                                      ? `${raceAbility.cost.amount}${({ charges: '充', spell_slot: '法' }[raceAbility.cost.resourceKey] || '')}`
                                       : raceAbility.cost.type === 'none' ? '免费' : ''
                                     return (
                                       <button
@@ -4105,14 +4104,20 @@ export default function CharacterSheet() {
                                         {costText && <span className="text-[9px] opacity-70">({costText})</span>}
                                       </button>
                                     )
-                                  })()}
-                                </div>
-                                {t.description && <p className="text-[11px] text-gray-400 leading-relaxed mb-1">{t.description}</p>}
-                                {effectSummaries.length > 0 && (
-                                  <div className="flex flex-wrap gap-1">
-                                    {effectSummaries.map((s, i) => (
-                                      <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-[10px] text-blue-300/80">{s}</span>
-                                    ))}
+                                  })() : undefined}
+                                />
+                                {(t.description || isChoice) && (
+                                  <div className="px-3 pb-2 -mt-1">
+                                    {isChoice && (
+                                      <button
+                                        onClick={() => setProfileTraitChoiceModal(t.id)}
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-amber-300/80 hover:text-amber-200 hover:bg-amber-500/15 border border-amber-400/20 mb-1"
+                                      >
+                                        {chosenOpt ? chosenOpt.label : '未选择'}
+                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                                      </button>
+                                    )}
+                                    {t.description && <p className="text-[11px] text-gray-400 leading-relaxed">{t.description}</p>}
                                   </div>
                                 )}
                               </div>
@@ -4215,7 +4220,6 @@ export default function CharacterSheet() {
             <h3 className="section-title">被动BUFF</h3>
             <BuffManager
               buffs={mergedBuffs}
-              cards={allCards}
               char={char}
               baseAbilities={char.abilities ?? {}}
               sourceNameOptions={sourceNameOptions}
@@ -4249,13 +4253,6 @@ export default function CharacterSheet() {
                 }
                 
                 persist(updates)
-              }}
-              onUseAbility={(card, patch, lines) => {
-                // 应用资源扣除和效果
-                if (patch && Object.keys(patch).length > 0) {
-                  persist(patch)
-                }
-                console.log('[CharacterSheet] Ability used:', card.source, lines)
               }}
               stashBuffs={char.buffStash ?? []}
               onStashChange={canEdit ? (next) => persist({ buffStash: next }) : undefined}
@@ -4306,7 +4303,11 @@ export default function CharacterSheet() {
               activityActor={user?.name}
               activeAbilities={allCards.filter(c => c.slotKind === 'equipment').map(itemCard => {
                 const ability = findActiveAbilityFromCard(itemCard.sourceKey, allCards, 'equipment')
-                return ability ? { inventoryId: itemCard.sourceKey, ability } : null
+                if (!ability) return null
+                const chargeEffect = Array.isArray(itemCard.buffEffects)
+                  ? itemCard.buffEffects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
+                  : null
+                return { inventoryId: itemCard.sourceKey, ability, chargeValue: chargeEffect?.value || null }
               }).filter(Boolean)}
             />
           </section>

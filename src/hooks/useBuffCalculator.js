@@ -657,6 +657,8 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
     let specialSenses = { senses: [], range: 0 }
     let healingBonus = 0
     let deathSaveBonus = 0
+    let advDeathSave = 0
+    let disadvDeathSave = 0
     let deathWard = false
     let extraAttack = 0
     let extraActionResource = 0
@@ -818,8 +820,15 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       }
       // 新增：死亡豁免加值（数值）
       else if (b.effectType === 'death_save_bonus') {
-        const dv = evalVal(raw)
-        if (!Number.isNaN(dv)) deathSaveBonus += dv
+        if (raw && typeof raw === 'object') {
+          const dv = evalVal(raw.bonus)
+          if (!Number.isNaN(dv)) deathSaveBonus += dv
+          if (raw.advantage === 'advantage') advDeathSave++
+          else if (raw.advantage === 'disadvantage') disadvDeathSave++
+        } else {
+          const dv = evalVal(raw)
+          if (!Number.isNaN(dv)) deathSaveBonus += dv
+        }
       }
       // 防死：一次 HP 降至 0 以下时强制改为 1（布尔值）
       else if (b.effectType === 'death_ward') {
@@ -1002,6 +1011,7 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       specialSenses,
       healingBonus,
       deathSaveBonus,
+      deathSaveAdvantage: resolveAdvDisadv(advDeathSave > 0, disadvDeathSave > 0),
       deathWard,
       conditionImmunities: [...conditionImmunities],
       weaponExpertiseCategories: [...weaponExpertiseCategories],

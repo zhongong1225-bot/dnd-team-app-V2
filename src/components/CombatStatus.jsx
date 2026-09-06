@@ -2203,6 +2203,38 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     .arc-field-depleted {
       position: relative;
     }
+    .arc-horizontal-stripes {
+      background: 
+        repeating-linear-gradient(
+          0deg,
+          rgba(64, 168, 192, 0.7) 0px,
+          rgba(64, 168, 192, 0.7) 2px,
+          transparent 2px,
+          transparent 4px
+        ),
+        linear-gradient(
+          to bottom,
+          rgba(56, 189, 248, 0.5) 0%,
+          rgba(64, 168, 192, 0.3) 40%,
+          rgba(64, 168, 192, 0.3) 60%,
+          rgba(56, 189, 248, 0.5) 100%
+        );
+      background-blend-mode: screen;
+      mask-image: linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0.9) 0%,
+        rgba(0, 0, 0, 0) 35%,
+        rgba(0, 0, 0, 0) 65%,
+        rgba(0, 0, 0, 0.9) 100%
+      );
+      -webkit-mask-image: linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0.9) 0%,
+        rgba(0, 0, 0, 0) 35%,
+        rgba(0, 0, 0, 0) 65%,
+        rgba(0, 0, 0, 0.9) 100%
+      );
+    }
   `
 
   return (
@@ -2375,6 +2407,10 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           {wornArmorWithShieldPool && (
             <div className={`arc-pulse-glow absolute -inset-1 rounded-xl pointer-events-none ${wornArmorWithShieldPool.spCurrent <= wornArmorWithShieldPool.spThreshold ? 'arc-glow-red' : 'arc-glow-blue'}`} />
           )}
+          {/* 横向条纹层 - 从中间向上下渐变 */}
+          {wornArmorWithShieldPool && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold && (
+            <div className="arc-horizontal-stripes absolute inset-0 rounded-lg pointer-events-none" />
+          )}
           <div
             className={`relative rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-2 sm:p-3 min-h-[4rem] flex flex-row flex-nowrap items-center justify-center gap-1.5 sm:gap-2 min-w-0 ${COMBAT_INNER_RIM_ONLY} ${wornArmorWithShieldPool && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold ? 'bg-[#1a2740]/40' : ''}`}
           title={[
@@ -2428,14 +2464,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                 {canEdit && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold && (
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation()
                       const newState = decrementShieldPool(char, 'equipment', wornArmorWithShieldPool.entry.id, wornArmorWithShieldPool.spThreshold)
                       if (newState) onSave({ shieldPoolStates: newState })
                     }}
-                    className="w-4 h-4 flex items-center justify-center rounded bg-red-500/20 text-red-400 hover:bg-red-500/40 text-[10px] font-bold"
+                    className="w-[22px] h-[22px] flex items-center justify-center rounded-full bg-black/20 hover:bg-black/40 text-[#e0e0e0] text-xs font-bold border border-cyan-500/30"
                     title="扣减 1 层护盾"
                   >
-                    -
+                    −
                   </button>
                 )}
               </div>

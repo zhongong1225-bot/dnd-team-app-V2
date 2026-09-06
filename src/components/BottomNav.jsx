@@ -396,7 +396,7 @@ function DiceVisual3D({ spec }) {
 
 function DiceFallbackOverlay({ specs = [] }) {
   return (
-    <div className="pointer-events-none fixed inset-0 z-[72] overflow-hidden">
+    <div className="pointer-events-none fixed inset-0 z-[500] overflow-hidden">
       {specs.map((spec, i) => {
         const fromLeft = i % 2 === 0
         const top = 18 + ((i * 13) % 52)
@@ -775,7 +775,7 @@ export default function BottomNav() {
     <>
       {isRolling ? <ThreeDiceOverlay diceSpecs={threeOverlaySpecs} showFinal={showFinalFace} /> : null}
       {isRolling ? (
-        <div className="pointer-events-none fixed inset-x-0 top-[22%] z-[71] flex justify-center">
+        <div className="pointer-events-none fixed inset-x-0 top-[22%] z-[500] flex justify-center">
           <div className="rounded-lg border border-white/20 bg-[#0f172acc] px-4 py-2 text-xs tracking-wide text-dnd-gold-light shadow-[0_8px_24px_rgba(0,0,0,0.45)] backdrop-blur-sm">
             骰子滚动中... {rollingPreview?.formula || ''}
             {rollingPreview?.overflow > 0 ? `  (+${rollingPreview.overflow} 颗未渲染)` : ''}

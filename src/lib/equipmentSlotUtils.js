@@ -214,11 +214,15 @@ export function applySlotChange(heldSlots, wornSlots, inv, invIndex, newSlotValu
  *   other worn slots: any item
  *   backpack: always available
  *
+ * The currently assigned slot is always included so the <select> never
+ * appears blank even when the item was placed before filtering was stricter.
+ *
  * @param {Object} entry - inventory entry
  * @param {Array} inv - inventory (unused, kept for API consistency)
+ * @param {string} [currentSlotValue] - the item's current slot assignment
  * @returns {Array} filtered SLOT_GROUPS shape (empty groups removed)
  */
-export function getAvailableSlotsForItem(entry, inv) {
+export function getAvailableSlotsForItem(entry, inv, currentSlotValue) {
   const proto = entry?.itemId ? getItemById(entry.itemId) : null
   const type = proto?.类型 || ''
   const sub = proto?.子类型 || ''
@@ -227,20 +231,22 @@ export function getAvailableSlotsForItem(entry, inv) {
   const isShield = type === '盔甲' && sub === '盾牌'
   const isBodyArmor = type === '盔甲' && sub !== '盾牌'
   const isClothing = type === '衣服'
+  const isGeneric = !type
+
+  function slotAllowed(value) {
+    if (value === 'backpack') return true
+    if (value.startsWith('worn_') && value !== 'worn_body') return true
+    if (value === 'worn_body') return isGeneric || isBodyArmor || isClothing
+    if (value === 'held_0') return isWeapon
+    return isWeapon || isShield
+  }
 
   return SLOT_GROUPS
     .map((group) => {
       const filtered = group.slots.filter(({ value }) => {
-        // Backpack always available
-        if (value === 'backpack') return true
-        // Other worn slots (non-body) accept any item
-        if (value.startsWith('worn_') && value !== 'worn_body') return true
-        // worn_body: body armor or clothing only
-        if (value === 'worn_body') return isBodyArmor || isClothing
-        // held_0 (主手): weapons only
-        if (value === 'held_0') return isWeapon
-        // held_1+ (副手 / 备用): weapons or shield
-        return isWeapon || isShield
+        if (slotAllowed(value)) return true
+        if (currentSlotValue && value === currentSlotValue) return true
+        return false
       })
       return { ...group, slots: filtered }
     })

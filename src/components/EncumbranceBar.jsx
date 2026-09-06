@@ -4,6 +4,11 @@ import { ENCUMBRANCE_MULTIPLIER, formatDisplayOneDecimal } from '../lib/encumbra
 /**
  * 负重条：当前重量 / 最大重量 (lbs)，按百分比变色（绿/黄/红）
  * multiplier 默认 15（强壮等特性可传 30）
+ *
+ * D&D 负重规则：
+ * - 正常：≤ 力量×5（容量 33%）
+ * - 重载：> 力量×5 且 ≤ 力量×10（容量 33%-67%）
+ * - 超载：> 力量×10（容量 > 67%）
  */
 export default function EncumbranceBar({ character, multiplier = ENCUMBRANCE_MULTIPLIER }) {
   const { total, max, percent, statusColor, statusLabel } = useEncumbrance(character, multiplier)
@@ -19,11 +24,29 @@ export default function EncumbranceBar({ character, multiplier = ENCUMBRANCE_MUL
   const displayMax = Number.isFinite(Number(max)) ? formatDisplayOneDecimal(max) : '—'
   const displayTotal = formatDisplayOneDecimal(Number(total) || 0)
 
+  // 负重阈值百分比（基于容量）
+  // 重载阈值 = 力量×5 / (力量×15) = 33%
+  // 超载阈值 = 力量×10 / (力量×15) = 67%
+  const encumberedThresholdPct = 33
+  const heavilyEncumberedThresholdPct = 67
+
   return (
     <div className="flex items-center gap-2">
-      <div className="flex-1 min-w-0 h-5 rounded-full bg-[#1b2738] border border-white/15 overflow-hidden shadow-[inset_0_1px_2px_rgba(0,0,0,0.35)]">
+      <div className="flex-1 min-w-0 h-5 rounded-full bg-[#1b2738] border border-white/15 overflow-hidden shadow-[inset_0_1px_2px_rgba(0,0,0,0.35)] relative">
+        {/* 阈值标记线 */}
         <div
-          className="h-full rounded-full transition-[width] duration-300 ease-out"
+          className="absolute top-0 bottom-0 w-px bg-amber-500/40"
+          style={{ left: `${encumberedThresholdPct}%` }}
+          title="重载阈值（力量×5）"
+        />
+        <div
+          className="absolute top-0 bottom-0 w-px bg-red-500/40"
+          style={{ left: `${heavilyEncumberedThresholdPct}%` }}
+          title="超载阈值（力量×10）"
+        />
+        {/* 负重填充 */}
+        <div
+          className="h-full rounded-full transition-[width] duration-300 ease-out relative z-10"
           style={{
             width: `${pct}%`,
             minWidth: pct > 0 ? '6px' : 0,

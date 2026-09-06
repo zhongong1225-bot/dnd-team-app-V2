@@ -4,17 +4,17 @@
  */
 
 /**
- * 外投影：仍偏紧、不散太远，但透明度略提高，在深色底上能看出层次（过弱会像「没投影」）。
+ * 外投影：四层阴影（远投影 + 近投影 + 内高光 + 内阴影），与 EquipmentItemCard 一致。
  */
 export const inventoryItemCardShadow =
-  'shadow-[0_2px_10px_rgba(0,0,0,0.42),0_1px_4px_rgba(0,0,0,0.34)]'
+  'shadow-[0_6px_22px_rgba(0,0,0,0.48),0_2px_6px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.085),inset_0_-1px_0_rgba(0,0,0,0.22)]'
 
 /**
- * 外卡片壳：微渐变 + 内描边轻质感；悬停略提亮边线。
- * 渐变与角色卡「背包」分区壳 `bg-[#141c28]` 同色相：顶/底由 #141c28 等比微调明度，避免与 `gray-800` 标题条对比时发绿、发青。
+ * 外卡片壳：微渐变 + 白色微光边框 + 四层阴影；悬停变金色边框 + 加深阴影。
+ * 渐变与 EquipmentItemCard 同色相。
  */
 export const inventoryItemCardShellClass =
-  `rounded-md border border-gray-600/45 bg-gradient-to-b from-[#161e2b] via-[#141c28] to-[#121a25] px-3.5 py-2 min-w-0 flex flex-col overflow-hidden ring-1 ring-inset ring-white/[0.028] transition-[opacity,box-shadow,border-color] hover:border-gray-500/55 ${inventoryItemCardShadow}`
+  `rounded-md border border-white/[0.06] bg-gradient-to-b from-[#161e2b] via-[#141c28] to-[#121a25] px-3.5 py-2 min-w-0 flex flex-col overflow-hidden ring-1 ring-inset ring-white/[0.028] transition-[box-shadow,border-color] hover:border-dnd-gold/25 hover:shadow-[0_10px_28px_rgba(0,0,0,0.42),0_4px_10px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(255,255,255,0.1),inset_0_-1px_0_rgba(0,0,0,0.24)] ${inventoryItemCardShadow}`
 
 /** 列表内相邻物品卡竖间距：为原 gap-4（1rem）的 3/5，即间隔减少 2/5；背包 / 次元袋 / 仓库等共用 */
 export const inventoryItemCardListGapClass = 'gap-[0.6rem]'
