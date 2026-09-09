@@ -869,11 +869,6 @@ export function getFlatEffectEntries(buffs, char) {
         continue
       }
 
-      // AC合并：armor_override 中的 acBonus → 额外 ac_bonus 条目
-      if (e.effectType === 'armor_override' && e.value && typeof e.value === 'object' && e.value.acBonus) {
-        out.push({ effectType: 'ac_bonus', value: e.value.acBonus, scope: e.scope, scopeDetail: e.scopeDetail, itemInventoryId: b?.itemInventoryId, break20: e.break20 })
-      }
-
       // 伤害抗性统一：damage_type_relation 中的 reduction/typedReduction
       if (e.effectType === 'damage_type_relation' && e.value && typeof e.value === 'object') {
         const v = e.value

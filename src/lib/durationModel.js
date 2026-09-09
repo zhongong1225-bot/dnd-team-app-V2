@@ -34,6 +34,24 @@ export const PRESET_DURATION_OPTIONS = [
 const TIMED_TYPES = new Set(['rounds', 'minutes', 'hours', 'days'])
 
 /**
+ * 保留持续时间的原始形状（旧格式字符串 或 新格式结构化对象），用于跨存储拷贝模板。
+ *
+ * 直接 String(raw) 会把 { type: 'until_long_rest' } 压成 "[object Object]"，
+ * 结果既显示成乱码又永远不随休息清除。
+ * @param {string|object|null|undefined} raw
+ * @returns {string|object|undefined}
+ */
+export function cloneDurationRaw(raw) {
+  if (raw == null) return undefined
+  if (typeof raw === 'object') return raw.type ? { ...raw } : undefined
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim()
+    return trimmed === '' ? undefined : trimmed
+  }
+  return undefined
+}
+
+/**
  * 规范化持续时间（向后兼容）
  * @param {string|object} raw - 旧格式字符串 或 新格式对象
  * @returns {{ type: string, value?: number, text?: string }}

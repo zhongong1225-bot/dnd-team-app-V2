@@ -26,6 +26,8 @@ import {
   POKER_SUIT_LABELS,
   POKER_SUIT_SYMBOLS,
   getDiceMax,
+  resolveLevelScaling,
+  getMainHandWeaponDamageType,
 } from '../lib/chargeItemModel'
 import { rollDice } from '../data/weaponDatabase'
 import { proficiencyBonus, abilityModifier, calcMaxHP, getHPBuffSum } from '../lib/formulas'
@@ -133,7 +135,7 @@ function processAllEffects(ctx) {
 
   for (const eff of (norm.effects || [])) {
     const ev = eff.value || {}
-    const scaled = computeScaledEffect(ev, amt, isFreeSlot && eff.applyMultiplier !== false)
+    const scaled = computeScaledEffect(ev, amt, isFreeSlot && eff.applyMultiplier !== false, char)
 
     /* ── attack_buff：命中/伤害加成 + 额外骰 ── */
     if (eff.type === 'attack_buff') {
@@ -496,17 +498,28 @@ function processAllEffects(ctx) {
           patch.activeStance = { buffId, name: buffName, slotLevel: stanceFactor }
           lines.push(`🏋️ 架势激活: ${buffName}（${scaledModules.length}个效果，×${stanceFactor}缩放）`)
         } else {
+          const slotFactor = isFreeSlot ? Math.max(1, Math.floor(Number(amt) || 1)) : 1
+          const installedModules = modules.map((m) => {
+            if (slotFactor <= 1 || m.applyMultiplier === false) return { ...m }
+            const v = m.value && typeof m.value === 'object' && !Array.isArray(m.value) ? { ...m.value } : m.value
+            if (v && typeof v === 'object') {
+              for (const key of Object.keys(v)) {
+                if (typeof v[key] === 'number' && key !== 'diceSides') v[key] = v[key] * slotFactor
+              }
+            }
+            return { ...m, value: v }
+          })
           const newBuff = {
             id: String(Date.now()) + '_' + Math.random().toString(36).slice(2, 7),
             source: featureName || buffName,
-            effects: modules.map((m) => ({ ...m })),
+            effects: installedModules,
             enabled: true,
             sourceKind: 'temporary',
             duration: ev.duration || { type: 'until_short_rest' },
           }
           const currentBuffs = Array.isArray(char.buffs) ? char.buffs : []
           patch.buffs = [...(patch.buffs || currentBuffs), newBuff]
-          lines.push(`✨ 安装临时BUFF: ${buffName}（${modules.length}个效果）`)
+          lines.push(`✨ 安装临时BUFF: ${buffName}（${modules.length}个效果${slotFactor > 1 ? `，勾选细项×${slotFactor}` : ''}）`)
         }
       } else {
         lines.push(`⚠️ ${buffName}：无效果模块`)
@@ -753,10 +766,20 @@ function processAllEffects(ctx) {
 
     /* ── damage：直接伤害 ── */
     } else if (eff.type === 'damage') {
-      const diceCount = scaled.diceCount ?? (ev.diceCount || 1)
-      const diceSides = ev.diceSides || 6
-      const diceBonus = scaled.flatBonus ?? (ev.diceBonus || 0)
-      const damageType = ev.damageType || 'fire'
+      let dv = { ...ev }
+      // 等级缩放
+      if (dv.levelScaling?.length) {
+        dv = resolveLevelScaling(dv, dv.levelScaling, char, ['diceCount', 'diceSides', 'diceBonus'])
+      }
+      // 武器同步
+      let damageType = dv.damageType || 'fire'
+      if (dv.syncWithWeapon) {
+        const weaponType = getMainHandWeaponDamageType(char)
+        if (weaponType) damageType = weaponType
+      }
+      const diceCount = scaled.diceCount ?? (dv.diceCount || 1)
+      const diceSides = dv.diceSides || 6
+      const diceBonus = scaled.flatBonus ?? (dv.diceBonus || 0)
 
       if (diceCount > 0) {
         const diceExpr = `${diceCount}d${diceSides}`

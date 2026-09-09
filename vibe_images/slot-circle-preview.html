@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>装备位圆钮质感预览</title>
+<style>
+  body { margin: 0; background: #0d1420; font-family: system-ui, "Microsoft YaHei", sans-serif; padding: 24px; }
+  .row { display: flex; align-items: center; gap: 28px; background: #141c28; border: 1px solid #1f2a3a; padding: 10px 18px; margin-bottom: 10px; }
+  .tag { color: #55677c; font-size: 12px; width: 64px; }
+  .circle { position: relative; width: 44px; height: 44px; flex: 0 0 auto; }
+  .circle .face { position: absolute; inset: 0; border-radius: 9999px; }
+  .circle .label {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    pointer-events: none; writing-mode: vertical-rl; text-orientation: mixed;
+    font-size: 11px; font-weight: 600; letter-spacing: 1px; color: #8899aa;
+  }
+  .circle .chev {
+    position: absolute; left: 50%; transform: translateX(-50%); bottom: 2px;
+    width: 8px; height: 8px; color: #8899aa; pointer-events: none;
+  }
+  /* 旧：纯平 */
+  .old .face { border: 1px solid #3a4a5e; background: #253345; }
+  /* 新：轻质感 */
+  .new .face {
+    border: 1px solid #34455f;
+    background:
+      radial-gradient(120% 70% at 50% 0%, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0) 60%),
+      linear-gradient(180deg, #26334a 0%, #1b2738 55%, #16202e 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.07),
+      inset 0 -1px 0 rgba(0,0,0,0.35),
+      0 1px 2px rgba(0,0,0,0.45);
+    transition: filter 150ms, border-color 150ms;
+  }
+  .new .label { text-shadow: 0 1px 1px rgba(0,0,0,0.55); }
+  .new:hover .face { border-color: #4e6688; filter: brightness(1.1); }
+  .swatch { width: 88px; height: 44px; border-radius: 8px; border: 1px solid #34455f; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #9ca3af; }
+  .pill {
+    position: relative; width: 324px; height: 44px; border-radius: 9999px; overflow: hidden;
+    outline: 1px solid rgba(30,64,120,0.6); outline-offset: -1px;
+    background: linear-gradient(180deg, rgba(30,42,58,0.95) 0%, rgba(22,33,48,0.98) 100%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.3);
+    display: flex; align-items: center;
+  }
+  .pill .med {
+    position: absolute; left: 0; top: 0; height: 100%; width: 44px;
+    border-radius: 9999px; overflow: hidden;
+    background: radial-gradient(circle at 50% 32%, #f6d47c 0%, #e0a83c 40%, #a06a18 78%, #6b4408 100%);
+  }
+  .pill .pname { margin-left: 56px; color: #c490b0; font-size: 13px; letter-spacing: 2px; }
+  .menu {
+    width: 76px; border-radius: 8px; border: 1px solid #34455f; background: #1b2738;
+    padding: 4px 0; box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+  }
+  .menu .grp { text-align: center; font-size: 10px; line-height: 18px; color: #55677c; background: #16202c; }
+  .menu .opt { display: block; width: 100%; text-align: center; font-size: 11px; line-height: 24px; color: #aabbcc; }
+  .menu .opt:hover { background: #26334a; }
+  .menu .opt.sel { background: #2563eb; color: #fff; }
+</style>
+</head>
+<body>
+  <div class="row"><span class="tag">旧 纯平</span>
+    <div class="circle old"><div class="face"></div><div class="label">主手</div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg></div>
+    <div class="circle old"><div class="face"></div><div class="label">背包</div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg></div>
+  </div>
+  <div class="row"><span class="tag">新 轻质感</span>
+    <div class="circle new"><div class="face"></div><div class="label">主手</div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg></div>
+    <div class="circle new"><div class="face"></div><div class="label">背包</div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg></div>
+  </div>
+  <div class="row"><span class="tag">新 hover</span>
+    <div class="circle new" id="hoverTarget"><div class="face"></div><div class="label">头带</div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg></div>
+  </div>
+  <div class="row"><span class="tag">圆帽 vs 圆钮</span>
+    <div class="pill"><div class="med"></div><span class="pname">兆运魔牌</span></div>
+    <div class="circle new"><div class="face"></div><div class="label">背包</div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg></div>
+  </div>
+  <div class="row"><span class="tag">模块色板</span>
+    <div class="swatch" style="background: #141b27;">页面底</div>
+    <div class="swatch" style="background: #1d2737;">卡片底</div>
+    <div class="swatch" style="background: #1a2332;">模块面板</div>
+    <div class="swatch" style="background: #202735;">面板卡</div>
+    <div class="swatch" style="background: #1b2738;">输入框</div>
+    <div class="circle new"><div class="face"></div><div class="label">背包</div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg></div>
+  </div>
+  <div class="row" style="align-items: flex-start;"><span class="tag">自绘下拉</span>
+    <div class="menu">
+      <div class="grp">手持</div>
+      <div class="opt sel">主手</div>
+      <div class="opt">副手</div>
+      <div class="grp">备用</div>
+      <div class="opt">备用1</div>
+      <div class="opt">备用2</div>
+      <div class="opt">备用3</div>
+      <div class="grp">穿戴</div>
+      <div class="opt">脚穿</div>
+      <div class="opt">手穿</div>
+      <div class="opt">头带</div>
+      <div class="opt">脖带</div>
+      <div class="opt">指戴</div>
+      <div class="opt">外袍</div>
+      <div class="opt">背包</div>
+    </div>
+  </div>
+</body>
+</html>

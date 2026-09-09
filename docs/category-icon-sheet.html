@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>品类矢量图标样张 v3</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #141b27; color: #e0e0e0;
+    font-family: -apple-system, "Microsoft YaHei", sans-serif;
+    padding: 24px; max-width: 1180px; margin: 0 auto;
+  }
+  h1 { color: #c79a42; font-size: 18px; margin-bottom: 4px; }
+  p.note { color: #8899aa; font-size: 12px; margin-bottom: 20px; line-height: 1.7; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .card {
+    background: linear-gradient(180deg, #161e2b 0%, #121a25 100%);
+    border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;
+    padding: 16px; display: flex; flex-direction: column; gap: 12px;
+  }
+  .head { display: flex; align-items: baseline; justify-content: space-between; }
+  .head .name { font-size: 13px; font-weight: 600; color: #e0e0e0; }
+  .head .hex { font-size: 11px; font-variant-numeric: tabular-nums; }
+  .sizes { display: flex; align-items: flex-end; gap: 20px; }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .cell span { font-size: 10px; color: #667788; }
+  .med {
+    border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #101826;
+  }
+  .med.m32 { width: 32px; height: 32px; }
+  .med.m32 svg { width: 18px; height: 18px; }
+  .med.m24 { width: 24px; height: 24px; }
+  .med.m24 svg { width: 14px; height: 14px; }
+  .bare svg { display: block; }
+  .fam { font-size: 10px; color: #667788; line-height: 1.6; }
+</style>
+</head>
+<body>
+<h1>品类矢量图标样张 v3</h1>
+<p class="note">
+  重画原则：统一 24×24 网格、1.5 描边圆头；轮廓先求"剪影一眼可认"，细节线只保留 18px 下仍能读出的 1–2 条。<br>
+  配色收敛为 5 主色：<b style="color:#f87171">武器红</b> / <b style="color:#38bdf8">护甲蓝</b> / <b style="color:#a78bfa">法器·宝石紫</b> / <b style="color:#fbbf24">容器·工具金</b> / <b style="color:#34f5c5">药品绿</b>，乐器青与杂物灰仅极少见品类使用。<br>
+  每族三档：48px 裸图（看造型）→ 32px 徽章（加高方案）→ 24px 徽章（现状尺寸，看小尺寸是否糊）。
+</p>
+<div class="grid" id="grid"></div>
+
+<script>
+const ICONS = {
+  weapon: {
+    label: '武器', fam: '近战武器 / 远程武器 / 弹药 / 枪械', color: '#f87171',
+    d: '<path d="M12 3l1.8 2.8v6.8L12 14.4l-1.8-1.8V5.8z"/><path d="M12 6.5v5.5"/><path d="M8.6 14.4h6.8"/><path d="M12 14.4v3.8"/><circle cx="12" cy="19.6" r="1.1"/>',
+  },
+  armor: {
+    label: '护甲', fam: '盔甲 / 轻甲 / 中甲 / 重甲 / 盾牌', color: '#38bdf8',
+    d: '<path d="M12 3l6.5 2.4v5.2c0 4.4-2.7 7.6-6.5 9.8-3.8-2.2-6.5-5.4-6.5-9.8V5.4z"/><path d="M12 5.6v12"/><path d="M7.6 7.5l4.4 1.6 4.4-1.6"/>',
+  },
+  focus: {
+    label: '法器', fam: '法器 / 卷轴', color: '#a78bfa',
+    d: '<path d="M12 21V9.6"/><path d="M12 3.2l2.2 3.2L12 9.6 9.8 6.4z"/><path d="M9.6 21h4.8"/><path d="M17.4 5.2h.01"/><path d="M19 8.4h.01"/>',
+  },
+  container: {
+    label: '容器', fam: '容器 / 次元袋 / 储物 / 秘法箱 / 套组', color: '#fbbf24',
+    d: '<path d="M8.6 8.2C6 10 4.6 12.4 4.6 14.8c0 3.4 3.3 5.6 7.4 5.6s7.4-2.2 7.4-5.6c0-2.4-1.4-4.8-4-6.6"/><path d="M8.6 8.2h6.8"/><path d="M9.4 8.2c.4-1.6 1.2-2.6 2.6-2.6s2.2 1 2.6 2.6"/><path d="M8.2 10.6c1.2.8 2.4 1.2 3.8 1.2s2.6-.4 3.8-1.2"/>',
+  },
+  gem: {
+    label: '宝石', fam: '饰品 / 货币', color: '#a78bfa',
+    d: '<path d="M7.2 4h9.6l3.6 4.8L12 20 3.6 8.8z"/><path d="M3.6 8.8h16.8"/><path d="M7.2 4l2.2 4.8L12 20"/><path d="M16.8 4l-2.2 4.8L12 20"/><path d="M9.4 8.8h5.2"/>',
+  },
+  potion: {
+    label: '药品', fam: '药品 / 消耗品 / 食物 / 爆炸品', color: '#34f5c5',
+    d: '<path d="M9.8 3h4.4"/><path d="M10.6 3v5.2l-5 8.4c-1 1.8.3 4 2.4 4h8c2.1 0 3.4-2.2 2.4-4l-5-8.4V3"/><path d="M7.4 13.6h9.2"/>',
+  },
+  tool: {
+    label: '工具', fam: '工具 / 工匠工具 / 赌具 / 冒险装备 / 照明 / 书写', color: '#fbbf24',
+    d: '<path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/>',
+  },
+  music: {
+    label: '乐器', fam: '乐器', color: '#2dd4bf',
+    d: '<circle cx="9" cy="17" r="4.2"/><circle cx="9" cy="17" r="1.2"/><path d="M12 14l7-7"/><path d="M19 7l2-2"/><path d="M18.2 5.4l1.6 1.6"/>',
+  },
+  other: {
+    label: '杂物', fam: '其他 / 衣服 / 载具与坐骑', color: '#94a3b8',
+    d: '<path d="M12 3l8 4.4v9.2L12 21l-8-4.4V7.4z"/><path d="M4 7.4l8 4.4 8-4.4"/><path d="M12 11.8V21"/>',
+  },
+};
+const svg = (c, size, sw) => '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + c.color + '" stroke-width="' + (sw || 1.5) + '" stroke-linecap="round" stroke-linejoin="round">' + c.d + '</svg>';
+document.getElementById('grid').innerHTML = Object.values(ICONS).map(c =>
+  '<div class="card">' +
+    '<div class="head"><span class="name">' + c.label + '</span><span class="hex" style="color:' + c.color + '">' + c.color + '</span></div>' +
+    '<div class="sizes">' +
+      '<div class="cell bare">' + svg(c, 48) + '<span>48 裸图</span></div>' +
+      '<div class="cell"><div class="med m32" style="border:1px solid ' + c.color + '">' + svg(c, 18) + '</div><span>32 徽章</span></div>' +
+      '<div class="cell"><div class="med m24" style="border:1px solid ' + c.color + '">' + svg(c, 14) + '</div><span>24 徽章</span></div>' +
+    '</div>' +
+    '<div class="fam">' + c.fam + '</div>' +
+  '</div>'
+).join('');
+</script>
+</body>
+</html>

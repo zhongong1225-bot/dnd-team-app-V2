@@ -13,6 +13,7 @@ import {
 } from '../data/buffTypes'
 import { getFlatEffectEntries } from '../lib/effects/effectMapping'
 import { getActiveShieldEffects } from '../lib/shieldEngine'
+import { resolveLevelScaling } from '../lib/chargeItemModel'
 import { loadCreatureLibrary, getCreatureById, parseHpFormula, subscribeCreatureLibraryVersion, getCreatureLibraryVersion } from '../data/creatureLibrary'
 
 /**
@@ -557,25 +558,36 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       ? { ...character, abilities: finalAbilities, buffs: [] }
       : { abilities: finalAbilities, buffs: [] }
 
-    // ── 护甲覆盖效果：收集所有 armor_override，取最高值（不叠加）──
+    // ── 护甲覆盖效果：收集所有 armor_override，取最高启用base（不叠加），累加启用extra ──
     let armorOverrideBase = null
     let armorOverrideApplyDexMod = true
     let armorOverrideMaxDexBonus = null
     let armorOverrideExtra = 0
     let armorOverrideShieldCompatible = false
+    let hasAnyEnabledBase = false
 
     for (const b of entries) {
-      if (b.effectType === 'armor_override' && b.value && typeof b.value === 'object' && !Array.isArray(b.value)) {
+      if ((b.effectType === 'armor_override' || b.effectType === 'ac_bonus') && b.value && typeof b.value === 'object' && !Array.isArray(b.value)) {
         const ov = b.value
-        const baseVal = evaluateBuffValue(ov.base ?? 10, formulaContext)
-        if (!Number.isNaN(baseVal)) {
-          if (armorOverrideBase === null || baseVal > armorOverrideBase) {
-            armorOverrideBase = baseVal
-            armorOverrideApplyDexMod = ov.applyDexMod !== false
-            armorOverrideMaxDexBonus = Number(ov.maxDexBonus) || null
-            armorOverrideExtra = Number(ov.extra) || 0
-            armorOverrideShieldCompatible = !!ov.shieldCompatible
+        // ac_bonus 语义为叠加额外AC，不参与基础AC覆盖竞争
+        const enableBase = b.effectType === 'armor_override' && ov.enableBase !== false
+        const enableExtra = ov.enableExtra !== false
+
+        if (enableBase) {
+          const baseVal = evaluateBuffValue(ov.base ?? 10, formulaContext)
+          if (!Number.isNaN(baseVal)) {
+            if (armorOverrideBase === null || baseVal > armorOverrideBase) {
+              armorOverrideBase = baseVal
+              armorOverrideApplyDexMod = ov.applyDexMod !== false
+              armorOverrideMaxDexBonus = Number(ov.maxDexBonus) || null
+              armorOverrideShieldCompatible = !!ov.shieldCompatible
+            }
+            hasAnyEnabledBase = true
           }
+        }
+
+        if (enableExtra) {
+          armorOverrideExtra += evaluateBuffValue(ov.extra ?? 0, formulaContext)
         }
       }
     }
@@ -591,7 +603,7 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
     } else if (creatureTransformData && creatureTransformData.acMode === 'add') {
       // 变身叠加模式：生物 AC 作为加值叠加到现有 AC 上
       const creatureAC = creatureTransformData.creature.ac ?? 0
-      if (armorOverrideBase !== null) {
+      if (hasAnyEnabledBase) {
         const dexMod = abilityModifier(finalAbilities.dex ?? 10)
         let acFromDex = 0
         if (armorOverrideApplyDexMod) {
@@ -613,7 +625,7 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
         formulaVal += abilityModifier(finalAbilities[abilKey] ?? 10)
       }
       baseAC = Math.max(formulaVal, creatureAC)
-    } else if (armorOverrideBase !== null) {
+    } else if (hasAnyEnabledBase) {
       const dexMod = abilityModifier(finalAbilities.dex ?? 10)
       let acFromDex = 0
       if (armorOverrideApplyDexMod) {
@@ -798,7 +810,12 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       }
       // 新表：速度增加（统一数值，默认为地面速度 +X；兼容旧文本/对象/公式）
       else if (b.effectType === 'base_speed_increment') {
-        const spd = parseBaseSpeedIncrement(raw, evalVal)
+        let spd = parseBaseSpeedIncrement(raw, evalVal)
+        // 等级缩放（武僧移速等）
+        if (raw && typeof raw === 'object' && Array.isArray(raw.levelScaling) && raw.levelScaling.length > 0) {
+          const resolved = resolveLevelScaling(raw, raw.levelScaling, character, ['walk', 'fly', 'swim', 'climb'])
+          spd = parseBaseSpeedIncrement(resolved, evalVal)
+        }
         speedBonus += spd.walk
         swimSpeedBonus += spd.swim
         climbSpeedBonus += spd.climb
@@ -844,6 +861,11 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
         const ear = evalVal(raw)
         if (!Number.isNaN(ear)) extraActionResource += ear
       }
+    }
+
+    // 仅 extra 启用（base 全部禁用）时，extra 作为普通 AC 加值注入
+    if (!hasAnyEnabledBase && armorOverrideExtra > 0) {
+      acBonus += armorOverrideExtra
     }
 
     // 5. 生命：temp_hp 取最大，max_hp_bonus 累加；变身效果 HP 处理

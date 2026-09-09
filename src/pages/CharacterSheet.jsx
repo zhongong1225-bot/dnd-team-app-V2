@@ -54,7 +54,7 @@ import {
 import { HARDCODED_CLASS_FEATURE_BUFFS } from '../data/classFeatureDefaultBuffs'
 import { cloneBuffTemplateToManual } from '../lib/buffStash'
 import BuffManager from '../components/BuffManager'
-import CardView, { SlotPanel, AbilityButton, ShieldPoolCounter } from '../components/CardView'
+import CardView, { SlotPanel, AbilityButton, ShieldPoolCounter, EnergyBarButton } from '../components/CardView'
 import EldritchInvocationPicker from '../components/EldritchInvocationPicker'
 import FightingStylePicker from '../components/FightingStylePicker'
 import CombatStatus from '../components/CombatStatus'
@@ -75,6 +75,7 @@ import { loadDefaultBuffPatch, saveDefaultBuffPatch, clearDefaultBuffPatch, buil
 import { CLASS_FEATURE_CHOICE_REGISTRY, CHOICE_ID_ALIASES } from '../data/classFeatureChoiceRegistry'
 import { executeAbility, canUseAbility } from '../lib/activeAbilityEngine'
 import { buildCardsFromCharacter, findActiveAbilityInCards, findAllActiveAbilitiesInCards } from '../lib/cardAdapter'
+import { isVirtualBuffEntry } from '../lib/buffSourceKind'
 import { getShieldPoolCurrent, setShieldPoolCurrent, decrementShieldPool, resetShieldPool } from '../lib/shieldPoolUtils'
 import { formatRecoveryBrief, RESOURCE_TYPE_OPTIONS } from '../lib/chargeItemModel'
 import AbilityUseModal from '../components/AbilityUseModal'
@@ -99,24 +100,32 @@ function buildClassFeatureOptionBuffKey(sourceClass, sourceSubclass, featureId, 
 function findActiveAbilityFromCard(sourceKey, cards, slotKind = null) {
   if (!Array.isArray(cards) || !sourceKey) return null
   
+  // 优先匹配已有 activeAbility 的卡（主动卡），其次匹配普通卡
   const card = cards.find(c => {
     if (c.sourceKey !== sourceKey) return false
     if (slotKind && c.slotKind !== slotKind) return false
     return true
   })
+  const activeCard = cards.find(c => {
+    if (c.sourceKey !== sourceKey) return false
+    if (slotKind && c.slotKind !== slotKind) return false
+    return c.activeAbility
+  })
+  const targetCard = activeCard || card
   
-  if (!card) return null
+  if (!targetCard) return null
   
+  // 优先使用已构建的 activeAbility
+  if (targetCard.activeAbility) return targetCard.activeAbility
+
   // 从 charge_item 或 contained_spell 效果提取主动释放配置
-  const chargeEffect = Array.isArray(card.buffEffects)
-    ? card.buffEffects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
+  const chargeEffect = Array.isArray(targetCard.buffEffects)
+    ? targetCard.buffEffects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
     : null
-  const containedSpellEffect = !chargeEffect && Array.isArray(card.buffEffects)
-    ? card.buffEffects.find(e => e.effectType === 'contained_spell' && e.value && typeof e.value === 'object')
+  const containedSpellEffect = !chargeEffect && Array.isArray(targetCard.buffEffects)
+    ? targetCard.buffEffects.find(e => e.effectType === 'contained_spell' && e.value && typeof e.value === 'object')
     : null
 
-  // 优先从 buffEffects 构造，其次用 buffEntryToCard 已构建的 activeAbility
-  if (!chargeEffect && !containedSpellEffect && card.activeAbility) return card.activeAbility
   if (!chargeEffect && !containedSpellEffect) return null
 
   // contained_spell：将法术列表转为 spell 效果数组
@@ -499,7 +508,7 @@ function AppearanceGrid({ char, canEdit, onSave, noBorder, compact }) {
 }
 
 /** 整合到外观区的种族/背景选择器 + 基础信息 + BUFF 编辑器 */
-function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRaceBuffEditorOpen, backgroundBuffEditorOpen, setBackgroundBuffEditorOpen, showTraitsOnly, referenceData, baseReferenceData, formulaContext }) {
+function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRaceBuffEditorOpen, backgroundBuffEditorOpen, setBackgroundBuffEditorOpen, showTraitsOnly, referenceData, baseReferenceData, formulaContext, expandedRaceTraitIds, onToggleRaceTraitExpand }) {
   const raceCard = char?.raceCard || {}
   const backgroundCard = char?.backgroundCard || {}
 
@@ -629,29 +638,32 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
         if (sub) (sub.traits || []).forEach(t => allTraits.push({ ...t, _isSubrace: true }))
       }
     }
+    const displayTraits = allTraits.filter(t => !t.name.includes('黑暗视觉'))
     const choiceTrait = raceTraitChoiceModal ? allTraits.find(t => t.id === raceTraitChoiceModal) : null
     return selectedRace ? (
       <>
       <div className="mt-3 space-y-1.5">
-        {allTraits.length > 0 && allTraits.map((t) => {
+        {displayTraits.length > 0 && displayTraits.map((t) => {
             const isChoice = Array.isArray(t.choiceOptions) && t.choiceOptions.length > 0
             const chosenOpt = isChoice ? (t.choiceOptions || []).find(o => o.id === raceCard.traitChoices?.[t.id]) : null
             const activeCards = isChoice ? (chosenOpt?.cards || []) : (t.cards || [])
             const effectSummaries = activeCards.map(c =>
-              getEffectSummaryShort({ effectType: c.effectType, value: c.value, customText: c.customText, scope: c.scope, scopeDetail: c.scopeDetail }, {})
+              getEffectSummaryShort({ effectType: c.effectType, value: c.value, customText: c.customText, scope: c.scope, scopeDetail: c.scopeDetail }, formulaContext)
             ).filter(Boolean)
+            const isExpanded = expandedRaceTraitIds.has(t.id)
             return (
               <CardView
                 key={t.id}
                 gridLayout={true}
                 narrow={true}
                 category="种族"
-                categoryColor="#6ba3d6"
                 sourceMain={selectedRace.name}
                 sourceSub={t._isSubrace ? '亚种特性' : '种族特性'}
                 name={t.name}
                 buffTags={effectSummaries.slice(0, 3)}
                 description={t.description || undefined}
+                expanded={isExpanded}
+                onToggleExpand={() => onToggleRaceTraitExpand(t.id)}
               >
                 {isChoice && (
                   <button
@@ -1802,8 +1814,7 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
   if (chargeEffects.length === 0) return null
 
   return (
-    <div className="space-y-1.5">
-      {/* 充能/BUFF 效果按钮 */}
+    <>
       {chargeEffects.map((chargeEff, idx) => {
         const cv = chargeEff.value
         const charges = cv.charges ?? 0
@@ -1811,21 +1822,15 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
         const recoveryLabel = recovery ? formatRecoveryBrief(recovery) : ''
         const resourceType = cv.resourceType || 'charges'
         const resLabel = getResourceLabel(resourceType)
+        const chargeInfo = resourceType === 'charges' && charges > 0 ? `(${charges})` : null
 
         return (
-          <button
+          <EnergyBarButton
             key={idx}
-            type="button"
+            name={feature.name}
             onClick={() => setUseChargeValue(cv)}
-            className="inline-flex items-center justify-center gap-2 px-5 py-2 rounded-md text-sm font-medium bg-dnd-gold/20 hover:bg-dnd-gold/30 text-dnd-gold-light border border-dnd-gold/40 transition-all active:scale-[0.98]"
-            title={resourceType === 'charges' ? `${charges} 充能 | ${recoveryLabel}` : `消耗: ${resLabel}`}
-          >
-            <Zap className="w-4 h-4" />
-            使用 {feature.name}
-            {resourceType === 'charges' && charges > 0 && (
-              <span className="text-xs opacity-80">({charges})</span>
-            )}
-          </button>
+            chargeInfo={chargeInfo}
+          />
         )
       })}
       {lastResult && (
@@ -1863,7 +1868,7 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
           onClose={() => setUseActiveAbility(null)}
         />
       )}
-    </div>
+    </>
   )
 }
 
@@ -2080,12 +2085,30 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
           const cfScopeLabel = cfScope?.type && cfScope.type !== 'global'
             ? (SCOPE_TYPE_OPTIONS.find(o => o.value === cfScope.type)?.label || cfScope.type)
             : null
-          // 选择型特性的已选选项（用于在标题区显示）
+          // 选择型特性的已选选项（用于在标题区显示 + 效果摘要取值）
           const choiceRegistryEntry = isChoiceType ? CLASS_FEATURE_CHOICE_REGISTRY[cfBuffKey] : null
-          const chosenOptionId = char?.classFeatureChoices?.[f.id] || null
+          const dmChoiceOverride = cfPatch?.choiceSelected != null ? cfPatch.choiceSelected : null
+          const rawChosenOptionId = dmChoiceOverride != null
+            ? choiceRegistryEntry?.options[dmChoiceOverride]?.id || null
+            : (char?.classFeatureChoices?.[f.id] || null)
+          const chosenOptionId = CHOICE_ID_ALIASES[rawChosenOptionId] || rawChosenOptionId
           const chosenOption = choiceRegistryEntry && chosenOptionId
             ? choiceRegistryEntry.options.find((o) => o.id === chosenOptionId)
             : null
+          // 效果摘要（用于 BUFF 标签列显示）；选择型特性取已选选项的效果
+          let cfEffectsSource = Array.isArray(cfPatch?.effects) ? cfPatch.effects : []
+          if (isChoiceType && cfEffectsSource.length === 0 && choiceRegistryEntry && chosenOptionId) {
+            const optPatch = loadDefaultBuffPatch(moduleId, 'classFeature', `${cfBuffKey}:${chosenOptionId}`)
+            cfEffectsSource = (optPatch && Array.isArray(optPatch.effects) && optPatch.effects.length)
+              ? optPatch.effects
+              : (choiceRegistryEntry.getEffects(chosenOptionId) || [])
+          }
+          const cfEffectSummaries = cfEffectsSource.map(e =>
+                getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText, scope: e.scope, scopeDetail: e.scopeDetail }, formulaContext)
+              ).filter(Boolean)
+          const cfBuffTags = cfEffectSummaries.length > 0
+            ? cfEffectSummaries.slice(0, 3)
+            : (cfScopeLabel ? [cfScopeLabel] : [])
           // 护盾池检测（统一从 card.buffEffects 查找，包含所有来源的效果）
           const cfCard = classFeatureCards.find(c =>
             c.slotKind === 'class' && c.sourceKey === `${f.sourceClass}|${f.sourceSubclass || ''}|${f.id}`
@@ -2116,7 +2139,7 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
                     }
                     triggerClassName="block"
                   >
-                    <span className="text-base font-bold text-white hover:text-gray-100 transition-colors truncate inline-flex items-center gap-2">
+                    <span className="text-[14px] font-bold text-white hover:text-gray-100 transition-colors truncate inline-flex items-center gap-2">
                       {isChoiceType && chosenOption ? (
                         <>
                           {name}
@@ -2137,10 +2160,9 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
                 gridLayout={true}
                 narrow={true}
                 category="职业"
-                categoryColor="#c79a42"
                 sourceMain={`${f.level}级获得`}
                 sourceSub={f.sourceSubclass || f.sourceClass}
-                buffTags={cfScopeLabel ? [cfScopeLabel] : []}
+                buffTags={cfBuffTags}
                 headerRight={
                   <button
                     type="button"
@@ -2758,14 +2780,21 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                   gridLayout={true}
                   narrow={true}
                   category="专长"
-                  categoryColor="#a78bfa"
                   sourceMain={`${row?.level || slot?.level || 1}级获得`}
                   sourceSub={name || slot?.category || ''}
                   buffTags={(() => {
-                    const fScope = row?.featBuffPatch?.cardScope
-                    return fScope?.type && fScope.type !== 'global'
-                      ? [SCOPE_TYPE_OPTIONS.find(o => o.value === fScope.type)?.label || fScope.type]
+                    const fPatch = row?.featBuffPatch
+                    const fScope = fPatch?.cardScope
+                    const fEffectSummaries = Array.isArray(fPatch?.effects)
+                      ? fPatch.effects.map(e =>
+                          getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText, scope: e.scope, scopeDetail: e.scopeDetail }, formulaContext)
+                        ).filter(Boolean)
                       : []
+                    return fEffectSummaries.length > 0
+                      ? fEffectSummaries.slice(0, 3)
+                      : (fScope?.type && fScope.type !== 'global'
+                        ? [SCOPE_TYPE_OPTIONS.find(o => o.value === fScope.type)?.label || fScope.type]
+                        : [])
                   })()}
                   name={row?.featId ? (
                     <InfoTooltip
@@ -2790,7 +2819,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                       disabled={!feat && !legacyStyle}
                     >
                       <span
-                        style={{ fontSize: '16px', fontWeight: 600, color: '#f0f0f0' }}
+                        style={{ fontSize: '14px', fontWeight: 600, color: '#f0f0f0' }}
                         className="cursor-pointer select-none hover:text-gray-100 transition-colors truncate block"
                         onClick={() => toggleFeatExpand(row.featId)}
                       >
@@ -2804,7 +2833,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                         <button
                           type="button"
                           onClick={() => setFeatBuffEditor({ row, slot })}
-                          className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
+                          className="w-6 h-6 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
                           title="编辑效果"
                         >
                           <Settings className="w-3.5 h-3.5" />
@@ -2812,18 +2841,10 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                         <button
                           type="button"
                           onClick={() => openPickerForSlot(slot)}
-                          className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
+                          className="w-6 h-6 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
                           title="更换专长"
                         >
                           <RefreshCw className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => clearSlot(slot.id)}
-                          className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-red-400 hover:bg-red-900/20 transition-all active:scale-95"
-                          title="清除"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     ) : canEdit && !row?.featId ? (
@@ -2845,20 +2866,13 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                       ? `${ability.cost.amount}${({ star_points: '星', wild_shape: '变', second_wind: '气', lay_on_hands: '疗' }[ability.cost.resourceKey] || '')}`
                       : ability.cost.type === 'none' ? '免费' : ''
                     return (
-                      <button
-                        type="button"
+                      <EnergyBarButton
+                        name={ability.name}
+                        onClick={() => setFeatActiveAbility(ability)}
                         disabled={!check.usable}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setFeatActiveAbility(ability)
-                        }}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-                        title={check.usable ? `点击使用${ability.name}` : check.reason}
-                      >
-                        <Zap className="w-3 h-3" />
-                        使用 {ability.name}
-                        {costText && <span className="text-[10px] opacity-70">{costText}</span>}
-                      </button>
+                        disabledReason={check.reason}
+                        chargeInfo={costText || undefined}
+                      />
                     )
                   })() : undefined}
                 >
@@ -2939,7 +2953,6 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                   gridLayout={true}
                   narrow={true}
                   category="专长"
-                  categoryColor="#a78bfa"
                   sourceMain={`${row?.level || 1}级获得`}
                   sourceSub={name}
                   name={
@@ -2965,7 +2978,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                       disabled={!feat && !legacyStyle}
                     >
                       <span
-                        style={{ fontSize: '16px', fontWeight: 600, color: '#f0f0f0' }}
+                        style={{ fontSize: '14px', fontWeight: 600, color: '#f0f0f0' }}
                         className="cursor-pointer select-none hover:text-gray-100 transition-colors truncate block"
                         onClick={() => toggleFeatExpand(row.featId)}
                       >
@@ -2993,20 +3006,13 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                       ? `${ability.cost.amount}${({ star_points: '星', wild_shape: '变', second_wind: '气', lay_on_hands: '疗' }[ability.cost.resourceKey] || '')}`
                       : ability.cost.type === 'none' ? '免费' : ''
                     return (
-                      <button
-                        type="button"
+                      <EnergyBarButton
+                        name={ability.name}
+                        onClick={() => setFeatActiveAbility(ability)}
                         disabled={!check.usable}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setFeatActiveAbility(ability)
-                        }}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-                        title={check.usable ? `点击使用${ability.name}` : check.reason}
-                      >
-                        <Zap className="w-3 h-3" />
-                        使用 {ability.name}
-                        {costText && <span className="text-[10px] opacity-70">{costText}</span>}
-                      </button>
+                        disabledReason={check.reason}
+                        chargeInfo={costText || undefined}
+                      />
                     )
                   })() : undefined}
                 >
@@ -3589,6 +3595,15 @@ export default function CharacterSheet() {
   const [raceBuffEditorOpen, setRaceBuffEditorOpen] = useState(false)
   const [backgroundBuffEditorOpen, setBackgroundBuffEditorOpen] = useState(false)
   const [profileTraitChoiceModal, setProfileTraitChoiceModal] = useState(null)
+  const [expandedRaceTraitIds, setExpandedRaceTraitIds] = useState(new Set())
+  const toggleRaceTraitExpand = (id) => {
+    setExpandedRaceTraitIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
   const [raceActiveAbility, setRaceActiveAbility] = useState(null) // 种族主动技能释放弹窗
   const handleProfileTraitChoiceSelect = (traitId, optionId) => {
     const choices = { ...(char.raceCard?.traitChoices || {}), [traitId]: optionId }
@@ -4056,7 +4071,8 @@ export default function CharacterSheet() {
                     <RaceBackgroundInline char={char} canEdit={canEdit} onSave={persist}
                       raceBuffEditorOpen={raceBuffEditorOpen} setRaceBuffEditorOpen={setRaceBuffEditorOpen}
                       backgroundBuffEditorOpen={backgroundBuffEditorOpen} setBackgroundBuffEditorOpen={setBackgroundBuffEditorOpen}
-                      referenceData={referenceData} baseReferenceData={baseReferenceData} formulaContext={buffFormulaContext} />
+                      referenceData={referenceData} baseReferenceData={baseReferenceData} formulaContext={buffFormulaContext}
+                      expandedRaceTraitIds={expandedRaceTraitIds} onToggleRaceTraitExpand={toggleRaceTraitExpand} />
 
                     {/* 种族特性展示 */}
                     {(() => {
@@ -4072,76 +4088,71 @@ export default function CharacterSheet() {
                         const sub = selRace.subraces.find(s => s.id === char.raceCard.subraceId)
                         if (sub) (sub.traits || []).forEach(t => allTraits.push({ ...t, _isSubrace: true }))
                       }
-                      if (allTraits.length === 0) return null
+                      const displayTraits = allTraits.filter(t => !t.name.includes('黑暗视觉'))
+                      if (displayTraits.length === 0) return null
                       const choiceTrait = profileTraitChoiceModal ? allTraits.find(t => t.id === profileTraitChoiceModal) : null
                       return (
                         <>
                         <div className="mt-2 space-y-1.5">
-                          {allTraits.map((t) => {
+                          {displayTraits.map((t) => {
                             const isChoice = Array.isArray(t.choiceOptions) && t.choiceOptions.length > 0
                             const chosenOpt = isChoice ? (t.choiceOptions || []).find(o => o.id === char.raceCard?.traitChoices?.[t.id]) : null
                             const activeCards = isChoice ? (chosenOpt?.cards || []) : (t.cards || [])
                             const effectSummaries = activeCards.map(c =>
-                              getEffectSummaryShort({ effectType: c.effectType, value: c.value, customText: c.customText, scope: c.scope, scopeDetail: c.scopeDetail }, {})
+                              getEffectSummaryShort({ effectType: c.effectType, value: c.value, customText: c.customText, scope: c.scope, scopeDetail: c.scopeDetail }, buffFormulaContext)
                             ).filter(Boolean)
-                            
+                            const isExpanded = expandedRaceTraitIds.has(t.id)
+
                             // 从 allCards 中查找该特性的主动技能卡，并使用 findActiveAbilityFromCard 转换
-                            const raceActiveCard = allCards.find(c => 
-                              c.sourceType === 'race' && 
-                              c.activeAbility && 
+                            const raceActiveCard = allCards.find(c =>
+                              c.sourceType === 'race' &&
+                              c.activeAbility &&
                               (c.name === t.name || c.buffEffects?.some(e => e._traitName === t.name))
                             )
                             const raceAbility = raceActiveCard ? findActiveAbilityFromCard(raceActiveCard.sourceKey, allCards, 'race') : null
-                            
+
                             return (
-                              <div key={t.id}>
-                                <CardView
-                                  gridLayout={true}
-                                  narrow={true}
-                                  category="种族"
-                                  categoryColor="#6ba3d6"
-                                  sourceMain={selRace.name}
-                                  sourceSub={t._isSubrace ? '亚种特性' : '种族特性'}
-                                  name={t.name}
-                                  buffTags={effectSummaries.slice(0, 3)}
-                                  footer={raceAbility ? (() => {
-                                    const check = canUseAbility(raceAbility, char)
-                                    const costText = raceAbility.cost.type === 'class_resource'
-                                      ? `${raceAbility.cost.amount}${({ charges: '充', spell_slot: '法' }[raceAbility.cost.resourceKey] || '')}`
-                                      : raceAbility.cost.type === 'none' ? '免费' : ''
-                                    return (
-                                      <button
-                                        type="button"
-                                        disabled={!check.usable}
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          setRaceActiveAbility({ ability: raceAbility, traitName: t.name })
-                                        }}
-                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/30 hover:bg-dnd-gold/30 transition-colors active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-                                        title={check.usable ? `点击使用${t.name}` : check.reason}
-                                      >
-                                        <Zap className="w-3 h-3" />
-                                        使用
-                                        {costText && <span className="text-[9px] opacity-70">({costText})</span>}
-                                      </button>
-                                    )
-                                  })() : undefined}
-                                />
-                                {(t.description || isChoice) && (
-                                  <div className="px-3 pb-2 -mt-1">
-                                    {isChoice && (
-                                      <button
-                                        onClick={() => setProfileTraitChoiceModal(t.id)}
-                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-amber-300/80 hover:text-amber-200 hover:bg-amber-500/15 border border-amber-400/20 mb-1"
-                                      >
-                                        {chosenOpt ? chosenOpt.label : '未选择'}
-                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                                      </button>
-                                    )}
-                                    {t.description && <p className="text-[11px] text-gray-400 leading-relaxed">{t.description}</p>}
-                                  </div>
+                              <CardView
+                                key={t.id}
+                                gridLayout={true}
+                                narrow={true}
+                                category="种族"
+                                sourceMain={selRace.name}
+                                sourceSub={t._isSubrace ? '亚种特性' : '种族特性'}
+                                name={t.name}
+                                description={t.description || undefined}
+                                expanded={isExpanded}
+                                onToggleExpand={() => toggleRaceTraitExpand(t.id)}
+                                buffTags={effectSummaries.slice(0, 3)}
+                                footer={raceAbility ? (() => {
+                                  const check = canUseAbility(raceAbility, char)
+                                  const costText = raceAbility.cost.type === 'class_resource'
+                                    ? `${raceAbility.cost.amount}${({ charges: '充', spell_slot: '法' }[raceAbility.cost.resourceKey] || '')}`
+                                    : raceAbility.cost.type === 'none' ? '免费' : ''
+                                  return (
+                                    <EnergyBarButton
+                                      name={raceAbility.name}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setRaceActiveAbility({ ability: raceAbility, traitName: t.name })
+                                      }}
+                                      disabled={!check.usable}
+                                      disabledReason={check.reason}
+                                      chargeInfo={costText || undefined}
+                                    />
+                                  )
+                                })() : undefined}
+                              >
+                                {isChoice && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setProfileTraitChoiceModal(t.id) }}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-amber-300/80 hover:text-amber-200 hover:bg-amber-500/15 border border-amber-400/20 mb-1"
+                                  >
+                                    {chosenOpt ? chosenOpt.label : '未选择'}
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                                  </button>
                                 )}
-                              </div>
+                              </CardView>
                             )
                           })}
                         </div>
@@ -4247,33 +4258,15 @@ export default function CharacterSheet() {
               subordinates={subordinates}
               charClasses={charClasses}
               onSave={(buffsList) => {
-                // 分离主动卡（含 charge_item）和被动 BUFF
-                const activeCards = buffsList.filter(
-                  (b) => Array.isArray(b.effects) && b.effects.some((e) => e.effectType === 'charge_item')
-                )
-                const passiveBuffs = buffsList.filter(
-                  (b) => !(Array.isArray(b.effects) && b.effects.some((e) => e.effectType === 'charge_item'))
-                )
-                
-                // 手动被动 BUFF 保存到 buffs[]
-                const manual = passiveBuffs.filter(
-                  (b) => !b.fromItem && !b.fromFeat && !b.fromInvocation && !b.fromFightingStyle && !b.fromClassFeature,
-                )
-                const selectedFeats = mergeFeatBuffPatchesFromMergedList(char, buffsList)
-                const selectedInvocations = mergeInvocationBuffPatchesFromMergedList(char, buffsList)
-                const selectedFightingStyles = mergeFightingStyleBuffPatchesFromMergedList(char, buffsList)
-                
-                // 主动卡保存到 cards[]（如果存在）
-                const updates = { buffs: manual, selectedFeats, selectedInvocations, selectedFightingStyles }
-                if (activeCards.length > 0 || (char.cards ?? []).length > 0) {
-                  // 保留非主动卡的已有卡片，替换/添加新的主动卡
-                  const existingNonActiveCards = (char.cards ?? []).filter(
-                    (c) => !(c.buffEffects && c.buffEffects.some((e) => e.effectType === 'charge_item'))
-                  )
-                  updates.cards = [...existingNonActiveCards, ...activeCards]
-                }
-                
-                persist(updates)
+                // 虚拟条目由装备/专长/祈唤/战斗风格/职业特性/种族/背景/护盾实时生成，
+                // 一律不回写 char.buffs——否则会与源数据重复，并在下次生成时被当成手动条目固化。
+                const manual = buffsList.filter((b) => !isVirtualBuffEntry(b))
+                persist({
+                  buffs: manual,
+                  selectedFeats: mergeFeatBuffPatchesFromMergedList(char, buffsList),
+                  selectedInvocations: mergeInvocationBuffPatchesFromMergedList(char, buffsList),
+                  selectedFightingStyles: mergeFightingStyleBuffPatchesFromMergedList(char, buffsList),
+                })
               }}
               stashBuffs={char.buffStash ?? []}
               onStashChange={canEdit ? (next) => persist({ buffStash: next }) : undefined}
@@ -4282,9 +4275,6 @@ export default function CharacterSheet() {
                   ? (template) => {
                       const clone = cloneBuffTemplateToManual(template)
                       if (!clone) return
-                      const source = clone.source?.trim() ?? ''
-                      const exists = (char.buffs ?? []).some((b) => (b.source?.trim() ?? '') === source)
-                      if (exists) return
                       persist({ buffs: [...(char.buffs ?? []), clone] })
                     }
                   : undefined

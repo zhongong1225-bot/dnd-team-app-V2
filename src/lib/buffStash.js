@@ -1,4 +1,5 @@
 import { normalizeBuffSourceKindKey } from './buffSourceKind'
+import { cloneDurationRaw } from './durationModel'
 
 /**
  * 将「临时 BUFF 模板」深拷贝为可写入 char.buffs 的手动 Buff（新 id、默认启用）。
@@ -14,7 +15,7 @@ export function cloneBuffTemplateToManual(template) {
     : []
   return {
     source: String(template.source ?? '').trim() || '临时 Buff',
-    duration: template.duration != null && String(template.duration).trim() !== '' ? String(template.duration).trim() : undefined,
+    duration: cloneDurationRaw(template.duration),
     sourceKind: normalizeBuffSourceKindKey(template.sourceKind ?? 'temporary'),
     effects,
     enabled: true,

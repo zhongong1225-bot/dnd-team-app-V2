@@ -12,7 +12,7 @@
 import { getBuffsFromClassFeatures, getBuffsFromSelectedFeats } from './effects/effectMapping.js'
 import { getCharacterClasses, getMaxSpellSlotsByRing } from '../data/classDatabase.js'
 import { buildCardsFromCharacter } from './cardAdapter.js'
-import { normalizeChargeItemValue } from './chargeItemModel.js'
+import { normalizeChargeItemValue, resolveLevelScaling, getMainHandWeaponDamageType } from './chargeItemModel.js'
 
 /* ─────────────────────────────────────────────────────────
  * 查询
@@ -315,7 +315,7 @@ export function executeAbility(ability, char, options = {}) {
   }
 
   // ── 计算效果 ──
-  const effectResults = ability.effects.map((eff) => computeEffect(eff, ctx, mergedOptions))
+  const effectResults = ability.effects.map((eff) => computeEffect(eff, ctx, mergedOptions, char))
 
   // ── 特殊效果处理：恢复星辰点 ──
   for (const result of effectResults) {
@@ -460,28 +460,42 @@ function computeProficiency(level) {
 /**
  * 计算单个效果的结果
  */
-function computeEffect(effect, ctx, options) {
+function computeEffect(effect, ctx, options, char) {
   switch (effect.type) {
     case 'damage': {
-      const v = effect.value || {}
+      let v = effect.value || {}
+      // 等级缩放
+      if (char && v.levelScaling?.length) {
+        v = resolveLevelScaling(v, v.levelScaling, char, ['diceCount', 'diceSides', 'diceBonus'])
+      }
+      // 武器同步
+      let damageType = v.damageType || 'fire'
+      if (v.syncWithWeapon && char) {
+        const weaponType = getMainHandWeaponDamageType(char)
+        if (weaponType) damageType = weaponType
+      }
       const diceCount = (v.scaleWithSlot && options?.slotLevel) ? options.slotLevel : (v.diceCount || 1)
       const dice = `${diceCount}d${v.diceSides || 6}`
       const bonus = v.diceBonus ? `+${v.diceBonus}` : ''
-      const typeLabel = v.damageType || 'fire'
+      const typeLabel = damageType
       const weaponPart = v.addWeaponDamage ? ' + 武器伤害' : ''
       const scaleNote = v.scaleWithSlot && options?.slotLevel ? `（${options.slotLevel}环缩放）` : ''
       return {
         type: 'damage',
         description: effect.description || `${dice}${bonus} ${typeLabel}${weaponPart}${scaleNote}`,
         diceFormula: `${dice}${bonus}`,
-        damageType: v.damageType || 'fire',
+        damageType,
         addWeaponDamage: !!v.addWeaponDamage,
       }
     }
     case 'heal':
       // 新版充能治疗（有 value.diceCount）
       if (effect.value && typeof effect.value === 'object' && effect.value.diceCount) {
-        const v = effect.value
+        let v = effect.value
+        // 等级缩放
+        if (char && v.levelScaling?.length) {
+          v = resolveLevelScaling(v, v.levelScaling, char, ['diceCount', 'diceSides', 'diceBonus'])
+        }
         const diceCount = (v.scaleWithSlot && options?.slotLevel) ? options.slotLevel : v.diceCount
         const dice = `${diceCount}d${v.diceSides || 8}`
         const bonus = v.diceBonus ? `+${v.diceBonus}` : ''

@@ -1,7 +1,7 @@
 import { useState, useEffect, Fragment, useMemo } from 'react'
 import { ArrowDownToLine, ArrowUpFromLine, Pencil, Trash2, Package, Dices, Sparkles, Moon, Sunrise } from 'lucide-react'
 import DragHandleIcon from './DragHandleIcon'
-import { getItemById, getItemDisplayName, itemRequiresAttunement } from '../data/itemDatabase'
+import { getItemById, getItemDisplayName, resolveEntryRequiresAttunement } from '../data/itemDatabase'
 import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { getCharacterWallet, transferCurrency } from '../lib/currencyStore'
 import { getCharacter } from '../lib/characterStore'
@@ -21,7 +21,7 @@ import { useBuffCalculator } from '../hooks/useBuffCalculator'
 import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
 import { getCharacterClasses, getClassDisplayName } from '../data/classDatabase'
 import { rollDice } from '../data/weaponDatabase'
-import { restoreChargesForEvent } from '../lib/chargeRecovery'
+import { restoreChargesForEvent, getEntryChargeMax } from '../lib/chargeRecovery'
 import { inputClass, textareaClass, labelClass } from '../lib/inputStyles'
 import { NumberStepper } from './BuffForm'
 import { appendContainedSpellsBrief } from '../lib/containedSpellBrief'
@@ -589,8 +589,9 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
   const setAttuned = (index, value) => {
     const entry = inv[index]
     const proto = entry?.itemId ? getItemById(entry.itemId) : null
-    const requiresAttunement = itemRequiresAttunement(proto) || itemRequiresAttunement(entry)
-    if (!requiresAttunement) return
+    const requiresAttunement = resolveEntryRequiresAttunement(entry, proto)
+    // 取消同调始终放行：已同调的旧物品即使原型判定不需要同调，也必须能释放同调位
+    if (value && !requiresAttunement) return
     if (value && attunedCount >= maxAttunementSlots) return
     const next = inv.map((e, i) => (i === index ? { ...e, isAttuned: !!value } : e))
     onSave({ inventory: next })
@@ -619,7 +620,9 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
 
   const setCharge = (index, value) => {
     const n = Math.max(0, parseInt(value, 10) || 0)
-    const next = inv.map((e, i) => (i === index ? { ...e, charge: n } : e))
+    const chargeMax = getEntryChargeMax(inv[index])
+    const clamped = chargeMax != null ? Math.min(n, chargeMax) : n
+    const next = inv.map((e, i) => (i === index ? { ...e, charge: clamped } : e))
     onSave({ inventory: next })
   }
 
@@ -867,7 +870,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                           <span className="inline-flex items-center gap-0.5 truncate max-w-full">
                             {(() => {
                               const proto = entry?.itemId ? getItemById(entry.itemId) : null
-                              const requiresAttunement = itemRequiresAttunement(proto) || itemRequiresAttunement(entry)
+                              const requiresAttunement = resolveEntryRequiresAttunement(entry, proto) || !!entry?.isAttuned
                               if (!requiresAttunement) return null
                               const active = !!entry?.isAttuned
                               const disabled = !active && attunedCount >= maxAttunementSlots

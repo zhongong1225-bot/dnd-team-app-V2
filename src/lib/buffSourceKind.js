@@ -18,9 +18,9 @@ export const BUFF_SOURCE_KIND_OPTIONS_EDITABLE = BUFF_SOURCE_KIND_OPTIONS.filter
   (o) => o.key !== 'feat' && o.key !== 'equipment',
 )
 
-/** 模组库/导入弹窗中的分类选项：不包含装备（跟随物品）与冒险（随机性大） */
+/** 模组库/导入弹窗中的分类选项：不包含装备（跟随物品）；冒险类放行（库的主用途就是冒险获得的 BUFF） */
 export const BUFF_SOURCE_KIND_LIBRARY_OPTIONS = BUFF_SOURCE_KIND_OPTIONS.filter(
-  (o) => o.key !== 'equipment' && o.key !== 'adventure',
+  (o) => o.key !== 'equipment',
 )
 
 const LABEL_BY_KEY = Object.fromEntries(BUFF_SOURCE_KIND_OPTIONS.map((o) => [o.key, o.label]))
@@ -59,6 +59,21 @@ export function hasCreatureTransform(buff) {
   if (!buff) return false
   if (buff.effectType === 'creature_transform') return true
   return Array.isArray(buff.effects) && buff.effects.some(e => e && e.effectType === 'creature_transform')
+}
+
+/**
+ * 虚拟条目：由装备/专长/祈唤/战斗风格/职业特性/种族/背景/护盾实时生成，
+ * 不属于 char.buffs，任何保存路径都不得回写。
+ * 新增来源标记时必须同步这里——各处自行手写清单正是虚拟条目被固化进 char.buffs 的成因。
+ * @param {object | undefined} buff
+ * @returns {boolean}
+ */
+export function isVirtualBuffEntry(buff) {
+  if (!buff) return false
+  return !!(
+    buff.fromItem || buff.fromFeat || buff.fromInvocation || buff.fromFightingStyle ||
+    buff.fromClassFeature || buff.fromRace || buff.fromBackground || buff.fromShield
+  )
 }
 
 /**

@@ -8,6 +8,7 @@ import * as teamData from './teamDataSupabase'
 import { getAllCharacters } from './characterStore'
 import { getMergedBuffsForCalculator } from './effects/effectMapping'
 import { normalizeBuffSourceKindKey } from './buffSourceKind'
+import { cloneDurationRaw } from './durationModel'
 import { getItemById, getItemDisplayName } from '../data/itemDatabase'
 
 const LS_KEY_PREFIX = 'dnd_module_library_v1_'
@@ -184,19 +185,19 @@ function getBuffSourceKindForSync(buff) {
 function normalizeBuffTemplateForLibrary(buff) {
   return {
     source: String(buff.source ?? '').trim() || '未命名 Buff',
-    duration: buff.duration != null && String(buff.duration).trim() !== '' ? String(buff.duration).trim() : undefined,
+    duration: cloneDurationRaw(buff.duration),
     effects: Array.isArray(buff.effects) ? buff.effects.map((e) => ({ ...e })) : [],
     enabled: buff.enabled !== false,
     sourceKind: getBuffSourceKindForSync(buff),
   }
 }
 
-/** 不进入 BUFF 库的来源：装备跟随物品，冒险随机性大 */
-const EXCLUDED_BUFF_LIBRARY_KINDS = new Set(['equipment', 'adventure'])
+/** 不进入 BUFF 库的来源：装备跟随物品；冒险类放行（库的主用途就是冒险获得的 BUFF） */
+const EXCLUDED_BUFF_LIBRARY_KINDS = new Set(['equipment'])
 
 /**
  * 从当前模组所有角色卡中自动汇总 BUFF 模板，按来源名称去重（已有库模板优先保留）。
- * 装备与冒险类 BUFF 不进入库。
+ * 装备类 BUFF 不进入库（跟随物品）。
  * @param {string} moduleId
  */
 export async function syncBuffTemplatesFromCharacters(moduleId) {
@@ -206,7 +207,7 @@ export async function syncBuffTemplatesFromCharacters(moduleId) {
   const seen = new Set()
   const next = []
 
-  // 保留已有库模板，但清理掉装备/冒险类
+  // 保留已有库模板，但清理掉装备类
   for (const t of existing) {
     if (!t || typeof t !== 'object') continue
     if (EXCLUDED_BUFF_LIBRARY_KINDS.has(t.sourceKind)) continue

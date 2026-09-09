@@ -22,6 +22,7 @@ export function getAllVisibleBuffEffectKeys() {
 /** @type {Record<string, 'calculator' | 'metadata'>} */
 export const BUFF_EFFECT_KEY_RUNTIME = {
   // ability（属性/移动）
+  ability_adjustment: 'calculator',
   ability_score: 'calculator',
   ability_override: 'calculator',
   ability_score_uncapped: 'calculator',
@@ -38,6 +39,12 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   attack_bonus: 'calculator',
   damage_bonus: 'calculator',
   attack_damage_bonus: 'calculator',
+  // 编辑器合并后的复合类型：combatMeanUtils 消费或 effectMapping 展开，computeBuffStats 不直接读
+  attack_enhancement_bonus: 'metadata',
+  hit_bonus: 'metadata',
+  extra_weapon_damage: 'metadata',
+  crit_range: 'metadata',
+  extra_attacks: 'metadata',
   attack_distance_range: 'metadata',
   attack_area: 'metadata',
   damage_piercing_traits: 'calculator',

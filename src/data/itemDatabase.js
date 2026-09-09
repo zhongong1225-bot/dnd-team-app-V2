@@ -526,11 +526,22 @@ export function getItemById(id) {
 /** 判断物品是否需要同调（优先读原型字段，否则按魔法加值/自定义骰推断） */
 export function itemRequiresAttunement(itemOrProto) {
   if (!itemOrProto) return false
+  if (itemOrProto.requiresAttunement === true) return true
   if (itemOrProto.需要同调 === true || itemOrProto.需要同调 === 'true') return true
   // 兼容旧数据：有魔法加值或特殊自定义骰时视为需同调
   const magicBonus = Number(itemOrProto.magicBonus)
   if (Number.isFinite(magicBonus) && magicBonus !== 0) return true
   return false
+}
+
+/**
+ * 库存条目能否同调的唯一判定入口。
+ * 条目上的显式布尔值优先——DM 在编辑物品时取消勾选「需要同调」必须生效，
+ * 即使原型带魔法加值；未显式设置（旧存档）才回退到原型推断。
+ */
+export function resolveEntryRequiresAttunement(entry, proto) {
+  if (entry && typeof entry.requiresAttunement === 'boolean') return entry.requiresAttunement
+  return itemRequiresAttunement(proto) || itemRequiresAttunement(entry)
 }
 
 /** 自定义物品列表 */
@@ -672,6 +683,24 @@ export function updateCustomItem(id, patch) {
   const pr = persistCustomItems(list)
   if (pr && typeof pr.then === 'function') return pr.then(() => list[idx])
   return list[idx]
+}
+
+/**
+ * 以任意原型为底完整复制一份自定义物品，应用 overrides 后返回新项（含新 id）。
+ * 与 addCustomItem 不同：此处保留原型上的全部字段（如充能上限），不做白名单裁剪。
+ */
+export function forkItemAsCustom(proto, overrides = {}) {
+  const list = getCustomItems()
+  const usedIds = new Set(list.map((x) => x?.id).filter(Boolean))
+  const id = generateUniqueCustomItemId(usedIds)
+  const base = { ...proto }
+  delete base.id
+  const newItem = { ...base, ...overrides, id }
+  newItem.类型 = normalizeItemType(newItem.类型) || '近战武器'
+  list.push(newItem)
+  const p = persistCustomItems(list)
+  if (p && typeof p.then === 'function') return p.then(() => newItem)
+  return newItem
 }
 
 /** 删除自定义物品 */

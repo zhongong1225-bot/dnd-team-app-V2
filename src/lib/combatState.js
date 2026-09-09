@@ -71,7 +71,7 @@ export function slotRequiresAttunement(slot, weapon) {
  */
 export function getAttunedCountFromInventory(inventory) {
   const inv = Array.isArray(inventory) ? inventory : []
-  return inv.filter((i) => i.isAttuned === true).length
+  return inv.filter((i) => i.isAttuned === true && (i.requiresAttunement || i.requiresAttunement === undefined)).length
 }
 
 /**
@@ -81,7 +81,7 @@ export function getAttunedCountFromInventory(inventory) {
 export function getAttunedItemsFromInventory(inventory) {
   const inv = Array.isArray(inventory) ? inventory : []
   return inv
-    .filter((i) => i.isAttuned === true)
+    .filter((i) => i.isAttuned === true && (i.requiresAttunement || i.requiresAttunement === undefined))
     .map((i) => ({ id: i.id, name: i.name?.trim() || i.类别 || '—' }))
 }
 

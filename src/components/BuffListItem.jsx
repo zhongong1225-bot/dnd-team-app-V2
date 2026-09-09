@@ -72,6 +72,26 @@ function formatAttackDamageBonusSummaryText(effectType, v, context = {}) {
   return (parts.join('；') || '') + adv
 }
 
+/** AC修正/额外AC 共用值格式：{ enableBase, base, applyDexMod, maxDexBonus, enableExtra, extra, shieldCompatible } */
+function formatArmorOverrideSummary(v, context, hideBase = false) {
+  const parts = []
+  if (!hideBase && v.enableBase !== false) {
+    const baseLabel = isFormulaValue(v.base) ? formatFormulaLabelWithEval(v.base, context) : String(v.base)
+    let label = `AC=${baseLabel}`
+    if (v.applyDexMod !== false) {
+      if (v.maxDexBonus != null) label += `（含DEX，最大+${v.maxDexBonus}）`
+      else label += '（含DEX）'
+    }
+    parts.push(label)
+  }
+  if (v.enableExtra !== false && v.extra) {
+    const extraLabel = isFormulaValue(v.extra) ? formatFormulaLabelWithEval(v.extra, context) : String(v.extra)
+    parts.push(`+${extraLabel}`)
+  }
+  if (v.shieldCompatible) parts.push('可叠盾')
+  return parts.join(' ')
+}
+
 /** 单条效果的简化文案（用于外层一行展示），如 "心灵抗性"、"智力-2，感知+2"、"生命上限+26" */
 export function getEffectSummaryShort(buff, context = {}, baseContext = context) {
   const info = getEffectInfo(buff.effectType)
@@ -154,6 +174,22 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       add('climb', '攀爬')
       return parts.length ? parts.join('，') : effectLabel
     }
+  }
+  // speed_bonus 对象格式：{ type: 'climb', bonus: 0 }
+  if (buff.effectType === 'speed_bonus' && v && typeof v === 'object' && !Array.isArray(v) && !isFormulaValue(v)) {
+    const typeLabels = { walk: '步行', fly: '飞行', swim: '游泳', climb: '攀爬' }
+    const typeLabel = typeLabels[v.type] || v.type || '移动'
+    const bonus = Number(v.bonus) || 0
+    if (bonus === 0) {
+      return `${typeLabel}速度（等于行走速度）`
+    }
+    const sign = bonus >= 0 ? '+' : ''
+    return `${typeLabel}速度${sign}${bonus}尺`
+  }
+  // ac_bonus 对象格式（合并AC编辑器）：只显示叠加的额外AC部分
+  if (buff.effectType === 'ac_bonus' && v && typeof v === 'object' && !Array.isArray(v) && !isFormulaValue(v)) {
+    const text = formatArmorOverrideSummary(v, context, true)
+    return text || effectLabel
   }
   if (info.effect.dataType === 'object' && v) {
     if (Array.isArray(v) || isFormulaValue(v)) return effectLabel
@@ -239,16 +275,7 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       return uniqueParts.join('，')
     }
     if (info.effect.subSelect === 'armorOverride' && v && typeof v === 'object' && !Array.isArray(v)) {
-      const baseLabel = isFormulaValue(v.base) ? formatFormulaLabelWithEval(v.base, context) : String(v.base)
-      let label = `AC=${baseLabel}`
-      if (v.applyDexMod !== false) {
-        if (v.maxDexBonus != null) label += `（含DEX，最大+${v.maxDexBonus}）`
-        else label += '（含DEX）'
-      }
-      if (v.extra) label += `+${v.extra}`
-      if (v.acBonus) label += `，额外AC+${v.acBonus}`
-      if (v.shieldCompatible) label += '，可叠盾'
-      return label
+      return formatArmorOverrideSummary(v, context)
     }
     if (info.effect.subSelect === 'creatureTransform' && v && typeof v === 'object' && !Array.isArray(v)) {
       const creatureId = v.creatureId
@@ -441,6 +468,23 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       if (v.advantage === 'disadvantage') parts.push('劣势')
       return parts.length ? `${effectLabel} ${parts.join(' ')}`.trim() : effectLabel
     }
+    // 新版统一抗性格式：damage_type_relation（dataType=object，须在此分支内处理，否则被下方 return effectLabel 吞掉）
+    if (buff.effectType === 'damage_type_relation') {
+      const parts = []
+      const types = Array.isArray(v.types) ? v.types : []
+      if (types.length > 0) {
+        const relation = v.relation || 'resist'
+        const suffix = relation === 'resist' ? '抗性' : relation === 'immune' ? '免疫' : '易伤'
+        parts.push(types.map(getDamageTypeLabel).map((l) => `${l}${suffix}`).join('，'))
+      }
+      if (v.reduction > 0) parts.push(`通用减免${v.reduction}`)
+      if (Array.isArray(v.typedReduction)) {
+        for (const tr of v.typedReduction) {
+          if (tr.amount > 0) parts.push(`${getDamageTypeLabel(tr.type)}减免${tr.amount}`)
+        }
+      }
+      return parts.join('；') || effectLabel
+    }
     return effectLabel
   }
   if (buff.effectType === 'damage_piercing_traits' && v && typeof v === 'object' && !Array.isArray(v)) {
@@ -476,23 +520,7 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       return labels.join('、')
     }
   }
-  // 新版统一抗性格式：damage_type_relation
-  if (buff.effectType === 'damage_type_relation' && v && typeof v === 'object' && !Array.isArray(v)) {
-    const parts = []
-    const types = Array.isArray(v.types) ? v.types : []
-    if (types.length > 0) {
-      const relation = v.relation || 'resist'
-      const suffix = relation === 'resist' ? '抗性' : relation === 'immune' ? '免疫' : '易伤'
-      parts.push(types.map(getDamageTypeLabel).map((l) => `${l}${suffix}`).join('，'))
-    }
-    if (v.reduction > 0) parts.push(`通用减免${v.reduction}`)
-    if (Array.isArray(v.typedReduction)) {
-      for (const tr of v.typedReduction) {
-        if (tr.amount > 0) parts.push(`${getDamageTypeLabel(tr.type)}减免${tr.amount}`)
-      }
-    }
-    return parts.join('；')
-  }
+  // 新版统一抗性格式：damage_type_relation 已在上方 dataType==='object' 分支内处理
   // 按伤害类型固定减免
   if (buff.effectType === 'damage_reduction_typed' && v && typeof v === 'object' && !Array.isArray(v)) {
     const types = Array.isArray(v.types) ? v.types : []
@@ -880,6 +908,23 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
       const parts = Object.entries(v).filter(([k, val]) => k !== 'advantage' && val != null && val !== 0).map(([k, val]) => `${ABILITY_NAMES_ZH[k] ?? k}+${formatSignedEntryVal(val, context)}`)
       return { label: effectLabel, value: parts.length ? parts.join(', ') : null }
     }
+    // 新版统一抗性格式：damage_type_relation（dataType=object，须在此分支内处理，否则被下方兜底 return 吞掉）
+    if (buff.effectType === 'damage_type_relation') {
+      const parts = []
+      const types = Array.isArray(v.types) ? v.types : []
+      if (types.length > 0) {
+        const relation = v.relation || 'resist'
+        const suffix = relation === 'resist' ? '抗性' : relation === 'immune' ? '免疫' : '易伤'
+        parts.push(types.map(getDamageTypeLabel).map(l => `${l}${suffix}`).join('，'))
+      }
+      if (v.reduction > 0) parts.push(`通用减免${v.reduction}`)
+      if (Array.isArray(v.typedReduction)) {
+        for (const tr of v.typedReduction) {
+          if (tr.amount > 0) parts.push(`${getDamageTypeLabel(tr.type)}减免${tr.amount}`)
+        }
+      }
+      return { label: effectLabel, value: parts.length ? parts.join('；') : null }
+    }
     return { label: effectLabel, value: null }
   }
   if (Array.isArray(buff.value) && buff.value.length) {
@@ -901,22 +946,6 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
     const reduction = Number(buff.value.reduction) || 0
     const labels = types.map(getDamageTypeLabel)
     return { label: effectLabel, value: `${labels.join('、')}-${reduction}` }
-  }
-  if (buff.effectType === 'damage_type_relation' && buff.value && typeof buff.value === 'object' && !Array.isArray(buff.value)) {
-    const parts = []
-    const types = Array.isArray(buff.value.types) ? buff.value.types : []
-    if (types.length > 0) {
-      const relation = buff.value.relation || 'resist'
-      const suffix = relation === 'resist' ? '抗性' : relation === 'immune' ? '免疫' : '易伤'
-      parts.push(types.map(getDamageTypeLabel).map(l => `${l}${suffix}`).join('，'))
-    }
-    if (buff.value.reduction > 0) parts.push(`通用减免${buff.value.reduction}`)
-    if (Array.isArray(buff.value.typedReduction)) {
-      for (const tr of buff.value.typedReduction) {
-        if (tr.amount > 0) parts.push(`${getDamageTypeLabel(tr.type)}减免${tr.amount}`)
-      }
-    }
-    return { label: effectLabel, value: parts.join('；') }
   }
   return { label: effectLabel, value: buff.value != null ? String(buff.value) : null }
 }

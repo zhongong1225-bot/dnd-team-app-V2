@@ -8,8 +8,8 @@
  */
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { Pencil, X } from 'lucide-react'
-import { getItemListGrouped, getItemById, getItemDisplayName, parseWeaponNoteToTraits, buildWeaponNoteFromTraits, WEAPON_TRAIT_OPTIONS, WEAPON_MASTERY_OPTIONS, itemRequiresAttunement, addCustomItem, getOfficialNonMagicalItemTemplates } from '../data/itemDatabase'
-import { inputClass, textareaClass } from '../lib/inputStyles'
+import { getItemListGrouped, getItemById, getItemDisplayName, parseWeaponNoteToTraits, buildWeaponNoteFromTraits, WEAPON_TRAIT_OPTIONS, WEAPON_MASTERY_OPTIONS, itemRequiresAttunement, resolveEntryRequiresAttunement, addCustomItem, updateCustomItem, forkItemAsCustom, getCustomItems, getOfficialNonMagicalItemTemplates } from '../data/itemDatabase'
+import { inputClass, inputClassInline, textareaClass } from '../lib/inputStyles'
 import { useModule } from '../contexts/ModuleContext'
 import { BUFF_TYPES, getCategories, normalizeEffectCategory, parseDamageString, formatDamageForAttack, ITEM_STORAGE_DEFAULT_ITEM_IDS } from '../data/buffTypes'
 import { DamageDiceInlineRow, NumberStepper } from './BuffForm'
@@ -22,6 +22,13 @@ import {
   mergeContainedSpellEffects,
   getContainedSpellTotalCharges,
 } from '../lib/containedSpellModel'
+
+/** 内置物品表的子类型约定：近战武器→近战、远程武器→远程、其余留空（盔甲子类型由护甲栏单独维护） */
+function subtypeForType(type) {
+  if (type === '近战武器') return '近战'
+  if (type === '远程武器') return '远程'
+  return ''
+}
 
 /** 从护甲/衣服附注解析为可编辑字段（先匹配护甲基础再匹配盾牌，与 formulas 一致） */
 function parseArmorNoteToFields(note) {
@@ -156,8 +163,7 @@ function entryToEffectModules(entry, proto) {
     : (Array.isArray(proto?.effects) ? proto.effects : null)
   if (entryEffects) {
     if (entryEffects.length === 0) {
-      // 次元袋/秘藏箱等默认储物物品强制保留容器效果
-      return isDefaultStorageItem(entry) ? [createItemStorageModule()] : []
+      return []
     }
     // 迁移：多个独立 contained_spell effect 合并为一个多法术共享总充能池
     let effects = entryEffects
@@ -187,9 +193,6 @@ function entryToEffectModules(entry, proto) {
         customText: typeof e.value === 'string' ? e.value : (e.customText ?? ''),
       })
     })
-    if (isDefaultStorageItem(entry) && !mods.some((m) => m.effectType === 'item_storage')) {
-      mods.push(createItemStorageModule())
-    }
     return mods
   }
 
@@ -208,9 +211,6 @@ function entryToEffectModules(entry, proto) {
   const reachNum = 攻击距离.match(/(\d+)/)?.[1]
   if (reachNum) add('offense', 'reach_bonus', { value: parseInt(reachNum, 10) || 0 })
   if ((entry.攻击范围 ?? '').trim()) add('offense', 'attack_range', { customText: String(entry.攻击范围).trim() })
-  if (isDefaultStorageItem(entry) && !mods.some((m) => m.effectType === 'item_storage')) {
-    mods.push(createItemStorageModule())
-  }
   if (mods.length === 0) add('offense', 'attack_melee', { value: 0 })
   return mods
 }
@@ -278,6 +278,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
   const [itemId, setItemId] = useState('')
   const [rarity, setRarity] = useState('')
   const [isAttuned, setIsAttuned] = useState(false)
+  const [requiresAttunement, setRequiresAttunement] = useState(false)
   const [name, setName] = useState('')
   const [intro, setIntro] = useState('')
   const [qty, setQty] = useState(1)
@@ -350,6 +351,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     setItemId('')
     setRarity('')
     setIsAttuned(false)
+    setRequiresAttunement(false)
     setName('')
     setIntro('')
     setQty(1)
@@ -379,6 +381,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     setItemId(nextItemId)
     setRarity(entry?.rarity ?? '')
     setIsAttuned(!!entry?.isAttuned)
+    setRequiresAttunement(resolveEntryRequiresAttunement(entry, proto) || !!entry?.isAttuned)
     setName((entry?.name && entry.name.trim()) || (proto ? getItemDisplayName(proto) : '') || '')
     setIntro((entry?.详细介绍 != null && entry.详细介绍 !== '') ? String(entry.详细介绍) : (proto?.详细介绍 ?? '') || '')
     setQty(Math.max(1, Number(entry?.qty) || 1))
@@ -559,7 +562,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     let 附注 = ''
     if (isArmor) 附注 = buildArmorNoteFromFields(armorFields)
     else if (isWeapon) 附注 = buildWeaponNoteFromTraits(weaponTraits, weaponRange, weaponAmmoCategory) || (proto?.附注 ?? '').trim()
-    else 附注 = (proto?.附注 ?? '').trim()
+    else 附注 = (isEdit && type && proto && type !== proto.类型) ? '' : (proto?.附注 ?? '').trim()
     const 精通 = isWeapon && weaponMastery ? weaponMastery : (editEntry?.精通 ?? proto?.精通 ?? undefined)
     let magicBonus = 0
     let charge = 0
@@ -609,10 +612,6 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       if (parts.攻击距离 !== undefined) 攻击距离 = parts.攻击距离 || undefined
       if (parts.攻击范围 !== undefined) 攻击范围 = parts.攻击范围 || undefined
     })
-    // 默认储物物品强制写入 item_storage 效果
-    if (isDefaultStorageItem(itemId || editEntry) && !effectsForSave.some((e) => e.effectType === 'item_storage')) {
-      effectsForSave.push({ category: 'container', effectType: 'item_storage', value: true, customText: '' })
-    }
 
     if (templateMode) {
       const entry = {
@@ -672,6 +671,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
         id: 'inv_' + Date.now(),
         itemId: newBaseItem.id,
         isAttuned,
+        requiresAttunement,
         qty: Math.max(1, qty),
         ...(rarity ? { rarity } : {}),
       }
@@ -680,21 +680,68 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       return
     }
 
+    // 编辑模式：类型/子类型的改动写回物品原型，否则颜色、图标、装备位等
+    // 读原型类型的功能不会跟随变化（自定义物品原地更新；内置物品/孤儿条目复制为自定义物品）
+    let savedProto = null
+    let targetItemId = editEntry?.itemId || ''
+    const typeChanged = !!type && type !== (proto?.类型 ?? '')
+    const nextSub = isArmor
+      ? (armorFields.armorSubtype || '')
+      : (typeChanged ? subtypeForType(type) : (proto?.子类型 ?? ''))
+    const subChanged = isArmor && nextSub !== (proto?.子类型 ?? '')
+    if (type && (typeChanged || subChanged)) {
+      const typePatch = {
+        类型: type,
+        子类型: nextSub,
+        攻击: isWeapon ? (攻击 || '') : '',
+        伤害: isWeapon ? (伤害 || '') : '',
+        精通: isWeapon && 精通 ? 精通 : '',
+        附注: 附注 != null ? String(附注).trim() : '',
+        攻击距离: (isWeapon || isExplosive) ? (攻击距离 || '') : '',
+        爆炸半径: isExplosive ? (Number(explosiveRadius) || 0) : 0,
+      }
+      const isCustomProto = !!proto && getCustomItems().some((x) => x.id === proto.id)
+      if (proto && isCustomProto) {
+        savedProto = await updateCustomItem(proto.id, typePatch)
+      } else {
+        const base = proto || {
+          类别: (name?.trim() || editEntry?.name || '自定义'),
+          名称: name?.trim() || editEntry?.name || '',
+          重量: editEntry?.重量 ?? '',
+          价格: '',
+          详细介绍: intro != null ? String(intro).trim() : '',
+          需要同调: requiresAttunement,
+          rarity: rarity || '',
+          effects: effectsForSave,
+          magicBonus,
+          charge,
+          ...(spellDC != null ? { spellDC } : {}),
+          ...(itemSpellAttackBonus != null ? { spellAttackBonus: itemSpellAttackBonus } : {}),
+          ...(Array.isArray(editEntry?.nestedInventory) ? { nestedInventory: editEntry.nestedInventory } : {}),
+        }
+        savedProto = await forkItemAsCustom(base, typePatch)
+        targetItemId = savedProto?.id || targetItemId
+      }
+      window.dispatchEvent(new CustomEvent('dnd-realtime-custom-library'))
+    }
+
     // 编辑模式：保持原有库存条目覆盖逻辑
+    const keepCombatFields = !typeChanged || isWeapon || isExplosive
     const entry = {
       id: editEntry.id,
       isAttuned,
-      itemId: editEntry?.itemId || '',
+      requiresAttunement,
+      itemId: targetItemId,
       ...(rarity ? { rarity } : {}),
       name: (name?.trim()) || editEntry?.name || proto?.类别 || (proto ? getItemDisplayName(proto) : '') || '—',
-      攻击: 攻击 || undefined,
-      伤害: 伤害 || undefined,
-      攻击距离: 攻击距离 || undefined,
-      攻击范围: 攻击范围 || undefined,
+      攻击: keepCombatFields ? (攻击 || undefined) : undefined,
+      伤害: keepCombatFields ? (伤害 || undefined) : undefined,
+      攻击距离: keepCombatFields ? (攻击距离 || undefined) : undefined,
+      攻击范围: keepCombatFields ? (攻击范围 || undefined) : undefined,
       详细介绍: intro != null ? String(intro).trim() : '',
       附注: 附注 != null ? String(附注).trim() : '',
       ...(isWeapon && 精通 ? { 精通 } : {}),
-      重量: proto?.重量,
+      重量: (savedProto || proto)?.重量,
       qty: Math.max(1, qty),
       magicBonus,
       charge,
@@ -847,43 +894,62 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
             </div>
           )}
 
-          {/* 类型与稀有度/同调/重量（编辑或选择模板后为只读，否则提供类型下拉来自定义） */}
+          {/* 类型与稀有度/同调/重量 */}
           <div className="min-w-0 max-w-full">
-            <div className="flex flex-nowrap items-center gap-1.5 min-w-0 max-w-full overflow-hidden">
-              {(isEdit || itemId) && <span className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider shrink-0">类型</span>}
-              {isEdit || itemId ? (
-                <span className="min-w-0 truncate text-sm text-dnd-text-body">
-                  <span className="text-gray-400">{type || '—'}</span>
-                  <span className="text-gray-500 mx-0.5">/</span>
-                  {selectedPrototype ? (getItemDisplayName(selectedPrototype) || itemId) : itemId || '—'}
-                </span>
-              ) : (
-                <>
-                  <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider shrink-0">类型</label>
-                  <select
-                    value={type}
-                    onChange={(e) => { setType(e.target.value); setOfficialTemplateId('') }}
-                    className={inputClass + ' h-8 min-w-0 w-[7rem] text-sm shrink-0'}
-                  >
-                    <option value="">— 类型 —</option>
-                    {grouped.map((g) => (
-                      <option key={g.type} value={g.type}>{g.type}</option>
-                    ))}
-                  </select>
-                  <span className="text-dnd-text-muted text-xs truncate">选类型后模板自动筛选，或下方直接选模板</span>
-                </>
-              )}
-              <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5 min-w-0 max-w-full overflow-hidden">
+              <span className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider shrink-0">类型</span>
+              <select
+                value={type}
+                onChange={(e) => {
+                  const newType = e.target.value
+                  setType(newType)
+                  setItemId('')
+                  setOfficialTemplateId('')
+                  if (newType !== '盔甲' && newType !== '衣服') setArmorFields({ isShield: false, armorSubtype: '', baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' })
+                  if (newType !== '近战武器' && newType !== '远程武器' && newType !== '枪械') {
+                    setWeaponDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
+                    setWeaponVersatileDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
+                    setWeaponTraits([])
+                    setWeaponRange('')
+                    setWeaponAmmoCategory('')
+                    setWeaponMastery('')
+                  }
+                  if (newType !== '爆炸物' && !(newType === '消耗品')) {
+                    setExplosiveAttackDistance('')
+                    setExplosiveRadius(0)
+                    setExplosiveDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
+                  }
+                }}
+                className={inputClassInline + ' h-8 min-w-0 w-[7rem] text-sm shrink-0'}
+              >
+                <option value="">— 类型 —</option>
+                {grouped.map((g) => (
+                  <option key={g.type} value={g.type}>{g.type}</option>
+                ))}
+              </select>
+              <div className="ml-auto flex flex-wrap justify-end min-w-0 items-center gap-1.5">
                 <select
                   value={rarity}
                   onChange={(e) => setRarity(e.target.value)}
-                  className={inputClass + ' h-8 min-w-0 w-24 text-sm shrink-0'}
+                  className={inputClassInline + ' h-8 min-w-0 w-24 text-sm shrink-0'}
                 >
                   {RARITY_OPTIONS.map((o) => (
                     <option key={o.value || '_'} value={o.value}>{o.label}</option>
                   ))}
                 </select>
-                {(isEdit || (selectedPrototype && itemRequiresAttunement(selectedPrototype)) || (!isEdit && effectModules.length > 0)) && (
+                <label className="shrink-0 inline-flex items-center gap-1.5 h-8 px-2 rounded-lg border border-gray-600 bg-gray-800 text-gray-300 text-xs cursor-pointer whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      checked={requiresAttunement}
+                      onChange={(e) => {
+                        setRequiresAttunement(e.target.checked)
+                        if (!e.target.checked) setIsAttuned(false)
+                      }}
+                      className="h-3.5 w-3.5 rounded border-gray-500 bg-black/30 text-dnd-gold focus:ring-dnd-gold/40"
+                    />
+                    需要同调
+                  </label>
+                {requiresAttunement && (
                   <label className="shrink-0 inline-flex items-center gap-1.5 h-8 px-2 rounded-lg border border-gray-600 bg-gray-800 text-gray-300 text-xs cursor-pointer whitespace-nowrap">
                     <input
                       type="checkbox"
@@ -891,7 +957,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                       onChange={(e) => setIsAttuned(e.target.checked)}
                       className="h-3.5 w-3.5 rounded border-gray-500 bg-black/30 text-dnd-gold focus:ring-dnd-gold/40"
                     />
-                    同调
+                    已同调
                   </label>
                 )}
                 <span className="text-dnd-text-muted text-xs whitespace-nowrap shrink-0">重量：{weightDisplay}</span>
@@ -1068,7 +1134,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                             value={weaponRange}
                             onChange={(e) => setWeaponRange(e.target.value)}
                             placeholder="XX/XX"
-                            className={inputClass + ' h-7 text-xs w-28 ml-1'}
+                            className={inputClassInline + ' h-7 text-xs w-28 ml-1'}
                           />
                         )}
                         {isAmmoTrait && checked && (
@@ -1104,7 +1170,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                       <select
                         value={armorFields.armorSubtype}
                         onChange={(e) => setArmorFields((f) => ({ ...f, armorSubtype: e.target.value }))}
-                        className={inputClass + ' h-7 text-xs w-20'}
+                        className={inputClassInline + ' h-7 text-xs w-20'}
                       >
                         <option value="">—</option>
                         <option value="轻甲">轻甲</option>
@@ -1207,7 +1273,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
               <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-0.5">数量</label>
               <div className="flex items-center gap-1 h-8">
                 <button type="button" onClick={() => setQty(Math.max(1, (qty || 1) - 1))} className="h-8 w-8 rounded border border-gray-600 bg-gray-700 text-white font-bold text-sm">−</button>
-                <input type="number" min={1} value={qty} onChange={(e) => setQty(Math.max(1, parseInt(e.target.value, 10) || 1))} className={inputClass + ' h-8 w-16 text-center text-sm'} />
+                <input type="number" min={1} value={qty} onChange={(e) => setQty(Math.max(1, parseInt(e.target.value, 10) || 1))} className={inputClassInline + ' h-8 w-16 text-center text-sm'} />
                 <button type="button" onClick={() => setQty((qty || 1) + 1)} className="h-8 w-8 rounded border border-gray-600 bg-gray-700 text-white font-bold text-sm">+</button>
               </div>
             </div>

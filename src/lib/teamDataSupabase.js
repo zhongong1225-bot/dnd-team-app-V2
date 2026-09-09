@@ -141,10 +141,19 @@ export async function saveCustomLibrary(libKey, list) {
 
 export async function fetchModuleLibrary(moduleId) {
   const mod = moduleId ?? 'default'
-  return fetchCustomLibrary(`module_library_${mod}`)
+  // 模组库是对象而非数组，通用 fetchCustomLibrary 会把它当坏数据丢弃，故单独包一层往返
+  const { data, error } = await supabase.from('custom_library').select('*').eq('lib_key', `module_library_${mod}`).maybeSingle()
+  if (error) throw error
+  if (!data) return null
+  const payload = Array.isArray(data.data) ? data.data[0] : data.data
+  return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : null
 }
 
-export async function saveModuleLibrary(moduleId, data) {
+export async function saveModuleLibrary(moduleId, libraryData) {
   const mod = moduleId ?? 'default'
-  await saveCustomLibrary(`module_library_${mod}`, data)
+  const { error } = await supabase.from('custom_library').upsert(
+    { lib_key: `module_library_${mod}`, data: [libraryData], updated_at: new Date().toISOString() },
+    { onConflict: 'lib_key' }
+  )
+  if (error) throw error
 }

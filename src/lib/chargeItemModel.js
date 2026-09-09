@@ -31,7 +31,9 @@
  */
 
 import { createEmptyContainedSpellSub } from './containedSpellModel'
-import { getDamageTypeLabel } from '../data/buffTypes'
+import { getDamageTypeLabel, getDamageTypeValue } from '../data/buffTypes'
+import { getCharacterClasses } from '../data/classDatabase'
+import { getWeaponById } from '../data/weaponDatabase'
 import { isFormulaValue, formatFormulaLabel, evaluateBuffValue } from './formulas'
 
 /* ── 随机库（random_table）常量 ── */
@@ -198,7 +200,7 @@ export function createEmptyChargeItemValue(overrides = {}) {
     charges: 1,
     actionCost: 'action',
     movementFeet: 0,
-    recovery: { method: 'long_rest', kind: 'full', fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0 },
+    recovery: { method: ['long_rest'], kind: 'full', fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0 },
     effects: [],
     isStance: false,
     ...overrides,
@@ -216,10 +218,10 @@ export function createChargeEffectEntry(type, overrides = {}) {
     return { id, type, applyMultiplier: true, value: { ...createEmptyContainedSpellSub(), scalingEnabled: false, scalingPerUnit: { damageDiceCount: 0 } }, ...overrides }
   }
   if (type === 'ability') {
-    return { id, type, applyMultiplier: true, value: { text: '', uses: 1, diceCount: 0, diceSides: 10, abilityMod: '', resultType: 'heal', scalingEnabled: false, scalingPerUnit: { diceCount: 0, flatBonus: 0 } }, ...overrides }
+    return { id, type, applyMultiplier: true, value: { text: '', uses: 1, diceCount: 0, diceSides: 10, abilityMod: '', resultType: 'heal', scalingEnabled: false, scalingPerUnit: { diceCount: 0, flatBonus: 0 }, levelScaling: [] }, ...overrides }
   }
   if (type === 'shield') {
-    return { id, type, applyMultiplier: true, value: { amount: 1, scalingEnabled: false, scalingPerUnit: { amount: 0 } }, ...overrides }
+    return { id, type, applyMultiplier: true, value: { amount: 1, scalingEnabled: false, scalingPerUnit: { amount: 0 }, levelScaling: [] }, ...overrides }
   }
   if (type === 'temp_buff') {
     return { id, type, applyMultiplier: true, value: { buffName: '', modules: [] }, ...overrides }
@@ -240,13 +242,13 @@ export function createChargeEffectEntry(type, overrides = {}) {
     return { id, type, applyMultiplier: false, value: { slotLevel: 2, restoreAmount: 1 }, ...overrides }
   }
   if (type === 'damage') {
-    return { id, type, applyMultiplier: true, value: { diceCount: 1, diceSides: 6, diceBonus: 0, damageType: 'fire', addWeaponDamage: false }, ...overrides }
+    return { id, type, applyMultiplier: true, value: { diceCount: 1, diceSides: 6, diceBonus: 0, damageType: 'fire', addWeaponDamage: false, syncWithWeapon: false, levelScaling: [] }, ...overrides }
   }
   if (type === 'heal') {
-    return { id, type, applyMultiplier: true, value: { mode: 'dice', diceCount: 1, diceSides: 8, diceBonus: 0 }, ...overrides }
+    return { id, type, applyMultiplier: true, value: { mode: 'dice', diceCount: 1, diceSides: 8, diceBonus: 0, levelScaling: [] }, ...overrides }
   }
   if (type === 'attack_buff') {
-    return { id, type, applyMultiplier: true, value: { hitBonusPerUnit: 0, damageBonusPerUnit: 0, extraDicePerUnit: 0, diceSides: 10, damageType: 'fire' }, ...overrides }
+    return { id, type, applyMultiplier: true, value: { hitBonusPerUnit: 0, damageBonusPerUnit: 0, extraDicePerUnit: 0, diceSides: 10, damageType: 'fire', levelScaling: [] }, ...overrides }
   }
   if (type === 'random_table') {
     return { id, type, applyMultiplier: false, value: { mode: 'dice', diceType: 'd6', includeJokers: false, entries: [] }, ...overrides }
@@ -288,12 +290,17 @@ export function normalizeChargeItemValue(value) {
   // recovery
   const rec = value.recovery && typeof value.recovery === 'object' ? value.recovery : {}
   const validMethods = RECOVERY_METHODS.map((m) => m.value)
-  const method = validMethods.includes(rec.method) ? rec.method : 'long_rest'
+  const rawMethods = Array.isArray(rec.method) ? rec.method : (rec.method ? [rec.method] : ['long_rest'])
+  const methods = rawMethods.filter((m) => validMethods.includes(m))
+  if (!methods.length) methods.push('long_rest')
   const validKinds = ['full', 'fixed', 'dice']
   const kind = validKinds.includes(rec.kind) ? rec.kind : 'full'
+  const hasDiceOnly = methods.some((m) => DICE_ONLY_METHODS.has(m))
+  const allNoAmount = methods.every((m) => NO_AMOUNT_METHODS.has(m))
+  const resolvedKind = allNoAmount ? 'full' : (hasDiceOnly ? 'dice' : kind)
   const recovery = {
-    method,
-    kind: NO_AMOUNT_METHODS.has(method) ? 'full' : (DICE_ONLY_METHODS.has(method) ? 'dice' : kind),
+    method: methods,
+    kind: resolvedKind,
     fixed: Math.max(0, Number(rec.fixed) || 0),
     diceCount: Math.max(1, Number(rec.diceCount) || 1),
     diceSides: Math.max(1, Number(rec.diceSides) || 6),
@@ -428,6 +435,9 @@ export function normalizeChargeItemValue(value) {
         diceBonus: isFormulaValue(dv.diceBonus) ? dv.diceBonus : (Number(dv.diceBonus) || 0),
         damageType: typeof dv.damageType === 'string' ? dv.damageType : 'fire',
         addWeaponDamage: !!dv.addWeaponDamage,
+        syncWithWeapon: !!dv.syncWithWeapon,
+        scaleWithSlot: !!dv.scaleWithSlot,
+        levelScaling: Array.isArray(dv.levelScaling) ? dv.levelScaling : [],
       } }
     }
     if (type === 'heal') {
@@ -485,24 +495,28 @@ export function normalizeChargeItemValue(value) {
 
 /** 回能方式是否支持自定义回能数量 */
 export function recoverySupportsAmount(method) {
-  return !NO_AMOUNT_METHODS.has(method)
+  const methods = Array.isArray(method) ? method : [method]
+  return methods.some((m) => !NO_AMOUNT_METHODS.has(m))
 }
 
 /** 回能方式是否仅支持掷骰 */
 export function recoveryIsDiceOnly(method) {
-  return DICE_ONLY_METHODS.has(method)
+  const methods = Array.isArray(method) ? method : [method]
+  return methods.some((m) => DICE_ONLY_METHODS.has(m))
 }
 
 /** 获取回能方式显示标签 */
 export function getRecoveryMethodLabel(method) {
-  return RECOVERY_METHODS.find((m) => m.value === method)?.label ?? method
+  const methods = Array.isArray(method) ? method : [method]
+  return methods.map((m) => RECOVERY_METHODS.find((r) => r.value === m)?.label ?? m).join('、')
 }
 
 /** 格式化回能描述 */
 export function formatRecoveryBrief(recovery) {
   if (!recovery || typeof recovery !== 'object') return ''
-  const methodLabel = getRecoveryMethodLabel(recovery.method)
-  if (recovery.method === 'none') return methodLabel
+  const methods = Array.isArray(recovery.method) ? recovery.method : (recovery.method ? [recovery.method] : [])
+  const methodLabel = getRecoveryMethodLabel(methods)
+  if (methods.length === 1 && methods[0] === 'none') return methodLabel
   if (recovery.kind === 'full') return `${methodLabel}（回满）`
   if (recovery.kind === 'dice') {
     const bonus = Number(recovery.diceBonus) || 0
@@ -568,7 +582,7 @@ export function formatChargeItemBrief(value) {
           }
         }
         const dice = `${v.diceCount || 1}d${v.diceSides || 6}${bonusStr}`
-        const typeLabel = getDamageTypeLabel(v.damageType || 'fire')
+        const typeLabel = v.syncWithWeapon ? '同武器' : getDamageTypeLabel(v.damageType || 'fire')
         const scale = v.scaleWithSlot ? '（按环位缩放）' : ''
         effectLabels.push(`伤害 ${dice} ${typeLabel}${scale}`)
       })
@@ -701,18 +715,28 @@ export function buildAbilityDiceExpr(abilityValue, character) {
  * @param {number} amount - 消耗资源数量（≥1）
  * @returns {object} 缩放后的数值
  */
-export function computeScaledEffect(effectValue, amount, freeMode = false) {
+export function computeScaledEffect(effectValue, amount, freeMode = false, char = null) {
   const amt = Math.max(1, Math.floor(Number(amount) || 1))
   const scaling = effectValue?.scalingEnabled ? (effectValue?.scalingPerUnit || {}) : {}
 
   // attack_buff: 根据消耗环位动态计算加值
   if (effectValue && 'hitBonusPerUnit' in effectValue && 'damageBonusPerUnit' in effectValue && 'extraDicePerUnit' in effectValue) {
-    return {
-      hitBonus: (Math.max(0, Number(effectValue.hitBonusPerUnit) || 0)) * amt,
-      damageBonus: (Math.max(0, Number(effectValue.damageBonusPerUnit) || 0)) * amt,
-      extraDiceCount: (Math.max(0, Number(effectValue.extraDicePerUnit) || 0)) * amt,
+    let base = {
+      hitBonusPerUnit: effectValue.hitBonusPerUnit,
+      damageBonusPerUnit: effectValue.damageBonusPerUnit,
+      extraDicePerUnit: effectValue.extraDicePerUnit,
       diceSides: effectValue.diceSides || 10,
       damageType: effectValue.damageType || 'fire',
+    }
+    if (char && effectValue.levelScaling?.length) {
+      base = resolveLevelScaling(base, effectValue.levelScaling, char, ['hitBonusPerUnit', 'damageBonusPerUnit', 'extraDicePerUnit', 'diceSides'])
+    }
+    return {
+      hitBonus: (Math.max(0, Number(base.hitBonusPerUnit) || 0)) * amt,
+      damageBonus: (Math.max(0, Number(base.damageBonusPerUnit) || 0)) * amt,
+      extraDiceCount: (Math.max(0, Number(base.extraDicePerUnit) || 0)) * amt,
+      diceSides: base.diceSides || 10,
+      damageType: base.damageType || 'fire',
     }
   }
 
@@ -720,9 +744,13 @@ export function computeScaledEffect(effectValue, amount, freeMode = false) {
   if (freeMode) {
     // ability (骰子/治疗/伤害)
     if (effectValue && 'diceCount' in effectValue && 'resultType' in effectValue) {
+      let base = { diceCount: effectValue.diceCount, flatBonus: effectValue.flatBonus ?? effectValue.diceBonus }
+      if (char && effectValue.levelScaling?.length) {
+        base = resolveLevelScaling(base, effectValue.levelScaling, char, ['diceCount', 'diceSides', 'diceBonus', 'flatBonus'])
+      }
       return {
-        diceCount: (Math.max(0, Number(effectValue.diceCount) || 0)) * amt,
-        flatBonus: (Math.max(0, Number(effectValue.flatBonus ?? effectValue.diceBonus) || 0)) * amt,
+        diceCount: (Math.max(0, Number(base.diceCount) || 0)) * amt,
+        flatBonus: (Math.max(0, Number(base.flatBonus ?? base.diceBonus) || 0)) * amt,
       }
     }
     // spell (伤害骰)
@@ -733,8 +761,12 @@ export function computeScaledEffect(effectValue, amount, freeMode = false) {
     }
     // shield / 通用数值
     if (effectValue && 'amount' in effectValue && !('diceCount' in effectValue)) {
+      let base = { amount: effectValue.amount }
+      if (char && effectValue.levelScaling?.length) {
+        base = resolveLevelScaling(base, effectValue.levelScaling, char, ['amount'])
+      }
       return {
-        amount: (Math.max(1, Number(effectValue.amount) || 1)) * amt,
+        amount: (Math.max(1, Number(base.amount) || 1)) * amt,
       }
     }
     return {}
@@ -745,9 +777,14 @@ export function computeScaledEffect(effectValue, amount, freeMode = false) {
 
   // ability
   if (effectValue && 'diceCount' in effectValue && 'resultType' in effectValue) {
-    const baseDice = Math.max(0, Number(effectValue.diceCount) || 0)
+    let baseDice = Math.max(0, Number(effectValue.diceCount) || 0)
+    let flatBonus = Math.max(0, Number(scaling.flatBonus) || 0)
+    if (char && effectValue.levelScaling?.length) {
+      const resolved = resolveLevelScaling({ diceCount: effectValue.diceCount, flatBonus: effectValue.flatBonus ?? effectValue.diceBonus }, effectValue.levelScaling, char, ['diceCount', 'diceSides', 'diceBonus', 'flatBonus'])
+      baseDice = Math.max(0, Number(resolved.diceCount) || 0)
+      flatBonus = Math.max(0, Number(resolved.flatBonus ?? resolved.diceBonus) || 0)
+    }
     const perUnitDice = Math.max(0, Number(scaling.diceCount) || 0)
-    const flatBonus = Math.max(0, Number(scaling.flatBonus) || 0)
     return {
       diceCount: baseDice + perUnitDice * extra,
       flatBonus: flatBonus * extra,
@@ -763,7 +800,11 @@ export function computeScaledEffect(effectValue, amount, freeMode = false) {
   }
   // shield
   if (effectValue && 'amount' in effectValue && !('diceCount' in effectValue)) {
-    const baseAmount = Math.max(1, Number(effectValue.amount) || 1)
+    let baseAmount = Math.max(1, Number(effectValue.amount) || 1)
+    if (char && effectValue.levelScaling?.length) {
+      const resolved = resolveLevelScaling({ amount: effectValue.amount }, effectValue.levelScaling, char, ['amount'])
+      baseAmount = Math.max(1, Number(resolved.amount) || 1)
+    }
     const perUnitAmount = Math.max(0, Number(scaling.amount) || 0)
     return {
       amount: baseAmount + perUnitAmount * extra,
@@ -837,4 +878,78 @@ export function scaleStanceModules(modules, factor) {
       : mod.effects
     return { ...mod, effects }
   })
+}
+
+/* ─────────────────────────────────────────────────────────
+ * 等级缩放 & 武器同步
+ * ───────────────────────────────────────────────────────── */
+
+/**
+ * 从角色数据构建职业等级映射
+ * @param {object} char - 角色数据
+ * @returns {Object<string, number>} { '圣武士': 5, '战士': 3, ... }
+ */
+export function getClassLevelMap(char) {
+  if (!char) return {}
+  const classes = getCharacterClasses(char)
+  const map = {}
+  for (const c of classes) {
+    map[c.name] = Math.max(map[c.name] || 0, c.level)
+  }
+  return map
+}
+
+/**
+ * 解析等级缩放：找到角色满足的最高等级条目，替换基础数值
+ * @param {object} baseValue - 基础数值对象
+ * @param {Array} levelScaling - 等级缩放条目数组
+ * @param {object} char - 角色数据
+ * @param {string[]} numericKeys - 需要替换的数值字段名
+ * @returns {object} 替换后的数值对象（新对象，不修改原值）
+ */
+export function resolveLevelScaling(baseValue, levelScaling, char, numericKeys) {
+  if (!Array.isArray(levelScaling) || levelScaling.length === 0) return baseValue
+  const classLevelMap = getClassLevelMap(char)
+  if (!Object.keys(classLevelMap).length) return baseValue
+
+  const matched = levelScaling.filter(e => {
+    const charLevel = classLevelMap[e.className] || 0
+    return charLevel >= (e.level || 1)
+  })
+  if (!matched.length) return baseValue
+
+  const best = matched.reduce((a, b) => (a.level >= b.level ? a : b))
+  const result = { ...baseValue }
+  for (const key of numericKeys) {
+    if (best[key] != null) {
+      result[key] = best[key]
+    }
+  }
+  return result
+}
+
+/**
+ * 获取主手武器的伤害类型（英文 value）
+ * @param {object} char - 角色数据
+ * @returns {string} 伤害类型 value（如 'slashing'），无武器返回空串
+ */
+export function getMainHandWeaponDamageType(char) {
+  if (!char) return ''
+  const held = Array.isArray(char.equippedHeld) ? char.equippedHeld : []
+  const mainHand = held.find(s => s?.slotId === 'mainHand') || held[0]
+  if (!mainHand) return ''
+
+  // 标准武器数据库
+  if (mainHand.weaponId) {
+    const weapon = getWeaponById(mainHand.weaponId)
+    if (weapon?.damageType) return getDamageTypeValue(weapon.damageType)
+  }
+
+  // 自定义物品：从 inventory 查找
+  if (mainHand.inventoryId && Array.isArray(char.inventory)) {
+    const invEntry = char.inventory.find(i => i?.inventoryId === mainHand.inventoryId || i?.id === mainHand.inventoryId)
+    if (invEntry?.damageType) return getDamageTypeValue(invEntry.damageType)
+  }
+
+  return ''
 }

@@ -3,10 +3,8 @@ import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, User } from 'lucide-react'
 import { hpBarMainFillClass, hpBarMainFillClassFromPct, HP_BAR_TEMP_FILL_CLASS } from '../lib/hpBarShared'
-import { TOPBAR_BACK_ARROW_CLASS, TOPBAR_BACK_LINK_CLASS } from '../lib/topBarShared'
+import { TOPBAR_BACK_ARROW_CLASS, TOPBAR_BACK_LINK_CLASS, TOPBAR_LAYOUT_INNER } from '../lib/topBarShared'
 import { getTopBarHostElement } from './TopBarHost'
-
-const LAYOUT_INNER = 'mx-auto w-[1180px] min-w-[1180px] shrink-0 min-h-[6rem]'
 
 /** 顶栏快捷跳转各区块；hideCreature 时生物卡隐藏部分入口 */
 const JUMP_SECTIONS = [
@@ -104,7 +102,7 @@ export default function CharacterSheetTopBar({
         <div
           className="relative z-10 bg-[#2D3748]/78 backdrop-blur-md border-b border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.5)]"
         >
-          <div className={`${LAYOUT_INNER} flex min-w-0 flex-col px-4`}>
+          <div className={`${TOPBAR_LAYOUT_INNER} flex min-w-0 flex-col px-4`}>
         <div className="flex w-full min-w-0 flex-nowrap items-center gap-x-2 gap-y-0 py-2 sm:gap-3 sm:py-2.5">
           <div className="flex min-w-0 flex-1 items-center gap-2 sm:min-w-[12rem]">
             <div className="flex shrink-0 items-center gap-2">

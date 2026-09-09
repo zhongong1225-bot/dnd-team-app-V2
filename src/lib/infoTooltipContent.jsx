@@ -4,7 +4,7 @@
  * 用于 InfoTooltip 组件的 content 属性。
  */
 import React from 'react'
-import { itemRequiresAttunement } from '../data/itemDatabase'
+import { resolveEntryRequiresAttunement } from '../data/itemDatabase'
 import { appendContainedSpellsBrief } from './containedSpellBrief'
 
 const SECTION_LABEL = 'text-dnd-gold-light/85 font-bold tracking-wider uppercase text-[10px]'
@@ -102,7 +102,7 @@ export function ItemTooltipContent({ proto, entry }) {
   const hasMagic = magicBonus > 0
   const hasCharge = charge > 0
   const isAttuned = entry?.isAttuned === true
-  const requiresAttunement = itemRequiresAttunement(proto)
+  const requiresAttunement = resolveEntryRequiresAttunement(entry, proto)
   const hasExtraEntryInfo = isInventoryEntry && (hasMagic || hasCharge || isAttuned || qty > 1)
   // 简介：优先使用物品实例的详细介绍，没有时回退到模板描述
   const entryBrief = entry?.详细介绍?.trim()

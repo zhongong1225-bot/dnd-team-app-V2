@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>装备栏视觉优化预览 — 加高 + 大徽章</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #141b27;
+    color: #e0e0e0;
+    font-family: -apple-system, "Microsoft YaHei", sans-serif;
+    padding: 24px;
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+  h1 { color: #c79a42; font-size: 18px; margin-bottom: 4px; }
+  p.note { color: #8899aa; font-size: 12px; margin-bottom: 20px; line-height: 1.7; }
+  h2 {
+    color: #c79a42; font-size: 14px; margin: 32px 0 12px;
+    padding-bottom: 6px; border-bottom: 1px solid rgba(199,154,66,0.3);
+  }
+  .panel {
+    background: linear-gradient(180deg, #161e2b 0%, #141c28 50%, #121a25 100%);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    padding: 12px;
+  }
+
+  /* ===== 行网格：46 | 76 | 341 | 136 | 1fr | 90 | 76 ===== */
+  .row {
+    display: grid;
+    grid-template-columns: 46px 76px 341px 136px 1fr 90px 76px;
+    align-items: center;
+    gap: 0;
+    background: linear-gradient(180deg, #161e2b 0%, #141c28 50%, #121a25 100%);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+  .row.now  { height: 52px; }
+  .row.tall { height: 60px; }
+  .cell { display: flex; align-items: center; justify-content: center; height: 100%; border-right: 1px solid #2a3a4e; }
+
+  /* Col1 同调 */
+  .attune { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; width: 30px; }
+  .attune svg { width: 11px; height: 11px; }
+  .attune span {
+    writing-mode: vertical-rl; text-orientation: mixed;
+    font-size: 11px; font-weight: 600; letter-spacing: 2px; color: #445566;
+  }
+
+  /* Col2 槽位下拉 */
+  .slot {
+    width: calc(100% - 16px); height: 28px; font-size: 11px; text-align: center;
+    border: 1px solid #3a4a5e; border-radius: 4px; background: #253345; color: #8899aa;
+  }
+
+  /* Col3 按钮容器 */
+  .barcell { padding: 4px 8px; justify-content: stretch; }
+
+  /* Col4 BUFF 标签 */
+  .tags { flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; padding: 4px 8px; overflow: hidden; }
+  .tag {
+    font-size: 8px; padding: 0 4px; border: 1px solid #2a3a4e; border-radius: 2px;
+    background: #1a2535; color: #8899aa; white-space: nowrap; line-height: 12px; height: 12px;
+  }
+
+  /* Col6 数量+重量 */
+  .qtywrap { justify-content: flex-start; }
+  .qty { display: flex; align-items: center; justify-content: center; gap: 4px; width: 48px; height: 100%; }
+  .qty button {
+    width: 18px; height: 18px; border: none; border-radius: 3px; background: transparent;
+    color: #667788; font-size: 11px; cursor: pointer; line-height: 1;
+  }
+  .qty .n { font-size: 12px; font-weight: 600; color: #ffd700; font-variant-numeric: tabular-nums; }
+  .wt { display: flex; align-items: center; justify-content: center; width: 42px; height: 100%; font-size: 10px; color: #aabbcc; white-space: nowrap; }
+
+  /* Col7 齿轮 */
+  .gears { gap: 8px; }
+  .gears svg { width: 13px; height: 13px; }
+
+  /* ===== 能量条按钮 ===== */
+  .bar {
+    position: relative; display: flex; align-items: center;
+    width: 100%; border-radius: 6px; overflow: hidden;
+    border: 1px solid rgba(30,64,120,0.6);
+    background: linear-gradient(180deg, rgba(30,42,58,0.95) 0%, rgba(22,33,48,0.98) 100%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.3);
+  }
+  .row.now  .bar { height: 36px; }
+  .row.tall .bar { height: 44px; }
+
+  .bar .bg { position: absolute; inset: 0; border-radius: 6px; overflow: hidden; z-index: 0; }
+  .bar .bg .base { position: absolute; inset: 0; background: #141e2e; }
+  .bar .bg .fill { position: absolute; inset: 0; }
+  .bar .bg .fill.red  { background: linear-gradient(90deg, #0a1628, #1e3a5f, #5a2040, #8b2030); }
+  .bar .bg .fill.blue { width: 71%; background: linear-gradient(90deg, #0a1628, #1e3a5f, #1a5a6a, #2080a0); }
+  .bar .bg .topline { position: absolute; top: 0; left: 0; right: 0; height: 1px; }
+  .bar .bg .topline.red  { background: linear-gradient(90deg, transparent 0%, #e04050 10%, #e04050 90%, transparent 100%); }
+  .bar .bg .topline.blue { background: linear-gradient(90deg, transparent 0%, #38bdf8 10%, #38bdf8 90%, transparent 100%); }
+  .bar .stripes { position: absolute; inset: 0; pointer-events: none; z-index: 8; filter: blur(0.8px); }
+  .bar .stripes.red {
+    background-image: repeating-linear-gradient(90deg, #d96070 0px, #d96070 3px, transparent 3px, transparent 6px);
+    -webkit-mask-image: linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,0,0,0.5) 100%, rgba(0,0,0,0) 100%);
+    mask-image: linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,0,0,0.5) 100%, rgba(0,0,0,0) 100%);
+  }
+  .bar .stripes.blue {
+    background-image: repeating-linear-gradient(90deg, #40a8c0 0px, #40a8c0 3px, transparent 3px, transparent 6px);
+    -webkit-mask-image: linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,0,0,0.5) 71%, rgba(0,0,0,0) 77%);
+    mask-image: linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,0,0,0.5) 71%, rgba(0,0,0,0) 77%);
+  }
+  .bar .colormask {
+    position: absolute; left: 0; right: 0; border-radius: 6px; pointer-events: none; z-index: 9;
+    background: linear-gradient(to right, rgba(10,18,32,0.6) 0%, rgba(10,18,32,0.3) 40%, rgba(10,18,32,0.4) 100%);
+  }
+  .row.now  .bar .colormask { top: 4px; bottom: 4px; }
+  .row.tall .bar .colormask { top: 6px; bottom: 6px; }
+  .bar .depleted {
+    position: absolute; top: 0; right: 0; height: 100%; border-radius: 0 6px 6px 0;
+    pointer-events: none; z-index: 10; width: 29%; background: rgba(10,18,32,0.95);
+  }
+  .bar .divider { position: absolute; top: 0; bottom: 0; width: 3px; z-index: 40; pointer-events: none; }
+  .bar .divider.blue { left: 71%; background: #38bdf8; box-shadow: 0 0 8px #38bdf8, 0 0 4px #38bdf8; }
+
+  /* 品类徽章：衬底 + 圆环图标 */
+  .backing { position: absolute; left: 0; top: 0; height: 100%; pointer-events: none; z-index: 11; }
+  .row.now  .backing { width: 44px; }
+  .row.tall .backing { width: 52px; }
+  .med {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    background: #101826; pointer-events: none; z-index: 30;
+  }
+  .row.now  .med { left: 5px; width: 24px; height: 24px; }
+  .row.tall .med { left: 6px; width: 32px; height: 32px; }
+  .row.now  .med svg { width: 14px; height: 14px; }
+  .row.tall .med svg { width: 18px; height: 18px; }
+
+  /* 内容层 */
+  .bar .content {
+    position: relative; z-index: 30; display: grid; align-items: center;
+    grid-template-columns: 1fr auto 1fr; column-gap: 8px; width: 100%; padding: 0 8px;
+  }
+  .bar .zone-l { display: flex; align-items: center; justify-content: flex-end; min-width: 0; overflow: hidden; }
+  .bar .name {
+    font-size: 13px; font-weight: 600; color: #fff; letter-spacing: 2px; line-height: 20px;
+    text-shadow: 0 2px 6px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.8);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .row.now  .bar .name { max-width: 108px; }
+  .row.tall .bar .name { max-width: 100px; }
+  .bar .zone-c { display: flex; align-items: center; justify-content: center; }
+  .bar .zone-c svg { width: 20px; height: 20px; }
+  .bar .zone-r { display: flex; align-items: center; justify-content: flex-start; gap: 6px; min-width: 0; }
+  .badge { font-size: 11px; font-weight: 700; padding: 0 4px; border-radius: 4px; line-height: 18px; white-space: nowrap; }
+  .badge.red  { color: #c490b0; background: rgba(140,50,100,0.15); border: 1px solid rgba(140,50,100,0.35); }
+  .badge.blue { color: #7ec8c0; background: rgba(45,130,120,0.15); border: 1px solid rgba(45,130,120,0.35); }
+  .charge { font-size: 13px; font-weight: 700; width: 38px; text-align: center; line-height: 20px; font-variant-numeric: tabular-nums; }
+  .charge.red  { color: #c490b0; }
+  .charge.blue { color: #7ec8c0; }
+  .absorb {
+    display: flex; align-items: center; gap: 2px; font-size: 11px; font-weight: 700;
+    padding: 0 6px; border-radius: 4px; line-height: 18px; white-space: nowrap;
+    color: #fcd34d; background: rgba(0,0,0,0.25); border: 1px solid rgba(251,191,36,0.45);
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.55); text-shadow: 0 0 4px rgba(251,191,36,0.35);
+  }
+  .absorb svg { width: 14px; height: 14px; }
+
+  /* 被动内容 */
+  .bar .passive-center {
+    position: relative; z-index: 30; display: flex; align-items: center; justify-content: center;
+    gap: 12px; width: 100%;
+  }
+  .row.now  .bar .passive-center { padding: 0 8px 0 34px; }
+  .row.tall .bar .passive-center { padding: 0 8px 0 42px; }
+  .dash { flex: 1; min-width: 8px; height: 1px; background: repeating-linear-gradient(90deg, rgba(136,153,170,0.3) 0 6px, transparent 6px 10px); }
+  .passive-name {
+    font-size: 13px; font-weight: 600; color: #fff; letter-spacing: 2px; line-height: 20px;
+    text-shadow: 0 2px 6px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.8); white-space: nowrap;
+  }
+
+  .rowlabel { font-size: 11px; color: #667788; margin: 0 0 4px 2px; }
+  .spec { font-size: 11px; color: #667788; margin: 8px 0 12px; line-height: 1.8; }
+  .spec b { color: #aabbcc; }
+
+  /* 图标对照区 */
+  .cmpgrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  .cmp { display: flex; flex-direction: column; align-items: center; gap: 8px; background: #161e2b; border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 14px 8px; }
+  .cmp-cell { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .cmp-cell span { font-size: 10px; color: #667788; }
+  .med.static { position: static; transform: none; width: 32px; height: 32px; background: #101826; }
+  .med.static svg { width: 18px; height: 18px; }
+  .cmp-name { font-size: 12px; color: #aabbcc; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>装备栏视觉优化预览 — 加高 + 大徽章</h1>
+<p class="note">
+  本页是装备栏的 1:1 复刻副本，只用于视觉优化评审，不影响线上代码。<br>
+  上半 = 现状（行高 52 / 徽章 24 / 现状图标 / 现状配色）；下半 = 加高方案（行高 60 / 徽章 32 / 精致图标 / 收敛配色）。<br>
+  收敛配色：护甲改<b style="color:#38bdf8">蓝</b>（与武器同族）、宝石并入<b style="color:#a78bfa">紫</b>（与法器同族）、工具并入<b style="color:#fbbf24">金</b>（与容器同族），整列表只剩 蓝/紫/金/绿 四主色。
+</p>
+
+<h2>一、现状复刻（行高 52px）</h2>
+<div class="panel" id="panel-now"></div>
+
+<h2>二、加高方案（行高 60px）</h2>
+<div class="spec">
+  变化点：<b>行高 52→60</b>（按钮 36→44，上下留白各 4px 不变）；<b>徽章 24→32</b>、图标 14→18、衬底 44→52；<br>
+  颜色遮罩上下缩进 4→6px 适配更高按钮；主动名字 maxWidth 108→100、被动内容左 padding 34→42 给更大徽章让位。
+</div>
+<div class="panel" id="panel-tall"></div>
+
+<h2>三、图标对照：现状 vs 精致版（32px 徽章实尺寸）</h2>
+<div class="spec">
+  精致版做法：描边 1.5→<b>1.25</b>、圆头圆角、并给每个图标加 1–3 条<b>内部细节线</b>（剑的血槽与护手、盾的中脊与上缘、法杖的水晶与星点、钱袋的束口褶皱、宝石的台面线）。
+</div>
+<div id="icon-compare" class="cmpgrid"></div>
+
+<script>
+const CATS = {
+  weapon:    { color: '#38bdf8', d: '<path d="M14.5 17.5L3 6V3h3l11.5 11.5"/><path d="M13 19l6-6"/><path d="M16 16l4 4"/><path d="M19 21l2-2"/>' },
+  armor:     { color: '#38bdf8', d: '<path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/>' },
+  wand:      { color: '#a78bfa', d: '<path d="M15 4V2"/><path d="M15 10V8"/><path d="M12 6h-2"/><path d="M20 6h-2"/><path d="M17.8 8.2l1.4 1.4"/><path d="M10.8 3.8l1.4 1.4"/><path d="M21 21L11 11"/>' },
+  container: { color: '#fbbf24', d: '<path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8"/>' },
+  gem:       { color: '#a78bfa', d: '<path d="M6 3h12l4 6-10 12L2 9z"/><path d="M2 9h20"/><path d="M12 3l-3 6 3 12 3-12-3-6"/>' },
+};
+/* 精致版 v3：统一 24 网格、1.5 描边圆头，细节线只留小尺寸可读的 1–2 条 */
+const REF = {
+  weapon:    { color: '#f87171', d: '<path d="M12 3l1.8 2.8v6.8L12 14.4l-1.8-1.8V5.8z"/><path d="M12 6.5v5.5"/><path d="M8.6 14.4h6.8"/><path d="M12 14.4v3.8"/><circle cx="12" cy="19.6" r="1.1"/>' },
+  armor:     { color: '#38bdf8', d: '<path d="M12 3l6.5 2.4v5.2c0 4.4-2.7 7.6-6.5 9.8-3.8-2.2-6.5-5.4-6.5-9.8V5.4z"/><path d="M12 5.6v12"/><path d="M7.6 7.5l4.4 1.6 4.4-1.6"/>' },
+  wand:      { color: '#a78bfa', d: '<path d="M12 21V9.6"/><path d="M12 3.2l2.2 3.2L12 9.6 9.8 6.4z"/><path d="M9.6 21h4.8"/><path d="M17.4 5.2h.01"/><path d="M19 8.4h.01"/>' },
+  container: { color: '#fbbf24', d: '<path d="M8.6 8.2C6 10 4.6 12.4 4.6 14.8c0 3.4 3.3 5.6 7.4 5.6s7.4-2.2 7.4-5.6c0-2.4-1.4-4.8-4-6.6"/><path d="M8.6 8.2h6.8"/><path d="M9.4 8.2c.4-1.6 1.2-2.6 2.6-2.6s2.2 1 2.6 2.6"/><path d="M8.2 10.6c1.2.8 2.4 1.2 3.8 1.2s2.6-.4 3.8-1.2"/>' },
+  gem:       { color: '#a78bfa', d: '<path d="M7.2 4h9.6l3.6 4.8L12 20 3.6 8.8z"/><path d="M3.6 8.8h16.8"/><path d="M7.2 4l2.2 4.8L12 20"/><path d="M16.8 4l-2.2 4.8L12 20"/><path d="M9.4 8.8h5.2"/>' },
+};
+const catSvg = (k, refined) => {
+  const s = refined ? REF[k] : CATS[k];
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="' + s.color + '" stroke-width="' + (refined ? 1.25 : 1.5) + '" stroke-linecap="round" stroke-linejoin="round">' + s.d + '</svg>';
+};
+const sparkles = (c) => '<svg viewBox="0 0 24 24" fill="none" stroke="' + c + '" stroke-width="1.5"><path d="M12 3l1.8 4.6L18 9.4l-4.2 1.8L12 16l-1.8-4.8L6 9.4l4.2-1.8z"/></svg>';
+const shieldIco = (c) => '<svg viewBox="0 0 24 24" fill="none" stroke="' + c + '" stroke-width="1.5"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></svg>';
+const zap = '<svg viewBox="0 0 24 24" fill="none" stroke="#fcd34d" stroke-width="1.8"><path d="M13 2L4 14h6l-1 8 9-12h-6z"/></svg>';
+const lock = '<svg viewBox="0 0 24 24" fill="none" stroke="#445566" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>';
+const gBox = '<svg viewBox="0 0 24 24" fill="none" stroke="#8899aa" stroke-width="1.8"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8"/></svg>';
+const gPen = '<svg viewBox="0 0 24 24" fill="none" stroke="#8899aa" stroke-width="1.8"><path d="M17 3a2.8 2.8 0 114 4L7.5 20.5 2 22l1.5-5.5z"/></svg>';
+const gTrash = '<svg viewBox="0 0 24 24" fill="none" stroke="#8899aa" stroke-width="1.8"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>';
+
+/* 6 行数据：cat / slot / name / mode(red|blue|passive) / badge / charge / absorb / tags / weight */
+const ROWS = [
+  { cat: 'wand',      slot: '主手', name: '布兰卡的贤者法杖', mode: 'red',     badge: '释放', charge: '50/50', absorb: true,  tags: ['法术强度+2', '释放效果'], wt: '4磅' },
+  { cat: 'gem',       slot: '头带', name: '不朽庭卫徽记',     mode: 'passive', tags: ['伤害抗性', '防护✓'], wt: '0.1磅' },
+  { cat: 'container', slot: '背包', name: '次元袋',           mode: 'passive', tags: ['容量✓'], wt: '5磅' },
+  { cat: 'weapon',    slot: '背包', name: '兆运魔牌',         mode: 'red',     badge: '释放', charge: '54/54', tags: ['攻击增强加值', '释放效果'], wt: '1磅' },
+  { cat: 'armor',     slot: '背包', name: '瓦石全身铠',       mode: 'blue',    badge: '护盾', charge: '15/21', tags: ['护盾池'], wt: '10磅' },
+  { cat: 'armor',     slot: '背包', name: '蛇皮鳞甲',         mode: 'passive', tags: [], wt: '35磅' },
+];
+
+function barHtml(r, refined) {
+  const c = CATS[r.cat].color;
+  const med = '<div class="backing" style="background:' + c + '1a;border-right:1px solid ' + c + '26"></div>' +
+              '<div class="med" style="border:1px solid ' + c + '">' + catSvg(r.cat, refined) + '</div>';
+  if (r.mode === 'passive') {
+    return '<div class="bar">' +
+      '<div class="bg"><div class="base"></div></div>' + med +
+      '<div class="passive-center"><div class="dash"></div><span class="passive-name">' + r.name + '</span><div class="dash"></div></div>' +
+      '</div>';
+  }
+  const fill = r.mode === 'red' ? '<div class="fill red"><div class="topline red"></div></div>' : '<div class="fill blue"><div class="topline blue"></div></div>';
+  const stripes = r.mode === 'red' ? '<div class="stripes red"></div>' : '<div class="stripes blue"></div>';
+  const depleted = r.mode === 'blue' ? '<div class="depleted"></div>' : '';
+  const divider = r.mode === 'blue' ? '<div class="divider blue"></div>' : '';
+  const center = r.mode === 'red' ? sparkles('#c490b0') : shieldIco('#7ec8c0');
+  const badgeCls = r.mode === 'red' ? 'red' : 'blue';
+  const absorb = r.absorb ? '<span class="absorb">' + zap + '吸</span>' : '';
+  return '<div class="bar">' +
+    '<div class="bg"><div class="base"></div>' + fill + '</div>' + stripes +
+    '<div class="colormask"></div>' + depleted + divider + med +
+    '<div class="content">' +
+      '<div class="zone-l"><span class="name">' + r.name + '</span></div>' +
+      '<div class="zone-c">' + center + '</div>' +
+      '<div class="zone-r"><span class="badge ' + badgeCls + '">' + r.badge + '</span><span class="charge ' + badgeCls + '">' + r.charge + '</span>' + absorb + '</div>' +
+    '</div></div>';
+}
+
+function rowHtml(r, refined) {
+  return '<div class="row ROWCLS">' +
+    '<div class="cell"><div class="attune">' + lock + '<span>同调</span></div></div>' +
+    '<div class="cell"><select class="slot"><option>' + r.slot + '</option></select></div>' +
+    '<div class="cell barcell">' + barHtml(r, refined) + '</div>' +
+    '<div class="cell tags">' + r.tags.map(t => '<span class="tag">' + t + '</span>').join('') + '</div>' +
+    '<div class="cell" style="border-right:1px solid #2a3a4e"></div>' +
+    '<div class="cell qtywrap"><div class="qty"><button>−</button><span class="n">1</span><button>+</button></div><div class="wt">' + r.wt + '</div></div>' +
+    '<div class="cell gears" style="border-right:none">' + gBox + gPen + gTrash + '</div>' +
+    '</div>';
+}
+
+document.getElementById('panel-now').innerHTML = ROWS.map(r => rowHtml(r, false).replace('ROWCLS', 'now')).join('');
+document.getElementById('panel-tall').innerHTML = ROWS.map(r => rowHtml(r, true).replace('ROWCLS', 'tall')).join('');
+
+/* 三、图标对照：现状 vs 精致版 */
+const LABELS = { weapon: '武器', armor: '盔甲', wand: '法器', container: '容器', gem: '宝石' };
+document.getElementById('icon-compare').innerHTML = Object.keys(LABELS).map(k =>
+  '<div class="cmp">' +
+    '<div class="cmp-cell"><div class="med static" style="border:1px solid ' + CATS[k].color + '">' + catSvg(k, false) + '</div><span>现状 1.5 描边</span></div>' +
+    '<div class="cmp-cell"><div class="med static" style="border:1px solid ' + REF[k].color + '">' + catSvg(k, true) + '</div><span>精致 1.25 描边+细节</span></div>' +
+    '<div class="cmp-name">' + LABELS[k] + '</div>' +
+  '</div>'
+).join('');
+</script>
+</body>
+</html>

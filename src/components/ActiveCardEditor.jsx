@@ -146,21 +146,29 @@ export default function ActiveCardEditor({
                 min={0} max={999} compact narrow className="!h-7"
               />
               <span className="text-green-400 text-[10px] font-bold uppercase tracking-wider shrink-0 ml-1">恢复</span>
-              <select
-                value={chargeData.recovery?.method || 'long_rest'}
-                onChange={(e) => {
-                  const method = e.target.value
-                  const next = { ...chargeData.recovery, method }
-                  if (!recoverySupportsAmount(method)) next.kind = 'full'
-                  else if (recoveryIsDiceOnly(method)) next.kind = 'dice'
-                  patch({ recovery: next })
-                }}
-                className={compactInput + ' w-[6rem] shrink-0 cursor-pointer'}
-              >
-                {RECOVERY_METHODS.map((m) => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
-                ))}
-              </select>
+              <div className="flex items-center gap-1 flex-wrap">
+                {RECOVERY_METHODS.map((m) => {
+                  const methods = Array.isArray(chargeData.recovery?.method) ? chargeData.recovery.method : [chargeData.recovery?.method || 'long_rest']
+                  return (
+                    <label key={m.value} className="flex items-center gap-0.5 cursor-pointer text-[10px] text-gray-300">
+                      <input
+                        type="checkbox"
+                        checked={methods.includes(m.value)}
+                        onChange={() => {
+                          const next = methods.includes(m.value) ? methods.filter((x) => x !== m.value) : [...methods, m.value]
+                          if (!next.length) next.push('long_rest')
+                          const rec = { ...chargeData.recovery, method: next }
+                          if (!recoverySupportsAmount(next)) rec.kind = 'full'
+                          else if (recoveryIsDiceOnly(next)) rec.kind = 'dice'
+                          patch({ recovery: rec })
+                        }}
+                        className="accent-amber-500 w-3 h-3"
+                      />
+                      {m.label}
+                    </label>
+                  )
+                })}
+              </div>
               {recoverySupportsAmount(chargeData.recovery?.method) && (
                 <>
                   {!recoveryIsDiceOnly(chargeData.recovery?.method) && (

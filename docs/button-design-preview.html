@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>主动技能按钮统一设计 v4</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #141b27;
+    color: #e0e0e0;
+    font-family: -apple-system, "Microsoft YaHei", sans-serif;
+    padding: 24px;
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+  h2 {
+    color: #c79a42;
+    font-size: 16px;
+    margin: 32px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(199,154,66,0.3);
+  }
+  h2:first-child { margin-top: 0; }
+
+  /* ===== 标准宽度单位：1u = 30px ===== */
+  /* 网格 6 列：类别 (1u=30px) + 来源 (2u=60px) + 特性区 (12u=360px) + BUFF(4u=120px) + 留白 (1fr) + 齿轮 (1u=30px) */
+
+  /* ===== 卡片基础 ===== */
+  /* 列宽包含 8px 左右 padding：30+16=46, 60+16=76, 360+16=376, 120+16=136, 1fr+16, 30+16=46 */
+  .card-row {
+    display: grid;
+    grid-template-columns: 46px 76px 376px 136px 1fr 46px;
+    align-items: center;
+    gap: 0;
+    background: #1e2a3a;
+    border: 1px solid #2a3a4e;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    height: 52px;
+    overflow: hidden;
+  }
+
+  /* 第一组和第二组：特性区 270+16=286px */
+  .card-row.narrow {
+    grid-template-columns: 46px 76px 286px 136px 1fr 46px;
+  }
+
+  .card-row .cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 8px;
+    border-right: 1px solid #2a3a4e;
+  }
+
+  /* ===== 类别标签（竖排） ===== */
+  .cat-label {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 3px;
+    color: #8899aa;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 8px;
+    border-right: 1px solid #2a3a4e;
+  }
+  .cat-label.race { color: #6ba3d6; }
+  .cat-label.class { color: #c79a42; }
+  .cat-label.feat { color: #a78bfa; }
+  .cat-label.attune {
+    color: #2d6b65;
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.15s, background 0.15s;
+  }
+  .cat-label.attune:hover {
+    color: #3a8a82;
+    background: rgba(45,107,101,0.15);
+  }
+  .cat-label.attune.active {
+    color: #4ecdc4;
+    background: rgba(78,205,196,0.08);
+  }
+
+  /* ===== 来源信息（垂直两行） ===== */
+  .source-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+  }
+  .source-info .main {
+    font-size: 9px;
+    color: #8899aa;
+    white-space: nowrap;
+  }
+  .source-info .sub {
+    font-size: 8px;
+    color: #667788;
+    white-space: nowrap;
+  }
+
+  /* 装备位下拉（适配 60px 列宽） */
+  .equip-slot-select {
+    font-size: 11px;
+    width: 100%;
+    height: 28px;
+    padding: 0 4px;
+    border: 1px solid #3a4a5e;
+    border-radius: 4px;
+    background: #253345;
+    color: #8899aa;
+    cursor: pointer;
+    text-align: center;
+  }
+
+  /* ===== 特性名区域（自动填充剩余宽度） ===== */
+  .feature-area {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 4px 12px;
+    overflow: hidden;
+  }
+
+  /* 特性名（无主动技能时纯文字） */
+  .feature-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: #f0f0f0;
+    flex-shrink: 0;
+  }
+
+  /* ★ 名称 + 使用 一体按钮 */
+  .feature-ability-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 16px;
+    border: 1px solid rgba(199,154,66,0.35);
+    border-radius: 6px;
+    background: rgba(199,154,66,0.06);
+    cursor: pointer;
+    transition: all 0.15s;
+    text-decoration: none;
+    flex-shrink: 0;
+    min-width: 200px;
+    justify-content: center;
+  }
+  .feature-ability-btn:hover {
+    background: rgba(199,154,66,0.14);
+    border-color: rgba(199,154,66,0.55);
+  }
+  .feature-ability-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .feature-ability-btn .fname {
+    font-size: 16px;
+    font-weight: 600;
+    color: #f0f0f0;
+  }
+  .feature-ability-btn .bolt {
+    font-size: 18px;
+    color: #c79a42;
+  }
+  .feature-ability-btn .use-text {
+    font-size: 15px;
+    font-weight: 600;
+    color: #c79a42;
+  }
+
+  /* ★ 装备一体按钮：整个按钮就是能量条 */
+  .equip-ability-btn {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 32px;
+    padding: 0 10px;
+    border: 1px solid rgba(199,154,66,0.4);
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .equip-ability-btn:hover {
+    border-color: rgba(199,154,66,0.7);
+    box-shadow: 0 0 12px rgba(199,154,66,0.3);
+  }
+  /* 能量条背景 */
+  .equip-energy-bg {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: #1a2535;
+    z-index: 0;
+  }
+  .equip-energy-fill {
+    position: absolute;
+    top: 0; left: 0; bottom: 0;
+    background: linear-gradient(90deg, #8a7030, #c79a42, #a89040);
+    transition: width 0.3s;
+    z-index: 1;
+  }
+  .equip-energy-fill::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+    animation: shimmer 2s infinite;
+  }
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+  .equip-energy-fill.low {
+    background: linear-gradient(90deg, #8a5030, #c77040, #a87040);
+  }
+  /* 按钮内容（叠在能量条上面） */
+  .equip-btn-content {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    gap: 6px;
+  }
+  .equip-ability-btn .ename {
+    font-size: 14px;
+    font-weight: 600;
+    color: #f0f0f0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  }
+  .equip-ability-btn .bolt {
+    font-size: 16px;
+    color: #ffd700;
+    flex-shrink: 0;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  }
+  .equip-ability-btn .use-text {
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffd700;
+    white-space: nowrap;
+    flex-shrink: 0;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  }
+  /* 步进器（简化版，在能量条内部） */
+  .charge-stepper {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex-shrink: 0;
+  }
+  .stepper-btn {
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 3px;
+    background: rgba(0,0,0,0.35);
+    color: #e0e0e0;
+    font-size: 11px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+    transition: all 0.1s;
+  }
+  .stepper-btn:hover {
+    background: rgba(0,0,0,0.5);
+    color: #ffd700;
+  }
+  .stepper-text {
+    font-size: 10px;
+    color: #e0e0e0;
+    font-weight: 500;
+    min-width: 36px;
+    text-align: center;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  }
+
+  /* 装备无主动技能 */
+  .equip-name-only {
+    font-size: 16px;
+    font-weight: 600;
+    color: #f0f0f0;
+  }
+
+  /* ===== 二选一 ===== */
+  .choice-label {
+    font-size: 10px;
+    color: #667788;
+    writing-mode: vertical-rl;
+    padding: 0 3px;
+    flex-shrink: 0;
+  }
+  .choice-btn {
+    font-size: 12px;
+    padding: 3px 12px;
+    border: 1px solid #3a4a5e;
+    border-radius: 4px;
+    background: #253345;
+    color: #e0e0e0;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  /* ===== BUFF 简称标签（左对齐，紧凑 3 行） ===== */
+  .buff-tags-cell {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 4px 6px;
+    border-right: 1px solid #2a3a4e;
+    overflow: hidden;
+  }
+  .buff-tags {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .buff-tag {
+    font-size: 8px;
+    padding: 0 4px;
+    border: 1px solid #2a3a4e;
+    border-radius: 2px;
+    background: #1a2535;
+    color: #8899aa;
+    white-space: nowrap;
+    line-height: 12px;
+    height: 12px;
+  }
+
+  /* ===== 留白列（自动填充剩余宽度） ===== */
+  .spacer-cell {
+    /* 无内容，仅占位 */
+  }
+
+  /* ===== 齿轮按钮（编辑） ===== */
+  .gear-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    color: #556677;
+    cursor: pointer;
+    font-size: 14px;
+    transition: color 0.15s;
+    background: transparent;
+    border: none;
+  }
+  .gear-btn:hover { color: #c79a42; }
+
+  /* ===== 说明文字 ===== */
+  .note {
+    font-size: 12px;
+    color: #667788;
+    margin-bottom: 16px;
+    line-height: 1.8;
+  }
+  .note code {
+    background: #1e2a3a;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    color: #c79a42;
+  }
+  .note strong { color: #99aabb; }
+</style>
+</head>
+<body>
+
+<h2>统一网格系统</h2>
+<p class="note">
+  标准宽度单位 <code>1u = 30px</code>，所有卡片共用同一网格：<br>
+  <code>类别 (1u=30px)</code> + <code>来源 (2u=60px)</code> + <code>特性区 (12u=360px)</code> + <code>BUFF简称 (4u=120px)</code> + <code>留白 (1fr)</code> + <code>齿轮 (1u=30px)</code><br>
+  左侧内容固定 570px，右侧留白自动填充，齿轮按钮右对齐。内容在列内居中，BUFF 简称左对齐。<br>
+  卡片固定高度 52px，三组统一。BUFF 简称列预留 3 行容量（每行 12px + 2px 间距），实际显示行数取决于简称字数和 BUFF 条数。
+</p>
+
+<!-- ===== 第一组：基础卡片（无主动技能） ===== -->
+<h2>第一组：无主动技能</h2>
+
+<!-- 种族卡 -->
+<div class="card-row narrow">
+  <div class="cat-label race">种族</div>
+  <div class="cell source-info">
+    <div class="main">人类</div>
+    <div class="sub">天生获得</div>
+  </div>
+  <div class="cell feature-area">
+    <span class="feature-name">原初职能</span>
+    <span class="choice-label">二选一</span>
+    <button class="choice-btn">术师</button>
+  </div>
+  <div class="buff-tags-cell">
+    <div class="buff-tags">
+      <span class="buff-tag">BUFF简称</span>
+    </div>
+  </div>
+  <div class="spacer-cell"></div>
+  <button class="gear-btn" title="编辑">⚙</button>
+</div>
+
+<!-- 职业卡 -->
+<div class="card-row narrow">
+  <div class="cat-label class">职业</div>
+  <div class="cell source-info">
+    <div class="main">X级获得</div>
+    <div class="sub">月亮结社</div>
+  </div>
+  <div class="cell feature-area">
+    <span class="feature-name">原初职能</span>
+    <span class="choice-label">二选一</span>
+    <button class="choice-btn">术师</button>
+  </div>
+  <div class="buff-tags-cell">
+    <div class="buff-tags">
+      <span class="buff-tag">BUFF简称</span>
+    </div>
+  </div>
+  <div class="spacer-cell"></div>
+  <button class="gear-btn" title="编辑"></button>
+</div>
+
+
+<!-- ===== 第二组：有主动技能 ===== -->
+<h2>第二组：名称+⚡使用 一体按钮</h2>
+<p class="note">
+  特性名和 ⚡使用 合成一个带边框的按钮，点击触发释放。<br>
+  消耗信息放在 <code>title</code> 悬浮提示里。
+</p>
+
+<!-- 种族卡 -->
+<div class="card-row narrow">
+  <div class="cat-label race">种族</div>
+  <div class="cell source-info">
+    <div class="main">人类</div>
+    <div class="sub">X级获得</div>
+  </div>
+  <div class="cell feature-area">
+    <button class="feature-ability-btn" title="消耗：2 充能 | 附赠动作">
+      <span class="fname">荒野变身</span>
+      <span class="bolt">⚡</span>
+      <span class="use-text">使用</span>
+    </button>
+  </div>
+  <div class="buff-tags-cell">
+    <div class="buff-tags">
+      <span class="buff-tag">BUFF简称</span>
+      <span class="buff-tag">BUFF简称</span>
+      <span class="buff-tag">BUFF简称</span>
+    </div>
+  </div>
+  <div class="spacer-cell"></div>
+  <button class="gear-btn" title="编辑">⚙</button>
+</div>
+
+<!-- 职业卡 -->
+<div class="card-row narrow">
+  <div class="cat-label class">职业</div>
+  <div class="cell source-info">
+    <div class="main">X级获得</div>
+    <div class="sub">月亮结社</div>
+  </div>
+  <div class="cell feature-area">
+    <button class="feature-ability-btn" title="消耗：附赠动作">
+      <span class="fname">荒野变身</span>
+      <span class="bolt">⚡</span>
+      <span class="use-text">使用</span>
+    </button>
+  </div>
+  <div class="buff-tags-cell">
+    <div class="buff-tags">
+      <span class="buff-tag">BUFF简称</span>
+      <span class="buff-tag">BUFF简称</span>
+      <span class="buff-tag">BUFF简称</span>
+    </div>
+  </div>
+  <div class="spacer-cell"></div>
+  <button class="gear-btn" title="编辑">⚙</button>
+</div>
+
+<!-- 专长卡 -->
+<div class="card-row narrow">
+  <div class="cat-label feat">专长</div>
+  <div class="cell source-info">
+    <div class="main">X级获得</div>
+    <div class="sub">XX专长</div>
+  </div>
+  <div class="cell feature-area">
+    <button class="feature-ability-btn" title="消耗：1 星界点">
+      <span class="fname">星辰替身</span>
+      <span class="bolt">⚡</span>
+      <span class="use-text">使用</span>
+    </button>
+  </div>
+  <div class="buff-tags-cell">
+    <div class="buff-tags">
+      <span class="buff-tag">BUFF简称</span>
+      <span class="buff-tag">BUFF简称</span>
+      <span class="buff-tag">BUFF简称</span>
+    </div>
+  </div>
+  <div class="spacer-cell"></div>
+  <button class="gear-btn" title="编辑"></button>
+</div>
+
+<!-- 专长卡：无主动技能（对比） -->
+<div class="card-row narrow">
+  <div class="cat-label feat">专长</div>
+  <div class="cell source-info">
+    <div class="main">X级获得</div>
+    <div class="sub">XX专长</div>
+  </div>
+  <div class="cell feature-area">
+    <span class="feature-name">星辰替身</span>
+  </div>
+  <div class="buff-tags-cell">
+    <div class="buff-tags">
+      <span class="buff-tag">BUFF简称</span>
+      <span class="buff-tag">BUFF简称</span>
+      <span class="buff-tag">BUFF简称</span>
+    </div>
+  </div>
+  <div class="spacer-cell"></div>
+  <button class="gear-btn" title="编辑">⚙</button>
+</div>
+
+<!-- 种族卡（另一个例子） -->
+<div class="card-row narrow">
+  <div class="cat-label race">种族</div>
+  <div class="cell source-info">
+    <div class="main">X级获得</div>
+    <div class="sub">XX专长</div>
+  </div>
+  <div class="cell feature-area">
+    <button class="feature-ability-btn" title="消耗：1 充能">
+      <span class="fname">星辰替身</span>
+      <span class="bolt">⚡</span>
+      <span class="use-text">使用</span>
+    </button>
+  </div>
+  <div class="buff-tags-cell">
+    <div class="buff-tags">
+      <span class="buff-tag">BUFF简称</span>
+      <span class="buff-tag">BUFF简称</span>
+      <span class="buff-tag">BUFF简称</span>
+    </div>
+  </div>
+  <div class="spacer-cell"></div>
+  <button class="gear-btn" title="编辑">⚙</button>
+</div>
+
+
+<!-- ===== 第三组：装备卡 ===== -->
+<h2>第三组：装备卡（能量条一体按钮）</h2>
+<p class="note">
+  装备卡共用同一网格，来源列放装备位下拉选择。<br>
+  <strong>整个按钮就是能量条</strong>：背景显示充能进度（金色=满，橙色=低），名称、⚡使用、步进器叠在能量条上面。<br>
+  名字区域自动扩展占满剩余空间。步进器有 − + 按钮和数值显示。<br>
+  同调标签可点击切换激活/未激活状态。
+</p>
+
+<!-- 装备卡：有主动技能 + 满充能 -->
+<div class="card-row">
+  <div class="cat-label attune active">同调</div>
+  <div class="cell">
+    <select class="equip-slot-select">
+      <option>手持</option>
+      <option>头戴</option>
+      <option>身甲</option>
+    </select>
+  </div>
+  <div class="cell feature-area">
+    <button class="equip-ability-btn" title="使用主动技能">
+      <div class="equip-energy-bg">
+        <div class="equip-energy-fill" style="width:100%"></div>
+      </div>
+      <div class="equip-btn-content">
+        <span class="ename">某种装备</span>
+        <span class="bolt">⚡</span>
+        <span class="use-text">使用</span>
+        <div class="charge-stepper">
+          <div class="stepper-btn" title="减少">−</div>
+          <span class="stepper-text">50/50</span>
+          <div class="stepper-btn" title="增加">+</div>
+        </div>
+      </div>
+    </button>
+  </div>
+  <div class="buff-tags-cell">
+    <div class="buff-tags">
+      <span class="buff-tag">BUFF简称</span>
+    </div>
+  </div>
+  <div class="spacer-cell"></div>
+  <button class="gear-btn" title="编辑"></button>
+</div>
+
+<!-- 装备卡：有主动技能 + 低充能 -->
+<div class="card-row">
+  <div class="cat-label attune active">同调</div>
+  <div class="cell">
+    <select class="equip-slot-select">
+      <option>手持</option>
+      <option>头戴</option>
+      <option>身甲</option>
+    </select>
+  </div>
+  <div class="cell feature-area">
+    <button class="equip-ability-btn" title="使用主动技能">
+      <div class="equip-energy-bg">
+        <div class="equip-energy-fill low" style="width:20%"></div>
+      </div>
+      <div class="equip-btn-content">
+        <span class="ename">某种装备</span>
+        <span class="bolt">⚡</span>
+        <span class="use-text">使用</span>
+        <div class="charge-stepper">
+          <div class="stepper-btn" title="减少">−</div>
+          <span class="stepper-text">10/50</span>
+          <div class="stepper-btn" title="增加">+</div>
+        </div>
+      </div>
+    </button>
+  </div>
+  <div class="buff-tags-cell">
+    <div class="buff-tags">
+      <span class="buff-tag">BUFF简称</span>
+    </div>
+  </div>
+  <div class="spacer-cell"></div>
+  <button class="gear-btn" title="编辑">⚙</button>
+</div>
+
+<!-- 装备卡：无主动技能 -->
+<div class="card-row">
+  <div class="cat-label attune">同调</div>
+  <div class="cell">
+    <select class="equip-slot-select">
+      <option>手持</option>
+      <option>头戴</option>
+      <option>身甲</option>
+    </select>
+  </div>
+  <div class="cell feature-area">
+    <span class="equip-name-only">某种装备</span>
+  </div>
+  <div class="buff-tags-cell">
+    <div class="buff-tags">
+      <span class="buff-tag">BUFF简称</span>
+    </div>
+  </div>
+  <div class="spacer-cell"></div>
+  <button class="gear-btn" title="编辑"></button>
+</div>
+
+
+<h2>设计要点总结</h2>
+<p class="note">
+  1. <strong>6 列网格</strong>：标准卡 <code>30+60+360+120+1fr+30</code>，窄卡 <code>30+60+270+120+1fr+30</code>，左侧内容固定（标准 570px / 窄卡 480px），中间留白自动填充，齿轮右对齐<br>
+  2. <strong>固定高度 52px</strong>：三组卡片高度完全统一<br>
+  3. <strong>BUFF 简称左对齐</strong>：固定 120px 列宽，预留 3 行容量（12px×3 + 2px×2 间距），实际行数取决于简称字数和 BUFF 条数<br>
+  4. <strong>特性区宽度</strong>：标准卡（装备）360px，窄卡（种族/职业/专长）270px，按钮和名称居中显示<br>
+  5. <strong>名称 + 使用一体按钮</strong>：特性名 + ⚡ + 使用，带金色边框，<code>min-width: 200px</code><br>
+  6. <strong>装备位下拉</strong>：来源列放 <code>&lt;select&gt;</code> 下拉选择装备位<br>
+  7. <strong>装备能量条按钮</strong>：整个按钮就是能量条，背景显示充能进度（满=金色，低=橙色），名称+⚡使用+步进器叠在上面<br>
+  8. <strong>步进器</strong>：− 按钮 + 数值 + 按钮，在能量条内部右侧<br>
+  9. <strong>消耗信息</strong>：放在 <code>title</code> 悬浮提示，不占按钮空间<br>
+  10. <strong>禁用态</strong>：冷却中/资源不足时按钮整体半透明<br>
+  11. <strong>同调标签可点击</strong>：点击切换激活/未激活状态，默认暗色，激活后变亮
+</p>
+
+<script>
+  // 同调标签点击切换
+  document.querySelectorAll('.cat-label.attune').forEach(el => {
+    el.addEventListener('click', () => el.classList.toggle('active'));
+  });
+</script>
+
+</body>
+</html>

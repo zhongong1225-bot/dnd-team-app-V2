@@ -65,6 +65,7 @@ import SummonedCreaturesPanel from './combat/SummonedCreaturesPanel'
 import { isNewContainedSpellValue, normalizeContainedSpellValue, extractContainedSpellValueFromEntry } from '../lib/containedSpellModel'
 import { getFlatEffectEntries } from '../lib/effects/effectMapping'
 import { recoverShieldPoolsOnRest, getShieldPoolCurrent, decrementShieldPool } from '../lib/shieldPoolUtils'
+import RecoverySummaryModal from './RecoverySummaryModal'
 
 /**
  * 计算条件范围命中/伤害加值（非 global 的 attack_bonus / damage_bonus / attack_damage_bonus）。
@@ -660,6 +661,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [focusUsePending, setFocusUsePending] = useState(null) // { inventoryIndex, name, spellSub } 法器投掷待确认
   const [executeAbilityModal, setExecuteAbilityModal] = useState(null) // { ability, context }
   const [damageRollConfirm, setDamageRollConfirm] = useState(null) // { attackResult, spellName, damageList, isSpellAttack, critThreatMin, nwSpellAtk, slotLevel, spellData }
+  const [recoverySummary, setRecoverySummary] = useState(null) // { eventType, summary }
   const [focusSpellMap, setFocusSpellMap] = useState({}) // { [inventoryIndex]: spellSub } 法器当前选中的内含法术
   const combatMeansRef = useRef(combatMeans)
   useEffect(() => {
@@ -1877,30 +1879,59 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
 
   /* ── 短休：恢复 recovery='short' 的资源 + 魔契师契约法术位 ── */
   const handleShortRest = () => {
+    const summary = { classResources: [], shields: [], shieldPools: [], inventory: [], spellSlots: [], pactSlots: [], abilities: [], buffsCleared: 0 }
+
+    // 职业资源恢复
+    const prevResources = classResources
     const next = classResources.map((r) => {
-      if (r.recovery === 'short') return { ...r, current: r.max }
+      if (r.recovery === 'short') {
+        if (r.current < r.max) summary.classResources.push({ name: r.name, from: r.current, to: r.max })
+        return { ...r, current: r.max }
+      }
       return r
     })
     saveClassResources(next)
+
     // 护盾短休恢复
-    if (shields.length > 0) saveShields(recoverShieldsOnRest(shields, 'short'))
+    if (shields.length > 0) {
+      const prevShields = shields
+      const nextShields = recoverShieldsOnRest(shields, 'short')
+      nextShields.forEach((s, i) => {
+        if (prevShields[i] && s.current > prevShields[i].current) {
+          summary.shields.push({ name: s.name || '护盾', from: prevShields[i].current, to: s.current })
+        }
+      })
+      saveShields(nextShields)
+    }
+
     // 护盾池短休恢复
     const spRecoverShort = recoverShieldPoolsOnRest(char, 'short', mergedBuffs)
-    if (spRecoverShort) onSave({ shieldPoolStates: spRecoverShort })
-    // 物品充能短休恢复（仅 recharge_short_rest 类型）
+    if (spRecoverShort) {
+      const prevSp = char?.shieldPoolStates || {}
+      Object.entries(spRecoverShort).forEach(([key, val]) => {
+        const prev = prevSp[key] ?? 0
+        if (val > prev) {
+          const spEntry = mergedBuffs.find(b => b.shieldPoolKey === key)
+          summary.shieldPools.push({ name: spEntry?.source || key, from: prev, to: val })
+        }
+      })
+      onSave({ shieldPoolStates: spRecoverShort })
+    }
+
+    // 物品充能短休恢复
     const inv = char?.inventory ?? []
     if (inv.length > 0) {
       try {
         const { inventory: nextInv, logs } = restoreChargesForEvent(inv, 'short_rest')
         if (logs.length > 0) {
           onSave({ inventory: nextInv })
-          const summary = logs.map((l) => `${l.name}：${l.from} → ${l.to}`).join('\n')
-          console.log('短休恢复充能：', summary)
+          summary.inventory.push(...logs)
         }
       } catch (err) {
         console.error('[CombatStatus] 短休恢复充能失败', err)
       }
     }
+
     // 魔契师短休恢复契约法术位
     const pactLv = getPactLevel(char)
     if (pactLv > 0) {
@@ -1914,7 +1945,10 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         if (add > 0 && max > 0) {
           const curVal = Math.min(max, cur[ring] ?? max)
           const newVal = Math.min(max, curVal + add)
-          if (newVal !== curVal) changed = true
+          if (newVal !== curVal) {
+            changed = true
+            summary.pactSlots.push({ ring, from: curVal, to: newVal })
+          }
           recovered[ring] = newVal
         }
       }
@@ -1924,45 +1958,84 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         onSave({ spellSlots: merged })
       }
     }
+
     // 重置短休冷却的主动技能
     const cooldownPatch = resetAbilityCooldowns(char, 'short', moduleId)
-    if (cooldownPatch) onSave({ activeAbilityState: cooldownPatch })
+    if (cooldownPatch) {
+      onSave({ activeAbilityState: cooldownPatch })
+      Object.entries(cooldownPatch).forEach(([id, val]) => {
+        if (!val.used) summary.abilities.push({ name: id, detail: '已重置' })
+      })
+    }
+
     // 清理短休后到期的临时BUFF
     const currentBuffs = Array.isArray(char.buffs) ? char.buffs : []
     const survivingBuffs = currentBuffs.filter(b => !shouldAutoClearOnRest(b.duration, 'short'))
     if (survivingBuffs.length < currentBuffs.length) {
       const cleared = currentBuffs.length - survivingBuffs.length
       onSave({ buffs: survivingBuffs })
-      console.log(`短休清理了 ${cleared} 个到期BUFF`)
+      summary.buffsCleared = cleared
     }
+
+    setRecoverySummary({ eventType: 'short_rest', summary })
   }
 
   /* ── 长休：恢复所有资源 + 重置死亡豁免 + 恢复所有法术位 ── */
   const handleLongRest = () => {
-    const next = classResources.map((r) => ({ ...r, current: r.max }))
+    const summary = { classResources: [], shields: [], shieldPools: [], inventory: [], spellSlots: [], pactSlots: [], abilities: [], buffsCleared: 0 }
+
+    // 职业资源恢复（长休全部恢复到满）
+    const next = classResources.map((r) => {
+      if (r.current < r.max) summary.classResources.push({ name: r.name, from: r.current, to: r.max })
+      return { ...r, current: r.max }
+    })
     saveClassResources(next)
+
     // 护盾长休恢复
-    if (shields.length > 0) saveShields(recoverShieldsOnRest(shields, 'long'))
+    if (shields.length > 0) {
+      const prevShields = shields
+      const nextShields = recoverShieldsOnRest(shields, 'long')
+      nextShields.forEach((s, i) => {
+        if (prevShields[i] && s.current > prevShields[i].current) {
+          summary.shields.push({ name: s.name || '护盾', from: prevShields[i].current, to: s.current })
+        }
+      })
+      saveShields(nextShields)
+    }
+
     // 护盾池长休恢复
     const spRecoverLong = recoverShieldPoolsOnRest(char, 'long', mergedBuffs)
-    if (spRecoverLong) onSave({ shieldPoolStates: spRecoverLong })
-    // 物品充能长休恢复（recharge_long_rest）
+    if (spRecoverLong) {
+      const prevSp = char?.shieldPoolStates || {}
+      Object.entries(spRecoverLong).forEach(([key, val]) => {
+        const prev = prevSp[key] ?? 0
+        if (val > prev) {
+          const spEntry = mergedBuffs.find(b => b.shieldPoolKey === key)
+          summary.shieldPools.push({ name: spEntry?.source || key, from: prev, to: val })
+        }
+      })
+      onSave({ shieldPoolStates: spRecoverLong })
+    }
+
+    // 物品充能长休恢复
     const inv = char?.inventory ?? []
     if (inv.length > 0) {
       try {
         const { inventory: nextInv, logs } = restoreChargesForEvent(inv, 'long_rest')
         if (logs.length > 0) {
           onSave({ inventory: nextInv })
-          const summary = logs.map((l) => `${l.name}：${l.from} → ${l.to}`).join('\n')
-          console.log('长休恢复充能：', summary)
+          summary.inventory.push(...logs)
         }
       } catch (err) {
         console.error('[CombatStatus] 长休恢复充能失败', err)
       }
     }
+
+    // 重置死亡豁免
     const ds = getDefaultDeathSaves()
     setDeathSaves(ds)
     onSave({ deathSaves: ds })
+
     // 长休恢复所有法术位到最大值
     const cur = spellSlotsCurrentLocal ?? {}
     const restored = {}
@@ -1973,6 +2046,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         const curVal = cur[ring] ?? max
         if (curVal < max) {
           restored[ring] = max
+          summary.spellSlots.push({ ring, from: curVal, to: max })
           changed = true
         }
       }
@@ -1982,34 +2056,46 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       setSpellSlotsCurrentLocal(merged)
       onSave({ spellSlots: merged })
     }
+
     // 重置长休冷却的主动技能（包括短休和长休冷却）
     const cooldownPatch = resetAbilityCooldowns(char, 'long', moduleId)
-    if (cooldownPatch) onSave({ activeAbilityState: cooldownPatch })
+    if (cooldownPatch) {
+      onSave({ activeAbilityState: cooldownPatch })
+      Object.entries(cooldownPatch).forEach(([id, val]) => {
+        if (!val.used) summary.abilities.push({ name: id, detail: '已重置' })
+      })
+    }
+
     // 清理长休后到期的临时BUFF
     const currentBuffs = Array.isArray(char.buffs) ? char.buffs : []
     const survivingBuffs = currentBuffs.filter(b => !shouldAutoClearOnRest(b.duration, 'long'))
     if (survivingBuffs.length < currentBuffs.length) {
       const cleared = currentBuffs.length - survivingBuffs.length
       onSave({ buffs: survivingBuffs })
-      console.log(`长休清理了 ${cleared} 个到期BUFF`)
+      summary.buffsCleared = cleared
     }
+
+    setRecoverySummary({ eventType: 'long_rest', summary })
   }
 
   /* ── 黎明恢复：仅恢复黎明恢复类型的物品充能 ── */
   const handleDawn = () => {
+    const summary = { classResources: [], shields: [], shieldPools: [], inventory: [], spellSlots: [], pactSlots: [], abilities: [], buffsCleared: 0 }
+
     const inv = char?.inventory ?? []
     if (inv.length > 0) {
       try {
         const { inventory: nextInv, logs } = restoreChargesForEvent(inv, 'dawn')
         if (logs.length > 0) {
           onSave({ inventory: nextInv })
-          const summary = logs.map((l) => `${l.name}：${l.from} → ${l.to}`).join('\n')
-          console.log('黎明恢复充能：', summary)
+          summary.inventory.push(...logs)
         }
       } catch (err) {
         console.error('[CombatStatus] 黎明恢复充能失败', err)
       }
     }
+
+    setRecoverySummary({ eventType: 'dawn', summary })
   }
 
   const dexMod = abilityModifier(effectiveAbilities?.dex ?? 10)
@@ -2219,32 +2305,32 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       background: 
         repeating-linear-gradient(
           0deg,
-          rgba(64, 168, 192, 0.7) 0px,
-          rgba(64, 168, 192, 0.7) 2px,
+          rgba(64, 168, 192, 0.3) 0px,
+          rgba(64, 168, 192, 0.3) 2px,
           transparent 2px,
           transparent 4px
         ),
         linear-gradient(
           to bottom,
-          rgba(56, 189, 248, 0.5) 0%,
-          rgba(64, 168, 192, 0.3) 40%,
-          rgba(64, 168, 192, 0.3) 60%,
-          rgba(56, 189, 248, 0.5) 100%
+          rgba(56, 189, 248, 0.22) 0%,
+          rgba(64, 168, 192, 0.12) 40%,
+          rgba(64, 168, 192, 0.12) 60%,
+          rgba(56, 189, 248, 0.22) 100%
         );
       background-blend-mode: screen;
       mask-image: linear-gradient(
         to bottom,
-        rgba(0, 0, 0, 0.9) 0%,
-        rgba(0, 0, 0, 0) 35%,
-        rgba(0, 0, 0, 0) 65%,
-        rgba(0, 0, 0, 0.9) 100%
+        rgba(0, 0, 0, 0.75) 0%,
+        rgba(0, 0, 0, 0) 30%,
+        rgba(0, 0, 0, 0) 70%,
+        rgba(0, 0, 0, 0.75) 100%
       );
       -webkit-mask-image: linear-gradient(
         to bottom,
-        rgba(0, 0, 0, 0.9) 0%,
-        rgba(0, 0, 0, 0) 35%,
-        rgba(0, 0, 0, 0) 65%,
-        rgba(0, 0, 0, 0.9) 100%
+        rgba(0, 0, 0, 0.75) 0%,
+        rgba(0, 0, 0, 0) 30%,
+        rgba(0, 0, 0, 0) 70%,
+        rgba(0, 0, 0, 0.75) 100%
       );
     }
   `
@@ -2410,21 +2496,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {/* AC 卡片 - 带护盾池时显示电弧能量场效果 */}
-        <div className={`relative rounded-lg ${wornArmorWithShieldPool && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold ? 'arc-field-active' : wornArmorWithShieldPool ? 'arc-field-depleted' : ''}`}>
-          {/* 渐变边框层 */}
-          {wornArmorWithShieldPool && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold && (
-            <div className="arc-energy-border absolute -inset-[2px] rounded-lg opacity-40 pointer-events-none" />
-          )}
-          {/* 脉冲光晕层 */}
-          {wornArmorWithShieldPool && (
-            <div className={`arc-pulse-glow absolute -inset-1 rounded-xl pointer-events-none ${wornArmorWithShieldPool.spCurrent <= wornArmorWithShieldPool.spThreshold ? 'arc-glow-red' : 'arc-glow-blue'}`} />
-          )}
-          {/* 横向条纹层 - 从中间向上下渐变 */}
-          {wornArmorWithShieldPool && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold && (
-            <div className="arc-horizontal-stripes absolute inset-0 rounded-lg pointer-events-none" />
-          )}
-          <div
-            className={`relative rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-2 sm:p-3 min-h-[4rem] flex flex-row flex-nowrap items-center justify-end gap-1.5 sm:gap-2 min-w-0 ${COMBAT_INNER_RIM_ONLY} ${wornArmorWithShieldPool && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold ? 'bg-[#1a2740]/40' : ''}`}
+        <div className={`relative isolate rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-2 sm:p-3 flex items-center justify-center gap-1.5 sm:gap-2 ${COMBAT_INNER_RIM_ONLY} ${wornArmorWithShieldPool && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold ? 'arc-field-active bg-[#1a2740]/40' : wornArmorWithShieldPool ? 'arc-field-depleted' : ''}`}
           title={[
             buffStats?.ac != null ? `由 Buff 计算器得出: ${acTotal}` : null,
             acResult.acFormulaNote ? `职业特性：${acResult.acFormulaNote}` : null,
@@ -2441,6 +2513,18 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             ].filter(Boolean).join(' → ') + ` = ${acTotal}`,
           ].filter(Boolean).join('\n')}
         >
+          {/* 渐变边框层 */}
+          {wornArmorWithShieldPool && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold && (
+            <div className="arc-energy-border absolute -inset-[2px] rounded-lg opacity-40 pointer-events-none" />
+          )}
+          {/* 脉冲光晕层 */}
+          {wornArmorWithShieldPool && (
+            <div className={`arc-pulse-glow absolute -inset-1 rounded-xl pointer-events-none ${wornArmorWithShieldPool.spCurrent <= wornArmorWithShieldPool.spThreshold ? 'arc-glow-red' : 'arc-glow-blue'}`} />
+          )}
+          {/* 横向条纹层 - 从中间向上下渐变 */}
+          {wornArmorWithShieldPool && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold && (
+            <div className="arc-horizontal-stripes absolute inset-0 rounded-lg pointer-events-none -z-10" />
+          )}
           {showAcModeSelect ? (
             <select
               value={acModeEffective}
@@ -2457,7 +2541,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               {acModeOptions.find((o) => o.value === acModeEffective)?.label ?? ''}
             </span>
           ) : null}
-          <div className="flex flex-col items-end justify-center gap-1 sm:gap-1.5 shrink-0 min-h-[3rem]">
+          <div className="flex flex-col items-end justify-center gap-1 sm:gap-1.5 shrink-0">
             <div className="flex items-center justify-end gap-1 sm:gap-2">
               <span className="text-gray-400 text-xl sm:text-2xl font-medium">AC</span>
               <span className="text-gray-600 text-xl sm:text-2xl">|</span>
@@ -2490,7 +2574,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               </div>
             )}
           </div>
-        </div>
         </div>
         <div
           className={`rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-3 min-h-[4rem] flex items-center justify-center gap-2 ${COMBAT_INNER_RIM_ONLY}`}
@@ -2525,9 +2608,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             </div>
           )}
         </div>
-        <div className="col-span-2 sm:col-span-4 flex flex-col sm:flex-row gap-2 min-w-0">
+        <div className={`col-span-2 sm:col-span-4 grid grid-cols-1 gap-2 min-w-0 ${canEdit ? 'sm:grid-cols-[1.5fr_1fr_1fr_0.5fr]' : 'sm:grid-cols-[1.5fr_1fr_1fr]'}`}>
           <div
-            className={`flex-[2] min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-col gap-1.5 ${COMBAT_INNER_RIM_ONLY}`}
+            className={`min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-col gap-1.5 ${COMBAT_INNER_RIM_ONLY}`}
           >
             <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider leading-tight shrink-0">状态效果</h3>
             <div className="flex flex-col gap-1.5 min-h-8 overflow-hidden min-w-0">
@@ -2584,7 +2667,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           </div>
 
           <div
-            className={`flex-1 min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-col gap-1.5 ${COMBAT_INNER_RIM_ONLY}`}
+            className={`min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-col gap-1.5 ${COMBAT_INNER_RIM_ONLY}`}
           >
             <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider leading-tight shrink-0">死亡豁免</h3>
             <div className="flex flex-col gap-1.5 min-h-8 overflow-hidden min-w-0">
@@ -2646,33 +2729,16 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
 
           {/* 其它职业资源 */}
           <div
-            className={`flex-[2] min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-col gap-1.5 ${COMBAT_INNER_RIM_ONLY}`}
+            className={`min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-col gap-1.5 ${COMBAT_INNER_RIM_ONLY}`}
           >
             <div className="flex items-center justify-between gap-1 mb-1 shrink-0">
               <h3 className={`text-dnd-gold-light ${CM_MEAN_LABEL} font-semibold uppercase tracking-wider leading-tight`}>其它职业资源</h3>
-              <div className="flex items-center gap-1 shrink-0">
-                {canEdit && (
-                  <button type="button" onClick={handleShortRest} className="px-1.5 py-0.5 rounded bg-amber-700/60 text-amber-200 text-[10px] font-medium hover:bg-amber-700/80" title="短休：恢复所有短休资源">
-                    短休
-                  </button>
-                )}
-                {canEdit && classResources.length > 0 && (
-                  <button type="button" onClick={handleLongRest} className="px-1.5 py-0.5 rounded bg-indigo-700/60 text-indigo-200 text-[10px] font-medium hover:bg-indigo-700/80" title="长休：恢复所有资源 + 重置死亡豁免">
-                    长休
-                  </button>
-                )}
-                {canEdit && (
-                  <button type="button" onClick={handleDawn} className="px-1.5 py-0.5 rounded bg-orange-700/60 text-orange-200 text-[10px] font-medium hover:bg-orange-700/80" title="黎明恢复：恢复黎明恢复类型的物品充能">
-                    黎明
-                  </button>
-                )}
-                {canEdit && (
-                  <button type="button" onClick={() => setIsAddingResource(true)} className="text-white text-xs font-bold uppercase tracking-wider hover:underline">
-                    + 添加
-                  </button>
-                )}
-              </div>
-              </div>
+              {canEdit && (
+                <button type="button" onClick={() => setIsAddingResource(true)} className="text-white text-xs font-bold uppercase tracking-wider hover:underline shrink-0">
+                  + 添加
+                </button>
+              )}
+            </div>
               {canEdit ? (
                 <div className="flex flex-col min-h-0 overflow-hidden gap-0.5">
                   {isAddingResource ? (
@@ -2781,6 +2847,28 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                 </div>
               )}
           </div>
+
+          {/* 休息：短休/长休/黎明单独成块，不再挤在其它职业资源头部 */}
+          {canEdit && (
+            <div
+              className={`min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-col gap-1.5 ${COMBAT_INNER_RIM_ONLY}`}
+            >
+              <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider leading-tight shrink-0">休息</h3>
+              <div className="flex flex-row sm:flex-col gap-1 min-w-0 flex-1">
+                <button type="button" onClick={handleShortRest} className="w-full flex-1 px-1.5 py-1 rounded bg-amber-700/60 text-amber-200 text-[10px] font-medium hover:bg-amber-700/80" title="短休：恢复所有短休资源">
+                  短休
+                </button>
+                {classResources.length > 0 && (
+                  <button type="button" onClick={handleLongRest} className="w-full flex-1 px-1.5 py-1 rounded bg-indigo-700/60 text-indigo-200 text-[10px] font-medium hover:bg-indigo-700/80" title="长休：恢复所有资源 + 重置死亡豁免">
+                    长休
+                  </button>
+                )}
+                <button type="button" onClick={handleDawn} className="w-full flex-1 px-1.5 py-1 rounded bg-orange-700/60 text-orange-200 text-[10px] font-medium hover:bg-orange-700/80" title="黎明恢复：恢复黎明恢复类型的物品充能">
+                  黎明
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -3979,6 +4067,14 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         }}
       />
     </div>
+    {recoverySummary && (
+      <RecoverySummaryModal
+        open={true}
+        eventType={recoverySummary.eventType}
+        summary={recoverySummary.summary}
+        onClose={() => setRecoverySummary(null)}
+      />
+    )}
     </>
   )
 }

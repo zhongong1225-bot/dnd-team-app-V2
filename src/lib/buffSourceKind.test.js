@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getColumnKeyForBuff, getBuffSourceKindLabel } from './buffSourceKind'
+import { getColumnKeyForBuff, getBuffSourceKindLabel, isVirtualBuffEntry } from './buffSourceKind'
 
 const transformEffect = { effectType: 'creature_transform', value: { creatureId: 'creature_x' } }
 
@@ -28,5 +28,26 @@ describe('buffSourceKind 分栏（房规：变身 BUFF 归临时栏）', () => {
   it('系统来源优先：专长/装备变身 BUFF 仍归系统栏', () => {
     expect(getColumnKeyForBuff({ fromFeat: 'f1', effects: [transformEffect] })).toBe('feat')
     expect(getColumnKeyForBuff({ fromItem: 'i1', effects: [transformEffect] })).toBe('equipment')
+  })
+})
+
+describe('isVirtualBuffEntry（保存路径过滤虚拟条目的唯一判据）', () => {
+  it('八种来源标记全部判为虚拟条目', () => {
+    const markers = [
+      'fromItem', 'fromFeat', 'fromInvocation', 'fromFightingStyle',
+      'fromClassFeature', 'fromRace', 'fromBackground', 'fromShield',
+    ]
+    for (const m of markers) {
+      expect(isVirtualBuffEntry({ source: 'x', [m]: true }), m).toBe(true)
+    }
+  })
+
+  it('玩家手动条目判为非虚拟', () => {
+    expect(isVirtualBuffEntry({ id: 'b1', source: '冒险 Blessing', sourceKind: 'adventure' })).toBe(false)
+  })
+
+  it('空值安全', () => {
+    expect(isVirtualBuffEntry(null)).toBe(false)
+    expect(isVirtualBuffEntry(undefined)).toBe(false)
   })
 })

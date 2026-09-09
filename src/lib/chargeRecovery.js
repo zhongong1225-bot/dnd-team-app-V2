@@ -77,7 +77,8 @@ export function restoreChargesForEvent(inventory, eventType) {
     if (chargeItemEffect) {
       const cv = chargeItemEffect.value
       const rec = cv.recovery && typeof cv.recovery === 'object' ? cv.recovery : null
-      if (rec && rec.method === eventType) {
+      const methodMatch = Array.isArray(rec.method) ? rec.method.includes(eventType) : rec.method === eventType
+      if (rec && methodMatch) {
         const maxCharge = typeof cv.charges === 'number' ? cv.charges : (getEntryChargeMax(entry) ?? null)
         const current = Number(entry.charge) || 0
         if (rec.kind === 'full') {

@@ -22,7 +22,6 @@ import { inputClassInline } from '../lib/inputStyles'
 import { hasContainedSpellEffect, buildActiveAbilityFromEntry, extractContainedSpellValueFromEntry } from '../lib/containedSpellModel'
 import { getShieldPoolCurrent, setShieldPoolCurrent } from '../lib/shieldPoolUtils'
 import {
-  inventoryItemCardListGapClass,
   inventoryItemActionsCellClass,
   inventoryItemCardShellClass,
   inventoryItemNameRowClass,
@@ -569,7 +568,7 @@ export function BagModuleSection({
           onDrop={canEdit ? handleDropZone : undefined}
           className={
             hideModuleChrome
-              ? 'rounded-b-md rounded-t-sm bg-[#0f141d]/40 flex flex-col min-h-[64px] max-h-[min(32vh,18rem)] overflow-hidden'
+              ? 'bg-transparent flex flex-col min-h-[64px] max-h-[min(32vh,18rem)] overflow-hidden'
               : 'flex flex-col min-h-[88px] max-h-[min(32vh,18rem)] overflow-hidden'
           }
           title={
@@ -581,7 +580,7 @@ export function BagModuleSection({
           }
         >
           <div className="overflow-x-auto overflow-y-auto flex-1 min-h-0">
-            <div className={`flex flex-col min-w-0 ${inventoryItemCardListGapClass} ${hideModuleChrome ? 'p-1.5' : 'p-2'}`}>
+            <div className={`flex flex-col min-w-0 ${hideModuleChrome ? 'p-1.5' : 'p-2'}`}>
               {bagRows.length === 0 ? (
                 <div
                   className="rounded-lg border border-dashed border-gray-600/80 bg-[#151c28]/40 py-8 px-3 text-center text-gray-500 text-[11px] leading-relaxed min-h-[4.5rem]"

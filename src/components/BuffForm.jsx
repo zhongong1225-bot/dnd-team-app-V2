@@ -31,7 +31,7 @@ import {
   migrateProficiencyTextToArray,
 } from '../data/buffTypes'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
-import { getClassDisplayName } from '../data/classDatabase'
+import { getClassDisplayName, ALL_CLASS_NAMES } from '../data/classDatabase'
 import { getSpellById, getWandScrollSpellPower } from '../data/spellDatabase'
 import { WEAPON_DATABASE } from '../data/weaponDatabase'
 import { inputClass, inputClassInline, textareaClass } from '../lib/inputStyles'
@@ -1247,6 +1247,113 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
   )
 }
 
+/** 等级缩放编辑器：多条目，每条 = 职业 + 等级阈值 + 替换数值 */
+function LevelScalingEditor({ entries, onChange, charClasses = [], fields, compact }) {
+  const selectCls = EDT_SELECT
+  const classList = useMemo(() => {
+    if (!charClasses.length) return ALL_CLASS_NAMES
+    const names = charClasses.map(c => c.className)
+    return [...new Set([...names, ...ALL_CLASS_NAMES])]
+  }, [charClasses])
+
+  const items = Array.isArray(entries) ? entries : []
+
+  const addEntry = () => {
+    const base = { className: classList[0] || '', level: 5 }
+    if (fields === 'dice') Object.assign(base, { diceCount: 1, diceSides: 6, diceBonus: 0 })
+    else if (fields === 'amount') Object.assign(base, { amount: 1 })
+    else if (fields === 'attack_buff') Object.assign(base, { hitBonusPerUnit: 0, damageBonusPerUnit: 0, extraDicePerUnit: 0, diceSides: 10 })
+    else if (fields === 'speed') Object.assign(base, { walk: 0, fly: 0, swim: 0, climb: 0 })
+    onChange([...items, base])
+  }
+
+  const updateEntry = (i, patch) => {
+    const next = items.map((e, j) => j === i ? { ...e, ...patch } : e)
+    onChange(next)
+  }
+
+  const removeEntry = (i) => {
+    onChange(items.filter((_, j) => j !== i))
+  }
+
+  if (!compact && items.length === 0) {
+    return (
+      <div className="mt-1.5">
+        <button type="button" onClick={addEntry} className="flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors">
+          <Plus className="w-3 h-3" /> 等级缩放
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className={`mt-1.5 rounded border border-indigo-800/30 bg-indigo-950/20 ${compact ? 'px-1.5 py-1' : 'px-2 py-1.5'}`}>
+      <div className="flex items-center justify-between mb-1">
+        <span className={`${compact ? 'text-[9px]' : 'text-[10px]'} text-indigo-400 font-medium`}>等级缩放</span>
+        <button type="button" onClick={addEntry} className="text-indigo-400 hover:text-indigo-300 transition-colors" title="添加条目">
+          <Plus className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
+        </button>
+      </div>
+      {items.map((entry, i) => (
+        <div key={i} className={`flex items-center gap-x-1.5 flex-wrap ${i > 0 ? 'mt-1' : ''}`}>
+          <select
+            value={entry.className || ''}
+            onChange={(e) => updateEntry(i, { className: e.target.value })}
+            className={selectCls + ` ${compact ? '!h-5 !text-[10px] !w-[4rem]' : '!h-6 !text-xs !w-[5rem]'}`}
+          >
+            {classList.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+          <span className={`${compact ? 'text-[9px]' : 'text-[10px]'} text-gray-500`}>达到</span>
+          <NumberStepper value={entry.level ?? 5} onChange={(v) => updateEntry(i, { level: Math.max(1, Math.min(20, v)) })} min={1} max={20} compact narrow className={`${compact ? '!h-5 !w-8 !text-[10px]' : '!h-6 !w-10 !text-xs'}`} />
+          <span className={`${compact ? 'text-[9px]' : 'text-[10px]'} text-gray-500`}>级 →</span>
+
+          {fields === 'dice' && (<>
+            <NumberStepper value={entry.diceCount ?? 1} onChange={(v) => updateEntry(i, { diceCount: Math.max(1, v) })} min={1} max={99} compact narrow className={`${compact ? '!h-5 !w-8' : '!h-6 !w-10'}`} />
+            <span className={`${compact ? 'text-[9px]' : 'text-[10px]'} text-gray-500`}>d</span>
+            <select value={entry.diceSides ?? 6} onChange={(e) => updateEntry(i, { diceSides: Number(e.target.value) })} className={selectCls + ` ${compact ? '!w-[2.5rem] !h-5 !text-[10px]' : '!w-[3rem] !h-6 !text-xs'}`}>
+              {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <span className={`${compact ? 'text-[9px]' : 'text-[10px]'} text-gray-500`}>+</span>
+            <NumberStepper value={entry.diceBonus ?? 0} onChange={(v) => updateEntry(i, { diceBonus: v })} min={-99} max={999} compact narrow className={`${compact ? '!h-5 !w-8' : '!h-6 !w-10'}`} />
+          </>)}
+
+          {fields === 'amount' && (<>
+            <NumberStepper value={entry.amount ?? 1} onChange={(v) => updateEntry(i, { amount: Math.max(0, v) })} min={0} max={999} compact narrow className={`${compact ? '!h-5 !w-10' : '!h-6 !w-12'}`} />
+          </>)}
+
+          {fields === 'attack_buff' && (<>
+            <span className={`${compact ? 'text-[9px]' : 'text-[10px]'} text-gray-500`}>命中+</span>
+            <NumberStepper value={entry.hitBonusPerUnit ?? 0} onChange={(v) => updateEntry(i, { hitBonusPerUnit: Math.max(0, v) })} min={0} max={99} compact narrow className={`${compact ? '!h-5 !w-8' : '!h-6 !w-10'}`} />
+            <span className={`${compact ? 'text-[9px]' : 'text-[10px]'} text-gray-500`}>伤害+</span>
+            <NumberStepper value={entry.damageBonusPerUnit ?? 0} onChange={(v) => updateEntry(i, { damageBonusPerUnit: Math.max(0, v) })} min={0} max={99} compact narrow className={`${compact ? '!h-5 !w-8' : '!h-6 !w-10'}`} />
+            <span className={`${compact ? 'text-[9px]' : 'text-[10px]'} text-gray-500`}>骰+</span>
+            <NumberStepper value={entry.extraDicePerUnit ?? 0} onChange={(v) => updateEntry(i, { extraDicePerUnit: Math.max(0, v) })} min={0} max={99} compact narrow className={`${compact ? '!h-5 !w-8' : '!h-6 !w-10'}`} />
+            <span className={`${compact ? 'text-[9px]' : 'text-[10px]'} text-gray-500`}>d</span>
+            <select value={entry.diceSides ?? 10} onChange={(e) => updateEntry(i, { diceSides: Number(e.target.value) })} className={selectCls + ` ${compact ? '!w-[2.5rem] !h-5 !text-[10px]' : '!w-[3rem] !h-6 !text-xs'}`}>
+              {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </>)}
+
+          {fields === 'speed' && (<>
+            <span className={`${compact ? 'text-[9px]' : 'text-[10px]'} text-gray-400`}>步</span>
+            <NumberStepper value={entry.walk ?? 0} onChange={(v) => updateEntry(i, { walk: Math.max(0, v) })} min={0} max={200} step={5} compact narrow className={`${compact ? '!h-5 !w-8' : '!h-6 !w-10'}`} />
+            <span className={`${compact ? 'text-[9px]' : 'text-[10px]'} text-gray-400`}>飞</span>
+            <NumberStepper value={entry.fly ?? 0} onChange={(v) => updateEntry(i, { fly: Math.max(0, v) })} min={0} max={200} step={5} compact narrow className={`${compact ? '!h-5 !w-8' : '!h-6 !w-10'}`} />
+            <span className={`${compact ? 'text-[9px]' : 'text-[10px]'} text-gray-400`}>游</span>
+            <NumberStepper value={entry.swim ?? 0} onChange={(v) => updateEntry(i, { swim: Math.max(0, v) })} min={0} max={200} step={5} compact narrow className={`${compact ? '!h-5 !w-8' : '!h-6 !w-10'}`} />
+            <span className={`${compact ? 'text-[9px]' : 'text-[10px]'} text-gray-400`}>攀</span>
+            <NumberStepper value={entry.climb ?? 0} onChange={(v) => updateEntry(i, { climb: Math.max(0, v) })} min={0} max={200} step={5} compact narrow className={`${compact ? '!h-5 !w-8' : '!h-6 !w-10'}`} />
+          </>)}
+
+          <button type="button" onClick={() => removeEntry(i)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+            <Trash2 className="w-3 h-3" />
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 /** 施法增伤编辑器：伤害类型 / 伤害骰下限 / 每骰 +X / 追加骰 / 公式固定加值 */
 function SpellDamageBonusEditor({ value, onChange, referenceData }) {
   const v = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -1370,7 +1477,7 @@ function ChargeRecoveryEditor({ value, onChange }) {
 }
 
 /** 统一充能物品编辑器：消耗资源选择 + 充能数/回能方式 + 消耗效果（内含法术/临时BUFF/护盾） */
-function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData, subordinates = [] }) {
+function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData, subordinates = [], charClasses = [] }) {
   const data = normalizeChargeItemValue(module.value)
   const patchData = (patch) => onChange({ ...module, value: { ...data, ...patch } })
 
@@ -1405,14 +1512,17 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
   // ── recovery helpers ──
   const rec = data.recovery
   const updateRecovery = (patch) => patchData({ recovery: { ...rec, ...patch } })
-  const setRecoveryMethod = (method) => {
-    const next = { ...rec, method }
-    if (!recoverySupportsAmount(method)) {
-      next.kind = 'full'
-    } else if (recoveryIsDiceOnly(method)) {
-      next.kind = 'dice'
+  const setRecoveryMethod = (m) => {
+    const methods = Array.isArray(rec.method) ? rec.method : [rec.method || 'long_rest']
+    const next = methods.includes(m) ? methods.filter((x) => x !== m) : [...methods, m]
+    if (!next.length) next.push('long_rest')
+    const patch = { ...rec, method: next }
+    if (!recoverySupportsAmount(next)) {
+      patch.kind = 'full'
+    } else if (recoveryIsDiceOnly(next)) {
+      patch.kind = 'dice'
     }
-    updateRecovery(next)
+    updateRecovery(patch)
   }
 
   // ── effects helpers ──
@@ -1488,6 +1598,12 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
     const eff = effects[effectIdx]
     if (!eff || eff.type !== 'temp_buff') return
     const modules = (eff.value?.modules || []).filter((_, i) => i !== moduleIdx)
+    updateEffect(effectIdx, { value: { ...eff.value, modules } })
+  }
+  const updateTempBuffModule = (effectIdx, moduleIdx, patch) => {
+    const eff = effects[effectIdx]
+    if (!eff || eff.type !== 'temp_buff') return
+    const modules = (eff.value?.modules || []).map((m, i) => (i === moduleIdx ? { ...m, ...patch } : m))
     updateEffect(effectIdx, { value: { ...eff.value, modules } })
   }
 
@@ -1586,15 +1702,19 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
       {isChargesMode && (
         <div className="flex items-center gap-x-2 flex-wrap">
           <span className={labelCls}>回能方式</span>
-          <select
-            value={rec.method}
-            onChange={(e) => setRecoveryMethod(e.target.value)}
-            className={selectCls + ' !w-[5rem] shrink-0'}
-          >
+          <div className="flex items-center gap-x-1.5 flex-wrap">
             {RECOVERY_METHODS.map((m) => (
-              <option key={m.value} value={m.value}>{m.label}</option>
+              <label key={m.value} className="flex items-center gap-0.5 cursor-pointer text-[10px] text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={Array.isArray(rec.method) ? rec.method.includes(m.value) : rec.method === m.value}
+                  onChange={() => setRecoveryMethod(m.value)}
+                  className="accent-amber-500 w-3 h-3"
+                />
+                {m.label}
+              </label>
             ))}
-          </select>
+          </div>
           {recoverySupportsAmount(rec.method) && (
             <div className="flex items-center gap-x-2 min-w-[10rem]">
               {!recoveryIsDiceOnly(rec.method) && (
@@ -1852,7 +1972,6 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                     className={inputCls + ' min-w-[6rem]'}
                   />
                   <DurationEditor value={tv.duration} onChange={(newDur) => updateEffect(idx, { value: { ...tv, duration: newDur } })} compact showPresets={false} />
-                  {multiplierCheckbox(idx, eff)}
                 <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -1868,7 +1987,13 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                         <div key={mod.id || mi} className="flex items-center gap-x-2 text-xs">
                           <span className="text-gray-500 shrink-0">{catLabel}</span>
                           <span className="text-violet-300/80 truncate">{summary || effectLabel}</span>
-                          <button type="button" onClick={() => openTempBuffModal(idx, mi)} className="p-0.5 rounded text-gray-500 hover:text-amber-400 transition-colors shrink-0 ml-auto" title="编辑">
+                          {isFreeSlotMode && (
+                            <label className="flex items-center gap-1 text-xs text-amber-400 cursor-pointer select-none shrink-0 ml-auto" title="该细项是否乘以消耗环位">
+                              <input type="checkbox" checked={mod.applyMultiplier !== false} onChange={(e) => updateTempBuffModule(idx, mi, { applyMultiplier: e.target.checked })} className="accent-amber-500 w-3 h-3" />
+                              ×环
+                            </label>
+                          )}
+                          <button type="button" onClick={() => openTempBuffModal(idx, mi)} className="p-0.5 rounded text-gray-500 hover:text-amber-400 transition-colors shrink-0" title="编辑">
                             <Pencil className="w-3 h-3" />
                           </button>
                           <button type="button" onClick={() => removeTempBuffModule(idx, mi)} className="p-0.5 rounded text-gray-500 hover:text-red-400 transition-colors shrink-0" title="删除">
@@ -1993,39 +2118,47 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
           /* ── 伤害 ── */
           if (eff.type === 'damage') {
             const dv = eff.value || {}
+            const weaponSynced = !!dv.syncWithWeapon
             return (
-              <div key={eff.id} className="rounded-md border border-red-800/30 bg-[#0d1520]/50 px-2 py-1.5">
-                <div className="flex items-center gap-x-2 mb-1">
-                  <span className="text-red-400 text-xs shrink-0 font-medium">伤害</span>
-                  <div className="flex items-center gap-x-2">
-                    <NumberStepper value={dv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...dv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
-                    <span className="text-xs text-gray-500">d</span>
-                    <select value={dv.diceSides ?? 6} onChange={(e) => updateEffect(idx, { value: { ...dv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
-                      {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+              <div key={eff.id}>
+                <div className="rounded-md border border-red-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                  <div className="flex items-center gap-x-2 flex-wrap">
+                    <span className="text-red-400 text-xs shrink-0 font-medium">伤害</span>
+                    <div className="flex items-center gap-x-2">
+                      <NumberStepper value={dv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...dv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+                      <span className="text-xs text-gray-500">d</span>
+                      <select value={dv.diceSides ?? 6} onChange={(e) => updateEffect(idx, { value: { ...dv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
+                        {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                      <span className="text-xs text-gray-500">+</span>
+                      <NumberStepper value={dv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...dv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+                    </div>
+                    <select value={dv.damageType ?? 'fire'} onChange={(e) => updateEffect(idx, { value: { ...dv, damageType: e.target.value } })} disabled={weaponSynced} className={selectCls + ' !w-[4.5rem]' + (weaponSynced ? ' opacity-50 cursor-not-allowed' : '')}>
+                      {DAMAGE_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
                     </select>
-                    <span className="text-xs text-gray-500">+</span>
-                    <NumberStepper value={dv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...dv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
-                  </div>
-                  {multiplierCheckbox(idx, eff)}
-                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                <div className="flex items-center gap-x-2 flex-wrap">
-                  <select value={dv.damageType ?? 'fire'} onChange={(e) => updateEffect(idx, { value: { ...dv, damageType: e.target.value } })} className={selectCls + ' !w-[4.5rem]'}>
-                    {DAMAGE_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-                  </select>
-                  <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
-                    <input type="checkbox" checked={!!dv.addWeaponDamage} onChange={(e) => updateEffect(idx, { value: { ...dv, addWeaponDamage: e.target.checked } })} className="accent-amber-500 w-3 h-3" />
-                    附加手持武器伤害
-                  </label>
-                  {/^spell_slot_[1-9]$/.test(data.resourceType) && (
-                    <label className="flex items-center gap-2 text-xs text-purple-400 cursor-pointer select-none">
-                      <input type="checkbox" checked={!!dv.scaleWithSlot} onChange={(e) => updateEffect(idx, { value: { ...dv, scaleWithSlot: e.target.checked } })} className="accent-purple-500 w-3 h-3" />
-                      按环位缩放
+                    <label className="flex items-center gap-1 text-xs text-cyan-400 cursor-pointer select-none" title="伤害类型与主手武器一致">
+                      <input type="checkbox" checked={weaponSynced} onChange={(e) => updateEffect(idx, { value: { ...dv, syncWithWeapon: e.target.checked } })} className="accent-cyan-500 w-3 h-3" />
+                      武器
                     </label>
+                    <label className="flex items-center gap-1 text-xs text-gray-400 cursor-pointer select-none">
+                      <input type="checkbox" checked={!!dv.addWeaponDamage} onChange={(e) => updateEffect(idx, { value: { ...dv, addWeaponDamage: e.target.checked } })} className="accent-amber-500 w-3 h-3" />
+                      +武器
+                    </label>
+                    {multiplierCheckbox(idx, eff)}
+                    <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  {/^spell_slot_[1-9]$/.test(data.resourceType) && (
+                    <div className="flex items-center gap-x-2 mt-1">
+                      <label className="flex items-center gap-2 text-xs text-purple-400 cursor-pointer select-none">
+                        <input type="checkbox" checked={!!dv.scaleWithSlot} onChange={(e) => updateEffect(idx, { value: { ...dv, scaleWithSlot: e.target.checked } })} className="accent-purple-500 w-3 h-3" />
+                        按环位缩放
+                      </label>
+                    </div>
                   )}
                 </div>
+                <LevelScalingEditor entries={dv.levelScaling} onChange={(v) => updateEffect(idx, { value: { ...dv, levelScaling: v } })} charClasses={charClasses} fields="dice" />
               </div>
             )
           }
@@ -2035,38 +2168,41 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
             const hv = eff.value || {}
             const isMaxMode = hv.mode === 'max'
             return (
-              <div key={eff.id} className="rounded-md border border-green-800/30 bg-[#0d1520]/50 px-2 py-1.5">
-                <div className="flex items-center gap-x-2 mb-1">
-                  <span className="text-green-400 text-xs shrink-0 font-medium">治疗</span>
-                  <div className="flex items-center gap-2">
-                    <button type="button" onClick={() => updateEffect(idx, { value: { ...hv, mode: 'dice' } })} className={`px-1.5 py-0.5 rounded text-xs transition-colors ${!isMaxMode ? 'bg-green-800/50 text-green-300 border border-green-600/50' : 'text-gray-500 hover:text-gray-400'}`}>骰子</button>
-                    <button type="button" onClick={() => updateEffect(idx, { value: { ...hv, mode: 'max' } })} className={`px-1.5 py-0.5 rounded text-xs transition-colors ${isMaxMode ? 'bg-green-800/50 text-green-300 border border-green-600/50' : 'text-gray-500 hover:text-gray-400'}`}>满疗</button>
+              <div key={eff.id}>
+                <div className="rounded-md border border-green-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                  <div className="flex items-center gap-x-2 mb-1">
+                    <span className="text-green-400 text-xs shrink-0 font-medium">治疗</span>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => updateEffect(idx, { value: { ...hv, mode: 'dice' } })} className={`px-1.5 py-0.5 rounded text-xs transition-colors ${!isMaxMode ? 'bg-green-800/50 text-green-300 border border-green-600/50' : 'text-gray-500 hover:text-gray-400'}`}>骰子</button>
+                      <button type="button" onClick={() => updateEffect(idx, { value: { ...hv, mode: 'max' } })} className={`px-1.5 py-0.5 rounded text-xs transition-colors ${isMaxMode ? 'bg-green-800/50 text-green-300 border border-green-600/50' : 'text-gray-500 hover:text-gray-400'}`}>满疗</button>
+                    </div>
+                    {multiplierCheckbox(idx, eff)}
+                  <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
-                  {multiplierCheckbox(idx, eff)}
-                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  {!isMaxMode && (
+                    <div className="flex items-center gap-x-2">
+                      <NumberStepper value={hv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...hv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+                      <span className="text-xs text-gray-500">d</span>
+                      <select value={hv.diceSides ?? 8} onChange={(e) => updateEffect(idx, { value: { ...hv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
+                        {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                      <span className="text-xs text-gray-500">+</span>
+                      <NumberStepper value={hv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...hv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+                    </div>
+                  )}
+                  {isMaxMode && (
+                    <span className="text-xs text-gray-500">恢复骰子最大值</span>
+                  )}
+                  {/^spell_slot_[1-9]$/.test(data.resourceType) && (
+                    <label className="flex items-center gap-2 text-xs text-purple-400 cursor-pointer select-none mt-1">
+                      <input type="checkbox" checked={!!hv.scaleWithSlot} onChange={(e) => updateEffect(idx, { value: { ...hv, scaleWithSlot: e.target.checked } })} className="accent-purple-500 w-3 h-3" />
+                      按环位缩放
+                    </label>
+                  )}
                 </div>
-                {!isMaxMode && (
-                  <div className="flex items-center gap-x-2">
-                    <NumberStepper value={hv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...hv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
-                    <span className="text-xs text-gray-500">d</span>
-                    <select value={hv.diceSides ?? 8} onChange={(e) => updateEffect(idx, { value: { ...hv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
-                      {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                    <span className="text-xs text-gray-500">+</span>
-                    <NumberStepper value={hv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...hv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
-                  </div>
-                )}
-                {isMaxMode && (
-                  <span className="text-xs text-gray-500">恢复骰子最大值</span>
-                )}
-                {/^spell_slot_[1-9]$/.test(data.resourceType) && (
-                  <label className="flex items-center gap-2 text-xs text-purple-400 cursor-pointer select-none mt-1">
-                    <input type="checkbox" checked={!!hv.scaleWithSlot} onChange={(e) => updateEffect(idx, { value: { ...hv, scaleWithSlot: e.target.checked } })} className="accent-purple-500 w-3 h-3" />
-                    按环位缩放
-                  </label>
-                )}
+                <LevelScalingEditor entries={hv.levelScaling} onChange={(v) => updateEffect(idx, { value: { ...hv, levelScaling: v } })} charClasses={charClasses} fields="dice" />
               </div>
             )
           }
@@ -2098,7 +2234,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
 }
 
 /** 主动模式效果列表：渲染 activeChargeData.effects 的子编辑器 */
-function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData, subordinates = [] }) {
+function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData, subordinates = [], charClasses = [] }) {
   const effects = data.effects || []
   const patchEffects = (next) => onChange({ ...data, effects: next })
   const removeEffect = (idx) => patchEffects(effects.filter((_, i) => i !== idx))
@@ -2158,6 +2294,11 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
     const eff = effects[effectIdx]
     if (!eff || eff.type !== 'temp_buff') return
     updateEffect(effectIdx, { value: { ...eff.value, modules: (eff.value?.modules || []).filter((_, i) => i !== moduleIdx) } })
+  }
+  const updateTempBuffModule = (effectIdx, moduleIdx, patch) => {
+    const eff = effects[effectIdx]
+    if (!eff || eff.type !== 'temp_buff') return
+    updateEffect(effectIdx, { value: { ...eff.value, modules: (eff.value?.modules || []).map((m, i) => (i === moduleIdx ? { ...m, ...patch } : m)) } })
   }
 
   const spellInputValue = (sp) => {
@@ -2235,7 +2376,6 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
                 <span className="text-violet-400 text-xs shrink-0 font-medium">临时BUFF</span>
                 <input type="text" value={tv.buffName ?? ''} onChange={(e) => updateEffect(idx, { value: { ...tv, buffName: e.target.value } })} placeholder="BUFF名称" className={inputCls + ' min-w-[6rem]'} />
                 <DurationEditor value={tv.duration} onChange={(newDur) => updateEffect(idx, { value: { ...tv, duration: newDur } })} compact showPresets={false} />
-                {multiplierCheckbox(idx, eff)}
                 <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
               {modules.length > 0 && (
@@ -2247,7 +2387,13 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
                       <div key={mod.id || mi} className="flex items-center gap-x-2 text-xs">
                         <span className="text-gray-500 shrink-0">{BUFF_TYPES[mod.category]?.label || mod.category}</span>
                         <span className="text-violet-300/80 truncate">{summary || effectLabel}</span>
-                        <button type="button" onClick={() => openTempBuffModal(idx, mi)} className="p-0.5 rounded text-gray-500 hover:text-amber-400 transition-colors shrink-0 ml-auto" title="编辑"><Pencil className="w-3 h-3" /></button>
+                        {isFreeSlotMode && (
+                          <label className="flex items-center gap-1 text-xs text-amber-400 cursor-pointer select-none shrink-0 ml-auto" title="该细项是否乘以消耗环位">
+                            <input type="checkbox" checked={mod.applyMultiplier !== false} onChange={(e) => updateTempBuffModule(idx, mi, { applyMultiplier: e.target.checked })} className="accent-amber-500 w-3 h-3" />
+                            ×环
+                          </label>
+                        )}
+                        <button type="button" onClick={() => openTempBuffModal(idx, mi)} className="p-0.5 rounded text-gray-500 hover:text-amber-400 transition-colors shrink-0" title="编辑"><Pencil className="w-3 h-3" /></button>
                         <button type="button" onClick={() => removeTempBuffModule(idx, mi)} className="p-0.5 rounded text-gray-500 hover:text-red-400 transition-colors shrink-0" title="删除"><Trash2 className="w-3 h-3" /></button>
                       </div>
                     )
@@ -2374,41 +2520,49 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
         /* ── 伤害 ── */
         if (eff.type === 'damage') {
           const dv = eff.value || {}
+          const weaponSynced = !!dv.syncWithWeapon
           return (
             <div key={eff.id} className="flex items-start gap-x-2">
               <span className="shrink-0 mt-1.5 text-xs font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
-              <div className="rounded-md border border-red-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
-              <div className="flex items-center gap-x-2 mb-1">
-                <span className="text-red-400 text-xs shrink-0 font-medium">伤害</span>
-                <div className="flex items-center gap-x-2">
-                  <NumberStepper value={dv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...dv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
-                  <span className="text-xs text-gray-500">d</span>
-                  <select value={dv.diceSides ?? 6} onChange={(e) => updateEffect(idx, { value: { ...dv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
-                    {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                  <span className="text-xs text-gray-500">+</span>
-                  <NumberStepper value={dv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...dv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+              <div className="flex-1 min-w-0">
+                <div className="rounded-md border border-red-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                  <div className="flex items-center gap-x-2 flex-wrap">
+                    <span className="text-red-400 text-xs shrink-0 font-medium">伤害</span>
+                    <div className="flex items-center gap-x-2">
+                      <NumberStepper value={dv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...dv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+                      <span className="text-xs text-gray-500">d</span>
+                      <select value={dv.diceSides ?? 6} onChange={(e) => updateEffect(idx, { value: { ...dv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
+                        {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                      <span className="text-xs text-gray-500">+</span>
+                      <NumberStepper value={dv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...dv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+                    </div>
+                    <select value={dv.damageType ?? 'fire'} onChange={(e) => updateEffect(idx, { value: { ...dv, damageType: e.target.value } })} disabled={weaponSynced} className={selectCls + ' !w-[4.5rem]' + (weaponSynced ? ' opacity-50 cursor-not-allowed' : '')}>
+                      {DAMAGE_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+                    </select>
+                    <label className="flex items-center gap-1 text-xs text-cyan-400 cursor-pointer select-none" title="伤害类型与主手武器一致">
+                      <input type="checkbox" checked={weaponSynced} onChange={(e) => updateEffect(idx, { value: { ...dv, syncWithWeapon: e.target.checked } })} className="accent-cyan-500 w-3 h-3" />
+                      武器
+                    </label>
+                    <label className="flex items-center gap-1 text-xs text-gray-400 cursor-pointer select-none">
+                      <input type="checkbox" checked={!!dv.addWeaponDamage} onChange={(e) => updateEffect(idx, { value: { ...dv, addWeaponDamage: e.target.checked } })} className="accent-amber-500 w-3 h-3" />
+                      +武器
+                    </label>
+                    {multiplierCheckbox(idx, eff)}
+                    <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  {/^spell_slot_[1-9]$/.test(data.resourceType) && (
+                    <div className="flex items-center gap-x-2 mt-1">
+                      <label className="flex items-center gap-2 text-xs text-purple-400 cursor-pointer select-none">
+                        <input type="checkbox" checked={!!dv.scaleWithSlot} onChange={(e) => updateEffect(idx, { value: { ...dv, scaleWithSlot: e.target.checked } })} className="accent-purple-500 w-3 h-3" />
+                        按环位缩放
+                      </label>
+                    </div>
+                  )}
                 </div>
-                {multiplierCheckbox(idx, eff)}
-                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <div className="flex items-center gap-x-2 flex-wrap">
-                <select value={dv.damageType ?? 'fire'} onChange={(e) => updateEffect(idx, { value: { ...dv, damageType: e.target.value } })} className={selectCls + ' !w-[4.5rem]'}>
-                  {DAMAGE_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-                </select>
-                <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
-                  <input type="checkbox" checked={!!dv.addWeaponDamage} onChange={(e) => updateEffect(idx, { value: { ...dv, addWeaponDamage: e.target.checked } })} className="accent-amber-500 w-3 h-3" />
-                  附加手持武器伤害
-                </label>
-                {/^spell_slot_[1-9]$/.test(data.resourceType) && (
-                  <label className="flex items-center gap-2 text-xs text-purple-400 cursor-pointer select-none">
-                    <input type="checkbox" checked={!!dv.scaleWithSlot} onChange={(e) => updateEffect(idx, { value: { ...dv, scaleWithSlot: e.target.checked } })} className="accent-purple-500 w-3 h-3" />
-                    按环位缩放
-                  </label>
-                )}
-              </div>
+                <LevelScalingEditor entries={dv.levelScaling} onChange={(v) => updateEffect(idx, { value: { ...dv, levelScaling: v } })} charClasses={charClasses} fields="dice" />
               </div>
             </div>
           )
@@ -2421,38 +2575,41 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
           return (
             <div key={eff.id} className="flex items-start gap-x-2">
               <span className="shrink-0 mt-1.5 text-xs font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
-              <div className="rounded-md border border-green-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
-              <div className="flex items-center gap-x-2 mb-1">
-                <span className="text-green-400 text-xs shrink-0 font-medium">治疗</span>
-                <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => updateEffect(idx, { value: { ...hv, mode: 'dice' } })} className={`px-1.5 py-0.5 rounded text-xs transition-colors ${!isMaxMode ? 'bg-green-800/50 text-green-300 border border-green-600/50' : 'text-gray-500 hover:text-gray-400'}`}>骰子</button>
-                  <button type="button" onClick={() => updateEffect(idx, { value: { ...hv, mode: 'max' } })} className={`px-1.5 py-0.5 rounded text-xs transition-colors ${isMaxMode ? 'bg-green-800/50 text-green-300 border border-green-600/50' : 'text-gray-500 hover:text-gray-400'}`}>满疗</button>
+              <div className="flex-1 min-w-0">
+                <div className="rounded-md border border-green-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                  <div className="flex items-center gap-x-2 mb-1">
+                    <span className="text-green-400 text-xs shrink-0 font-medium">治疗</span>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => updateEffect(idx, { value: { ...hv, mode: 'dice' } })} className={`px-1.5 py-0.5 rounded text-xs transition-colors ${!isMaxMode ? 'bg-green-800/50 text-green-300 border border-green-600/50' : 'text-gray-500 hover:text-gray-400'}`}>骰子</button>
+                      <button type="button" onClick={() => updateEffect(idx, { value: { ...hv, mode: 'max' } })} className={`px-1.5 py-0.5 rounded text-xs transition-colors ${isMaxMode ? 'bg-green-800/50 text-green-300 border border-green-600/50' : 'text-gray-500 hover:text-gray-400'}`}>满疗</button>
+                    </div>
+                    {multiplierCheckbox(idx, eff)}
+                    <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  {!isMaxMode && (
+                    <div className="flex items-center gap-x-2">
+                      <NumberStepper value={hv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...hv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+                      <span className="text-xs text-gray-500">d</span>
+                      <select value={hv.diceSides ?? 8} onChange={(e) => updateEffect(idx, { value: { ...hv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
+                        {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                      <span className="text-xs text-gray-500">+</span>
+                      <NumberStepper value={hv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...hv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+                    </div>
+                  )}
+                  {isMaxMode && (
+                    <span className="text-xs text-gray-500">恢复骰子最大值</span>
+                  )}
+                  {/^spell_slot_[1-9]$/.test(data.resourceType) && (
+                    <label className="flex items-center gap-2 text-xs text-purple-400 cursor-pointer select-none mt-1">
+                      <input type="checkbox" checked={!!hv.scaleWithSlot} onChange={(e) => updateEffect(idx, { value: { ...hv, scaleWithSlot: e.target.checked } })} className="accent-purple-500 w-3 h-3" />
+                      按环位缩放
+                    </label>
+                  )}
                 </div>
-                {multiplierCheckbox(idx, eff)}
-                <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              {!isMaxMode && (
-                <div className="flex items-center gap-x-2">
-                  <NumberStepper value={hv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...hv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
-                  <span className="text-xs text-gray-500">d</span>
-                  <select value={hv.diceSides ?? 8} onChange={(e) => updateEffect(idx, { value: { ...hv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
-                    {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                  <span className="text-xs text-gray-500">+</span>
-                  <NumberStepper value={hv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...hv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
-                </div>
-              )}
-              {isMaxMode && (
-                <span className="text-xs text-gray-500">恢复骰子最大值</span>
-              )}
-              {/^spell_slot_[1-9]$/.test(data.resourceType) && (
-                <label className="flex items-center gap-2 text-xs text-purple-400 cursor-pointer select-none mt-1">
-                  <input type="checkbox" checked={!!hv.scaleWithSlot} onChange={(e) => updateEffect(idx, { value: { ...hv, scaleWithSlot: e.target.checked } })} className="accent-purple-500 w-3 h-3" />
-                  按环位缩放
-                </label>
-              )}
+                <LevelScalingEditor entries={hv.levelScaling} onChange={(v) => updateEffect(idx, { value: { ...hv, levelScaling: v } })} charClasses={charClasses} fields="dice" />
               </div>
             </div>
           )
@@ -2464,44 +2621,47 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
           return (
             <div key={eff.id} className="flex items-start gap-x-2">
               <span className="shrink-0 mt-1.5 text-xs font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
-              <div className="rounded-md border border-amber-800/30 bg-[#0d1520]/50 px-2 py-1.5 flex-1 min-w-0">
-                <div className="flex items-center gap-x-2 mb-1">
-                  <span className="text-amber-400 text-xs shrink-0 font-medium">攻击加成</span>
-                  {multiplierCheckbox(idx, eff)}
-                  <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+              <div className="flex-1 min-w-0">
+                <div className="rounded-md border border-amber-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                  <div className="flex items-center gap-x-2 mb-1">
+                    <span className="text-amber-400 text-xs shrink-0 font-medium">攻击加成</span>
+                    {multiplierCheckbox(idx, eff)}
+                    <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="space-y-1 text-xs">
+                    <div className="flex items-center gap-x-2">
+                      <span className={labelCls}>命中加值</span>
+                      <span className="text-gray-500">每环位 +</span>
+                      <NumberStepper value={av.hitBonusPerUnit ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, hitBonusPerUnit: Math.max(0, v) } })} min={0} max={99} compact narrow className="!h-7 !w-12" />
+                      <span className="text-gray-500">（消耗N环则+N×{av.hitBonusPerUnit ?? 0}）</span>
+                    </div>
+                    <div className="flex items-center gap-x-2">
+                      <span className={labelCls}>伤害加值</span>
+                      <span className="text-gray-500">每环位 +</span>
+                      <NumberStepper value={av.damageBonusPerUnit ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, damageBonusPerUnit: Math.max(0, v) } })} min={0} max={99} compact narrow className="!h-7 !w-12" />
+                      <span className="text-gray-500">（消耗N环则+N×{av.damageBonusPerUnit ?? 0}）</span>
+                    </div>
+                    <div className="flex items-center gap-x-2">
+                      <span className={labelCls}>额外骰子</span>
+                      <span className="text-gray-500">每环位 +</span>
+                      <NumberStepper value={av.extraDicePerUnit ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, extraDicePerUnit: Math.max(0, v) } })} min={0} max={99} compact narrow className="!h-7 !w-12" />
+                      <span className="text-gray-500">d</span>
+                      <select value={av.diceSides ?? 10} onChange={(e) => updateEffect(idx, { value: { ...av, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
+                        {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                      <span className="text-gray-500">（消耗N环则+N×{av.extraDicePerUnit ?? 0}d{av.diceSides ?? 10}）</span>
+                    </div>
+                    <div className="flex items-center gap-x-2">
+                      <span className={labelCls}>伤害类型</span>
+                      <select value={av.damageType ?? 'fire'} onChange={(e) => updateEffect(idx, { value: { ...av, damageType: e.target.value } })} className={selectCls + ' !w-[4.5rem]'}>
+                        {DAMAGE_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-1 text-xs">
-                  <div className="flex items-center gap-x-2">
-                    <span className={labelCls}>命中加值</span>
-                    <span className="text-gray-500">每环位 +</span>
-                    <NumberStepper value={av.hitBonusPerUnit ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, hitBonusPerUnit: Math.max(0, v) } })} min={0} max={99} compact narrow className="!h-7 !w-12" />
-                    <span className="text-gray-500">（消耗N环则+N×{av.hitBonusPerUnit ?? 0}）</span>
-                  </div>
-                  <div className="flex items-center gap-x-2">
-                    <span className={labelCls}>伤害加值</span>
-                    <span className="text-gray-500">每环位 +</span>
-                    <NumberStepper value={av.damageBonusPerUnit ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, damageBonusPerUnit: Math.max(0, v) } })} min={0} max={99} compact narrow className="!h-7 !w-12" />
-                    <span className="text-gray-500">（消耗N环则+N×{av.damageBonusPerUnit ?? 0}）</span>
-                  </div>
-                  <div className="flex items-center gap-x-2">
-                    <span className={labelCls}>额外骰子</span>
-                    <span className="text-gray-500">每环位 +</span>
-                    <NumberStepper value={av.extraDicePerUnit ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, extraDicePerUnit: Math.max(0, v) } })} min={0} max={99} compact narrow className="!h-7 !w-12" />
-                    <span className="text-gray-500">d</span>
-                    <select value={av.diceSides ?? 10} onChange={(e) => updateEffect(idx, { value: { ...av, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
-                      {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                    <span className="text-gray-500">（消耗N环则+N×{av.extraDicePerUnit ?? 0}d{av.diceSides ?? 10}）</span>
-                  </div>
-                  <div className="flex items-center gap-x-2">
-                    <span className={labelCls}>伤害类型</span>
-                    <select value={av.damageType ?? 'fire'} onChange={(e) => updateEffect(idx, { value: { ...av, damageType: e.target.value } })} className={selectCls + ' !w-[4.5rem]'}>
-                      {DAMAGE_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-                    </select>
-                  </div>
-                </div>
+                <LevelScalingEditor entries={av.levelScaling} onChange={(v) => updateEffect(idx, { value: { ...av, levelScaling: v } })} charClasses={charClasses} fields="attack_buff" />
               </div>
             </div>
           )
@@ -2582,6 +2742,7 @@ function RandomTableEditor({ rv, patchValue, removeEffect, referenceData, spellD
     const trashBtn = <button type="button" onClick={subDel} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除"><Trash2 className="w-3 h-3" /></button>
 
     if (se.type === 'damage') {
+      const weaponSynced = !!sev.syncWithWeapon
       return (
         <div key={se.id} className="flex items-center gap-x-2 flex-wrap">
           <span className="text-red-400 text-[9px] shrink-0 font-medium">伤害</span>
@@ -2592,9 +2753,13 @@ function RandomTableEditor({ rv, patchValue, removeEffect, referenceData, spellD
           </select>
           <span className="text-[9px] text-gray-500">+</span>
           <NumberStepper value={sev.diceBonus ?? 0} onChange={(v) => subPatch({ value: { ...sev, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-6 !w-10" referenceData={referenceData} />
-          <select value={sev.damageType ?? 'fire'} onChange={(e) => subPatch({ value: { ...sev, damageType: e.target.value } })} className={selectCls + ' !w-[4rem] !h-6 !text-xs'}>
+          <select value={sev.damageType ?? 'fire'} onChange={(e) => subPatch({ value: { ...sev, damageType: e.target.value } })} disabled={weaponSynced} className={selectCls + ' !w-[4rem] !h-6 !text-xs' + (weaponSynced ? ' opacity-50 cursor-not-allowed' : '')}>
             {DAMAGE_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
           </select>
+          <label className="flex items-center gap-0.5 text-[9px] text-cyan-400 cursor-pointer select-none" title="伤害类型与主手武器一致">
+            <input type="checkbox" checked={weaponSynced} onChange={(e) => subPatch({ value: { ...sev, syncWithWeapon: e.target.checked } })} className="accent-cyan-500 w-2.5 h-2.5" />
+            武器
+          </label>
           {trashBtn}
         </div>
       )
@@ -2976,95 +3141,106 @@ function RestoreSpellSlotsEditor({ module, onChange }) {
   )
 }
 
-/** 护甲覆盖编辑器：用于法师护甲、武僧无甲护甲等修改基础AC的效果 */
+/** AC修正编辑器：用于法师护甲、武僧无甲护甲等修改基础AC的效果 */
 function ArmorOverrideEditor({ value, onChange, referenceData }) {
   const data = normalizeArmorOverrideValue(value)
   const patchData = (patch) => onChange({ ...data, ...patch })
 
   const labelCls = EDT_LABEL
-  const inputCls = EDT_INPUT
   const selectCls = EDT_SELECT
 
   return (
-    <div className="rounded-md bg-[#161e2b]/50 p-2.5 flex flex-col gap-y-2 w-full text-xs">
-      {/* 基础AC */}
-      <div className="flex items-center gap-x-2">
-        <span className={labelCls}>基础AC</span>
-        <NumberStepper
-          referenceData={referenceData}
-          value={data.base}
-          onChange={(v) => patchData({ base: Math.max(1, Math.min(99, v)) })}
-          min={1}
-          max={99}
-          compact
-          narrow
-          className="!h-6"
-        />
+    <div className="rounded-md bg-[#161e2b]/50 p-2.5 flex flex-col gap-y-2.5 w-full text-xs">
+      {/* ── 区域一：基础AC修改 ── */}
+      <div className="flex flex-col gap-y-2">
+        <label className="flex items-center gap-x-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={data.enableBase}
+            onChange={(e) => patchData({ enableBase: e.target.checked })}
+            className="rounded border-gray-600 bg-gray-800 text-dnd-red h-3.5 w-3.5"
+          />
+          <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">基础AC修改</span>
+        </label>
+        {data.enableBase && (
+          <>
+            <div className="flex items-center gap-x-2">
+              <span className={labelCls}>基础AC</span>
+              <NumberStepper
+                referenceData={referenceData}
+                value={data.base}
+                onChange={(v) => patchData({ base: Math.max(1, Math.min(99, v)) })}
+                min={1}
+                max={99}
+                compact
+                narrow
+                className="!h-6"
+              />
+            </div>
+            <label className="flex items-center gap-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!data.applyDexMod}
+                onChange={(e) => patchData({ applyDexMod: e.target.checked })}
+                className="rounded border-gray-600 bg-gray-800 text-dnd-red h-3.5 w-3.5"
+              />
+              <span className={labelCls}>应用敏捷调整值</span>
+            </label>
+            {data.applyDexMod && (
+              <div className="flex items-center gap-x-2">
+                <span className={labelCls}>最大DEX</span>
+                <select
+                  value={data.maxDexBonus ?? ''}
+                  onChange={(e) => patchData({ maxDexBonus: e.target.value ? Number(e.target.value) : null })}
+                  className={selectCls + ' !w-[4rem] shrink-0'}
+                >
+                  <option value="">无限制</option>
+                  {[2, 3, 4, 5].map((n) => (
+                    <option key={n} value={n}>+{n}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
-      {/* 应用敏捷调整值 */}
-      <label className="flex items-center gap-x-2 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={!!data.applyDexMod}
-          onChange={(e) => patchData({ applyDexMod: e.target.checked })}
-          className="rounded border-gray-600 bg-gray-800 text-dnd-red h-3.5 w-3.5"
-        />
-        <span className={labelCls}>应用敏捷调整值</span>
-      </label>
-
-      {/* 最大DEX加值限制 */}
-      {data.applyDexMod && (
-        <div className="flex items-center gap-x-2">
-          <span className={labelCls}>最大DEX</span>
-          <select
-            value={data.maxDexBonus ?? ''}
-            onChange={(e) => patchData({ maxDexBonus: e.target.value ? Number(e.target.value) : null })}
-            className={selectCls + ' !w-[4rem] shrink-0'}
-          >
-            <option value="">无限制</option>
-            {[2, 3, 4, 5].map((n) => (
-              <option key={n} value={n}>+{n}</option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {/* 额外增加 */}
-      <div className="flex items-center gap-x-2">
-        <span className={labelCls}>额外增加</span>
-        <NumberStepper
-          value={data.extra}
-          onChange={(v) => patchData({ extra: v })}
-          step={1}
-          compact
-          narrow
-          className="!h-6"
-        />
-      </div>
-
-      {/* 盾牌兼容 */}
-      <label className="flex items-center gap-x-2 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={!!data.shieldCompatible}
-          onChange={(e) => patchData({ shieldCompatible: e.target.checked })}
-          className="rounded border-gray-600 bg-gray-800 text-dnd-red h-3.5 w-3.5"
-        />
-        <span className={labelCls}>可与盾牌叠加</span>
-      </label>
-
-      {/* 额外AC（合并ac_bonus） */}
-      <div className="flex items-center gap-x-2">
-        <span className={labelCls}>额外AC</span>
-        <NumberStepper
-          value={data.acBonus}
-          onChange={(v) => patchData({ acBonus: v })}
-          step={1}
-          compact
-          narrow
-          className="!h-6"
-        />
+      {/* ── 区域二：额外AC加成 ── */}
+      <div className="flex flex-col gap-y-2 pt-1 border-t border-gray-700/40">
+        <label className="flex items-center gap-x-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={data.enableExtra}
+            onChange={(e) => patchData({ enableExtra: e.target.checked })}
+            className="rounded border-gray-600 bg-gray-800 text-dnd-red h-3.5 w-3.5"
+          />
+          <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">额外AC加成</span>
+        </label>
+        {data.enableExtra && (
+          <>
+            <div className="flex items-center gap-x-2">
+              <span className={labelCls}>额外AC</span>
+              <NumberStepper
+                referenceData={referenceData}
+                value={data.extra}
+                onChange={(v) => patchData({ extra: v })}
+                step={1}
+                compact
+                narrow
+                className="!h-6"
+              />
+            </div>
+            <label className="flex items-center gap-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!data.shieldCompatible}
+                onChange={(e) => patchData({ shieldCompatible: e.target.checked })}
+                className="rounded border-gray-600 bg-gray-800 text-dnd-red h-3.5 w-3.5"
+              />
+              <span className={labelCls}>可与盾牌叠加</span>
+            </label>
+          </>
+        )}
       </div>
     </div>
   )
@@ -3394,18 +3570,23 @@ function CreatureTransformEditor({ value, onChange }) {
   )
 }
 
-/** 规范化护甲覆盖值 */
+/** 规范化AC修正值（兼容旧的 ac_bonus 数字格式） */
 function normalizeArmorOverrideValue(value) {
+  // 旧 ac_bonus 格式：值是数字，映射到 extra
+  if (typeof value === 'number') {
+    return { enableBase: true, base: 10, applyDexMod: true, maxDexBonus: null, enableExtra: true, extra: value, shieldCompatible: false }
+  }
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { base: 10, applyDexMod: true, maxDexBonus: null, extra: 0, shieldCompatible: false, acBonus: 0 }
+    return { enableBase: true, base: 10, applyDexMod: true, maxDexBonus: null, enableExtra: true, extra: 0, shieldCompatible: false }
   }
   return {
+    enableBase: value.enableBase !== false,
     base: isFormulaValue(value.base) ? value.base : (Number(value.base) || 10),
     applyDexMod: value.applyDexMod !== false,
     maxDexBonus: Number(value.maxDexBonus) || null,
-    extra: Number(value.extra) || 0,
+    enableExtra: value.enableExtra !== false,
+    extra: isFormulaValue(value.extra) ? value.extra : (Number(value.extra) || 0),
     shieldCompatible: !!value.shieldCompatible,
-    acBonus: Number(value.acBonus) || 0,
   }
 }
 
@@ -3533,6 +3714,7 @@ function EffectValueEditor({
   hideSectionLabel = false,
   /** 附属卡列表，供召唤效果选择 */
   subordinates = [],
+  charClasses = [],
 }) {
   const [profSearch, setProfSearch] = useState('')
   const effects = catData?.effects ?? []
@@ -3545,8 +3727,10 @@ function EffectValueEditor({
   const isBoolean = currentEffect?.dataType === 'boolean'
   const isText = currentEffect?.dataType === 'text'
   const isCustom = currentEffect?.key?.startsWith('custom_')
-  const isNumber = currentEffect?.dataType === 'number'
+  const isNumber = currentEffect?.dataType === 'number' && currentEffect?.key !== 'ac_bonus'
   const needsSubSelect = currentEffect?.subSelect
+  // 向后兼容：旧的 ac_bonus 也使用 armorOverride 编辑器
+  const effectiveSubSelect = currentEffect?.key === 'ac_bonus' ? 'armorOverride' : needsSubSelect
   const isDamageTypeArray = needsSubSelect === 'damageType' && currentEffect?.dataType === 'array'
   const value = module.value
   const customText = module.customText ?? ''
@@ -4547,17 +4731,20 @@ function EffectValueEditor({
               { key: 'swim', label: '游泳' },
               { key: 'climb', label: '攀爬' },
             ]
-            return fields.map(({ key, label }) => (
-              <div key={key} className="flex items-center gap-2">
-                <span className="text-xs text-gray-300 w-12">{label}</span>
-                <NumberStepper referenceData={activeReferenceData}
-                  value={obj[key] ?? 0}
-                  onChange={(v) => onChange({ ...module, value: { ...obj, [key]: v } })}
-                  step={5}
-                />
-                <span className="text-gray-500 text-xs">尺</span>
-              </div>
-            ))
+            return (<>
+              {fields.map(({ key, label }) => (
+                <div key={key} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-300 w-12">{label}</span>
+                  <NumberStepper referenceData={activeReferenceData}
+                    value={obj[key] ?? 0}
+                    onChange={(v) => onChange({ ...module, value: { ...obj, [key]: v } })}
+                    step={5}
+                  />
+                  <span className="text-gray-500 text-xs">尺</span>
+                </div>
+              ))}
+              <LevelScalingEditor entries={obj.levelScaling} onChange={(v) => onChange({ ...module, value: { ...obj, levelScaling: v } })} charClasses={charClasses} fields="speed" />
+            </>)
           })()}
         </div>
       ) : needsSubSelect === 'initBonusAndProficiency' ? (
@@ -4918,8 +5105,9 @@ function EffectValueEditor({
           referenceData={referenceData}
           baseReferenceData={baseReferenceData}
           subordinates={subordinates}
+          charClasses={charClasses}
         />
-      ) : needsSubSelect === 'armorOverride' ? (
+      ) : effectiveSubSelect === 'armorOverride' ? (
         <ArmorOverrideEditor
           value={value}
           onChange={(v) => onChange({ ...module, value: v })}
@@ -5361,7 +5549,7 @@ function EffectValueEditor({
               <span className={lblCls + ' pb-1 text-center min-w-[5rem]'}>上限</span>
               <span className={lblCls + ' pb-1 text-center min-w-[5rem]'}>增加</span>
               {ABILITY_KEYS.map((k, i) => (
-                <React.Fragment key={k}>
+                <Fragment key={k}>
                   <span className="text-xs text-gray-300 py-1">{ABILITY_LABELS[k]}</span>
                   <label className="flex items-center justify-center cursor-pointer py-1 min-w-[2rem]">
                     <input type="checkbox" checked={!!prof[k]}
@@ -5384,7 +5572,7 @@ function EffectValueEditor({
                         onChange({ ...module, value: { ...v, increase: next } })
                       }} />
                   </div>
-                </React.Fragment>
+                </Fragment>
               ))}
             </div>
           </div>
@@ -6389,6 +6577,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
                                 referenceData={referenceData}
                                 baseReferenceData={baseReferenceData}
                                 subordinates={subordinates}
+                                charClasses={charClasses}
                               />
                             </div>
                             )
@@ -6405,6 +6594,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
                           referenceData={referenceData}
                           baseReferenceData={baseReferenceData}
                           subordinates={subordinates}
+                          charClasses={charClasses}
                         />
                       )}
 

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef, useEffect, useLayoutEffect } from 'react'
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { Plus, Pencil, Trash2, ArrowDownToLine, Library, Search, ChevronDown, Minus, Maximize2, Minimize2 } from 'lucide-react'
 import { getBuffSummaryLine } from './BuffListItem'
 import BuffForm from './BuffForm'
@@ -6,6 +6,7 @@ import BuffColumnBoard from './BuffColumnBoard'
 import {
   normalizeBuffSourceKindKey,
   getColumnKeyForBuff,
+  isVirtualBuffEntry,
   BUFF_ENTRY_DRAG_MIME,
   BUFF_COLUMN_DRAG_MIME,
   BUFF_SOURCE_KIND_OPTIONS,
@@ -93,33 +94,14 @@ export default function BuffManager({
   const [importSearch, setImportSearch] = useState('')
   /** null | { template, isDuplicate } */
   const [confirmImport, setConfirmImport] = useState(null)
+  /** null | { template } 暂存应用同名确认 */
+  const [confirmApplyStash, setConfirmApplyStash] = useState(null)
   /** null | { mode: 'active'|'stash', id: string|null } */
   const [dragOverActive, setDragOverActive] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
   const [expandedIds, setExpandedIds] = useState(new Set())
 
-  // ─ 下拉面板基于 BUFF 面板定位 ──
-  const panelRef = useRef(null)
-  const editorPanelRef = useRef(null)
   const editorOpenTimeRef = useRef(0)
-  const [editorPos, setEditorPos] = useState({ top: 0, left: 0, width: 0, maxHeight: 400 })
-
-  useLayoutEffect(() => {
-    if (!formState || !panelRef.current) return
-    const rect = panelRef.current.getBoundingClientRect()
-    const vh = window.innerHeight
-    const spaceAbove = rect.top - 16
-    const spaceBelow = vh - rect.bottom - 16
-    // 优先在面板右侧，空间不够则左侧
-    const panelW = Math.min(448, rect.width * 1.2) // 28rem ≈ 448px
-    const preferRight = rect.right + panelW + 24 < window.innerWidth
-    setEditorPos({
-      top: Math.max(16, rect.top),
-      left: preferRight ? rect.right + 12 : rect.left - panelW - 12,
-      width: panelW,
-      maxHeight: Math.max(300, Math.max(spaceAbove, spaceBelow)),
-    })
-  }, [formState])
 
   const list = Array.isArray(buffs) ? buffs : []
   const stash = Array.isArray(stashBuffs) ? stashBuffs : []
@@ -138,13 +120,9 @@ export default function BuffManager({
     
     // 查找原始 BUFF 以检查来源类型
     const originalBuff = formState?.id ? list.find((b) => b.id === formState.id) : null
-    const isVirtualBuff = originalBuff && (originalBuff.fromItem || originalBuff.fromFeat || originalBuff.fromInvocation || originalBuff.fromFightingStyle || originalBuff.fromClassFeature || originalBuff.fromRace || originalBuff.fromBackground)
-    
-    // 虚拟 BUFF（职业特性/专长/装备等）不应保存到 character.buffs，直接返回
-    if (isVirtualBuff) {
-      console.log('[BuffManager] Skipping save for virtual buff:', originalBuff?.source)
-      return
-    }
+
+    // 虚拟 BUFF（职业特性/专长/装备/种族等）不应保存到 character.buffs，直接返回
+    if (isVirtualBuffEntry(originalBuff)) return
     
     const duplicate = source
       ? list.find((b) => b.source?.trim() === source && b.id !== formState?.id)
@@ -207,11 +185,6 @@ export default function BuffManager({
     onSave(next)
   }
 
-  const handleAddStash = () => {
-    editorOpenTimeRef.current = Date.now()
-    setFormStateTracked({ mode: 'stash', id: null })
-  }
-
   const handleEditStash = (id) => {
     editorOpenTimeRef.current = Date.now()
     setFormStateTracked({ mode: 'stash', id })
@@ -265,6 +238,20 @@ export default function BuffManager({
     setDragOverActive(false)
   }, [])
 
+  const requestApplyStash = useCallback(
+    (t) => {
+      if (!t) return
+      const source = String(t.source ?? '').trim()
+      const isDuplicate = list.some((b) => String(b.source ?? '').trim() === source)
+      if (isDuplicate) {
+        setConfirmApplyStash({ template: t })
+        return
+      }
+      onApplyStashTemplate(t)
+    },
+    [list, onApplyStashTemplate],
+  )
+
   const onDropActive = useCallback(
     (e) => {
       setDragOverActive(false)
@@ -277,16 +264,14 @@ export default function BuffManager({
         if (m) id = m[1]
       }
       if (!id) return
-      const t = stash.find((x) => x.id === id)
-      if (t) onApplyStashTemplate(t)
+      requestApplyStash(stash.find((x) => x.id === id))
     },
-    [stashEditable, stash, onApplyStashTemplate],
+    [stashEditable, stash, requestApplyStash],
   )
 
   const applyStashById = (id) => {
     if (!stashEditable) return
-    const t = stash.find((x) => x.id === id)
-    if (t) onApplyStashTemplate(t)
+    requestApplyStash(stash.find((x) => x.id === id))
   }
 
   const formInitial =
@@ -306,13 +291,9 @@ export default function BuffManager({
   const formOnAutoSave = useCallback((buff) => {
     if (!formState) return
     
-    // 检查是否为虚拟BUFF（职业特性/专长/装备等），虚拟BUFF不应触发自动保存到character.buffs
+    // 检查是否为虚拟BUFF（职业特性/专长/装备/种族等），虚拟BUFF不应触发自动保存到character.buffs
     const originalBuff = formState.id ? list.find((b) => b.id === formState.id) : null
-    const isVirtualBuff = originalBuff && (originalBuff.fromItem || originalBuff.fromFeat || originalBuff.fromInvocation || originalBuff.fromFightingStyle || originalBuff.fromClassFeature || originalBuff.fromRace || originalBuff.fromBackground)
-    if (isVirtualBuff) {
-      console.log('[BuffManager] Skipping auto-save for virtual buff:', originalBuff?.source)
-      return
-    }
+    if (isVirtualBuffEntry(originalBuff)) return
     
     if (formState.mode === 'stash') {
       const clean = {
@@ -360,7 +341,7 @@ export default function BuffManager({
   const importableBuffTemplates = useMemo(() => {
     const q = importSearch.trim().toLowerCase()
     const all = moduleLibrary?.buffTemplates ?? []
-    const excluded = new Set(['equipment', 'adventure'])
+    const excluded = new Set(['equipment'])
     return all.filter((t) => {
       if (excluded.has(t.sourceKind)) return false
       if (!q) return true
@@ -369,20 +350,24 @@ export default function BuffManager({
   }, [moduleLibrary, importSearch])
 
   const groupedImportableBuffTemplates = useMemo(() => {
+    const adventure = []
     const persistent = []
     const temporary = []
     for (const t of importableBuffTemplates) {
-      if (normalizeBuffSourceKindKey(t.sourceKind ?? 'temporary') === 'temporary') {
-        temporary.push(t)
-      } else {
-        persistent.push(t)
-      }
+      const kind = normalizeBuffSourceKindKey(t.sourceKind ?? 'temporary')
+      if (t.sourceKind === 'adventure') adventure.push(t)
+      else if (kind === 'temporary') temporary.push(t)
+      else persistent.push(t)
     }
     const sortBySource = (a, b) =>
       String(a.source ?? '').localeCompare(String(b.source ?? ''), 'zh-CN')
+    adventure.sort(sortBySource)
     persistent.sort(sortBySource)
     temporary.sort(sortBySource)
     const groups = []
+    if (adventure.length > 0) {
+      groups.push({ key: 'adventure', label: '冒险 Buff', items: adventure })
+    }
     if (persistent.length > 0) {
       groups.push({ key: 'persistent', label: '持续 Buff', items: persistent })
     }
@@ -413,49 +398,34 @@ export default function BuffManager({
   const handleImportTemplate = useCallback(
     (t) => {
       const source = String(t.source ?? '').trim() || '未命名 Buff'
-      const isDuplicate = list.some((b) => b.source?.trim() === source) || stash.some((b) => b.source?.trim() === source)
+      const isDuplicate = list.some((b) => b.source?.trim() === source)
       setConfirmImport({ template: t, isDuplicate })
     },
-    [list, stash],
+    [list],
   )
 
   const doImportTemplate = useCallback(
     (t) => {
-      const isTemporary = normalizeBuffSourceKindKey(t.sourceKind ?? 'temporary') === 'temporary'
       const source = String(t.source ?? '').trim() || '未命名 Buff'
       const duration =
         t.duration != null && (typeof t.duration === 'string' ? t.duration.trim() !== '' : t.duration.type)
           ? t.duration
           : undefined
       const effects = Array.isArray(t.effects) ? t.effects.map((e) => ({ ...e })) : []
-      if (isTemporary) {
-        onStashChange([
-          ...stash,
-          {
-            id: `stash_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-            source,
-            duration,
-            effects,
-            enabled: true,
-            sourceKind: 'temporary',
-          },
-        ])
-      } else {
-        onSave([
-          ...list,
-          {
-            id: String(Date.now()),
-            source,
-            duration,
-            effects,
-            enabled: true,
-            sourceKind: normalizeBuffSourceKindKey(t.sourceKind),
-          },
-        ])
-      }
+      onSave([
+        ...list,
+        {
+          id: String(Date.now()),
+          source,
+          duration,
+          effects,
+          enabled: true,
+          sourceKind: normalizeBuffSourceKindKey(t.sourceKind ?? 'temporary'),
+        },
+      ])
       setConfirmImport(null)
     },
-    [list, onSave, onStashChange, stash],
+    [list, onSave],
   )
 
   const handleMoveBuffToColumn = useCallback(
@@ -474,7 +444,6 @@ export default function BuffManager({
   return (
     <>
     <div
-      ref={panelRef}
       className={`rounded-xl border border-white/[0.11] bg-gradient-to-b from-[#2c384c] via-[#242f42] to-[#1b2433] p-2 ${BUFF_PANEL_OUTER_SHADOW}`}
     >
       <div className="flex items-center justify-between mb-2">
@@ -499,7 +468,7 @@ export default function BuffManager({
               className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-dnd-gold text-dnd-gold-light hover:bg-dnd-gold/20 text-xs font-medium transition-colors shrink-0"
             >
               <Library className="w-3.5 h-3.5" />
-              从库中导入
+              添加冒险BUFF
             </button>
           </div>
         )}
@@ -596,31 +565,25 @@ export default function BuffManager({
       </p>
     </div>
 
-    {/* ── 悬浮 BUFF 编辑器按钮 + 下拉面板 ── */}
+    {/* ── BUFF 编辑器居中弹窗 ── */}
     {canEdit && formState && (
       <>
-        {/* 点击外部关闭 - 已禁用，避免原生 select 交互误触 */}
-        <div 
-          className="fixed inset-0 z-[9998]" 
-          aria-hidden 
+        {/* 遮罩仅压暗：不响应点击关闭，避免原生 select 交互误触 */}
+        <div
+          className="fixed inset-0 z-[9998] bg-black/50"
+          aria-hidden
         />
-        {/* 下拉面板（基于 BUFF 面板定位） */}
-        <div 
-          ref={editorPanelRef}
-          className={`fixed z-[9999] border border-dnd-gold/30 bg-gradient-to-b from-[#2c384c] via-[#242f42] to-[#1b2433] shadow-[0_12px_40px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col transition-all ${
-          editorFullscreen
-            ? 'inset-0'
-            : 'rounded-xl'
-        }`}
-        style={!editorFullscreen ? {
-          top: editorPos.top,
-          left: editorPos.left,
-          width: editorPos.width || 'auto',
-          maxHeight: editorPos.maxHeight,
-        } : undefined}
-        onClick={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()}
-        >
+        {/* 居中容器 */}
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 pointer-events-none">
+          <div
+            className={`border border-dnd-gold/30 bg-gradient-to-b from-[#2c384c] via-[#242f42] to-[#1b2433] shadow-[0_12px_40px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col transition-all pointer-events-auto ${
+            editorFullscreen
+              ? 'w-full h-full rounded-none'
+              : 'w-full max-w-4xl max-h-[90vh] rounded-xl'
+          }`}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          >
               <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 shrink-0">
                 <div className="flex items-center gap-2">
                   <button
@@ -656,6 +619,7 @@ export default function BuffManager({
                 />
               </div>
             </div>
+          </div>
       </>
     )}
 
@@ -676,7 +640,7 @@ export default function BuffManager({
             >
               <div className="sticky top-0 z-10 bg-gray-800 pb-3">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-dnd-gold-light text-sm font-bold uppercase tracking-wide">从模组库导入 BUFF</h3>
+                  <h3 className="text-dnd-gold-light text-sm font-bold uppercase tracking-wide">添加冒险 BUFF</h3>
                   <button
                     type="button"
                     onClick={() => setShowModuleLibrary(false)}
@@ -700,7 +664,7 @@ export default function BuffManager({
                     type="button"
                     onClick={() => {
                       setShowModuleLibrary(false)
-                      handleAddStash()
+                      handleAddActive()
                     }}
                     className="flex items-center gap-1 px-2 py-1 rounded-lg border border-dnd-gold/70 text-dnd-gold-light hover:bg-dnd-gold/20 text-xs font-medium transition-colors shrink-0"
                   >
@@ -711,7 +675,7 @@ export default function BuffManager({
               </div>
               {(moduleLibrary?.buffTemplates ?? []).length === 0 ? (
                 <p className="text-gray-500 text-xs text-center py-4">
-                  当前模组暂无 BUFF 模板，请先到「更多 → 模组库」添加。
+                  暂无可添加的模板，点右上「新增 BUFF」直接创建一条冒险 BUFF，或到「更多 → 模组库」维护团队模板。
                 </p>
               ) : importableBuffTemplates.length === 0 ? (
                 <p className="text-gray-500 text-xs text-center py-4">没有匹配的 BUFF</p>
@@ -836,7 +800,51 @@ export default function BuffManager({
                       : 'border border-dnd-gold/70 text-dnd-gold-light hover:bg-dnd-gold/20'
                   }`}
                 >
-                  {confirmImport.isDuplicate ? '仍然添加' : '确认添加'}
+                  {confirmImport.isDuplicate ? '叠加一条' : '确认添加'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+      {confirmApplyStash && (
+        <>
+          <div
+            className="fixed inset-0 z-[212] bg-black/50"
+            onClick={() => setConfirmApplyStash(null)}
+            aria-hidden
+          />
+          <div
+            className="fixed inset-0 z-[213] flex items-center justify-center p-4"
+            onClick={() => setConfirmApplyStash(null)}
+          >
+            <div
+              className="w-full max-w-sm rounded-xl border border-gray-600 bg-gray-800 p-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h4 className="text-dnd-gold-light text-sm font-bold mb-2">⚠ 同名 BUFF 已存在</h4>
+              <p className="text-gray-300 text-xs mb-1">
+                名称：<span className="text-white font-medium">{confirmApplyStash.template.source || '未命名 Buff'}</span>
+              </p>
+              <p className="text-dnd-red text-xs mb-2">当前已有同名 BUFF，应用后将叠加一条。</p>
+              <div className="flex justify-end gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={() => setConfirmApplyStash(null)}
+                  className="px-3 py-1 rounded-lg border border-gray-600 text-gray-400 hover:bg-gray-700 text-xs transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const t = confirmApplyStash.template
+                    setConfirmApplyStash(null)
+                    onApplyStashTemplate(t)
+                  }}
+                  className="px-3 py-1 rounded-lg text-xs font-medium transition-colors border border-dnd-red/70 text-dnd-red hover:bg-dnd-red/20"
+                >
+                  叠加一条
                 </button>
               </div>
             </div>

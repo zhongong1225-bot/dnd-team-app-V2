@@ -454,8 +454,8 @@ export const BUFF_TYPES = {
     color: 'orange',
     effects: [
       { key: 'ac_bonus', label: '额外AC', dataType: 'number', hidden: true },
-      /** AC覆盖：用于法师护甲、武僧无甲护甲等修改基础AC的效果。value: { base, applyDexMod, maxDexBonus?, extra, shieldCompatible? } */
-      { key: 'armor_override', label: 'AC覆盖', dataType: 'object', subSelect: 'armorOverride' },
+      /** AC修正：用于法师护甲、武僧无甲护甲等修改基础AC的效果。value: { base, applyDexMod, maxDexBonus?, extra, shieldCompatible? } */
+      { key: 'armor_override', label: 'AC修正', dataType: 'object', subSelect: 'armorOverride' },
       /** 统一伤害关系：抗性/免疫/易伤+减免合并。value: { types: string[], relation: 'resist'|'immune'|'vulnerable' } */
       { key: 'damage_type_relation', label: '伤害抗性', dataType: 'object', subSelect: 'damageTypeRelation' },
       { key: 'resist_type', label: '伤害抗性', dataType: 'array', subSelect: 'damageType', hidden: true },

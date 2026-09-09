@@ -282,7 +282,7 @@ input, textarea, select, button, [class*="font-mono"], [class*="font-sans"], [cl
 
 /* 角色卡顶栏：由 JS 写入 --character-sheet-topbar-h（仅第一行主条高度；召唤槽为叠层不推高正文） */
 .character-sheet-page-with-topbar {
-  padding-top: var(--character-sheet-topbar-h, calc(env(safe-area-inset-top, 0px) + 6.25rem));
+  padding-top: var(--character-sheet-topbar-h, calc(env(safe-area-inset-top, 0px) + 4.125rem));
 }
 
 .character-sheet-top-jump-scroll {
@@ -1143,4 +1143,20 @@ select.panel-class-control-h-compact {
 .avatar-upload-zone:hover::before,
 .avatar-upload-zone:hover::after {
   opacity: 0.8;
+}
+
+/* 装备位自绘下拉面板：细滚动条，避免原生 15px 滚动条把居中文字挤偏 */
+.slot-menu {
+  scrollbar-width: thin;
+  scrollbar-color: #34455f transparent;
+}
+.slot-menu::-webkit-scrollbar {
+  width: 4px;
+}
+.slot-menu::-webkit-scrollbar-thumb {
+  background: #34455f;
+  border-radius: 2px;
+}
+.slot-menu::-webkit-scrollbar-track {
+  background: transparent;
 }

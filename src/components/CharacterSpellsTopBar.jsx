@@ -1,8 +1,7 @@
 import { useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { TOPBAR_LAYOUT_INNER } from '../lib/topBarShared'
 import { getTopBarHostElement } from './TopBarHost'
-
-const LAYOUT_INNER = 'mx-auto w-[1180px] min-w-[1180px] shrink-0 min-h-[6rem]'
 
 /**
  * 角色法术固定顶栏外壳：与 CharacterSheetTopBar 同款 fixed + portal、毛玻璃与底边；
@@ -37,7 +36,7 @@ export default function CharacterSpellsTopBar({ children }) {
         <div
           className="relative z-10 border-b border-white/10 bg-[#2D3748]/78 shadow-[0_4px_20px_rgba(0,0,0,0.5)] backdrop-blur-md"
         >
-          <div className={`${LAYOUT_INNER} flex min-w-0 flex-col px-4 pb-1`}>{children}</div>
+          <div className={`${TOPBAR_LAYOUT_INNER} flex min-w-0 flex-col px-4 pb-1`}>{children}</div>
         </div>
       </div>
     </nav>

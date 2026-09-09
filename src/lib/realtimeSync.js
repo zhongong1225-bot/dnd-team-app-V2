@@ -11,6 +11,7 @@ import { loadCampaignModulesFromSupabase, loadUserPrefsFromSupabase } from './mo
 import { loadCustomItemsFromSupabase } from '../data/itemDatabase'
 import { loadCustomSpellsFromSupabase } from '../data/spellDatabase'
 import { loadCustomRacesFromSupabase } from '../data/races'
+import { loadModuleLibraryFromSupabase } from './moduleLibraryStore'
 
 const DEBOUNCE_MS = 450
 
@@ -124,6 +125,19 @@ export function startSupabaseRealtime({ ownerName, isAdmin, moduleId }) {
     }, DEBOUNCE_MS)
   }
 
+  let moduleLibRtTimer = null
+  const onModuleLibraryChange = () => {
+    clearTimeout(moduleLibRtTimer)
+    moduleLibRtTimer = setTimeout(async () => {
+      try {
+        await loadModuleLibraryFromSupabase(mod)
+        emit('dnd-realtime-module-library')
+      } catch (e) {
+        console.warn('[Realtime] module_library refresh failed', e)
+      }
+    }, DEBOUNCE_MS)
+  }
+
   function userPrefsFilter(name) {
     const s = String(name || '').trim()
     if (!s) return null
@@ -178,6 +192,11 @@ export function startSupabaseRealtime({ ownerName, isAdmin, moduleId }) {
       { event: '*', schema: 'public', table: 'custom_library', filter: 'lib_key=eq.custom_spells' },
       onCustomLibraryChange
     )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'custom_library', filter: `lib_key=eq.module_library_${mod}` },
+      onModuleLibraryChange
+    )
 
   if (prefsFilter) {
     ch = ch.on(
@@ -204,6 +223,7 @@ export function startSupabaseRealtime({ ownerName, isAdmin, moduleId }) {
     clearTimeout(modulesRtTimer)
     clearTimeout(prefsRtTimer)
     clearTimeout(customRtTimer)
+    clearTimeout(moduleLibRtTimer)
     supabase.removeChannel(channel)
   }
 }

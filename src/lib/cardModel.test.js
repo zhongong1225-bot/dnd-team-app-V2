@@ -80,7 +80,7 @@ describe('createActiveCard', () => {
       duration: { unit: DURATION_UNIT.ROUND, amount: 10 },
     })
     
-    expect(card.recovery.method).toBe('short_rest')
+    expect(card.recovery.method).toEqual(['short_rest'])
     expect(card.recovery.kind).toBe('full') // 保留默认值
     expect(card.duration.unit).toBe('round')
     expect(card.duration.amount).toBe(10)

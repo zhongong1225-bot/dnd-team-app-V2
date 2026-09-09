@@ -69,8 +69,8 @@ function CardView({
     : null
 
   const gridTemplateColumns = narrow
-    ? '46px 76px 286px 136px 1fr 46px'
-    : '46px 76px 376px 136px 1fr 46px'
+    ? '1fr 2fr 8fr 6fr 1fr 1fr'
+    : '1fr 2fr 8fr 6fr 1fr 1fr'
 
   const cellBorder = { borderRight: '1px solid #2a3a4e' }
 
@@ -80,14 +80,24 @@ function CardView({
       <div
         className={`${disabled ? 'opacity-50' : ''} ${className}`}
         style={{
-          background: '#1e2a3a',
-          border: '1px solid #2a3a4e',
+          background: 'linear-gradient(180deg, #161e2b 0%, #141c28 50%, #121a25 100%)',
+          border: '1px solid rgba(255,255,255,0.06)',
           borderRadius: '8px',
           marginBottom: '8px',
           overflow: 'hidden',
+          boxShadow: '0 6px 22px rgba(0,0,0,0.48), 0 2px 6px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.085), inset 0 -1px 0 rgba(0,0,0,0.22)',
+          transition: 'box-shadow .2s, border-color .2s',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = 'rgba(199,154,66,0.25)'
+          e.currentTarget.style.boxShadow = '0 10px 28px rgba(0,0,0,0.42), 0 4px 10px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.24)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'
+          e.currentTarget.style.boxShadow = '0 6px 22px rgba(0,0,0,0.48), 0 2px 6px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.085), inset 0 -1px 0 rgba(0,0,0,0.22)'
         }}
       >
-        {/* 6列网格标题行 — 固定52px */}
+        {/* 6列网格标题行 — 固定52px，整行可点击展开 */}
         <div
           className="grid items-center"
           style={{
@@ -95,7 +105,9 @@ function CardView({
             height: '52px',
             gridTemplateRows: '1fr',
             gap: 0,
+            cursor: canExpand ? 'pointer' : 'default',
           }}
+          onClick={canExpand ? toggleExpand : undefined}
         >
           {/* 第1列：类别标签（竖排） */}
           <div
@@ -129,31 +141,39 @@ function CardView({
               </div>
             )}
             {sourceSub && (
-              <div style={{ fontSize: '8px', color: '#667788', whiteSpace: 'nowrap' }}>
-                {sourceSub}
+              <div
+                style={{ fontSize: '8px', color: '#667788', whiteSpace: 'nowrap' }}
+                title={sourceSub}
+              >
+                {sourceSub.length > 4 ? sourceSub.slice(0, 4) + '…' : sourceSub}
               </div>
             )}
           </div>
 
-          {/* 第3列：特性区（名称 + 按钮） */}
+          {/* 第3列：特性区（名称 + 按钮统一能量条） */}
           <div
-            className="flex items-center justify-center gap-3 h-full"
-            style={{ ...cellBorder, padding: '4px 8px', overflow: 'hidden' }}
+            className="relative flex items-center justify-center h-full overflow-hidden"
+            style={{ ...cellBorder, padding: '4px 8px' }}
           >
+            {/* 纯文字名称 — 无 footer 时显示 */}
             {name && (
               typeof name === 'string' ? (
                 <span
-                  className="cursor-pointer select-none hover:text-gray-100 transition-colors truncate shrink-0"
-                  style={{ fontSize: '16px', fontWeight: 600, color: '#f0f0f0' }}
-                  onClick={toggleExpand}
+                  className="select-none hover:text-gray-100 transition-colors truncate block w-full text-center"
+                  style={{ fontSize: '14px', fontWeight: 600, color: '#f0f0f0' }}
                 >
                   {name}
                 </span>
               ) : (
-                <div className="shrink-0" onClick={toggleExpand}>{name}</div>
+                <div className="w-full text-center">{name}</div>
               )
             )}
-            {footer}
+            {/* 主动技能能量条按钮 — 有内容时覆盖在名字上方 */}
+            {footer && (
+              <div className="absolute inset-0 flex items-center px-2">
+                <div className="w-full">{footer}</div>
+              </div>
+            )}
           </div>
 
           {/* 第4列：BUFF简称标签 */}
@@ -181,8 +201,24 @@ function CardView({
             ))}
           </div>
 
-          {/* 第5列：留白 */}
-          <div className="h-full" />
+          {/* 第5列：展开指示器 */}
+          <div
+            className="flex items-center justify-center h-full"
+            style={{ color: '#556677', transition: 'color 0.15s' }}
+          >
+            {canExpand && (
+              <span
+                className="w-6 h-6 flex items-center justify-center"
+                title={expanded ? '收起详情' : '展开详情'}
+              >
+                {expanded ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )}
+              </span>
+            )}
+          </div>
 
           {/* 第6列：齿轮按钮 */}
           <div
@@ -313,6 +349,83 @@ export function AbilityButton({ name, costText, usable, disabledReason, onUse, c
       <Zap className="w-3.5 h-3.5" />
       <span>{name}</span>
       {costText && <span className="text-[10px] opacity-70">{costText}</span>}
+    </button>
+  )
+}
+
+/* ── EnergyBarButton ──────────────────────────────────────────── */
+
+/**
+ * 主动释放按钮 —— 「细线微光」风格。
+ * 用于职业特性 / 专长 / 种族特性的主动释放按钮。
+ */
+export function EnergyBarButton({
+  name,
+  onClick,
+  disabled = false,
+  disabledReason,
+  chargeInfo,
+  className = '',
+}) {
+  const gold = '#c79a42'
+  const goldLight = '#f0d060'
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={(e) => { e.stopPropagation(); if (!disabled) onClick?.(e) }}
+      className={`group relative flex items-center w-full h-9 px-2.5 rounded-md cursor-pointer transition-all active:scale-[0.98] ${disabled ? 'opacity-40 cursor-not-allowed' : ''} ${className}`}
+      style={{
+        border: '1px solid rgba(139,163,194,0.18)',
+        background: 'linear-gradient(180deg, #1d2735 0%, #17202d 100%)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.25), 0 1px 3px rgba(0,0,0,0.3)',
+      }}
+      title={disabled ? disabledReason || '' : `点击使用${name}`}
+      onMouseEnter={(e) => {
+        if (!disabled) {
+          e.currentTarget.style.borderColor = 'rgba(199,154,66,0.5)'
+          e.currentTarget.style.boxShadow = `inset 0 1px 0 rgba(255,255,255,0.09), inset 0 -1px 0 rgba(0,0,0,0.25), inset 0 0 12px ${gold}22, 0 1px 3px rgba(0,0,0,0.3)`
+        }
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = 'rgba(139,163,194,0.18)'
+        e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.25), 0 1px 3px rgba(0,0,0,0.3)'
+      }}
+    >
+      {/* 顶部高光线：两端淡出 */}
+      <div
+        className="absolute top-0 left-2 right-2 h-[1px] pointer-events-none"
+        style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.14) 30%, rgba(255,255,255,0.14) 70%, transparent)' }}
+      />
+      {/* 名字 */}
+      <span
+        className="text-[14px] font-semibold text-white whitespace-nowrap overflow-hidden text-ellipsis flex-1 min-w-0 text-center"
+        style={{ letterSpacing: '2px', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}
+      >
+        {name}
+      </span>
+      {/* 右端：充能/消耗信息 + 金色闪电 */}
+      <div className="flex items-center gap-1.5 shrink-0 ml-2">
+        {chargeInfo && (
+          <span className="text-[11px] font-bold" style={{ color: '#8899aa' }}>
+            {chargeInfo}
+          </span>
+        )}
+        <span className="relative flex items-center justify-center w-4 h-4">
+          <Zap
+            className="w-4 h-4 absolute inset-0"
+            style={{ color: gold }}
+            strokeWidth={2.2}
+          />
+          {!disabled && (
+            <Zap
+              className="w-4 h-4 absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity"
+              style={{ color: goldLight, filter: `drop-shadow(0 0 5px ${goldLight}aa)` }}
+              strokeWidth={2.2}
+            />
+          )}
+        </span>
+      </div>
     </button>
   )
 }
