@@ -62,7 +62,7 @@ function inferSourceKey(buffEntry) {
   if (buffEntry.fromInvocation) return buffEntry.invocationId || ''
   if (buffEntry.fromFightingStyle) return buffEntry.styleId || ''
   if (buffEntry.fromItem) return buffEntry.itemInventoryId || ''
-  return ''
+  return buffEntry.sourceKey || ''
 }
 
 /**
@@ -74,11 +74,23 @@ function buffEntryToCard(buffEntry) {
   const slotKind = inferSlotKind(buffEntry)
   const sourceType = inferSourceType(buffEntry)
   const sourceKey = inferSourceKey(buffEntry)
-  const effects = Array.isArray(buffEntry.effects) ? buffEntry.effects : []
   
-  // 从 effects 中提取 charge_item 或 contained_spell 效果作为主动技能
-  const chargeEffect = effects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
-  const containedSpellEffect = !chargeEffect ? effects.find(e => e.effectType === 'contained_spell' && e.value && typeof e.value === 'object') : null
+  // charge_item 的子效果类型列表（这些只在 AbilityUseModal 中使用，不应作为被动效果显示）
+  const CHARGE_ITEM_SUB_EFFECT_TYPES = [
+    'spell', 'ability', 'shield', 'temp_buff', 'creature_transform',
+    'restore_spell_slots', 'summon', 'custom_logic', 'damage', 'heal',
+    'random_table', 'attack_buff', 'consume_spell_slot_to_restore_charges'
+  ]
+  
+  // 原始 effects 数组（用于提取 charge_item/contained_spell）
+  const rawEffects = Array.isArray(buffEntry.effects) ? buffEntry.effects : []
+  
+  // 过滤掉 charge_item 子效果类型，只保留真正的被动效果用于 buffEffects
+  const effects = rawEffects.filter(e => !CHARGE_ITEM_SUB_EFFECT_TYPES.includes(e.effectType))
+  
+  // 从原始 effects 中提取 charge_item 或 contained_spell 效果作为主动技能
+  const chargeEffect = rawEffects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
+  const containedSpellEffect = !chargeEffect ? rawEffects.find(e => e.effectType === 'contained_spell' && e.value && typeof e.value === 'object') : null
   let activeAbility = null
 
   if (chargeEffect) {
@@ -287,12 +299,8 @@ export function buildRaceDefinitionEffects(raceDef, subrace, raceCard) {
 export function buildCardsFromCharacter(character, moduleId) {
   if (!character) return []
 
-  // 如果角色已有 cards 数组且非空，直接使用（新数据模型优先）
-  if (Array.isArray(character.cards) && character.cards.length > 0) {
-    return character.cards.map(normalizeCard)
-  }
-
-  // ── 从旧字段生成 ──
+  // 卡数组始终从源数据（装备/专长/祈唤/战斗风格/职业特性/种族/背景/手动 BUFF/护盾）实时生成，
+  // 不做任何「已存储 cards 优先」的短路——否则任一来源改动后虚拟条目会停止映射到 BUFF 栏。
   const cards = []
 
   // 1. 装备附魔 → equipment 卡
@@ -334,7 +342,15 @@ export function buildCardsFromCharacter(character, moduleId) {
     if (matched) resolvedRaceId = matched.id
   }
   if (raceCard && (resolvedRaceId || raceCard.raceBuffPatch?.effects?.length || raceCard.raceBaseInfo)) {
-    const raceDef = resolvedRaceId ? getRaceById(resolvedRaceId) : null
+    let raceDef = resolvedRaceId ? getRaceById(resolvedRaceId) : null
+    // 如果 raceId 指向的自定义种族不存在，回退到按 customName 匹配
+    if (!raceDef && raceCard?.customName) {
+      const matched = getAllRaces().find(r => r.name === raceCard.customName.trim())
+      if (matched) {
+        raceDef = matched
+        resolvedRaceId = matched.id
+      }
+    }
     const subrace = (raceDef && raceCard.subraceId && raceDef.subraces)
       ? raceDef.subraces.find(s => s.id === raceCard.subraceId) || null
       : null
@@ -348,14 +364,6 @@ export function buildCardsFromCharacter(character, moduleId) {
     const traitChoices = raceCard.traitChoices || {}
     const traitEffects = []
     if (raceDef) {
-      console.log('[cardAdapter] Processing race traits:', {
-        raceId: raceDef.id,
-        raceName: raceDef.name,
-        traitsCount: (raceDef.traits || []).length,
-        traitIds: (raceDef.traits || []).map(t => t.id),
-        subraceId: raceCard.subraceId
-      })
-      
       ;(raceDef.traits || []).forEach(t => {
         const isChoice = Array.isArray(t.choiceOptions) && t.choiceOptions.length > 0
         
@@ -383,15 +391,6 @@ export function buildCardsFromCharacter(character, moduleId) {
             cards = (t.cards || [])
           }
         }
-        
-        console.log('[cardAdapter] Trait processed:', {
-          traitId: t.id,
-          traitName: t.name,
-          isChoice,
-          chosenOptionId: isChoice ? traitChoices[t.id] : undefined,
-          cardsCount: cards.length,
-          hasChargeItem: cards.some(c => c.effectType === 'charge_item')
-        })
         
         if (cards.length > 0) {
           cards.forEach(c => traitEffects.push({ ...c, _traitName: t.name }))
@@ -457,12 +456,29 @@ export function buildCardsFromCharacter(character, moduleId) {
           sourceKey: resolvedRaceId || '',
           buffEffects: [], // 主动卡的被动效果为空
           activeAbility: {
-            actionCost: chargeValue.actionCost || 'action',
-            movementFeet: chargeValue.movementFeet || 0,
-            resourceType: chargeValue.resourceType || 'charges',
-            charges: chargeValue.charges || 1,
-            recovery: chargeValue.recovery || { method: 'long_rest', kind: 'full' },
-            effects: subEffects,
+            id: `${resolvedRaceId || 'race'}_active`,
+            name: traitName,
+            actionType: chargeValue.actionCost || 'action',
+            cost: chargeValue.resourceType === 'none'
+              ? { type: 'none' }
+              : chargeValue.resourceType === 'spell_slot'
+                ? {
+                    type: 'spell_slot',
+                    consumptionMode: chargeValue.consumptionMode || 'fixed',
+                    slotLevel: chargeValue.slotLevel || 1,
+                    maxSlotLevel: chargeValue.maxSlotLevel || 1,
+                  }
+                : { type: 'class_resource', resourceKey: chargeValue.resourceType || 'charges', amount: chargeValue.charges || 1 },
+            cooldown: chargeValue.recovery?.method === 'long_rest' ? 'long_rest'
+                      : chargeValue.recovery?.method === 'short_rest' ? 'short_rest'
+                      : 'none',
+            description: '',
+            needsInteraction: 'confirm',
+            effects: subEffects ? subEffects.map((eff) => ({
+              type: eff.type,
+              value: eff.value,
+              description: eff.value?.description || eff.text || '',
+            })) : [],
           },
           enabled: true,
         })))
@@ -517,14 +533,7 @@ export function buildCardsFromCharacter(character, moduleId) {
     return true
   })
   for (const b of manualBuffs) {
-    cards.push(normalizeCard(createCard(SLOT_KIND.buff, {
-      id: b.id,
-      name: b.source || '',
-      sourceType: 'manual',
-      buffEffects: Array.isArray(b.effects) ? b.effects : [],
-      enabled: b.enabled !== false,
-      sourceKey: b.sourceKey || '',
-    })))
+    cards.push(buffEntryToCard(b))
   }
 
   // 7. 护盾 → shield 卡（从 char.shields 提取）
@@ -604,8 +613,11 @@ export function cardsToBuffEntries(cards) {
     } else if (st === 'background') {
       entry.fromBackground = true
       entry.backgroundId = card.sourceKey || ''
+    } else if (st === 'shield') {
+      entry.fromShield = true
+      entry.shieldId = card.sourceKey || ''
     }
-    // sourceType === 'shield' 或 'manual' 不设特殊标记
+    // sourceType === 'manual' 不设特殊标记（它本来就是玩家手动条目）
 
     if (hasAbility) {
       entry.activeAbilities = [card.activeAbility]
@@ -625,7 +637,26 @@ export function cardsToBuffEntries(cards) {
  */
 export function getMergedBuffsViaCards(character, moduleId) {
   const cards = buildCardsFromCharacter(character, moduleId)
-  return cardsToBuffEntries(cards)
+  const entries = cardsToBuffEntries(cards)
+
+  // sourceKind / duration / cardScope 是 BUFF 栏元数据，不属于卡模型，
+  // 往返一趟就会被 createCard→normalizeCard→cardsToBuffEntries 丢掉，按 id 从源数据补回。
+  const manualById = new Map(
+    (Array.isArray(character?.buffs) ? character.buffs : [])
+      .filter((b) => b && b.id != null)
+      .map((b) => [b.id, b]),
+  )
+  if (manualById.size === 0) return entries
+
+  return entries.map((entry) => {
+    const src = manualById.get(entry.id)
+    if (!src) return entry
+    const enriched = { ...entry }
+    if (src.sourceKind !== undefined) enriched.sourceKind = src.sourceKind
+    if (src.duration !== undefined) enriched.duration = src.duration
+    if (src.cardScope !== undefined) enriched.cardScope = src.cardScope
+    return enriched
+  })
 }
 
 /* ── 从卡查找主动技能 ─────────────────────────────────────────────── */

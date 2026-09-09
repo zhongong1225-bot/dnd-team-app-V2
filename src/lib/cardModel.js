@@ -338,9 +338,11 @@ function normalizeCost(cost) {
 }
 
 function normalizeRecovery(rec) {
-  if (!rec || typeof rec !== 'object') return { method: 'long_rest', kind: 'full', fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0 }
+  if (!rec || typeof rec !== 'object') return { method: ['long_rest'], kind: 'full', fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0 }
+  const rawMethod = rec.method
+  const method = Array.isArray(rawMethod) ? rawMethod : (rawMethod ? [rawMethod] : ['long_rest'])
   return {
-    method: rec.method || 'long_rest',
+    method: method.length ? method : ['long_rest'],
     kind: rec.kind || 'full',
     fixed: Math.max(0, Number(rec.fixed) || 0),
     diceCount: Math.max(1, Number(rec.diceCount) || 1),
@@ -487,14 +489,16 @@ function _migrateChargeItemToActiveCard(buffEntry, chargeEffect) {
   const actionType = cv.actionCost || 'action'
 
   // 提取恢复信息
+  const rawRecMethod = cv.recovery?.method
+  const recMethod = Array.isArray(rawRecMethod) ? rawRecMethod : (rawRecMethod ? [rawRecMethod] : ['long_rest'])
   const recovery = cv.recovery ? {
-    method: cv.recovery.method || 'long_rest',
+    method: recMethod.length ? recMethod : ['long_rest'],
     kind: cv.recovery.kind || 'full',
     fixed: Math.max(0, Number(cv.recovery.fixed) || 0),
     diceCount: Math.max(1, Number(cv.recovery.diceCount) || 1),
     diceSides: Math.max(1, Number(cv.recovery.diceSides) || 6),
     diceBonus: Math.max(0, Number(cv.recovery.diceBonus) || 0),
-  } : { method: 'long_rest', kind: 'full', fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0 }
+  } : { method: ['long_rest'], kind: 'full', fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0 }
 
   // 提取子效果（spell / ability / shield / temp_buff 等）
   const subEffects = Array.isArray(cv.effects) ? cv.effects : []
@@ -504,8 +508,19 @@ function _migrateChargeItemToActiveCard(buffEntry, chargeEffect) {
     ? { unit: 'minute', amount: Number(buffEntry.duration) || 1 }
     : { unit: 'instant', amount: 1 }
 
-  // 除 charge_item 外的其他效果保留在 buffEffects
-  const otherEffects = effects.filter(e => e !== chargeEffect)
+  // charge_item 的子效果类型列表（这些只在 AbilityUseModal 中使用，不应作为被动效果显示）
+  const CHARGE_ITEM_SUB_EFFECT_TYPES = [
+    'spell', 'ability', 'shield', 'temp_buff', 'creature_transform',
+    'restore_spell_slots', 'summon', 'custom_logic', 'damage', 'heal',
+    'random_table', 'attack_buff', 'consume_spell_slot_to_restore_charges'
+  ]
+
+  // 过滤掉 charge_item 本身及其子效果，只保留真正的被动效果
+  const otherEffects = effects.filter(e => {
+    if (e === chargeEffect) return false
+    if (CHARGE_ITEM_SUB_EFFECT_TYPES.includes(e.effectType)) return false
+    return true
+  })
 
   return createActiveCard({
     id: buffEntry.id,
@@ -529,13 +544,23 @@ function _migrateChargeItemToActiveCard(buffEntry, chargeEffect) {
 function _migratePassiveBuff(buffEntry) {
   const effects = Array.isArray(buffEntry.effects) ? buffEntry.effects : []
 
+  // charge_item 的子效果类型列表（这些只在 AbilityUseModal 中使用，不应作为被动效果显示）
+  const CHARGE_ITEM_SUB_EFFECT_TYPES = [
+    'spell', 'ability', 'shield', 'temp_buff', 'creature_transform',
+    'restore_spell_slots', 'summon', 'custom_logic', 'damage', 'heal',
+    'random_table', 'attack_buff', 'consume_spell_slot_to_restore_charges'
+  ]
+
+  // 过滤掉 charge_item 子效果类型，只保留真正的被动效果
+  const filteredEffects = effects.filter(e => !CHARGE_ITEM_SUB_EFFECT_TYPES.includes(e.effectType))
+
   return createPassiveCard({
     id: buffEntry.id,
     name: buffEntry.source || '',
     slotKind: SLOT_KIND.buff,
     sourceType: 'manual',
-    effects: [...effects],
-    buffEffects: [...effects],  // 同步到兼容字段
+    effects: [...filteredEffects],
+    buffEffects: [...filteredEffects],  // 同步到兼容字段
     scope: { type: 'global', weapons: [], damageTypes: [], custom: '' },
     enabled: buffEntry.enabled !== false,
   })
