@@ -194,12 +194,6 @@ export const RACES = [
     abilityScoreBonuses: [],
     traits: [
       {
-        id: 'dhampir_darkvision',
-        name: '黑暗视觉',
-        description: '你具有60尺黑暗视觉。',
-        cards: [],
-      },
-      {
         id: 'dhampir_spider_climb',
         name: '蛛行',
         description: '你具有等于你速度的攀爬速度。当你到达3级后，你可以在垂直表面上上下左右移动，且能倒挂在天花板上，期间你的双手可以保持空闲。',
