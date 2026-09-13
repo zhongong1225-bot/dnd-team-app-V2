@@ -530,11 +530,6 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
 
   const setHeld = (next) => saveWithEquipment({ equippedHeld: next, equippedWorn: wornSlots })
   const setWorn = (next) => saveWithEquipment({ equippedHeld: heldSlots, equippedWorn: next }) 
-  const setAttuned = (index, value) => {
-    if (value && attunedCount >= maxAttunementSlots) return
-    const next = inv.map((e, i) => (i === index ? { ...e, isAttuned: !!value } : e))
-    onSave({ inventory: next })
-  }
 
   const setHeldEquip = (i, inventoryId) => {
     const next = [...heldSlots]
@@ -579,12 +574,6 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   const removeWornSlot = (addableIndex) => {
     const next = [bodySlot, ...wornAddable.filter((_, i) => i !== addableIndex)]
     setWorn(next)
-  }
-
-  const toggleAttunedForEntry = (inventoryId, checked) => {
-    const idx = inv.findIndex((e) => e.id === inventoryId)
-    if (idx < 0) return
-    setAttuned(idx, checked)
   }
 
   const handleSlotChange = (invIndex, newSlotValue) => {
@@ -1340,6 +1329,16 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     onSave({ inventory: next })
     setEditingIndex(null)
   }
+  const setAttuned = (index, value) => {
+    if (value && attunedCount >= maxAttunementSlots) return
+    const next = inv.map((e, i) => (i === index ? { ...e, isAttuned: !!value } : e))
+    onSave({ inventory: next })
+  }
+  const toggleAttunedForEntry = (inventoryId, checked) => {
+    const idx = inv.findIndex((e) => e.id === inventoryId)
+    if (idx < 0) return
+    setAttuned(idx, checked)
+  }
   const applyNestedEditSave = (entry) => {
     if (!editingNested) return
     const { containerId, nestedIndex } = editingNested
@@ -1538,11 +1537,11 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                         invIndex={idx}
                         slotValue={item.slotValue}
                         canEdit={canEdit}
-                        noShadow
                         isAttuned={!!entry.isAttuned}
                         attunedCount={attunedCount}
                         maxAttunementSlots={maxAttunementSlots}
                         onAttuneToggle={toggleAttunedForEntry}
+                        noShadow
                         availableSlotGroups={getAvailableSlotsForItem(entry, inv, item.slotValue)}
                         onSlotChange={handleSlotChange}
                         displayName={invDisplayName(entry)}
@@ -2102,11 +2101,11 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                               invIndex={i}
                               slotValue="backpack"
                               canEdit={canEdit}
-                              noShadow
                               isAttuned={!!entry.isAttuned}
                               attunedCount={attunedCount}
                               maxAttunementSlots={maxAttunementSlots}
                               onAttuneToggle={toggleAttunedForEntry}
+                              noShadow
                               availableSlotGroups={getAvailableSlotsForItem(entry, inv, 'backpack')}
                               onSlotChange={handleSlotChange}
                               displayName={invDisplayName(entry)}

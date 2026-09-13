@@ -6,6 +6,7 @@ import React from 'react'
 import { Pencil, Trash2, Dices } from 'lucide-react'
 import { getDamageTypeLabel } from '../../data/buffTypes'
 import { parseCombatDiceExpression } from '../../data/weaponDatabase'
+import { parseSpellDamageFromDescription, applyUpcastToDamageList, getEffectiveCastLevel } from './combatMeanUtils'
 
 const COMBAT_MEAN_ROW_GRID =
   'grid grid-cols-[5fr_3fr_3fr_12fr_1fr] items-center gap-x-1 w-full min-w-0 overflow-hidden'
@@ -61,6 +62,18 @@ export default function SpellAttackCard({ displayMean, comboSuffix = '', ctx }) 
   const mergedSpells = getMergedSpells()
   const matchedSpell = mergedSpells.find((s) => s.id === displayMean.spellId || (s.name && s.name.trim() === (displayMean.spellName || '').trim()))
 
+  /* ── 增强施法者等级：自动升环（消耗环位不变，戏法不升环） ── */
+  const casterLevelBonus = Number(buffStats?.casterLevelBonus) || 0
+  const spellBaseLevel = Number(matchedSpell?.level) || 0
+  const effectiveCastLevel = getEffectiveCastLevel(displayMean.slotLevel, matchedSpell?.level, casterLevelBonus)
+  const upcastDiff = Math.max(0, effectiveCastLevel - spellBaseLevel)
+  const upcastDamages = (upcastDiff > 0 && matchedSpell?.description)
+    ? applyUpcastToDamageList(parseSpellDamageFromDescription(matchedSpell.description), matchedSpell.description, upcastDiff)
+    : null
+  const effectivePrimaryDice = (upcastDamages && upcastDamages.length > 0)
+    ? upcastDamages[0].dice
+    : (displayMean.damageDice || '').trim()
+
   /* ── 命中解析 ── */
   const hitRes = displayMean.hitResolution && HIT_RESOLUTION_LABELS[displayMean.hitResolution] ? displayMean.hitResolution : 'spell_attack'
   const hitLabel = HIT_RESOLUTION_LABELS[hitRes]
@@ -74,24 +87,24 @@ export default function SpellAttackCard({ displayMean, comboSuffix = '', ctx }) 
   const attackText = hitValue != null ? (hitRes === 'spell_attack' ? `+${hitValue}` : String(hitValue)) : '—'
 
   /* ── 伤害计算 ─ */
-  const spellDiceCount = (() => { const p = parseCombatDiceExpression((displayMean.damageDice || '').trim()); return p ? p.count : 0 })()
+  const spellDiceCount = (() => { const p = parseCombatDiceExpression(effectivePrimaryDice); return p ? p.count : 0 })()
   const spellDamageExtras = getSpellDamageBonusExtras(displayMean.damageTypeSpell, buffStats?.spellDamageBonuses, itemFormulaContext)
   const spellDamageMod = gainDamageBonus + gainPerDieBonus * spellDiceCount + spellDamageExtras.flatBonus
   const allSpellExtraDice = [...gainExtraDice, ...spellDamageExtras.extraDice]
   const compactedSpellExtraDice = allSpellExtraDice.map(compactDiceExpression)
-  const baseDamageText = (displayMean.damageDice || '').trim()
-    ? compactDiceExpression((displayMean.damageDice || '').toUpperCase() + (displayMean.damageTypeSpell ? ' ' + getDamageTypeLabel(displayMean.damageTypeSpell) : ''))
+  const baseDamageText = effectivePrimaryDice
+    ? compactDiceExpression(effectivePrimaryDice.toUpperCase() + (displayMean.damageTypeSpell ? ' ' + getDamageTypeLabel(displayMean.damageTypeSpell) : ''))
     : ''
   const extraDamageText = compactedSpellExtraDice.length ? (' + ' + compactedSpellExtraDice.join(' + ')) : ''
   const modDamageText = (spellDamageMod !== 0 && baseDamageText) ? ` ${formatSignedModifier(spellDamageMod)}` : ''
   const damageText = baseDamageText ? `${baseDamageText}${extraDamageText}${modDamageText}` : (compactedSpellExtraDice.length ? compactedSpellExtraDice.join(' + ') : '—')
   const spellDamageFloor2 = gainDiceFloor2
-  const hasDamage = !!((displayMean.damageDice || '').trim())
+  const hasDamage = !!effectivePrimaryDice
 
   // 构建伤害列表（用于多步流程）
   const damageList = []
-  if ((displayMean.damageDice || '').trim()) {
-    const diceExpr = (displayMean.damageDice || '').trim()
+  if (effectivePrimaryDice) {
+    const diceExpr = effectivePrimaryDice
     const diceMatch = diceExpr.match(/(\d+)d(\d+)/)
     if (diceMatch) {
       damageList.push({ dice: diceExpr, type: getDamageTypeLabel(displayMean.damageTypeSpell) || displayMean.damageTypeSpell || '' })
@@ -117,9 +130,11 @@ export default function SpellAttackCard({ displayMean, comboSuffix = '', ctx }) 
     dice,
   }))
 
-  // 法术环位消耗显示
-  const spellLevel = displayMean.slotLevel || matchedSpell?.level || 0
-  const levelLabel = spellLevel === 0 ? '戏法' : `${spellLevel}环`
+  // 法术环位消耗显示（增强施法者等级会提升有效环位）
+  const baseRing = Number(displayMean.slotLevel) || Number(matchedSpell?.level) || 0
+  const showsRingUpcast = casterLevelBonus > 0 && baseRing > 0 && effectiveCastLevel > baseRing
+  const levelLabel = baseRing === 0 ? '戏法' : (showsRingUpcast ? `${baseRing}→${effectiveCastLevel}环` : `${baseRing}环`)
+  const ringUpcastTitle = showsRingUpcast ? `消耗 ${baseRing} 环，因增强施法者等级 +${casterLevelBonus} 以 ${effectiveCastLevel} 环生效` : undefined
 
   const fullName = (displayMean.spellName || '法术攻击') + comboSuffix
   const onEdit = isCombo ? () => openEditComboMean(displayMean) : () => openEditSpellAttack(displayMean)
@@ -166,7 +181,7 @@ export default function SpellAttackCard({ displayMean, comboSuffix = '', ctx }) 
                 isAttackType: false,
                 onRollDamage: () => {
                   rollDamageDice(
-                    (displayMean.damageDice || '').trim(), 
+                    effectivePrimaryDice, 
                     (displayMean.spellName || '法术') + ' ' + (getDamageTypeLabel(displayMean.damageTypeSpell) || ''), 
                     'spell_attack-' + displayMean.id, 
                     spellDamageMod, 
@@ -192,7 +207,7 @@ export default function SpellAttackCard({ displayMean, comboSuffix = '', ctx }) 
         {/* 环位列 */}
         <div className="pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden">
           <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>环位</span>
-          <span className={`text-white ${CM_MEAN_HI} truncate`}>{levelLabel}</span>
+          <span className={`${showsRingUpcast ? 'text-dnd-gold-light' : 'text-white'} ${CM_MEAN_HI} truncate`} title={ringUpcastTitle}>{levelLabel}</span>
         </div>
 
         {/* 攻击/豁免列 - 只显示数值 */}

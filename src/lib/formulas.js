@@ -481,6 +481,7 @@ const FORMULA_REF_LABELS = {
   abilityModifier: '属性调整值',
   spellDc: '法术DC',
   spellAttack: '法术攻击',
+  speed: '行走速度',
 }
 
 const ABILITY_NAMES_ZH_SHORT = {

@@ -69,6 +69,7 @@ export default function BuffColumnBoard({
                       columnKey={colKey}
                       standalone
                       hideSourceTag
+                      oneEffectPerLine={colKey === 'race'}
                       suppressedEffectTypes={suppressedMap.get(buff.id) || new Set()}
                       formulaContext={formulaContext}
                     />

@@ -82,6 +82,7 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   spell_attack_bonus: 'calculator',
   save_dc_bonus: 'calculator',
   spell_damage_bonus: 'calculator',
+  caster_level_bonus: 'calculator',
   damage_dice_bonus: 'calculator',
   min_dice_value: 'calculator',
   init_bonus: 'calculator',

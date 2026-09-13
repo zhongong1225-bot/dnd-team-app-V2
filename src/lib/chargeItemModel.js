@@ -511,19 +511,39 @@ export function getRecoveryMethodLabel(method) {
   return methods.map((m) => RECOVERY_METHODS.find((r) => r.value === m)?.label ?? m).join('、')
 }
 
-/** 格式化回能描述 */
+/** 回能方式简称：用于 BUFF 栏等紧凑摘要 */
+const RECOVERY_METHOD_SHORT = {
+  short_rest: '短休',
+  long_rest: '长休',
+  dawn: '黎明',
+  absorb_energy: '吸能',
+  reaction_absorb: '反应',
+}
+
+/** 回能方式简称 + 动词：休系用「回」，黎明/吸能/反应用「恢复」 */
+function recoveryVerb(methods) {
+  return methods.some((m) => m === 'dawn' || m === 'absorb_energy' || m === 'reaction_absorb') ? '恢复' : '回'
+}
+
+/** 格式化回能描述（紧凑简称）：长休回满 / 长休回3 / 黎明恢复3 / 反应恢复2d6 / 不恢复 */
 export function formatRecoveryBrief(recovery) {
   if (!recovery || typeof recovery !== 'object') return ''
   const methods = Array.isArray(recovery.method) ? recovery.method : (recovery.method ? [recovery.method] : [])
-  const methodLabel = getRecoveryMethodLabel(methods)
-  if (methods.length === 1 && methods[0] === 'none') return methodLabel
-  if (recovery.kind === 'full') return `${methodLabel}（回满）`
+  if (methods.length === 1 && methods[0] === 'none') return '不恢复'
+  const methodLabel = methods
+    .map((m) => RECOVERY_METHOD_SHORT[m] ?? (RECOVERY_METHODS.find((r) => r.value === m)?.label ?? m))
+    .filter(Boolean)
+    .join('、')
+  if (!methodLabel) return ''
+  const verb = recoveryVerb(methods)
+  if (recovery.kind === 'full') return `${methodLabel}${verb}满`
   if (recovery.kind === 'dice') {
     const bonus = Number(recovery.diceBonus) || 0
     const diceText = `${recovery.diceCount}d${recovery.diceSides}`
-    return bonus > 0 ? `${methodLabel} ${diceText}+${bonus}` : `${methodLabel} ${diceText}`
+    return `${methodLabel}${verb}${bonus > 0 ? diceText + '+' + bonus : diceText}`
   }
-  return `${methodLabel} ${recovery.fixed}`
+  if (recovery.fixed != null) return `${methodLabel}${verb}${recovery.fixed}`
+  return `${methodLabel}${verb}满`
 }
 
 /** 格式化充能物品整体摘要 */
@@ -534,7 +554,7 @@ export function formatChargeItemBrief(value) {
   if (norm.resourceType === 'none') {
     // 无消耗，不显示充能信息
   } else if (norm.resourceType === 'charges') {
-    parts.push(`${norm.charges} 充能`)
+    parts.push(`${norm.charges}`)
     parts.push(formatRecoveryBrief(norm.recovery))
   } else {
     const resLabel = RESOURCE_TYPE_OPTIONS.find((o) => o.value === norm.resourceType)?.label ?? norm.resourceType

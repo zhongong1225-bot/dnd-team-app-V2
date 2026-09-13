@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo, forwardRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ChevronUp, ChevronDown, ChevronRight, Trash2, Star, Upload, X, Plus, Settings, Zap, RefreshCw, Pencil } from 'lucide-react'
+import { ChevronUp, ChevronDown, ChevronRight, Trash2, Star, Upload, X, Plus, Settings, Zap, RefreshCw, Pencil, Power } from 'lucide-react'
 
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
@@ -50,6 +50,7 @@ import {
   mergeFeatBuffPatchesFromMergedList,
   mergeInvocationBuffPatchesFromMergedList,
   mergeFightingStyleBuffPatchesFromMergedList,
+  resolveFeatPatch,
 } from '../lib/effects/effectMapping'
 import { HARDCODED_CLASS_FEATURE_BUFFS } from '../data/classFeatureDefaultBuffs'
 import { cloneBuffTemplateToManual } from '../lib/buffStash'
@@ -209,7 +210,7 @@ const NameInput = forwardRef(function NameInput({ value, onChange, onFocus, onBl
   )
 })
 
-function AvatarFrame({ char, canEdit, onSave, large }) {
+function AvatarFrame({ char, canEdit, onSave, large, portrait }) {
   const inputRef = useRef(null)
   const zoneRef = useRef(null)
   const avatar = char?.avatar ?? null
@@ -229,7 +230,7 @@ function AvatarFrame({ char, canEdit, onSave, large }) {
       const dataUrl = reader.result
       if (typeof dataUrl !== 'string') return
       let ar = 1
-      if (large && zoneRef.current) {
+      if ((large || portrait) && zoneRef.current) {
         const r = zoneRef.current.getBoundingClientRect()
         if (r.width >= 48 && r.height >= 48) ar = r.width / r.height
       }
@@ -251,6 +252,71 @@ function AvatarFrame({ char, canEdit, onSave, large }) {
   }
 
   const placeholderId = 'avatar-file-input'
+
+  if (portrait) {
+    return (
+      <>
+      <AvatarCropModal
+        open={cropOpen}
+        imageSrc={cropSrc}
+        aspect={cropAspect}
+        onCancel={closeCrop}
+        onConfirm={(dataUrl) => {
+          onSave({ avatar: dataUrl })
+          closeCrop()
+        }}
+      />
+      <div ref={zoneRef} className="profile-portrait">
+        {avatar ? (
+          <img src={avatar} alt="头像" className="absolute inset-0 w-full h-full object-cover object-center" />
+        ) : canEdit ? (
+          <label
+            htmlFor={placeholderId}
+            className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <Upload size={18} style={{ color: '#55677c' }} />
+            <span className="text-[11px]" style={{ color: '#66788c' }}>上传头像</span>
+          </label>
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-[11px]" style={{ color: '#66788c' }}>暂无头像</span>
+          </div>
+        )}
+        {canEdit && (
+          <>
+            <input
+              ref={inputRef}
+              id={placeholderId}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleFile}
+            />
+            {avatar && (
+              <div className="profile-portrait-bar">
+                <label
+                  htmlFor={placeholderId}
+                  className="cursor-pointer inline-flex items-center gap-1 hover:text-white transition-colors"
+                >
+                  <Upload size={12} />
+                  更换头像
+                </label>
+                <button
+                  type="button"
+                  onClick={removeAvatar}
+                  className="inline-flex items-center gap-1 hover:text-white transition-colors"
+                >
+                  <X size={12} />
+                  移除
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+      </>
+    )
+  }
 
   if (large) {
     return (
@@ -415,14 +481,14 @@ function BackstoryBlock({ char, canEdit, onSave, fillHeight }) {
     setLocal(char?.backstory ?? '')
   }, [char?.id, char?.backstory])
   const containerClass = fillHeight
-    ? 'min-w-0 w-full min-h-0 flex-1 flex flex-col rounded-lg border border-gray-600 bg-gray-800/50 overflow-hidden'
-    : 'min-w-0 w-full rounded-lg border border-gray-600 bg-gray-800/50 overflow-hidden'
+    ? 'min-w-0 w-full min-h-0 flex-1 flex flex-col overflow-hidden'
+    : 'min-w-0 w-full flex flex-col'
   const inputClass = fillHeight
-    ? 'input-thin w-full min-h-0 flex-1 py-2 px-3 text-sm resize-none overflow-y-auto block'
-    : 'input-thin w-full min-h-[120px] max-h-[280px] py-2 px-3 text-sm resize-none overflow-y-auto block'
+    ? 'input-thin profile-scroll w-full min-h-0 flex-1 py-2 px-3 text-sm resize-none overflow-y-auto block'
+    : 'input-thin profile-scroll w-full min-h-[120px] max-h-[280px] py-2 px-3 text-sm resize-none overflow-y-auto block'
   const readOnlyClass = fillHeight
-    ? 'min-h-0 flex-1 overflow-y-auto py-2 px-3 text-sm text-[var(--text-main)] whitespace-pre-wrap'
-    : 'max-h-[280px] overflow-y-auto py-2 px-3 text-sm text-[var(--text-main)] whitespace-pre-wrap'
+    ? 'profile-story-text profile-scroll min-h-0 flex-1 overflow-y-auto'
+    : 'profile-story-text profile-scroll max-h-[280px] overflow-y-auto'
   return (
     <div className={containerClass}>
       {canEdit ? (
@@ -436,7 +502,7 @@ function BackstoryBlock({ char, canEdit, onSave, fillHeight }) {
         />
       ) : (
         <div className={readOnlyClass}>
-          {char?.backstory || <span className="text-gray-500">—</span>}
+          {char?.backstory || <span style={{ color: '#55677c' }}>—</span>}
         </div>
       )}
     </div>
@@ -507,8 +573,189 @@ function AppearanceGrid({ char, canEdit, onSave, noBorder, compact }) {
   )
 }
 
+/** 档案页只读展示所需的种族/背景派生信息 */
+function getProfileRaceInfo(char) {
+  const raceCard = char?.raceCard || {}
+  const backgroundCard = char?.backgroundCard || {}
+  let race = raceCard.raceId ? getRaceById(raceCard.raceId) : null
+  if (!race && raceCard.customName) {
+    const name = raceCard.customName.trim()
+    race = getAllRaces().find((r) => r.name === name) || null
+  }
+  const subrace = race?.subraces && raceCard.subraceId
+    ? (race.subraces.find((s) => s.id === raceCard.subraceId) || null)
+    : null
+  const background = getBackgroundById(backgroundCard.backgroundId)
+
+  const raceName = (raceCard.raceId && race?.name)
+    ? race.name
+    : (raceCard.customName || race?.name || '')
+  const backgroundName = backgroundCard.customName || background?.name || ''
+
+  const sizeValue = raceCard.sizeSelected || race?.sizeDefault || ''
+  const sizeLabel = RACE_SIZES.find((s) => s.value === sizeValue)?.label || sizeValue || ''
+
+  const sp = race?.speed || {}
+  const subSp = subrace?.speed || {}
+  const walk = Number(subSp.walk ?? sp.walk ?? 30)
+  const speedParts = [`${walk}尺`]
+  if (subSp.climb || sp.climb) speedParts.push(`攀爬 ${subSp.climb ?? sp.climb}尺`)
+  if (subSp.swim || sp.swim) speedParts.push(`游泳 ${subSp.swim ?? sp.swim}尺`)
+  if (subSp.fly || sp.fly) speedParts.push(`飞行 ${subSp.fly ?? sp.fly}尺`)
+
+  const dv = Number(subrace?.darkvision ?? race?.darkvision ?? 0)
+  const hasRace = !!raceCard.raceId
+
+  const assignments = raceCard.asiAssignments || []
+  const asiChips = []
+  normalizeAbilityScoreBonuses(race?.abilityScoreBonuses, []).forEach((b, i) => {
+    const ability = assignments.filter((a) => a.source === 'race')[i]?.ability
+    asiChips.push({
+      key: `race-${i}`,
+      text: `+${b.amount} ${ability ? ABILITY_NAMES_ZH[ability] : '未分配'}`,
+      assigned: !!ability,
+    })
+  })
+  normalizeAbilityScoreBonuses(subrace?.abilityScoreBonuses, []).forEach((b, i) => {
+    const ability = assignments.filter((a) => a.source === 'subrace')[i]?.ability
+    asiChips.push({
+      key: `sub-${i}`,
+      text: `+${b.amount} ${ability ? ABILITY_NAMES_ZH[ability] : '未分配'}`,
+      assigned: !!ability,
+    })
+  })
+
+  return {
+    race,
+    subrace,
+    raceName,
+    backgroundName,
+    hasRace,
+    sizeLabel,
+    speedText: hasRace ? speedParts.join(' ') : '',
+    sensesText: hasRace ? (dv > 0 ? `黑暗视觉 ${dv}尺` : '无') : '',
+    asiChips,
+  }
+}
+
+/** 档案页分区外壳：标题 + 只读/编辑两态按钮 + 内容槽 */
+function ProfileSection({ title, canEdit, editing, onToggleEdit, className = '', bodyClassName = '', children }) {
+  return (
+    <section className={`profile-card flex flex-col ${className}`}>
+      <div className="flex items-center gap-2 mb-2">
+        <h3 className="profile-card-title">{title}</h3>
+        {canEdit && onToggleEdit && (
+          <button type="button" className="profile-edit-btn ml-auto" onClick={onToggleEdit}>
+            {editing ? '完成' : '编辑'}
+          </button>
+        )}
+      </div>
+      <div className={`min-w-0 ${bodyClassName}`}>{children}</div>
+    </section>
+  )
+}
+
+/** 档案页头部条：角色名 + 代号 + 种族/背景芯片，编辑态复用现有名字与代号输入 */
+function ProfileIdentityBar({ char, canEdit, editing, onToggleEdit, persist, nameInputRef, editingName, setEditingName, editingCodename, setEditingCodename, raceInfo }) {
+  return (
+    <div className="profile-card">
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          {editing ? (
+            <div className="space-y-2">
+              <div className="form-group-compact">
+                <label className="profile-field-label">角色名</label>
+                <NameInput
+                  ref={nameInputRef}
+                  value={editingName !== null ? editingName : (char.name ?? '')}
+                  onChange={(e) => setEditingName(e.target.value)}
+                  onFocus={() => { if (editingName === null) setEditingName(char.name ?? '') }}
+                  onBlur={() => {
+                    const value = (editingName ?? char.name ?? '').trim() || '未命名'
+                    persist({ name: value })
+                    setEditingName(null)
+                  }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur() } }}
+                  className="input-thin w-full font-bold text-xl text-[var(--text-main)] py-1 break-words leading-tight"
+                />
+              </div>
+              <div className="form-group-compact">
+                <label className="profile-field-label">代号（可选）</label>
+                <input
+                  type="text"
+                  value={editingCodename !== null ? editingCodename : (char.codename ?? '')}
+                  onChange={(e) => setEditingCodename(e.target.value)}
+                  onFocus={() => { if (editingCodename === null) setEditingCodename(char.codename ?? '') }}
+                  onBlur={() => {
+                    const value = (editingCodename !== null ? editingCodename : char.codename ?? '').trim() || undefined
+                    persist({ codename: value })
+                    setEditingCodename(null)
+                  }}
+                  placeholder="区分同名角色"
+                  className="input-thin w-full text-sm text-[var(--text-muted)]"
+                />
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="truncate" style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.25, color: '#dfe6ee' }}>
+                {char.name || '未命名'}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                {char.codename && <span className="profile-chip profile-chip-dim">代号 {char.codename}</span>}
+                {raceInfo.raceName && <span className="profile-chip">{raceInfo.raceName}</span>}
+                {raceInfo.backgroundName && <span className="profile-chip">{raceInfo.backgroundName}</span>}
+                {!char.codename && !raceInfo.raceName && !raceInfo.backgroundName && (
+                  <span className="profile-field-label">未填写</span>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+        {canEdit && (
+          <button type="button" className="profile-edit-btn" onClick={onToggleEdit}>
+            {editing ? '完成' : '编辑'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** 基础档案只读网格：外观 7 项 + 体型 + 移速，下方感官芯片 */
+function AppearanceReadGrid({ char, raceInfo }) {
+  const app = char?.appearance ?? {}
+  const cells = [
+    { label: '年龄', value: app.age },
+    { label: '阵营', value: app.alignment },
+    { label: '瞳色', value: app.eyes },
+    { label: '身高', value: app.height },
+    { label: '肤色', value: app.skin },
+    { label: '体重', value: app.weight },
+    { label: '发色', value: app.hair },
+    { label: '体型', value: raceInfo.sizeLabel },
+    { label: '移速', value: raceInfo.speedText },
+  ]
+  return (
+    <div className="min-w-0">
+      <div className="grid grid-cols-3 gap-x-3 gap-y-2.5">
+        {cells.map((c) => (
+          <div key={c.label} className="min-w-0">
+            <div className="profile-field-label mb-1">{c.label}</div>
+            <div className="profile-field-value truncate" title={c.value || ''}>{c.value || '—'}</div>
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5 mt-3">
+        <span className="profile-field-label">感官</span>
+        <span className="profile-chip">{raceInfo.sensesText || '无'}</span>
+      </div>
+    </div>
+  )
+}
+
 /** 整合到外观区的种族/背景选择器 + 基础信息 + BUFF 编辑器 */
-function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRaceBuffEditorOpen, backgroundBuffEditorOpen, setBackgroundBuffEditorOpen, showTraitsOnly, referenceData, baseReferenceData, formulaContext, expandedRaceTraitIds, onToggleRaceTraitExpand }) {
+function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRaceBuffEditorOpen, backgroundBuffEditorOpen, setBackgroundBuffEditorOpen, showTraitsOnly, referenceData, baseReferenceData, formulaContext, expandedRaceTraitIds, onToggleRaceTraitExpand, parts = 'all', showControls = true }) {
   const raceCard = char?.raceCard || {}
   const backgroundCard = char?.backgroundCard || {}
 
@@ -714,10 +961,17 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
     ) : null
   }
 
+  const showBasics = parts !== 'racebg' && showControls
+  const showSelectors = parts !== 'basics' && showControls
+  const showModals = parts !== 'basics'
+
   return (
     <>
-    <div className="mt-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(14, minmax(0, 1fr))', gap: '0.5rem' }}>
+    {(showBasics || showSelectors) && (
+    <div className={parts === 'basics' ? 'min-w-0' : 'mt-2 min-w-0'} style={{ display: 'grid', gridTemplateColumns: 'repeat(14, minmax(0, 1fr))', gap: '0.5rem' }}>
       {/* 种族 + [亚种] + 背景按钮行 */}
+      {showSelectors && (
+      <>
       {/* 种族按钮 */}
       <button type="button" onClick={() => {
         // 旧版兼容种族自动迁移
@@ -756,9 +1010,11 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
         <span className="truncate text-gray-200">{backgroundCard.customName || selectedBackground?.name || '— 选择背景 —'}</span>
         <Pencil size={12} className="text-dnd-gold/60 shrink-0 ml-auto" />
       </button>
+      </>
+      )}
 
-      {/* 基础信息行 — 仅在选了种族后渲染，占满 14 列 */}
-      {raceCard.raceId && (
+      {/* 体型 / 移速 / 感官 — 仅在选了种族后渲染，占满 14 列 */}
+      {showBasics && raceCard.raceId && (
         <>
           {/* 体型 / 移速 / 感官 — 只读展示 — 4 + 4 + 6 = 14 */}
           <div className="col-span-4 flex items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">
@@ -801,7 +1057,11 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
               })()}
             </span>
           </div>
+        </>
+      )}
 
+      {showSelectors && raceCard.raceId && (
+        <>
           {/* 属性加值分配 — 从种族定义的加值槽生成下拉菜单 */}
           {(() => {
             const raceBonuses = normalizeAbilityScoreBonuses(selectedRace?.abilityScoreBonuses, [])
@@ -832,18 +1092,18 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
             return (
               <>
                 <span className="col-span-2 text-right text-[11px] text-gray-400 font-medium bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">属性加值</span>
-                <div className="col-span-12 flex flex-wrap items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">
+                <div className="col-span-12 flex items-center gap-3 bg-white/[0.03] rounded-md border border-gray-700/40 px-3 py-1.5">
                   {raceBonuses.length > 0 && (
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10px] text-gray-500">种族</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-gray-500 shrink-0">种族</span>
                       {raceBonuses.map((b, i) => {
                         const current = (assignments.filter(a => a.source === 'race') || [])[i]?.ability || ''
                         const takenByOthers = assignments.filter(a => a.source === 'race').map((a, idx) => idx !== i ? a.ability : null).filter(Boolean)
                         const keys = getAvailableKeys(b)
                         return (
-                          <div key={i} className="flex items-center gap-1">
+                          <div key={i} className="flex items-center gap-1.5">
                             <select value={current} onChange={e => handleAsiChange('race', i, e.target.value)}
-                              className="px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+                              className="px-2 py-1 rounded bg-gray-800/60 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 min-w-[110px]">
                               <option value="">+{b.amount} → ?</option>
                               {keys.map(k => (
                                 <option key={k} value={k} disabled={takenByOthers.includes(k)}>
@@ -857,18 +1117,21 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                       })}
                     </div>
                   )}
+                  {subraceBonuses.length > 0 && raceBonuses.length > 0 && (
+                    <div className="w-px h-5 bg-gray-700/50" />
+                  )}
                   {subraceBonuses.length > 0 && (
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10px] text-gray-500">亚种</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-gray-500 shrink-0">亚种</span>
                       {subraceBonuses.map((b, i) => {
                         const subAssignments = assignments.filter(a => a.source === 'subrace')
                         const current = subAssignments[i]?.ability || ''
                         const takenByOthers = subAssignments.map((a, idx) => idx !== i ? a.ability : null).filter(Boolean)
                         const keys = getAvailableKeys(b)
                         return (
-                          <div key={i} className="flex items-center gap-1">
+                          <div key={i} className="flex items-center gap-1.5">
                             <select value={current} onChange={e => handleAsiChange('subrace', i, e.target.value)}
-                              className="px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+                              className="px-2 py-1 rounded bg-gray-800/60 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 min-w-[110px]">
                               <option value="">+{b.amount} → ?</option>
                               {keys.map(k => (
                                 <option key={k} value={k} disabled={takenByOthers.includes(k)}>
@@ -895,7 +1158,11 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
           )}
         </>
       )}
+    </div>
+    )}
 
+    {showModals && (
+      <>
       {/* 种族编辑器弹窗 — 左栏种族列表 + 右栏编辑 */}
       {raceBuffEditorOpen && (() => {
         const allRaces = getAllRaces()
@@ -1044,7 +1311,8 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
           />
         )
       })()}
-    </div>
+      </>
+    )}
     </>
   )
 }
@@ -2095,6 +2363,10 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
           const chosenOption = choiceRegistryEntry && chosenOptionId
             ? choiceRegistryEntry.options.find((o) => o.id === chosenOptionId)
             : null
+          // 卡上已解析的效果（经 getBuffsFromClassFeatures，含硬编码回退），与 BUFF 栏同源
+          const cfCard = classFeatureCards.find(c =>
+            c.slotKind === 'class' && c.sourceKey === `${f.sourceClass}|${f.sourceSubclass || ''}|${f.id}`
+          )
           // 效果摘要（用于 BUFF 标签列显示）；选择型特性取已选选项的效果
           let cfEffectsSource = Array.isArray(cfPatch?.effects) ? cfPatch.effects : []
           if (isChoiceType && cfEffectsSource.length === 0 && choiceRegistryEntry && chosenOptionId) {
@@ -2103,16 +2375,22 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
               ? optPatch.effects
               : (choiceRegistryEntry.getEffects(chosenOptionId) || [])
           }
+          // 非选择型：DM 补丁为空时回退到卡上已解析效果，避免"卡空但 BUFF 栏有"的不一致
+          if (!isChoiceType && cfEffectsSource.length === 0 && Array.isArray(cfCard?.buffEffects)) {
+            cfEffectsSource = cfCard.buffEffects
+          }
           const cfEffectSummaries = cfEffectsSource.map(e =>
                 getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText, scope: e.scope, scopeDetail: e.scopeDetail }, formulaContext)
               ).filter(Boolean)
-          const cfBuffTags = cfEffectSummaries.length > 0
-            ? cfEffectSummaries.slice(0, 3)
-            : (cfScopeLabel ? [cfScopeLabel] : [])
+          const cfHasBuff = Array.isArray(cfCard?.buffEffects) && cfCard.buffEffects.length > 0
+          const isCfDisabled = Array.isArray(char?.disabledClassFeatureBuffs) && char.disabledClassFeatureBuffs.includes(cfBuffKey)
+          const cfBuffTags = (() => {
+            const base = cfEffectSummaries.length > 0
+              ? cfEffectSummaries.slice(0, 3)
+              : (cfScopeLabel ? [cfScopeLabel] : [])
+            return isCfDisabled ? ['已停用', ...base] : base
+          })()
           // 护盾池检测（统一从 card.buffEffects 查找，包含所有来源的效果）
-          const cfCard = classFeatureCards.find(c =>
-            c.slotKind === 'class' && c.sourceKey === `${f.sourceClass}|${f.sourceSubclass || ''}|${f.id}`
-          )
           const cfShieldPoolEffect = cfCard && Array.isArray(cfCard.buffEffects)
             ? cfCard.buffEffects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
             : null
@@ -2164,21 +2442,38 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
                 sourceSub={f.sourceSubclass || f.sourceClass}
                 buffTags={cfBuffTags}
                 headerRight={
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      if (isChoiceType) {
-                        setChoiceModalFeature(f)
-                      } else {
-                        setBuffEditorFeature(f)
-                      }
-                    }}
-                    className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
-                    title={isChoiceType ? '选择特性选项' : '配置 BUFF 效果'}
-                  >
-                    <Settings className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-0.5">
+                    {canEdit && cfHasBuff && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          const cur = Array.isArray(char?.disabledClassFeatureBuffs) ? char.disabledClassFeatureBuffs : []
+                          const next = cur.includes(cfBuffKey) ? cur.filter((k) => k !== cfBuffKey) : [...cur, cfBuffKey]
+                          onSave({ disabledClassFeatureBuffs: next })
+                        }}
+                        className={`w-7 h-7 flex items-center justify-center rounded-md transition-all active:scale-95 ${isCfDisabled ? 'text-red-400/80 hover:text-red-300 hover:bg-red-900/30' : 'text-gray-500 hover:text-emerald-400 hover:bg-gray-700/50'}`}
+                        title={isCfDisabled ? '本角色已停用该增益，点击恢复' : '仅对本角色停用该增益（不影响其他角色与模组默认）'}
+                      >
+                        <Power className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (isChoiceType) {
+                          setChoiceModalFeature(f)
+                        } else {
+                          setBuffEditorFeature(f)
+                        }
+                      }}
+                      className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
+                      title={isChoiceType ? '选择特性选项' : '配置 BUFF 效果'}
+                    >
+                      <Settings className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 }
                 footer={<ClassFeatureActions feature={f} moduleId={moduleId} char={char} onSave={onSave} />}
               >
@@ -2601,6 +2896,20 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
 
   const selectedFeats = char?.selectedFeats ?? []
 
+  // 卡片效果摘要与计算管线同源：取个人补丁与模组默认合并后的最终生效效果
+  const featBuffTagsFor = (row) => {
+    if (!row?.featId) return []
+    const patch = resolveFeatPatch(row, moduleId)
+    const summaries = (Array.isArray(patch?.effects) ? patch.effects : [])
+      .map((e) => getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText, scope: e.scope, scopeDetail: e.scopeDetail }, formulaContext))
+      .filter(Boolean)
+    if (summaries.length > 0) return summaries.slice(0, 3)
+    const scope = row?.featBuffPatch?.cardScope || (moduleId ? loadDefaultBuffPatch(moduleId, 'feat', row.featId)?.cardScope : null)
+    return scope?.type && scope.type !== 'global'
+      ? [SCOPE_TYPE_OPTIONS.find((o) => o.value === scope.type)?.label || scope.type]
+      : []
+  }
+
   const slotRows = useMemo(() => {
     return slots.map((slot) => {
       const row = selectedFeats.find((f) => f?.slotId === slot.id) || {
@@ -2782,20 +3091,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                   category="专长"
                   sourceMain={`${row?.level || slot?.level || 1}级获得`}
                   sourceSub={name || slot?.category || ''}
-                  buffTags={(() => {
-                    const fPatch = row?.featBuffPatch
-                    const fScope = fPatch?.cardScope
-                    const fEffectSummaries = Array.isArray(fPatch?.effects)
-                      ? fPatch.effects.map(e =>
-                          getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText, scope: e.scope, scopeDetail: e.scopeDetail }, formulaContext)
-                        ).filter(Boolean)
-                      : []
-                    return fEffectSummaries.length > 0
-                      ? fEffectSummaries.slice(0, 3)
-                      : (fScope?.type && fScope.type !== 'global'
-                        ? [SCOPE_TYPE_OPTIONS.find(o => o.value === fScope.type)?.label || fScope.type]
-                        : [])
-                  })()}
+                  buffTags={featBuffTagsFor(row)}
                   name={row?.featId ? (
                     <InfoTooltip
                       content={
@@ -2955,6 +3251,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                   category="专长"
                   sourceMain={`${row?.level || 1}级获得`}
                   sourceSub={name}
+                  buffTags={featBuffTagsFor(row)}
                   name={
                     <InfoTooltip
                       content={
@@ -2988,14 +3285,24 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                   }
                   headerRight={
                     canEdit ? (
-                      <button
-                        type="button"
-                        onClick={() => removeFreeFeat(i)}
-                        className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-red-400 hover:bg-red-900/20 transition-all active:scale-95"
-                        title="移除"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setFeatBuffEditor({ row })}
+                          className="w-6 h-6 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
+                          title="编辑效果"
+                        >
+                          <Settings className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeFreeFeat(i)}
+                          className="w-6 h-6 flex items-center justify-center rounded-md text-gray-500 hover:text-red-400 hover:bg-red-900/20 transition-all active:scale-95"
+                          title="移除"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     ) : null
                   }
                   footer={hasActiveAbility ? (() => {
@@ -3596,6 +3903,9 @@ export default function CharacterSheet() {
   const [backgroundBuffEditorOpen, setBackgroundBuffEditorOpen] = useState(false)
   const [profileTraitChoiceModal, setProfileTraitChoiceModal] = useState(null)
   const [expandedRaceTraitIds, setExpandedRaceTraitIds] = useState(new Set())
+  // 档案页分区编辑态：null = 整页只读，否则为当前编辑的分区键
+  const [editingSection, setEditingSection] = useState(null)
+  const toggleProfileSection = (key) => setEditingSection((prev) => (prev === key ? null : key))
   const toggleRaceTraitExpand = (id) => {
     setExpandedRaceTraitIds((prev) => {
       const next = new Set(prev)
@@ -4017,62 +4327,90 @@ export default function CharacterSheet() {
       
       {char ? (
         <>
-          {/* 统一卡片：左 核心（生物模版不显示外貌/基础与头像）| 右 大头像 */}
+          {/* 档案：左栏 头部条/基础档案/种族与背景 | 右栏 肖像 + 背景故事（2:1） */}
           <section id="sheet-profile" className="character-sheet-section-anchor module-panel mt-4 w-full p-3">
             {isCreatureTemplate ? (
               <CreatureSimpleBlock char={char} canEdit={canEdit} onSave={persist} />
             ) : (
-              <>
-                {/* 左列：代号+角色名+外观 | 右列：头像（顶部对齐角色名） */}
-                <div className="grid grid-cols-1 lg:grid-cols-[1fr_500px] lg:gap-3">
-                  <div className="min-w-0">
-                    <div className="form-group-compact">
-                      <label className="form-label">代号（可选）</label>
-                      {canEdit ? (
-                        <input
-                          type="text"
-                          value={editingCodename !== null ? editingCodename : (char.codename ?? '')}
-                          onChange={(e) => setEditingCodename(e.target.value)}
-                          onFocus={() => { if (editingCodename === null) setEditingCodename(char.codename ?? '') }}
-                          onBlur={() => {
-                            const value = (editingCodename !== null ? editingCodename : char.codename ?? '').trim() || undefined
-                            persist({ codename: value })
-                            setEditingCodename(null)
-                          }}
-                          placeholder="区分同名角色"
-                          className="input-thin w-full text-[var(--text-muted)] text-lg"
-                        />
-                      ) : (
-                        <p className="text-[var(--text-muted)] text-lg break-words">{char.codename || '—'}</p>
-                      )}
+              (() => {
+                const raceInfo = getProfileRaceInfo(char)
+                return (
+                <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:items-stretch">
+                  {/* 头部条：角色名 + 代号 + 种族/背景芯片 */}
+                  <div className="order-1 min-w-0 lg:order-none lg:col-start-1 lg:row-start-1">
+                    <ProfileIdentityBar
+                      char={char}
+                      canEdit={canEdit}
+                      editing={editingSection === 'identity'}
+                      onToggleEdit={() => toggleProfileSection('identity')}
+                      persist={persist}
+                      nameInputRef={nameInputRef}
+                      editingName={editingName}
+                      setEditingName={setEditingName}
+                      editingCodename={editingCodename}
+                      setEditingCodename={setEditingCodename}
+                      raceInfo={raceInfo}
+                    />
+                  </div>
+
+                  {/* 右栏：肖像 + 背景故事（窄屏 contents，让两块各自参与外层排序） */}
+                  <div className="contents lg:grid lg:grid-rows-[minmax(0,2fr)_minmax(0,1fr)] lg:gap-3 lg:min-h-0 lg:col-start-2 lg:row-start-1 lg:row-span-3">
+                    <div className="order-2 min-w-0 h-[300px] max-h-[320px] lg:order-none lg:h-auto lg:max-h-none lg:min-h-0">
+                      <AvatarFrame char={char} canEdit={canEdit} onSave={persist} portrait />
                     </div>
-                    <div className="form-group-compact">
-                      <label className="form-label">角色名</label>
-                      {canEdit ? (
-                        <NameInput
-                          ref={nameInputRef}
-                          value={editingName !== null ? editingName : (char.name ?? '')}
-                          onChange={(e) => setEditingName(e.target.value)}
-                          onFocus={() => { if (editingName === null) setEditingName(char.name ?? '') }}
-                          onBlur={() => {
-                            const value = (editingName ?? char.name ?? '').trim() || '未命名'
-                            persist({ name: value })
-                            setEditingName(null)
-                          }}
-                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur() } }}
-                          className="input-thin w-full font-bold text-2xl sm:text-3xl text-[var(--text-main)] py-1 break-words leading-tight"
-                        />
-                      ) : (
-                        <p className="text-2xl sm:text-3xl font-bold text-[var(--text-main)] break-words leading-tight" style={{ fontWeight: 700 }}>{char.name || '未命名'}</p>
-                      )}
-                    </div>
-                    <h3 className="profile-section-title mt-2 mb-0.5">外观 / 基础</h3>
-                    <AppearanceGrid char={char} canEdit={canEdit} onSave={persist} noBorder compact />
+                    <ProfileSection
+                      title="背景故事"
+                      canEdit={canEdit}
+                      editing={editingSection === 'story'}
+                      onToggleEdit={() => toggleProfileSection('story')}
+                      className="order-5 min-h-[140px] lg:order-none lg:min-h-0"
+                      bodyClassName="min-h-0 flex-1 flex flex-col"
+                    >
+                      <BackstoryBlock char={char} canEdit={canEdit && editingSection === 'story'} onSave={persist} fillHeight />
+                    </ProfileSection>
+                  </div>
+
+                  {/* 基础档案 */}
+                  <ProfileSection
+                    title="基础档案"
+                    canEdit={canEdit}
+                    editing={editingSection === 'basic'}
+                    onToggleEdit={() => toggleProfileSection('basic')}
+                    className="order-3 lg:order-none lg:col-start-1 lg:row-start-2"
+                  >
+                    {editingSection === 'basic' ? (
+                      <>
+                        <AppearanceGrid char={char} canEdit={canEdit} onSave={persist} noBorder compact />
+                        <RaceBackgroundInline char={char} canEdit={canEdit} onSave={persist} parts="basics" />
+                      </>
+                    ) : (
+                      <AppearanceReadGrid char={char} raceInfo={raceInfo} />
+                    )}
+                  </ProfileSection>
+
+                  {/* 种族与背景 */}
+                  <ProfileSection
+                    title="种族与背景"
+                    canEdit={canEdit}
+                    editing={editingSection === 'racebg'}
+                    onToggleEdit={() => toggleProfileSection('racebg')}
+                    className="order-4 lg:order-none lg:col-start-1 lg:row-start-3"
+                  >
                     <RaceBackgroundInline char={char} canEdit={canEdit} onSave={persist}
+                      parts="racebg" showControls={editingSection === 'racebg'}
                       raceBuffEditorOpen={raceBuffEditorOpen} setRaceBuffEditorOpen={setRaceBuffEditorOpen}
                       backgroundBuffEditorOpen={backgroundBuffEditorOpen} setBackgroundBuffEditorOpen={setBackgroundBuffEditorOpen}
                       referenceData={referenceData} baseReferenceData={baseReferenceData} formulaContext={buffFormulaContext}
                       expandedRaceTraitIds={expandedRaceTraitIds} onToggleRaceTraitExpand={toggleRaceTraitExpand} />
+
+                    {/* 属性加值芯片（只读态） */}
+                    {editingSection !== 'racebg' && raceInfo.asiChips.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                        {raceInfo.asiChips.map((chip) => (
+                          <span key={chip.key} className={`profile-chip${chip.assigned ? '' : ' profile-chip-dim'}`}>{chip.text}</span>
+                        ))}
+                      </div>
+                    )}
 
                     {/* 种族特性展示 */}
                     {(() => {
@@ -4205,20 +4543,15 @@ export default function CharacterSheet() {
                         </div>
                       )
                     })()}
-                  </div>
-                  <div className="min-w-0 h-full">
-                    <AvatarFrame char={char} canEdit={canEdit} onSave={persist} large />
-                  </div>
-                </div>
 
-                {/* 人物背景故事（全宽，左右与上方对齐） */}
-                <div className="mt-3">
-                  <h3 className="profile-section-title mt-0 mb-1">人物背景故事</h3>
-                  <div className="h-[120px]">
-                    <BackstoryBlock char={char} canEdit={canEdit} onSave={persist} />
-                  </div>
+                    {/* 空态提示 */}
+                    {!raceInfo.raceName && !char.backgroundCard?.backgroundId && (
+                      <p className="profile-field-label">未选择种族与背景</p>
+                    )}
+                  </ProfileSection>
                 </div>
-              </>
+                )
+              })()
             )}
           </section>
           {!isCreatureTemplate && (
@@ -4286,6 +4619,11 @@ export default function CharacterSheet() {
               formulaContext={buffFormulaContext}
               onEditRace={() => setRaceBuffEditorOpen(true)}
               onEditBackground={() => setBackgroundBuffEditorOpen(true)}
+              onDisableClassFeatureBuff={(key) => {
+                const cur = Array.isArray(char.disabledClassFeatureBuffs) ? char.disabledClassFeatureBuffs : []
+                if (cur.includes(key)) return
+                persist({ disabledClassFeatureBuffs: [...cur, key] })
+              }}
             />
           </section>
           )}

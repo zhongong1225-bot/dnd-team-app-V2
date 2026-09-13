@@ -180,6 +180,20 @@ export function mergeFeatBuffPatchesFromMergedList(character, buffsList) {
 }
 
 /**
+ * 解析专长行最终生效的 patch：个人补丁与模组库默认合并，两者皆无时回退硬编码专长效果。
+ * 计算管线与角色卡效果摘要列共用，保证「实际生效」与「界面显示」同源。
+ */
+export function resolveFeatPatch(row, moduleId) {
+  const defaultPatch = moduleId ? loadDefaultBuffPatch(moduleId, 'feat', row?.featId) : null
+  let patch = mergeWithDefaultPatch(row?.featBuffPatch, defaultPatch)
+  if (!patch && HARDCODED_FEAT_BUFFS[row?.featId]) {
+    const hardcoded = HARDCODED_FEAT_BUFFS[row.featId]
+    patch = { effects: Array.isArray(hardcoded.effects) ? hardcoded.effects : [] }
+  }
+  return patch || null
+}
+
+/**
  * 从角色已选专长生成虚拟 BUFF（栏内不展示规则原文；效果由用户在编辑中填写，存于 featBuffPatch）
  * @param {Object} character
  * @param {string} [moduleId] - 有则套用规则收录中的专长显示名称覆盖
@@ -196,14 +210,8 @@ export function getBuffsFromSelectedFeats(character, moduleId) {
     const def = FEAT_BY_ID.get(item.featId)
     const baseName = def?.name ?? item.featId
     const name = resolveRuleText(map, buildFeatNameKey(item.featId), baseName)
-    const defaultPatch = moduleId ? loadDefaultBuffPatch(moduleId, 'feat', item.featId) : null
-    const patch = mergeWithDefaultPatch(item.featBuffPatch, defaultPatch)
+    const patch = resolveFeatPatch(item, moduleId)
     let effects = Array.isArray(patch?.effects) && patch.effects.length ? patch.effects : []
-    // 无自定义且无模组库默认时，回退到硬编码专长效果
-    if (effects.length === 0 && !patch && HARDCODED_FEAT_BUFFS[item.featId]) {
-      const hardcoded = HARDCODED_FEAT_BUFFS[item.featId]
-      effects = Array.isArray(hardcoded.effects) ? hardcoded.effects : []
-    }
     const duration = patch?.duration
     const enabled = patch?.enabled !== false
     // 已移除硬编码主动技能，全部走BUFF编辑器 charge_item 效果
@@ -412,6 +420,9 @@ export function getBuffsFromClassFeatures(character, moduleId) {
   if (!character) return []
   const features = getAvailableFeatures(character)
   const classFeatureChoices = character.classFeatureChoices || null
+  const disabledClassFeatureSet = Array.isArray(character.disabledClassFeatureBuffs)
+    ? new Set(character.disabledClassFeatureBuffs)
+    : null
   return features
     .map((f, index) => {
       const buffKey = buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)
@@ -419,6 +430,8 @@ export function getBuffsFromClassFeatures(character, moduleId) {
       let effects = Array.isArray(defaultPatch?.effects) && defaultPatch.effects.length ? defaultPatch.effects : []
       let duration = defaultPatch?.duration
       let enabled = defaultPatch?.enabled !== false
+      // 本角色停用：仅影响该角色，不动模组默认
+      if (enabled && disabledClassFeatureSet?.has(buffKey)) enabled = false
       let sourceLabel = f.name
       let optionId = null
 
@@ -775,21 +788,21 @@ export function getFlatEffectEntries(buffs, char) {
           const profAbilities = {}
           for (const [k, val] of Object.entries(v.proficiency)) { if (val) profAbilities[k] = true }
           if (Object.keys(profAbilities).length > 0) {
-            out.push({ ...proto, effectType: 'ability_score', value: { abilities: profAbilities } })
+            out.push({ ...proto, effectType: 'ability_score', value: profAbilities })
           }
         }
         if (v.override && typeof v.override === 'object') {
           const overAbilities = {}
           for (const [k, val] of Object.entries(v.override)) { if (val != null && val !== 0) overAbilities[k] = Number(val) }
           if (Object.keys(overAbilities).length > 0) {
-            out.push({ ...proto, effectType: 'ability_override', value: { abilities: overAbilities } })
+            out.push({ ...proto, effectType: 'ability_override', value: overAbilities })
           }
         }
         if (v.increase && typeof v.increase === 'object') {
           const incAbilities = {}
           for (const [k, val] of Object.entries(v.increase)) { if (val != null && val !== 0) incAbilities[k] = Number(val) }
           if (Object.keys(incAbilities).length > 0) {
-            out.push({ ...proto, effectType: 'ability_score_uncapped', value: { abilities: incAbilities } })
+            out.push({ ...proto, effectType: 'ability_score_uncapped', value: incAbilities })
           }
         }
         continue

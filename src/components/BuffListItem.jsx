@@ -186,6 +186,14 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
     const sign = bonus >= 0 ? '+' : ''
     return `${typeLabel}速度${sign}${bonus}尺`
   }
+  // special_senses 对象格式：{ senses: ['darkvision'], range: 60 }
+  if (buff.effectType === 'special_senses' && v && typeof v === 'object' && !Array.isArray(v) && !isFormulaValue(v)) {
+    const senses = Array.isArray(v.senses) ? v.senses : []
+    const senseLabels = senses.map(s => SPECIAL_SENSES_OPTIONS.find(o => o.value === s)?.label ?? s).filter(Boolean)
+    if (senseLabels.length === 0) return effectLabel
+    const range = Number(v.range) || 0
+    return range > 0 ? `${senseLabels.join('、')}（${range}尺）` : senseLabels.join('、')
+  }
   // ac_bonus 对象格式（合并AC编辑器）：只显示叠加的额外AC部分
   if (buff.effectType === 'ac_bonus' && v && typeof v === 'object' && !Array.isArray(v) && !isFormulaValue(v)) {
     const text = formatArmorOverrideSummary(v, context, true)
@@ -341,9 +349,13 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       const max = Number(v.max) || 10
       const threshold = Number(v.threshold) || 0
       const recoverLabel = { short: '短休恢复', long: '长休恢复', dawn: '黎明恢复', manual: '手动恢复', none: '不恢复' }[v.recoverOn] || '手动恢复'
-      const bonusCount = Array.isArray(v.bonusEffects) ? v.bonusEffects.length : 0
-      const bonusText = bonusCount > 0 ? `，高于阈值+${bonusCount}增益` : ''
-      return `上限${max}，≤${threshold}失效，${recoverLabel}${bonusText}`
+      const bonusSummaries = (Array.isArray(v.bonusEffects) ? v.bonusEffects : [])
+        .map((be) => getEffectSummaryShort({ effectType: be.effectType, value: be.value, scope: be.scope, scopeDetail: be.scopeDetail }, context, baseContext))
+        .filter(Boolean)
+      const thresholdText = bonusSummaries.length
+        ? `，AC≤${threshold}失去${bonusSummaries.join('、')}增益`
+        : `，≤${threshold}失效`
+      return `上限${max}${thresholdText}，${recoverLabel}`
     }
     if ((buff.effectType === 'recharge_long_rest' || buff.effectType === 'recharge_dawn') && v != null) {
       const norm = normalizeChargeRecoveryValue(v)
@@ -635,14 +647,27 @@ export function getBuffEffectsList(buff, baseAbilities = {}, suppressedEffectTyp
         if (e.upgrade && e.upgrade.className && e.upgrade.level) {
           text += `，${e.upgrade.className} ${e.upgrade.level}级↑`
         }
-        effectParts.push({ text, suppressed: suppressedEffectTypes.has(e.effectType) })
+        effectParts.push({ text, suppressed: suppressedEffectTypes.has(e.effectType), effectType: e.effectType })
       }
     })
   } else {
     const s = getEffectSummaryShort(buff, context, baseContext)
-    if (s) effectParts.push({ text: s, suppressed: suppressedEffectTypes.has(buff.effectType) })
+    if (s) effectParts.push({ text: s, suppressed: suppressedEffectTypes.has(buff.effectType), effectType: buff.effectType })
   }
-  return effectParts
+  // 种族/专长的属性加值常拆成多条（每槽一条），显示时合并到同一行
+  const merged = []
+  for (const part of effectParts) {
+    const target = part.effectType === 'ability_score_uncapped'
+      ? merged.find((m) => m.effectType === 'ability_score_uncapped')
+      : null
+    if (target) {
+      target.text += `，${part.text}`
+      target.suppressed = target.suppressed && part.suppressed
+      continue
+    }
+    merged.push(part)
+  }
+  return merged
 }
 
 /** 效果描述 + 数值（用于胶囊）；属性用中文名并显示扣除后的总值 */
@@ -792,9 +817,13 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
       const max = Number(v.max) || 10
       const threshold = Number(v.threshold) || 0
       const recoverLabel = { short: '短休恢复', long: '长休恢复', dawn: '黎明恢复', manual: '手动恢复', none: '不恢复' }[v.recoverOn] || '手动恢复'
-      const bonusCount = Array.isArray(v.bonusEffects) ? v.bonusEffects.length : 0
-      const bonusText = bonusCount > 0 ? `，高于阈值+${bonusCount}增益` : ''
-      return { label: effectLabel, value: `上限${max}，≤${threshold}失效，${recoverLabel}${bonusText}` }
+      const bonusSummaries = (Array.isArray(v.bonusEffects) ? v.bonusEffects : [])
+        .map((be) => getEffectSummaryShort({ effectType: be.effectType, value: be.value, scope: be.scope, scopeDetail: be.scopeDetail }, context, baseContext))
+        .filter(Boolean)
+      const thresholdText = bonusSummaries.length
+        ? `，AC≤${threshold}失去${bonusSummaries.join('、')}增益`
+        : `，≤${threshold}失效`
+      return { label: effectLabel, value: `上限${max}${thresholdText}，${recoverLabel}` }
     }
     if (buff.effectType === 'spell_damage_bonus' && v && typeof v === 'object' && !Array.isArray(v)) {
       const text = formatSpellDamageBonusValue(v)
@@ -987,6 +1016,20 @@ const GRID_COLS = {
   noActions: 'grid-cols-[minmax(6.25rem,9.5em)_1fr_auto]',
 }
 
+/** 单条效果文本：被抑制的灰色删除线，负值标红 */
+function renderEffectText(eff) {
+  if (eff.suppressed) return <span className="text-gray-500 line-through">{eff.text}</span>
+  const parts = eff.text.split(/((?<![0-9])-\d+)/g)
+  if (parts.length <= 1) return eff.text
+  return parts.map((part, j) =>
+    /^-\d+$/.test(part) ? (
+      <span key={j} className="text-red-400">{part}</span>
+    ) : (
+      part
+    )
+  )
+}
+
 /** 多效果时渲染为多组 (label, value) 胶囊（供 isDebuff 等内部用） */
 function getEffectDisplays(buff, baseAbilities, context = {}) {
   if (Array.isArray(buff.effects) && buff.effects.length) {
@@ -1004,6 +1047,7 @@ export default function BuffListItem({
   columnKey,
   standalone,
   hideSourceTag = false,
+  oneEffectPerLine = false,
   suppressedEffectTypes = new Set(),
   formulaContext = {},
 }) {
@@ -1026,7 +1070,7 @@ export default function BuffListItem({
 
   return (
     <div
-      className={`grid ${showActions ? GRID_COLS.withActions : GRID_COLS.noActions} items-center gap-x-1 px-1.5 min-h-[32px] py-0.5 h-full bg-[#202838]/36 ${standalone ? '' : 'border-b border-white/10 last:border-b-0'} ${!buff.enabled ? 'opacity-50' : ''}`}
+      className={`grid ${showActions ? GRID_COLS.withActions : GRID_COLS.noActions} ${oneEffectPerLine ? 'items-start' : 'items-center'} gap-x-1 px-1.5 min-h-[32px] py-0.5 h-full bg-[#202838]/36 ${standalone ? '' : 'border-b border-white/10 last:border-b-0'} ${!buff.enabled ? 'opacity-50' : ''}`}
       role="row"
       title={rowHoverTitle}
     >
@@ -1047,27 +1091,23 @@ export default function BuffListItem({
       {/* 效果：垂直对齐；负值红色；被抑制的DC/法术攻击加值灰色；略左移约 3 字宽贴近名称列 */}
       <div className="min-w-0 -ml-[3ch]">
         {effectsList.length > 0 ? (
-          <span className="text-gray-200 text-sm" title={effectsList.map(e => e.text).join('，')}>
-            {effectsList.map((eff, i) => {
-              const sep = i > 0 ? '，' : ''
-              // 被抑制的效果：灰色 + 删除线
-              if (eff.suppressed) {
-                return <span key={i}>{sep}<span className="text-gray-500 line-through">{eff.text}</span></span>
-              }
-              // 正常效果：负值红色
-              const parts = eff.text.split(/((?<![0-9])-\d+)/g)
-              if (parts.length <= 1) {
-                return <span key={i}>{sep}{eff.text}</span>
-              }
-              return <span key={i}>{sep}{parts.map((part, j) =>
-                /^-\d+$/.test(part) ? (
-                  <span key={j} className="text-red-400">{part}</span>
-                ) : (
-                  part
-                )
-              )}</span>
-            })}
-          </span>
+          oneEffectPerLine ? (
+            <div className="grid grid-cols-2 gap-x-3 text-gray-200 text-sm" title={effectsList.map(e => e.text).join('\n')}>
+              {[effectsList.slice(0, Math.ceil(effectsList.length / 2)), effectsList.slice(Math.ceil(effectsList.length / 2))].map((col, ci) => (
+                <div key={ci} className="flex flex-col gap-0.5 min-w-0">
+                  {col.map((eff, i) => (
+                    <span key={i} className="block leading-snug">{renderEffectText(eff)}</span>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <span className="text-gray-200 text-sm" title={effectsList.map(e => e.text).join('，')}>
+              {effectsList.map((eff, i) => (
+                <span key={i}>{i > 0 ? '，' : ''}{renderEffectText(eff)}</span>
+              ))}
+            </span>
+          )
         ) : null}
       </div>
 

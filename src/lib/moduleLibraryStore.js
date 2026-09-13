@@ -59,6 +59,15 @@ export function getModuleLibrary(moduleId) {
   }
 }
 
+/** 供直接写 localStorage 的外部写入方（专长 BUFF 路径）同步内存缓存，避免陈旧缓存被回推覆盖 */
+export function primeModuleLibraryCache(moduleId, library) {
+  const mod = moduleId ?? 'default'
+  cache[mod] = {
+    buffTemplates: Array.isArray(library?.buffTemplates) ? library.buffTemplates.map((x) => ({ ...x })) : [],
+    itemTemplates: Array.isArray(library?.itemTemplates) ? library.itemTemplates.map((x) => ({ ...x })) : [],
+  }
+}
+
 export async function loadModuleLibraryFromSupabase(moduleId) {
   const mod = moduleId ?? 'default'
   if (!isSupabaseEnabled()) return getModuleLibrary(mod)

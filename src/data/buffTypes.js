@@ -491,7 +491,8 @@ export const BUFF_TYPES = {
       { key: 'spell_attack_bonus', label: '法术强度', dataType: 'object', subSelect: 'spellPower' },
       { key: 'save_dc_bonus', label: 'DC', dataType: 'number', hidden: true },
       { key: 'spell_damage_bonus', label: '施法增伤', dataType: 'object', subSelect: 'spellDamageBonus' },
-      { key: 'damage_dice_bonus', label: '每伤害骰+1', dataType: 'number', hidden: true },
+      { key: 'caster_level_bonus', label: '增强施法者等级', dataType: 'number' },
+      { key: 'damage_dice_bonus', label: '每伤害骰伤害', dataType: 'number', hidden: true },
       { key: 'min_dice_value', label: '最低骰子数', dataType: 'number', hidden: true },
       // 以下保留旧 key，供已有数据与计算器解析
       { key: 'init_bonus', label: '先攻', dataType: 'number', hidden: true },

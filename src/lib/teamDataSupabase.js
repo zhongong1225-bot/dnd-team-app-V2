@@ -157,3 +157,21 @@ export async function saveModuleLibrary(moduleId, libraryData) {
   )
   if (error) throw error
 }
+
+export async function fetchDefaultBuffPatches(moduleId) {
+  const mod = moduleId ?? 'default'
+  const { data, error } = await supabase.from('custom_library').select('*').eq('lib_key', `default_buff_patches_${mod}`).maybeSingle()
+  if (error) throw error
+  if (!data) return null
+  const payload = Array.isArray(data.data) ? data.data[0] : data.data
+  return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : null
+}
+
+export async function saveDefaultBuffPatches(moduleId, entries) {
+  const mod = moduleId ?? 'default'
+  const { error } = await supabase.from('custom_library').upsert(
+    { lib_key: `default_buff_patches_${mod}`, data: [entries || {}], updated_at: new Date().toISOString() },
+    { onConflict: 'lib_key' }
+  )
+  if (error) throw error
+}

@@ -7,10 +7,31 @@
  * 与模组库 BUFF 模板为同一数据源。魔能祈唤/战斗风格仍用独立 localStorage。
  */
 
+import { isSupabaseEnabled } from './supabase'
+import * as teamData from './teamDataSupabase'
+
 const STORAGE_PREFIX = 'dnd-default-buff-patches-v1-'
 const MODULE_LIB_PREFIX = 'dnd_module_library_v1_'
 
 export const DEFAULT_BUFF_PATCHES_EVENT = 'dnd-default-buff-patches-changed'
+
+function normMod(moduleId) {
+  return moduleId && String(moduleId).trim() ? String(moduleId).trim() : 'default'
+}
+
+// Supabase 启动期 currentModuleId 会短暂落到 'default'，此时写入会进错桶导致配置"丢失"。
+// 默认 true：localStorage 模式与无 ModuleProvider 的上下文一律不拦截。
+let cloudReady = true
+export function setDefaultBuffPatchesReady(ready) {
+  cloudReady = !!ready
+}
+function blockBootstrapWrite(op) {
+  if (isSupabaseEnabled() && !cloudReady) {
+    console.warn(`[defaultBuffPatch] 云端数据同步中，已忽略${op}（避免写入错误的模组桶）`)
+    return true
+  }
+  return false
+}
 
 export function defaultBuffPatchesStorageKey(moduleId) {
   const m = moduleId && String(moduleId).trim() ? String(moduleId).trim() : 'default'
@@ -40,6 +61,16 @@ function saveLib(moduleId, library) {
   try {
     localStorage.setItem(libKey(moduleId), JSON.stringify(library))
   } catch { /* ignore */ }
+  if (isSupabaseEnabled() && cloudReady) {
+    const mod = normMod(moduleId)
+    const normalized = {
+      buffTemplates: Array.isArray(library.buffTemplates) ? library.buffTemplates : [],
+      itemTemplates: Array.isArray(library.itemTemplates) ? library.itemTemplates : [],
+    }
+    teamData.saveModuleLibrary(mod, normalized).catch((e) => console.warn('[defaultBuffPatch] 专长云端保存失败', e))
+    // 动态导入避免静态循环依赖；同步内存缓存，防止后续 persistModuleLibrary 用陈旧缓存覆盖专长
+    import('./moduleLibraryStore').then((m) => m.primeModuleLibraryCache?.(mod, normalized)).catch(() => {})
+  }
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('dnd-realtime-module-library'))
   }
@@ -61,17 +92,49 @@ function loadRaw(moduleId) {
   return {}
 }
 
-function saveRaw(moduleId, entries) {
+function writeRawLocal(moduleId, entries) {
   try {
     localStorage.setItem(
       defaultBuffPatchesStorageKey(moduleId),
       JSON.stringify({ entries, updatedAt: Date.now() }),
     )
   } catch { /* ignore */ }
+}
+
+function saveRaw(moduleId, entries) {
+  writeRawLocal(moduleId, entries)
+  if (isSupabaseEnabled() && cloudReady) {
+    teamData.saveDefaultBuffPatches(normMod(moduleId), entries)
+      .catch((e) => console.warn('[defaultBuffPatch] 云端保存失败', e))
+  }
   if (typeof window !== 'undefined') {
     window.dispatchEvent(
       new CustomEvent(DEFAULT_BUFF_PATCHES_EVENT, { detail: { moduleId } }),
     )
+  }
+}
+
+/**
+ * 从云端加载本模组的默认 BUFF 补丁并与本地合并。
+ * 云端有数据 → 按 key 合并（云端优先）写回本地并广播重算；
+ * 云端为空但本地有数据 → 把本地首次上云播种。
+ */
+export async function loadDefaultBuffPatchesFromSupabase(moduleId) {
+  if (!isSupabaseEnabled()) return
+  const mod = normMod(moduleId)
+  try {
+    const cloud = await teamData.fetchDefaultBuffPatches(mod)
+    const local = loadRaw(mod)
+    if (cloud && typeof cloud === 'object' && Object.keys(cloud).length) {
+      writeRawLocal(mod, { ...local, ...cloud })
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(DEFAULT_BUFF_PATCHES_EVENT, { detail: { moduleId: mod } }))
+      }
+    } else if (Object.keys(local).length) {
+      await teamData.saveDefaultBuffPatches(mod, local)
+    }
+  } catch (e) {
+    console.warn('[defaultBuffPatch] 云端加载失败', e)
   }
 }
 
@@ -142,6 +205,7 @@ export function loadDefaultBuffPatch(moduleId, kind, id) {
  */
 export function saveDefaultBuffPatch(moduleId, kind, id, patch) {
   if (!id) return
+  if (blockBootstrapWrite('保存')) return
 
   if (kind === 'feat') {
     const library = loadLib(moduleId)
@@ -199,6 +263,7 @@ export function saveDefaultBuffPatch(moduleId, kind, id, patch) {
 
 export function clearDefaultBuffPatch(moduleId, kind, id) {
   if (!id) return
+  if (blockBootstrapWrite('清除')) return
   if (kind === 'feat') {
     const library = loadLib(moduleId)
     const idx = findFeatTemplate(library, id)

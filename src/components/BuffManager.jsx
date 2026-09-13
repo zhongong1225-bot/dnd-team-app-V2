@@ -15,7 +15,7 @@ import { dataTransferHasType } from '../lib/dndTransferTypes'
 import { formatDurationBrief } from '../lib/durationModel'
 import { computeSuppressedEffects } from '../hooks/useBuffCalculator'
 import { useModule } from '../contexts/ModuleContext'
-import { clearDefaultBuffPatch, buildClassFeatureBuffKey } from '../lib/defaultBuffPatchStore'
+import { buildClassFeatureBuffKey } from '../lib/defaultBuffPatchStore'
 import { inputClass } from '../lib/inputStyles'
 import { BUFF_TYPES } from '../data/buffTypes'
 
@@ -42,6 +42,7 @@ export default function BuffManager({
   subordinates = [],
   onEditRace,
   onEditBackground,
+  onDisableClassFeatureBuff,
   charClasses = [],
 }) {
   const [debugVisible, setDebugVisible] = useState(false)
@@ -84,9 +85,7 @@ export default function BuffManager({
   const { moduleLibrary, currentModuleId } = useModule()
   const [formState, setFormState] = useState(null)
 
-  // 包装 setFormState，记录所有调用
   const setFormStateTracked = (value) => {
-    console.trace('[BuffManager] setFormState called with:', value)
     setFormState(value)
   }
   const [editorFullscreen, setEditorFullscreen] = useState(false)
@@ -127,19 +126,17 @@ export default function BuffManager({
     const duplicate = source
       ? list.find((b) => b.source?.trim() === source && b.id !== formState?.id)
       : null
-    console.log('[BuffManager] handleSaveActive', { isEdit, duplicate: !!duplicate, source, formStateId: formState?.id })
     if (!isEdit && duplicate) {
-      // 同名 BUFF 已存在，不重复挂载
-      console.log('[BuffManager] Closing editor due to duplicate')
-      // setFormStateTracked(null)  // 暂时注释，调试用
+      // 同名 BUFF 已存在，不重复挂载，直接关闭编辑器
+      setFormStateTracked(null)
       return
     }
     const next = isEdit
       ? list.map((b) => (b.id === formState.id ? { ...buff, id: b.id } : b))
       : [...list, { ...buff, id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}` }]
     onSave(next)
-    // console.log('[BuffManager] Closing editor after save')
-    // setFormStateTracked(null)  // 暂时注释，让编辑器保持打开
+    // 手动点击保存后关闭编辑器（自动保存走 formOnAutoSave，不会触发此处）
+    setFormStateTracked(null)
   }
 
   const handleEdit = (id) => {
@@ -174,10 +171,10 @@ export default function BuffManager({
     const col = getColumnKeyForBuff(b)
     if (col !== 'adventure' && col !== 'temporary') {
       if (b?.fromItem || b?.fromFeat || b?.fromInvocation || b?.fromFightingStyle || b?.fromRace || b?.fromBackground) return
-      // 子职/职业特性 BUFF：清除默认效果补丁，触发重算后自动消失
+      // 子职/职业特性 BUFF：仅停用本角色，不动模组默认（避免一处删、全员没）
       if (b?.fromClassFeature) {
         const key = buildClassFeatureBuffKey(b.sourceClass, b.sourceSubclass, b.featureId)
-        clearDefaultBuffPatch(currentModuleId, 'classFeature', key)
+        onDisableClassFeatureBuff?.(key)
         return
       }
     }

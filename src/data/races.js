@@ -32,7 +32,7 @@ export const RACES = [
     sizeDefault: 'Medium',
     speed: { walk: 30, climb: null, swim: null, fly: null, burrow: null },
     darkvision: null,
-    abilityScoreBonuses: [],
+    abilityScoreBonuses: [{ amount: 2 }, { amount: 1 }],
     traits: [
       {
         id: 'human_resourceful',
@@ -66,7 +66,7 @@ export const RACES = [
     sizeDefault: 'Medium',
     speed: { walk: 30, climb: null, swim: null, fly: null, burrow: null },
     darkvision: 60,
-    abilityScoreBonuses: [],
+    abilityScoreBonuses: [{ amount: 2 }, { amount: 1 }],
     traits: [
       {
         id: 'dragonborn_draconic_ancestry',
@@ -191,7 +191,7 @@ export const RACES = [
     sizeDefault: 'Medium',
     speed: { walk: 35, climb: null, swim: null, fly: null, burrow: null },
     darkvision: 60,
-    abilityScoreBonuses: [],
+    abilityScoreBonuses: [{ amount: 2 }, { amount: 1 }],
     traits: [
       {
         id: 'dhampir_spider_climb',
@@ -268,7 +268,7 @@ export const RACES = [
     sizeDefault: 'Medium',
     speed: { walk: 30, climb: null, swim: null, fly: null, burrow: null },
     darkvision: 60,
-    abilityScoreBonuses: [],
+    abilityScoreBonuses: [{ amount: 2 }, { amount: 1 }],
     traits: [
       {
         id: 'elf_darkvision',
@@ -366,7 +366,7 @@ export const RACES = [
     sizeDefault: 'Medium',
     speed: { walk: 30, climb: null, swim: null, fly: null, burrow: null },
     darkvision: 60,
-    abilityScoreBonuses: [],
+    abilityScoreBonuses: [{ amount: 2 }, { amount: 1 }],
     traits: [
       {
         id: 'tiefling_darkvision',

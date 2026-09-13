@@ -176,6 +176,31 @@ describe('computeBuffStats：代表性效果可改变输出', () => {
     expect(s.proficiencyOverride).toBe(6)
     expect(s.ac).toBe(16) // 10 基础 + 0 敏调 + 6 熟练
   })
+
+  it('增强施法者等级：纯数字聚合到 casterLevelBonus', () => {
+    const c = baseChar()
+    const s = computeBuffStats(c, [
+      { id: '1', source: 'x', effects: [{ effectType: 'caster_level_bonus', value: 1 }], enabled: true },
+    ])
+    expect(s.casterLevelBonus).toBe(1)
+  })
+
+  it('增强施法者等级：多来源叠加', () => {
+    const c = baseChar()
+    const s = computeBuffStats(c, [
+      { id: '1', source: 'x', effects: [{ effectType: 'caster_level_bonus', value: 1 }], enabled: true },
+      { id: '2', source: 'y', effects: [{ effectType: 'caster_level_bonus', value: 2 }], enabled: true },
+    ])
+    expect(s.casterLevelBonus).toBe(3)
+  })
+
+  it('增强施法者等级：公式值按属性求值', () => {
+    const c = { ...baseChar(), abilities: { ...baseChar().abilities, int: 16 } }
+    const s = computeBuffStats(c, [
+      { id: '1', source: 'x', effects: [{ effectType: 'caster_level_bonus', value: { ref: 'abilityModifier', ability: 'int' } }], enabled: true },
+    ])
+    expect(s.casterLevelBonus).toBe(3) // 智力 16 → 调整值 +3
+  })
 })
 
 describe('calculateDamage：抗性 / 减免 / 穿透', () => {

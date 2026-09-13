@@ -171,6 +171,34 @@ function parseBaseSpeedIncrement(raw, evalVal) {
   return result
 }
 
+/** 解析「移动速度」：纯数字 / { bonus } / { type, bonus }，bonus 为 0 的 climb、swim 表示等于行走速度 */
+function parseSpeedBonus(raw, evalVal) {
+  const result = { walk: 0, climb: 0, swim: 0, fly: 0, climbEqualsWalk: false, swimEqualsWalk: false }
+  if (raw == null) return result
+  if (typeof raw === 'number' || isFormulaValue(raw)) {
+    const n = evalVal(raw)
+    if (!Number.isNaN(n)) result.walk = n
+    return result
+  }
+  if (typeof raw !== 'object' || Array.isArray(raw)) return result
+
+  const type = String(raw.type || 'walk')
+  const bonus = evalVal(raw.bonus != null ? raw.bonus : raw.val)
+  const n = Number.isNaN(bonus) ? 0 : bonus
+  if (type === 'climb') {
+    if (n === 0) result.climbEqualsWalk = true
+    else result.climb = n
+  } else if (type === 'swim') {
+    if (n === 0) result.swimEqualsWalk = true
+    else result.swim = n
+  } else if (type === 'fly') {
+    result.fly = n
+  } else {
+    result.walk = n
+  }
+  return result
+}
+
 /**
  * 纯函数版 BUFF 计算（与 useBuffCalculator 结果一致），供单元测试与效果覆盖校验。
  */
@@ -645,6 +673,8 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
     let speedBonus = 0
     let swimSpeedBonus = 0
     let climbSpeedBonus = 0
+    let climbEqualsWalk = false
+    let swimEqualsWalk = false
     let reachBonus = 0
     let initBonus = 0
     const saveDcValues = []
@@ -662,6 +692,7 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
     let ignoreDifficultTerrain = false
     let spellRangeMultiplier = 1
     let spellRangeBonus = 0
+    let casterLevelBonus = 0
     const ignoreResistanceTypes = []
     let damageReduction = 0
     const damageReductionTyped = {}
@@ -699,7 +730,15 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
           }
         }
       }
-      else if (b.effectType === 'speed_bonus') speedBonus += evalVal(raw) || 0
+      else if (b.effectType === 'speed_bonus') {
+        const spd = parseSpeedBonus(raw, evalVal)
+        speedBonus += spd.walk
+        climbSpeedBonus += spd.climb
+        swimSpeedBonus += spd.swim
+        if (spd.fly > flightSpeed) flightSpeed = spd.fly
+        if (spd.climbEqualsWalk) climbEqualsWalk = true
+        if (spd.swimEqualsWalk) swimEqualsWalk = true
+      }
       else if (b.effectType === 'reach_bonus') reachBonus += v
       else if (b.effectType === 'init_bonus') initBonus += v
       else if (b.effectType === 'initiative_buff' && raw && typeof raw === 'object' && !Array.isArray(raw)) {
@@ -807,6 +846,10 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
         const parsed = parseSpellRangeExtension(raw, evalVal)
         if (parsed.multiplier > 1) spellRangeMultiplier = Math.max(spellRangeMultiplier, parsed.multiplier)
         spellRangeBonus += parsed.bonus
+      }
+      // 新表：增强施法者等级（使用法术时自动升环数）
+      else if (b.effectType === 'caster_level_bonus') {
+        casterLevelBonus += evalVal(raw) || 0
       }
       // 新表：速度增加（统一数值，默认为地面速度 +X；兼容旧文本/对象/公式）
       else if (b.effectType === 'base_speed_increment') {
@@ -968,9 +1011,11 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
         }
         if (creatureSpeed.swim != null) {
           swimSpeedBonus = Number(creatureSpeed.swim)
+          swimEqualsWalk = false
         }
         if (creatureSpeed.climb != null) {
           climbSpeedBonus = Number(creatureSpeed.climb)
+          climbEqualsWalk = false
         }
         if (creatureSpeed.fly != null) {
           flightSpeed = Number(creatureSpeed.fly)
@@ -999,6 +1044,8 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       speedBonus,
       swimSpeedBonus,
       climbSpeedBonus,
+      climbEqualsWalk,
+      swimEqualsWalk,
       reachBonus,
       initBonus,
       saveDcBonus,
@@ -1014,6 +1061,7 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       ignoreDifficultTerrain,
       spellRangeMultiplier,
       spellRangeBonus,
+      casterLevelBonus,
       ignoreResistanceTypes,
       damageReduction,
       damageReductionTyped,

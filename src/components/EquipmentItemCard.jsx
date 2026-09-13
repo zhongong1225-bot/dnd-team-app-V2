@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Sparkles, Shield, Pencil, Package, Trash2, Lock, Zap, ChevronDown } from 'lucide-react'
+import { Sparkles, Shield, Pencil, Package, Trash2, Zap, ChevronDown, Check } from 'lucide-react'
 import { ShieldPoolCounter } from './CardView'
 import { formatDisplayWeightLb } from '../lib/encumbrance'
 import InfoTooltip from './InfoTooltip'
@@ -98,7 +98,7 @@ function SlotMenu({ anchorRect, groups, value, onPick, onClose }) {
  * Grid: 46px | 76px | 341px | 136px | 1fr | 90px | 76px  (height 60px)
  *
  * 关键设计：
- * - 同调标签竖排文字，可点击切换
+ * - 列1 = 同调勾选框：勾上=已同调；物品编辑器里只有"需要同调"开关，不提供已同调开关
  * - 名称区是能量条一体按钮（有主动技能/护盾池/内含法术/吸能时）
  * - 数量+重量合并为单个90px单元格，分两个子列各自居中对齐
  * - 1fr 弹性空白列自动适配剩余宽度
@@ -164,14 +164,12 @@ export default function EquipmentItemCard({
   onDragOver,
   onDrop,
 }) {
-  const attuneActive = !!isAttuned
   const slotLabel =
     availableSlotGroups
       ?.flatMap((g) => g.slots)
       .find((s) => s.value === (slotValue || 'backpack'))?.label || '背包'
   const [slotOpen, setSlotOpen] = useState(false)
   const [slotAnchor, setSlotAnchor] = useState(null)
-  const attuneDisabled = !attuneActive && attunedCount >= maxAttunementSlots
   const chargeDepleted = maxCharge > 0 && charge <= 0
   const hasActiveAbility = !!activeAbility && !chargeDepleted
   const hasShieldPool = !hasActiveAbility && shieldPoolCurrent != null
@@ -182,7 +180,9 @@ export default function EquipmentItemCard({
 
   const proto = getItemById(entry?.itemId)
   const categoryTheme = getItemCategoryTheme(proto?.类型 ?? '')
-  // 已同调的物品始终显示开关，否则无法释放被占用的同调位
+  const attuneActive = !!isAttuned
+  const attuneDisabled = !attuneActive && attunedCount >= maxAttunementSlots
+  // 已同调的物品始终显示勾选框，否则无法释放被占用的同调位
   const requiresAttunement = resolveEntryRequiresAttunement(entry, proto) || attuneActive
 
   const energyColor = hasShieldPool
@@ -556,57 +556,51 @@ export default function EquipmentItemCard({
         >
           {!isContainer && (
           <>
-          {/* Col 1 (46px) — Attunement */}
+          {/* Col 1 (46px) — Attunement checkbox */}
           <div
             className="flex items-center justify-center h-full"
             style={cellBorder}
+            onClick={(e) => e.stopPropagation()}
           >
             {requiresAttunement ? (
-            <div
-              title={
-                attuneActive
-                  ? '点击取消同调'
-                  : attuneDisabled
-                    ? '同调位已满'
-                    : '同调此物品'
-              }
-              className="shrink-0 flex flex-col items-center justify-center cursor-pointer select-none transition-colors"
-              style={{
-                padding: 0,
-                width: '30px',
-                height: '44px',
-                gap: '3px',
-                background: attuneActive ? 'rgba(199,154,66,0.06)' : 'transparent',
-              }}
-              onClick={(e) => {
-                e.stopPropagation()
-                if (attuneDisabled) {
-                  alert('同调位已满')
-                  return
-                }
-                if (canEdit) {
-                  onAttuneToggle?.(entry?.id, !attuneActive)
-                }
-              }}
-            >
-              {attuneActive ? (
-                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#c79a42', boxShadow: '0 0 4px rgba(199,154,66,0.5)' }} />
-              ) : (
-                <Lock size={11} style={{ color: '#445566' }} />
-              )}
-              <span
-                style={{
-                  writingMode: 'vertical-rl',
-                  textOrientation: 'mixed',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  letterSpacing: '2px',
-                  color: attuneActive ? '#c79a42' : '#445566',
-                }}
-              >
-                同调
-              </span>
-            </div>
+              <div className="flex flex-col items-center gap-[3px] select-none">
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={attuneActive}
+                  disabled={!canEdit}
+                  title={attuneActive ? '点击取消同调' : attuneDisabled ? '同调位已满' : '同调此物品'}
+                  onClick={() => {
+                    if (attuneDisabled) {
+                      alert('同调位已满')
+                      return
+                    }
+                    onAttuneToggle?.(entry?.id, !attuneActive)
+                  }}
+                  className={`flex items-center justify-center rounded-[6px] border transition-colors ${
+                    !canEdit
+                      ? 'border-[#34455f] bg-[#1b2738] opacity-50 cursor-not-allowed'
+                      : attuneActive
+                        ? 'border-[#c79a42] bg-[#c79a42]/15 hover:border-[#d8b05a] cursor-pointer'
+                        : attuneDisabled
+                          ? 'border-[#34455f] bg-[#1b2738] opacity-40 cursor-not-allowed'
+                          : 'border-[#34455f] bg-[#1b2738] hover:border-[#4e6688] cursor-pointer'
+                  }`}
+                  style={{
+                    width: 20,
+                    height: 20,
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -1px 0 rgba(0,0,0,0.3)',
+                  }}
+                >
+                  {attuneActive && <Check size={13} strokeWidth={3} style={{ color: '#c79a42' }} />}
+                </button>
+                <span
+                  className="text-[10px] font-semibold leading-none"
+                  style={{ color: attuneActive ? '#c79a42' : '#55677c', letterSpacing: '1px' }}
+                >
+                  同调
+                </span>
+              </div>
             ) : null}
           </div>
 

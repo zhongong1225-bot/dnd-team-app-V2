@@ -51,6 +51,7 @@ import {
   computePhysicalWeaponStats, buildDefaultGainsFromBuffs, mergeAutoGains, gainsContentEqual,
   getWeaponEntrySpellAbility, getWeaponEntryDamageExtras, getMergedWeaponExtraDiceStrings, filterExtraDiceAgainstMain,
   parseSpellDamageFromDescription, spellUsesAttack, inferSaveFromSpellDescription, normalizeSpellName,
+  applyUpcastToDamageList, getEffectiveCastLevel,
 } from './combat/combatMeanUtils'
 
 import { getItemById, parseWeaponNoteToTraits } from '../data/itemDatabase'
@@ -1350,44 +1351,13 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     // 确定是否重击
     const isCritChoice = isCrit === true || isCrit === false ? isCrit : false
     
-    // 计算升环后的伤害
-    const actualSlotLevel = Number(slotLevel) || spellData?.level || 0
+    // 计算升环后的伤害（含增强施法者等级：自动升环，消耗环位不变）
+    const effectiveCastLevel = getEffectiveCastLevel(slotLevel, spellData?.level, buffStats?.casterLevelBonus)
     const spellBaseLevel = Number(spellData?.level) || 0
-    const levelDiff = Math.max(0, actualSlotLevel - spellBaseLevel)
-    
-    let finalDamageList = [...damageList]
-    if (levelDiff > 0 && spellData?.description) {
-      const baseDamages = parseSpellDamageFromDescription(spellData.description)
-      const higherLevelMatch = spellData.description.match(/升环施法[：:]?.*?(钝击|寒冷|火焰|光耀|力场|心灵|闪电|穿刺|挥砍|毒素|黯蚀|雷鸣)?伤害.*?提高(\d+d\d+)/i)
-      
-      if (higherLevelMatch) {
-        const extraDiceStr = higherLevelMatch[2]
-        const extraTypeRaw = higherLevelMatch[1]
-        const extraType = getDamageTypeLabel(extraTypeRaw) || extraTypeRaw
-        const extraDiceMatch = extraDiceStr.match(/(\d+)d(\d+)/)
-        
-        if (extraDiceMatch) {
-          const baseCount = parseInt(extraDiceMatch[1]) * levelDiff
-          const diceSize = extraDiceMatch[2]
-          const targetType = extraType || '钝击'
-          const existingIdx = baseDamages.findIndex(d => d.type === targetType)
-          
-          if (existingIdx >= 0) {
-            const existing = baseDamages[existingIdx]
-            const existingMatch = existing.dice.match(/(\d+)d(\d+)/)
-            if (existingMatch && existingMatch[2] === diceSize) {
-              const newCount = parseInt(existingMatch[1]) + baseCount
-              finalDamageList = [...baseDamages]
-              finalDamageList[existingIdx] = { dice: `${newCount}d${diceSize}`, type: targetType }
-            } else {
-              finalDamageList = [...baseDamages, { dice: `${baseCount}d${diceSize}`, type: targetType }]
-            }
-          } else {
-            finalDamageList = [...baseDamages, { dice: `${baseCount}d${diceSize}`, type: targetType }]
-          }
-        }
-      }
-    }
+    const levelDiff = Math.max(0, effectiveCastLevel - spellBaseLevel)
+    const finalDamageList = (levelDiff > 0 && spellData?.description)
+      ? applyUpcastToDamageList(parseSpellDamageFromDescription(spellData.description), spellData.description, levelDiff)
+      : [...damageList]
     
     // 投掷伤害
     if (finalDamageList.length > 0) {
@@ -1404,44 +1374,13 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const handleCreatureSpellSaveDamage = (spellName, damageList, slotLevel, spellData) => {
     if (!damageList || damageList.length === 0) return
     
-    // 计算升环后的伤害
-    const actualSlotLevel = Number(slotLevel) || spellData?.level || 0
+    // 计算升环后的伤害（含增强施法者等级：自动升环，消耗环位不变）
+    const effectiveCastLevel = getEffectiveCastLevel(slotLevel, spellData?.level, buffStats?.casterLevelBonus)
     const spellBaseLevel = Number(spellData?.level) || 0
-    const levelDiff = Math.max(0, actualSlotLevel - spellBaseLevel)
-    
-    let finalDamageList = [...damageList]
-    if (levelDiff > 0 && spellData?.description) {
-      const baseDamages = parseSpellDamageFromDescription(spellData.description)
-      const higherLevelMatch = spellData.description.match(/升环施法[：:]?.*?(钝击|寒冷|火焰|光耀|力场|心灵|闪电|穿刺|挥砍|毒素|黯蚀|雷鸣)?伤害.*?提高(\d+d\d+)/i)
-      
-      if (higherLevelMatch) {
-        const extraDiceStr = higherLevelMatch[2]
-        const extraTypeRaw = higherLevelMatch[1]
-        const extraType = getDamageTypeLabel(extraTypeRaw) || extraTypeRaw
-        const extraDiceMatch = extraDiceStr.match(/(\d+)d(\d+)/)
-        
-        if (extraDiceMatch) {
-          const baseCount = parseInt(extraDiceMatch[1]) * levelDiff
-          const diceSize = extraDiceMatch[2]
-          const targetType = extraType || '钝击'
-          const existingIdx = baseDamages.findIndex(d => d.type === targetType)
-          
-          if (existingIdx >= 0) {
-            const existing = baseDamages[existingIdx]
-            const existingMatch = existing.dice.match(/(\d+)d(\d+)/)
-            if (existingMatch && existingMatch[2] === diceSize) {
-              const newCount = parseInt(existingMatch[1]) + baseCount
-              finalDamageList = [...baseDamages]
-              finalDamageList[existingIdx] = { dice: `${newCount}d${diceSize}`, type: targetType }
-            } else {
-              finalDamageList = [...baseDamages, { dice: `${baseCount}d${diceSize}`, type: targetType }]
-            }
-          } else {
-            finalDamageList = [...baseDamages, { dice: `${baseCount}d${diceSize}`, type: targetType }]
-          }
-        }
-      }
-    }
+    const levelDiff = Math.max(0, effectiveCastLevel - spellBaseLevel)
+    const finalDamageList = (levelDiff > 0 && spellData?.description)
+      ? applyUpcastToDamageList(parseSpellDamageFromDescription(spellData.description), spellData.description, levelDiff)
+      : [...damageList]
     
     const firstDice = finalDamageList[0].dice
     const firstType = getDamageTypeLabel(finalDamageList[0].type) || finalDamageList[0].type || ''
@@ -2104,12 +2043,14 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const speedBase = (char?.speed ?? 30) + (buffStats?.speedBonus ?? 0)
   const speedPenalty = buffStats?.speedExhaustionPenalty ?? 0
   const speed = Math.max(0, Math.floor(speedBase * (buffStats?.speedMultiplier ?? 1)) - speedPenalty)
-  const swimSpeed = Math.max(0, Math.floor((buffStats?.swimSpeedBonus ?? 0) * (buffStats?.speedMultiplier ?? 1)))
+  const speedMult = buffStats?.speedMultiplier ?? 1
+  const swimBonus = Math.max(0, Math.floor((buffStats?.swimSpeedBonus ?? 0) * speedMult))
+  const swimSpeed = buffStats?.swimEqualsWalk ? Math.max(swimBonus, speed) : swimBonus
   const climbSpeedBonus = buffStats?.climbSpeedBonus ?? 0
-  const climbSpeed = climbSpeedBonus > 0
-    ? Math.max(0, Math.floor(climbSpeedBonus * (buffStats?.speedMultiplier ?? 1)))
-    : speed // 无独立攀爬速度时，攀爬 = 增益后步行速度
-  const flySpeed = Math.max(0, Math.floor((buffStats?.flightSpeed ?? 0) * (buffStats?.speedMultiplier ?? 1)))
+  const climbBonus = climbSpeedBonus > 0 ? Math.max(0, Math.floor(climbSpeedBonus * speedMult)) : 0
+  // 无独立攀爬速度、或有「攀爬等于行走速度」效果时，攀爬取增益后步行速度
+  const climbSpeed = (climbSpeedBonus <= 0 || buffStats?.climbEqualsWalk) ? Math.max(climbBonus, speed) : climbBonus
+  const flySpeed = Math.max(0, Math.floor((buffStats?.flightSpeed ?? 0) * speedMult))
 
   const dsResults = deathSaves.results?.length === DEATH_SAVE_COUNT ? deathSaves.results : getDefaultDeathSaves().results
   const deathFailures = dsResults.filter((r) => r === 'failure').length
@@ -3388,53 +3329,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             const isSpellAttackType = spellData ? spellUsesAttack(spellDesc) : (nwSpellAtk > 0)
             const saveType = spellData ? inferSaveFromSpellDescription(spellDesc) : 'spell_attack'
             
-            // 计算升级后的伤害（根据实际环位）
-            const actualSlotLevel = Number(spell.slotLevel) || spellData?.level || 0
+            // 计算升级后的伤害（含增强施法者等级：自动升环，消耗环位不变）
+            const effectiveCastLevel = getEffectiveCastLevel(spell.slotLevel, spellData?.level, buffStats?.casterLevelBonus)
             const spellBaseLevel = Number(spellData?.level) || 0
-            const levelDiff = Math.max(0, actualSlotLevel - spellBaseLevel)
+            const levelDiff = Math.max(0, effectiveCastLevel - spellBaseLevel)
             
             // 解析基础伤害并应用升环加成
             let spellDamageList = []
             if (spellDesc) {
-              const baseDamages = parseSpellDamageFromDescription(spellDesc)
-              // 检查是否有升环描述（支持多种格式）
-              const higherLevelMatch = spellDesc.match(/升环施法[：:]?.*?(钝击|寒冷|火焰|光耀|力场|心灵|闪电|穿刺|挥砍|毒素|黯蚀|雷鸣)?伤害.*?提高(\d+d\d+)/i)
-              
-              if (higherLevelMatch && levelDiff > 0) {
-                const extraDiceStr = higherLevelMatch[2]
-                const extraTypeRaw = higherLevelMatch[1]
-                const extraType = getDamageTypeLabel(extraTypeRaw) || extraTypeRaw
-                
-                // 将升环增加的骰子乘以等级差
-                const extraDiceMatch = extraDiceStr.match(/(\d+)d(\d+)/)
-                if (extraDiceMatch) {
-                  const baseCount = parseInt(extraDiceMatch[1]) * levelDiff
-                  const diceSize = extraDiceMatch[2]
-                  const upgradedDice = `${baseCount}d${diceSize}`
-                  
-                  // 如果有对应类型的伤害，增加骰子数；否则添加新的伤害类型
-                  const targetType = extraType || '钝击'
-                  const existingIdx = baseDamages.findIndex(d => d.type === targetType)
-                  if (existingIdx >= 0) {
-                    // 合并同类型子
-                    const existing = baseDamages[existingIdx]
-                    const existingMatch = existing.dice.match(/(\d+)d(\d+)/)
-                    if (existingMatch && existingMatch[2] === diceSize) {
-                      const newCount = parseInt(existingMatch[1]) + baseCount
-                      spellDamageList = [...baseDamages]
-                      spellDamageList[existingIdx] = { dice: `${newCount}d${diceSize}`, type: targetType }
-                    } else {
-                      spellDamageList = [...baseDamages, { dice: upgradedDice, type: targetType }]
-                    }
-                  } else {
-                    spellDamageList = [...baseDamages, { dice: upgradedDice, type: targetType }]
-                  }
-                } else {
-                  spellDamageList = baseDamages
-                }
-              } else {
-                spellDamageList = baseDamages
-              }
+              spellDamageList = applyUpcastToDamageList(parseSpellDamageFromDescription(spellDesc), spellDesc, levelDiff)
             }
             
             const hasSpellDamage = spellDamageList.length > 0

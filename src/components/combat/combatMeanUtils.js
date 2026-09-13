@@ -482,6 +482,45 @@ export function parseSpellDamageFromDescription(desc) {
   return results
 }
 
+/** 解析法术描述中的升环伤害骰（如"升环施法：…伤害就增加/提升/提高1d6"），无则返回 null */
+export function parseUpcastDiceFromDescription(desc) {
+  if (!desc || typeof desc !== 'string') return null
+  const m = desc.match(/升环施法[：:]?[\s\S]*?(钝击|寒冷|火焰|光耀|力场|心灵|闪电|穿刺|挥砍|毒素|黯蚀|暗蚀|雷鸣)?伤害[\s\S]*?(?:增加|提升|提高|增多)(\d+d\d+)/i)
+  if (!m) return null
+  const dm = String(m[2]).match(/(\d+)d(\d+)/)
+  if (!dm) return null
+  return { count: parseInt(dm[1], 10) || 0, sides: dm[2], typeRaw: m[1] || '' }
+}
+
+/** 把升环加成合并进基础伤害列表：优先同类型，其次同骰面（继承其类型），否则追加新伤害项 */
+export function applyUpcastToDamageList(baseDamages, desc, levelDiff) {
+  const list = [...(Array.isArray(baseDamages) ? baseDamages : [])]
+  const diff = Math.max(0, Number(levelDiff) || 0)
+  if (diff <= 0) return list
+  const up = parseUpcastDiceFromDescription(desc)
+  if (!up || up.count <= 0) return list
+  const extraCount = up.count * diff
+  const explicitType = up.typeRaw ? (getDamageTypeLabel(up.typeRaw) || up.typeRaw) : ''
+  const sidesOf = (d) => { const m = String(d && d.dice).match(/(\d+)d(\d+)/); return m ? m[2] : '' }
+  const countOf = (d) => { const m = String(d && d.dice).match(/(\d+)d(\d+)/); return m ? parseInt(m[1], 10) : 0 }
+  // 选择合并目标：显式类型优先，其次同骰面的首项（继承类型，处理"此伤害就增加1d6"）
+  let idx = explicitType ? list.findIndex((d) => d.type === explicitType) : -1
+  if (idx < 0) idx = list.findIndex((d) => sidesOf(d) === up.sides)
+  if (idx >= 0 && sidesOf(list[idx]) === up.sides) {
+    list[idx] = { ...list[idx], dice: `${countOf(list[idx]) + extraCount}d${up.sides}` }
+    return list
+  }
+  const fallbackType = explicitType || (list[0] && list[0].type) || '钝击'
+  return [...list, { dice: `${extraCount}d${up.sides}`, type: fallbackType }]
+}
+
+/** 有效施法环位 = 消耗环位 + 增强施法者等级，封顶 9 环；戏法（0环）不升环 */
+export function getEffectiveCastLevel(slotLevel, spellBaseLevel, casterLevelBonus = 0) {
+  const base = Number(slotLevel) || Number(spellBaseLevel) || 0
+  if (base <= 0) return 0
+  return Math.min(9, base + (Number(casterLevelBonus) || 0))
+}
+
 /** 法术是否使用攻击检定 */
 export function spellUsesAttack(desc) {
   return desc && /(远程|近战)?法术攻击/.test(String(desc))

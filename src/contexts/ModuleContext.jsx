@@ -9,6 +9,7 @@ import {
   loadUserPrefsFromSupabase,
 } from '../lib/moduleStore'
 import { clearLegacyTeamLocalStorage } from '../lib/clearLegacyTeamLocalStorage'
+import { setDefaultBuffPatchesReady, loadDefaultBuffPatchesFromSupabase } from '../lib/defaultBuffPatchStore'
 import { loadCustomItemsFromSupabase } from '../data/itemDatabase'
 import { loadCustomSpellsFromSupabase } from '../data/spellDatabase'
 import { loadCustomRacesFromSupabase } from '../data/races'
@@ -66,13 +67,16 @@ export function ModuleProvider({ children }) {
       setModules(getModulesSnapshot())
       setCurrentModuleIdState(getCurrentModuleId(user?.name))
       setTeamDataReady(true)
+      setDefaultBuffPatchesReady(true)
       return
     }
     if (!user?.name) {
       setTeamDataReady(false)
+      setDefaultBuffPatchesReady(false)
       return
     }
     let cancelled = false
+    setDefaultBuffPatchesReady(false)
     ;(async () => {
       try {
         clearLegacyTeamLocalStorage()
@@ -92,7 +96,10 @@ export function ModuleProvider({ children }) {
           setCurrentModuleIdState(getCurrentModuleId(user.name))
         }
       } finally {
-        if (!cancelled) setTeamDataReady(true)
+        if (!cancelled) {
+          setTeamDataReady(true)
+          setDefaultBuffPatchesReady(true)
+        }
       }
     })()
     return () => {
@@ -145,6 +152,7 @@ export function ModuleProvider({ children }) {
   useEffect(() => {
     if (!teamDataReady) return
     refreshModuleLibrary()
+    loadDefaultBuffPatchesFromSupabase(currentModuleId)
   }, [currentModuleId, teamDataReady, refreshModuleLibrary])
 
   const value = {

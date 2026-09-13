@@ -949,17 +949,6 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                     />
                     需要同调
                   </label>
-                {requiresAttunement && (
-                  <label className="shrink-0 inline-flex items-center gap-1.5 h-8 px-2 rounded-lg border border-gray-600 bg-gray-800 text-gray-300 text-xs cursor-pointer whitespace-nowrap">
-                    <input
-                      type="checkbox"
-                      checked={isAttuned}
-                      onChange={(e) => setIsAttuned(e.target.checked)}
-                      className="h-3.5 w-3.5 rounded border-gray-500 bg-black/30 text-dnd-gold focus:ring-dnd-gold/40"
-                    />
-                    已同调
-                  </label>
-                )}
                 <span className="text-dnd-text-muted text-xs whitespace-nowrap shrink-0">重量：{weightDisplay}</span>
               </div>
             </div>
