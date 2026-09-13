@@ -806,14 +806,20 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
   const handleRaceEditorSave = () => {
     if (!editingRaceData?.name?.trim()) return
     let finalRaceId = editingRaceId
-    if (isNewRaceRef.current || !getRaceById(editingRaceId)) {
+    
+    // 检查是否是新建种族，或者编辑的是内置种族（需要创建自定义覆盖版本）
+    const isNewOrBuiltIn = isNewRaceRef.current || !getCustomRaces().find(r => r.id === editingRaceId)
+    
+    if (isNewOrBuiltIn) {
+      // 新建或覆盖内置种族：使用addCustomRace
       const preId = editingRaceId || `race_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
       const created = addCustomRace({ ...editingRaceData, id: preId })
       if (created) finalRaceId = created.id
     } else {
-      if (isLegacyRace(editingRaceId)) migrateLegacyRace(editingRaceId)
+      // 更新已有的自定义种族
       updateCustomRace(editingRaceId, editingRaceData)
     }
+    
     onSave({ raceCard: { ...raceCard, raceId: finalRaceId } })
     setRaceBuffEditorOpen(false)
     setRaceListKey((k) => k + 1)
