@@ -558,9 +558,15 @@ export function getCustomRaces() {
 export function getAllRaces() {
   const custom = getCustomRaces()
   const builtInIds = new Set(RACES.map(r => r.id))
-  // 过滤掉自定义中与内置同 id 的旧数据
-  const uniqueCustom = custom.filter(r => !builtInIds.has(r.id))
-  return [...RACES, ...uniqueCustom]
+  
+  // 自定义种族优先：如果自定义种族与内置种族ID相同，使用自定义版本
+  const customMap = new Map(custom.map(r => [r.id, r]))
+  const mergedBuiltIn = RACES.map(r => customMap.get(r.id) || r)
+  
+  // 添加不与内置冲突的纯自定义种族
+  const pureCustom = custom.filter(r => !builtInIds.has(r.id))
+  
+  return [...mergedBuiltIn, ...pureCustom]
 }
 
 /** 按 ID 查找种族（自定义 + 旧版兼容回退），返回 normalize 后的数据 */
