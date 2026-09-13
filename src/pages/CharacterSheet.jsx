@@ -802,6 +802,10 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
   const [raceListKey, setRaceListKey] = useState(0)
   const isNewRaceRef = useRef(false)
 
+  // 属性加值编辑状态
+  const [asiEditMode, setAsiEditMode] = useState(false)
+  const [asiDraftAssignments, setAsiDraftAssignments] = useState([])
+
   // 种族编辑器保存（写入种族库 + 更新角色 raceId）
   const handleRaceEditorSave = () => {
     if (!editingRaceData?.name?.trim()) return
@@ -832,6 +836,34 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
       setRaceListKey((k) => k + 1)
     }
     setRaceBuffEditorOpen(false)
+  }
+
+  // 属性加值编辑 - 进入编辑模式
+  const handleAsiEditStart = () => {
+    setAsiDraftAssignments([...(raceCard.asiAssignments || [])])
+    setAsiEditMode(true)
+  }
+
+  // 属性加值编辑 - 保存
+  const handleAsiSave = () => {
+    onSave({ raceCard: { ...raceCard, asiAssignments: [...asiDraftAssignments] } })
+    setAsiEditMode(false)
+  }
+
+  // 属性加值编辑 - 取消
+  const handleAsiCancel = () => {
+    setAsiDraftAssignments([])
+    setAsiEditMode(false)
+  }
+
+  // 属性加值编辑 - 修改草稿
+  const handleAsiDraftChange = (index, ability, amount) => {
+    const existing = [...asiDraftAssignments]
+    existing.splice(index, 1)
+    if (ability && amount) {
+      existing.push({ ability, amount })
+    }
+    setAsiDraftAssignments(existing)
   }
 
   const handleBackgroundBuffSave = (buff) => {
@@ -884,10 +916,28 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
       }
     }
     const displayTraits = allTraits.filter(t => !t.name.includes('黑暗视觉'))
+    
+    // 构建属性增强摘要
+    const asiAssignments = raceCard.asiAssignments || []
+    const asiSummaryText = asiAssignments.filter(a => a.ability).map(a => `+${a.amount}${ABILITY_NAMES_ZH[a.ability]}`).join(' ')
+    
     const choiceTrait = raceTraitChoiceModal ? allTraits.find(t => t.id === raceTraitChoiceModal) : null
     return selectedRace ? (
       <>
       <div className="mt-3 space-y-1.5">
+        {/* 属性增强条目 */}
+        {asiSummaryText && (
+          <CardView
+            key="asi_bonus"
+            gridLayout={true}
+            narrow={true}
+            category="种族"
+            sourceMain={selectedRace.name}
+            sourceSub="属性加值"
+            name="属性增强"
+            buffTags={[asiSummaryText]}
+          />
+        )}
         {displayTraits.length > 0 && displayTraits.map((t) => {
             const isChoice = Array.isArray(t.choiceOptions) && t.choiceOptions.length > 0
             const chosenOpt = isChoice ? (t.choiceOptions || []).find(o => o.id === raceCard.traitChoices?.[t.id]) : null
@@ -1068,6 +1118,9 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
             const raceBonuses = normalizeAbilityScoreBonuses(selectedRace?.abilityScoreBonuses, [])
             const subraceBonuses = normalizeAbilityScoreBonuses(selectedSubrace?.abilityScoreBonuses, [])
             
+            console.log('[ASI] selectedRace.abilityScoreBonuses:', selectedRace?.abilityScoreBonuses)
+            console.log('[ASI] raceBonuses:', raceBonuses)
+            
             // 收集所有强势属性（种族编辑器中勾选的属性）
             const strongAbilities = new Set()
             raceBonuses.forEach(b => {
@@ -1081,28 +1134,18 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
               }
             })
             
+            console.log('[ASI] strongAbilities:', Array.from(strongAbilities))
+            
             // 即使没有强势属性，也应该显示分配区域（所有属性都只能+1）
             
-            const assignments = raceCard.asiAssignments || []
+            const assignments = asiEditMode ? asiDraftAssignments : (raceCard.asiAssignments || [])
             const ALL_ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha']
             
-            const handleAsiChange = (index, ability, amount) => {
-              const existing = [...assignments]
-              // 移除旧的分配
-              existing.splice(index, 1)
-              // 添加新的分配
-              if (ability) {
-                existing.push({ ability, amount })
-              }
-              onSave({ raceCard: { ...raceCard, asiAssignments: existing } })
-            }
-            
-            const getAvailableAmounts = (ability) => {
-              if (!ability) return [1, 2]
-              // 如果没有定义强势属性，所有属性都只能+1
-              if (strongAbilities.size === 0) return [1]
+            const getMaxAmount = (ability) => {
+              if (!ability) return 2
+              if (strongAbilities.size === 0) return 1
               const isStrong = strongAbilities.has(ability)
-              return isStrong ? [1, 2] : [1]
+              return isStrong ? 2 : 1
             }
             
             const isAbilityTaken = (ability, currentIndex) => {
@@ -1115,43 +1158,84 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
               displayAssignments.push({ ability: '', amount: 1 })
             }
             
+            // 已分配的摘要文本
+            const assignedSummary = assignments.filter(a => a.ability).map(a => `+${a.amount}${ABILITY_NAMES_ZH[a.ability]}`).join(' ')
+            
             return (
               <>
                 <span className="col-span-2 text-right text-[11px] text-gray-400 font-medium bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">属性加值</span>
-                <div className="col-span-12 flex flex-wrap items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-3 py-1.5">
-                  <span className="text-[10px] text-gray-500 shrink-0">分配</span>
-                  {displayAssignments.slice(0, 3).map((assignment, i) => {
-                    const availableAmounts = getAvailableAmounts(assignment.ability)
-                    return (
-                      <div key={i} className="flex items-center gap-1.5 shrink-0">
-                        <select 
-                          value={assignment.ability || ''} 
-                          onChange={e => handleAsiChange(i, e.target.value, assignment.amount)}
-                          disabled={!canEdit}
-                          className="px-2 py-1 rounded bg-gray-800/60 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 w-[80px]"
+                <div className="col-span-12 flex items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-3 py-1.5">
+                  {!asiEditMode ? (
+                    // 只读模式：显示已分配的属性
+                    <>
+                      <span className="text-xs text-gray-300 flex-1 truncate">{assignedSummary || '未分配'}</span>
+                      {canEdit && raceCard.raceId && (
+                        <button
+                          type="button"
+                          onClick={handleAsiEditStart}
+                          className="flex items-center gap-1 px-2 py-1 rounded text-[10px] text-dnd-gold hover:bg-dnd-gold/10 border border-dnd-gold/30 shrink-0"
                         >
-                          <option value="">选择属性</option>
-                          {ALL_ABILITY_KEYS.map(k => (
-                            <option key={k} value={k} disabled={isAbilityTaken(k, i)}>
-                              {ABILITY_NAMES_ZH[k]}{strongAbilities.has(k) ? ' (强)' : ''}
-                            </option>
-                          ))}
-                        </select>
-                        {assignment.ability && (
-                          <select
-                            value={assignment.amount}
-                            onChange={e => handleAsiChange(i, assignment.ability, Number(e.target.value))}
-                            disabled={!canEdit}
-                            className="px-1.5 py-1 rounded bg-gray-800/60 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 w-[50px]"
-                          >
-                            {availableAmounts.map(amt => (
-                              <option key={amt} value={amt}>+{amt}</option>
-                            ))}
-                          </select>
-                        )}
+                          <Pencil size={10} />
+                          编辑
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    // 编辑模式：下拉框 + 输入框 + 保存/取消按钮
+                    <>
+                      <span className="text-[10px] text-gray-500 shrink-0">分配</span>
+                      {displayAssignments.slice(0, 3).map((assignment, i) => {
+                        const maxAmount = getMaxAmount(assignment.ability)
+                        return (
+                          <div key={i} className="flex items-center gap-1.5 shrink-0">
+                            <select 
+                              value={assignment.ability || ''} 
+                              onChange={e => handleAsiDraftChange(i, e.target.value, assignment.amount)}
+                              className="px-2 py-1 rounded bg-gray-800/60 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 w-[90px]"
+                            >
+                              <option value="">选择属性</option>
+                              {ALL_ABILITY_KEYS.map(k => (
+                                <option key={k} value={k} disabled={isAbilityTaken(k, i)}>
+                                  {ABILITY_NAMES_ZH[k]}{strongAbilities.has(k) ? ' (强)' : ''}
+                                </option>
+                              ))}
+                            </select>
+                            {assignment.ability && (
+                              <input
+                                type="number"
+                                min="1"
+                                max={maxAmount}
+                                value={assignment.amount}
+                                onChange={e => {
+                                  let val = Number(e.target.value)
+                                  if (val < 1) val = 1
+                                  if (val > maxAmount) val = maxAmount
+                                  handleAsiDraftChange(i, assignment.ability, val)
+                                }}
+                                className="px-1.5 py-1 rounded bg-gray-800/60 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 w-[45px] text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                            )}
+                          </div>
+                        )
+                      })}
+                      <div className="flex items-center gap-1 ml-auto">
+                        <button
+                          type="button"
+                          onClick={handleAsiSave}
+                          className="px-2 py-1 rounded text-[10px] text-dnd-gold hover:bg-dnd-gold/10 border border-dnd-gold/30"
+                        >
+                          保存
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleAsiCancel}
+                          className="px-2 py-1 rounded text-[10px] text-gray-400 hover:bg-white/10 border border-gray-600/30"
+                        >
+                          取消
+                        </button>
                       </div>
-                    )
-                  })}
+                    </>
+                  )}
                 </div>
               </>
             )
