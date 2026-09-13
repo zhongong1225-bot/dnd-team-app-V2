@@ -85,12 +85,16 @@ function buffEntryToCard(buffEntry) {
   // 原始 effects 数组（用于提取 charge_item/contained_spell）
   const rawEffects = Array.isArray(buffEntry.effects) ? buffEntry.effects : []
   
-  // 过滤掉 charge_item 子效果类型，只保留真正的被动效果用于 buffEffects
-  const effects = rawEffects.filter(e => !CHARGE_ITEM_SUB_EFFECT_TYPES.includes(e.effectType))
-  
   // 从原始 effects 中提取 charge_item 或 contained_spell 效果作为主动技能
   const chargeEffect = rawEffects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
   const containedSpellEffect = !chargeEffect ? rawEffects.find(e => e.effectType === 'contained_spell' && e.value && typeof e.value === 'object') : null
+
+  // 只有带主动技能的条目才需要剔除顶层子效果（避免把释放载荷当被动效果重复计算）；
+  // 手动/临时 BUFF 的 creature_transform、heal 等就是它本体效果，必须原样保留
+  const effects = (chargeEffect || containedSpellEffect)
+    ? rawEffects.filter(e => !CHARGE_ITEM_SUB_EFFECT_TYPES.includes(e.effectType))
+    : rawEffects
+
   let activeAbility = null
 
   if (chargeEffect) {

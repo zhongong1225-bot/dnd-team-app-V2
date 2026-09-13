@@ -1,0 +1,38 @@
+<h2>右栏比例定稿：肖像 : 背景故事 = 2 : 1</h2>
+<p class="subtitle">其余结构不变（左栏头部条+基础档案+种族与背景）。右栏通高内，肖像占约三分之二，背景故事占约三分之一。</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">右栏 · 2:1（定稿）</div>
+    <div class="mockup-body">
+      <div style="display:flex;flex-direction:column;gap:8px;height:340px;font-family:sans-serif">
+        <div style="flex:2;position:relative;border-radius:8px;background:#26334a;border:1px solid #34455f;display:flex;align-items:center;justify-content:center">
+          <span style="color:#55677c;font-size:10px">肖像 · 约 2/3 高</span>
+          <div style="position:absolute;left:0;right:0;bottom:0;border-radius:0 0 8px 8px;background:rgba(10,16,26,0.72);text-align:center;color:#aabbcc;font-size:8px;padding:4px 0">更换头像</div>
+        </div>
+        <div style="flex:1;background:#1a2332;border:1px solid #2a3a4e;border-radius:8px;padding:8px;display:flex;flex-direction:column;min-height:0">
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="color:#c79a42;font-size:9px;letter-spacing:1px">背景故事</span><span style="color:#55677c;font-size:8px">编辑</span></div>
+          <div style="color:#93a3b5;font-size:8px;line-height:1.55;flex:1;min-height:0;overflow:hidden">只读散文，超出本区高度时区内纵向滚动……</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">对照 · 之前 1.2:1（肖像偏小，弃用）</div>
+    <div class="mockup-body">
+      <div style="display:flex;flex-direction:column;gap:8px;height:340px;font-family:sans-serif">
+        <div style="flex:1.2;position:relative;border-radius:8px;background:#26334a;border:1px solid #34455f;display:flex;align-items:center;justify-content:center">
+          <span style="color:#55677c;font-size:10px">肖像 · 约 55% 高</span>
+        </div>
+        <div style="flex:1;background:#1a2332;border:1px solid #2a3a4e;border-radius:8px;padding:8px;display:flex;flex-direction:column;min-height:0">
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="color:#c79a42;font-size:9px;letter-spacing:1px">背景故事</span><span style="color:#55677c;font-size:8px">编辑</span></div>
+          <div style="color:#93a3b5;font-size:8px;line-height:1.55;flex:1;min-height:0;overflow:hidden">故事区偏高，肖像被压……</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <p class="subtitle">规则写死：右栏内肖像 flex 2、背景故事 flex 1；窄屏回退时肖像全宽限高 320px，故事跟在最后，不受此比例约束。</p>
+</div>

@@ -1,0 +1,123 @@
+<h2>档案页重组：三个方向</h2>
+<p class="subtitle">前提已定：只改档案标签页；默认只读、每个分区一个"编辑"按钮。点选你倾向的方向，或直接在对话里说。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#141b27;border:1px solid #2a3a4e;border-radius:8px;padding:8px;font-family:sans-serif;width:100%">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+          <div style="width:36px;height:36px;border-radius:6px;background:#26334a;border:1px solid #34455f;flex:none"></div>
+          <div style="min-width:0">
+            <div style="color:#f0f4f8;font-size:12px;font-weight:700">布兰卡·冯·洛维奇</div>
+            <div style="color:#66788c;font-size:8px">肉法师 · 半血裔 · 噩梦缠身</div>
+          </div>
+          <span style="margin-left:auto;border:1px solid #c79a42;color:#c79a42;border-radius:999px;font-size:8px;padding:1px 7px;flex:none">编辑</span>
+        </div>
+        <div style="background:#1a2332;border:1px solid #2a3a4e;border-radius:8px;padding:6px;margin-bottom:6px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="color:#c79a42;font-size:9px;letter-spacing:1px">基础档案</span><span style="color:#55677c;font-size:8px">编辑</span></div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px">
+            <div><div style="color:#66788c;font-size:7px">年龄</div><div style="color:#dfe6ee;font-size:9px">未知</div></div>
+            <div><div style="color:#66788c;font-size:7px">阵营</div><div style="color:#dfe6ee;font-size:9px">混乱善良</div></div>
+            <div><div style="color:#66788c;font-size:7px">身高</div><div style="color:#dfe6ee;font-size:9px">178</div></div>
+            <div><div style="color:#66788c;font-size:7px">体重</div><div style="color:#dfe6ee;font-size:9px">210g</div></div>
+            <div><div style="color:#66788c;font-size:7px">瞳色</div><div style="color:#dfe6ee;font-size:9px">—</div></div>
+            <div><div style="color:#66788c;font-size:7px">肤色</div><div style="color:#dfe6ee;font-size:9px">灰蓝</div></div>
+            <div><div style="color:#66788c;font-size:7px">发色</div><div style="color:#dfe6ee;font-size:9px">黑灰</div></div>
+            <div><div style="color:#66788c;font-size:7px">体型</div><div style="color:#dfe6ee;font-size:9px">中型</div></div>
+          </div>
+          <div style="display:flex;gap:4px;margin-top:6px">
+            <span style="border:1px solid #34455f;border-radius:999px;padding:1px 6px;font-size:8px;color:#aabbcc">移速 35尺</span>
+            <span style="border:1px solid #34455f;border-radius:999px;padding:1px 6px;font-size:8px;color:#aabbcc">黑暗视觉 60尺</span>
+          </div>
+        </div>
+        <div style="background:#1a2332;border:1px solid #2a3a4e;border-radius:8px;padding:6px;margin-bottom:6px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="color:#c79a42;font-size:9px;letter-spacing:1px">种族与背景</span><span style="color:#55677c;font-size:8px">编辑</span></div>
+          <div style="display:flex;gap:4px;margin-bottom:6px">
+            <span style="border:1px solid #34455f;border-radius:999px;padding:1px 6px;font-size:8px;color:#aabbcc">+2 智力</span>
+            <span style="border:1px solid #34455f;border-radius:999px;padding:1px 6px;font-size:8px;color:#aabbcc">+1 敏捷</span>
+          </div>
+          <div style="background:#202735;border:1px solid #2a3a4e;border-radius:6px;height:20px;margin-bottom:4px;display:flex;align-items:center;padding:0 6px"><span style="color:#dfe6ee;font-size:9px">蛛行</span></div>
+          <div style="background:#202735;border:1px solid #2a3a4e;border-radius:6px;height:20px;margin-bottom:4px;display:flex;align-items:center;padding:0 6px"><span style="color:#dfe6ee;font-size:9px">不死之痕</span></div>
+          <div style="background:#202735;border:1px solid #2a3a4e;border-radius:6px;height:20px;display:flex;align-items:center;padding:0 6px"><span style="color:#dfe6ee;font-size:9px">吸血啃咬</span></div>
+        </div>
+        <div style="background:#1a2332;border:1px solid #2a3a4e;border-radius:8px;padding:6px">
+          <div style="display:flex;justify-content:space-between"><span style="color:#c79a42;font-size:9px;letter-spacing:1px">背景故事</span><span style="color:#55677c;font-size:8px">▸ 展开</span></div>
+          <div style="color:#55677c;font-size:8px;margin-top:3px">（折叠时只显示前两行摘要）</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A · 三段式纵向分区（推荐）</h3>
+      <p>头像缩成头部条里的小方图，与名字/种族/背景一行看完；下面基础档案、种族与背景、背景故事三个分区各自只读+编辑按钮。层级最直，窄屏宽屏都稳。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#141b27;border:1px solid #2a3a4e;border-radius:8px;padding:8px;font-family:sans-serif;width:100%">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+          <div style="width:36px;height:36px;border-radius:6px;background:#26334a;border:1px solid #34455f;flex:none"></div>
+          <div style="min-width:0">
+            <div style="color:#f0f4f8;font-size:12px;font-weight:700">布兰卡·冯·洛维奇</div>
+            <div style="color:#66788c;font-size:8px">肉法师 · 半血裔 · 噩梦缠身</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1.4fr_1fr;gap:6px">
+          <div>
+            <div style="background:#1a2332;border:1px solid #2a3a4e;border-radius:8px;padding:6px;margin-bottom:6px">
+              <div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="color:#c79a42;font-size:9px;letter-spacing:1px">基础档案</span><span style="color:#55677c;font-size:8px">编辑</span></div>
+              <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:5px">
+                <div><div style="color:#66788c;font-size:7px">年龄</div><div style="color:#dfe6ee;font-size:9px">未知</div></div>
+                <div><div style="color:#66788c;font-size:7px">阵营</div><div style="color:#dfe6ee;font-size:9px">混乱善良</div></div>
+                <div><div style="color:#66788c;font-size:7px">身高</div><div style="color:#dfe6ee;font-size:9px">178</div></div>
+                <div><div style="color:#66788c;font-size:7px">体重</div><div style="color:#dfe6ee;font-size:9px">210g</div></div>
+              </div>
+            </div>
+            <div style="background:#1a2332;border:1px solid #2a3a4e;border-radius:8px;padding:6px">
+              <div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="color:#c79a42;font-size:9px;letter-spacing:1px">背景故事</span><span style="color:#55677c;font-size:8px">编辑</span></div>
+              <div style="background:#16202c;border:1px solid #2a3a4e;border-radius:6px;height:70px"></div>
+            </div>
+          </div>
+          <div>
+            <div style="background:#1a2332;border:1px solid #2a3a4e;border-radius:8px;padding:6px">
+              <div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="color:#c79a42;font-size:9px;letter-spacing:1px">种族与背景</span><span style="color:#55677c;font-size:8px">编辑</span></div>
+              <div style="background:#202735;border:1px solid #2a3a4e;border-radius:6px;height:20px;margin-bottom:4px;display:flex;align-items:center;padding:0 6px"><span style="color:#dfe6ee;font-size:9px">蛛行</span></div>
+              <div style="background:#202735;border:1px solid #2a3a4e;border-radius:6px;height:20px;margin-bottom:4px;display:flex;align-items:center;padding:0 6px"><span style="color:#dfe6ee;font-size:9px">不死之痕</span></div>
+              <div style="background:#202735;border:1px solid #2a3a4e;border-radius:6px;height:20px;display:flex;align-items:center;padding:0 6px"><span style="color:#dfe6ee;font-size:9px">吸血啃咬</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B · 左右双栏</h3>
+      <p>左栏放基础档案+背景故事，右栏放种族与背景特性。宽屏一屏看得全，但窄屏要回退单栏，且故事和特性谁左谁右会有争议。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#141b27;border:1px solid #2a3a4e;border-radius:8px;padding:8px;font-family:sans-serif;width:100%;display:flex;gap:8px">
+        <div style="flex:1;min-width:0">
+          <div style="color:#f0f4f8;font-size:12px;font-weight:700;margin-bottom:6px">布兰卡·冯·洛维奇</div>
+          <div style="color:#c79a42;font-size:9px;letter-spacing:1px;border-bottom:1px solid #2a3a4e;padding-bottom:3px;margin-bottom:5px">外观 / 基础</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-bottom:8px">
+            <div><div style="color:#66788c;font-size:7px">年龄</div><div style="color:#dfe6ee;font-size:9px;border-bottom:1px solid #34455f">未知</div></div>
+            <div><div style="color:#66788c;font-size:7px">阵营</div><div style="color:#dfe6ee;font-size:9px;border-bottom:1px solid #34455f">混乱善良</div></div>
+            <div><div style="color:#66788c;font-size:7px">身高</div><div style="color:#dfe6ee;font-size:9px;border-bottom:1px solid #34455f">178</div></div>
+          </div>
+          <div style="color:#c79a42;font-size:9px;letter-spacing:1px;border-bottom:1px solid #2a3a4e;padding-bottom:3px;margin-bottom:5px">种族与背景</div>
+          <div style="background:#202735;border:1px solid #2a3a4e;border-radius:6px;height:20px;margin-bottom:4px"></div>
+          <div style="background:#202735;border:1px solid #2a3a4e;border-radius:6px;height:20px"></div>
+        </div>
+        <div style="width:88px;flex:none;background:#16202c;border:1px dashed #34455f;border-radius:8px;display:flex;align-items:center;justify-content:center">
+          <span style="color:#55677c;font-size:8px">头像 280→88</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C · 保留单卡，只理清内部</h3>
+      <p>仍是一张大卡+右侧头像栏（缩窄），靠分区标题和分隔线理清层级。改动最小，但"一张卡装一切"的根本问题还在。</p>
+    </div>
+  </div>
+</div>

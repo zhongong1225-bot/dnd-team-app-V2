@@ -441,8 +441,16 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
     }
     if (buff.effectType === 'max_hp_bonus' && v && typeof v === 'object') {
       const parts = []
-      if (v.maxHp) parts.push(`生命上限${v.maxHp >= 0 ? '+' : ''}${v.maxHp}`)
-      if (v.regen > 0) parts.push(`再生${v.regen}`)
+      if (v.maxHp) {
+        parts.push(isFormulaValue(v.maxHp)
+          ? `生命上限${formatFormulaLabelWithEval(v.maxHp, context)}`
+          : `生命上限${v.maxHp >= 0 ? '+' : ''}${v.maxHp}`)
+      }
+      if (isFormulaValue(v.regen) || v.regen > 0) {
+        parts.push(isFormulaValue(v.regen)
+          ? `再生${formatFormulaLabelWithEval(v.regen, context)}`
+          : `再生${v.regen}`)
+      }
       return parts.join('，') || effectLabel
     }
     if (buff.effectType === 'spell_attack_bonus' && v && typeof v === 'object') {
@@ -894,8 +902,16 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
     }
     if (buff.effectType === 'max_hp_bonus' && v && typeof v === 'object') {
       const parts = []
-      if (v.maxHp) parts.push(`HP${v.maxHp >= 0 ? '+' : ''}${v.maxHp}`)
-      if (v.regen > 0) parts.push(`再生${v.regen}`)
+      if (v.maxHp) {
+        parts.push(isFormulaValue(v.maxHp)
+          ? `HP${formatFormulaLabelWithEval(v.maxHp, context)}`
+          : `HP${v.maxHp >= 0 ? '+' : ''}${v.maxHp}`)
+      }
+      if (isFormulaValue(v.regen) || v.regen > 0) {
+        parts.push(isFormulaValue(v.regen)
+          ? `再生${formatFormulaLabelWithEval(v.regen, context)}`
+          : `再生${v.regen}`)
+      }
       return { label: effectLabel, value: parts.length ? parts.join('，') : null }
     }
     if (buff.effectType === 'spell_attack_bonus' && v && typeof v === 'object') {

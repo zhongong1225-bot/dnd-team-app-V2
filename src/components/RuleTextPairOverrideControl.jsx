@@ -54,7 +54,7 @@ export default function RuleTextPairOverrideControl({
       <button
         type="button"
         className={buttonClassName}
-        title={`${title}（存于本机·当前战役）`}
+        title={`${title}（随当前战役同步）`}
         aria-label={title}
         onClick={() => setOpen(true)}
       >
@@ -86,7 +86,7 @@ export default function RuleTextPairOverrideControl({
               </button>
             </div>
             <p className="px-3 pt-2 text-[11px] text-dnd-text-muted leading-snug">
-              保存后仅替换展示文案，不写回代码；数据存在本浏览器当前战役下。
+              保存后仅替换展示文案，不写回代码；数据随当前战役保存，启用云端时在设备间同步。
             </p>
             <div className="p-3 flex-1 min-h-0 flex flex-col gap-3 overflow-y-auto">
               <div>

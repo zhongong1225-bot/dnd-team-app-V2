@@ -22,6 +22,7 @@ import {
   syncBuffTemplatesFromCharacters,
   syncItemTemplatesFromCharacters,
 } from '../lib/moduleLibraryStore'
+import { hydrateRuleTextOverridesFromSupabase } from '../lib/ruleTextOverrides'
 
 const ModuleContext = createContext(null)
 
@@ -154,6 +155,12 @@ export function ModuleProvider({ children }) {
     refreshModuleLibrary()
     loadDefaultBuffPatchesFromSupabase(currentModuleId)
   }, [currentModuleId, teamDataReady, refreshModuleLibrary])
+
+  // 规则正文覆盖随战役同步：就绪后与切战役时各合并一次
+  useEffect(() => {
+    if (!teamDataReady) return
+    hydrateRuleTextOverridesFromSupabase(currentModuleId)
+  }, [currentModuleId, teamDataReady])
 
   const value = {
     modules,

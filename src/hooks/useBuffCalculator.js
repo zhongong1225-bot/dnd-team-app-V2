@@ -292,6 +292,14 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
     }
     const contextProf = profOverride != null ? profOverride : baseProf
 
+    // 聚合 skill_proficiency：种族/专长/装备赠送的技能熟练（属性页与手动开关取高，锁定至少熟练）
+    const grantedSkillProficiencies = {}
+    for (const b of entries) {
+      if (b.effectType !== 'skill_proficiency' || !b.value || typeof b.value !== 'object') continue
+      if (typeof b.value.skill === 'string' && b.value.skill) grantedSkillProficiencies[b.value.skill] = true
+      if (Array.isArray(b.value.skills)) for (const k of b.value.skills) if (k) grantedSkillProficiencies[k] = true
+    }
+
     const baseSpellMod = spellAbility ? abilityModifier(baseAbilities[spellAbility] ?? 10) : 0
     const baseFormulaContext = {
       level: charLevel,
@@ -623,11 +631,13 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
     // 检测是否有护盾池效果：护盾池current值替换基础AC 10，不叠加护甲AC
     const hasShieldPool = entries.some(e => e.effectType === 'shield_pool')
 
-    // 计算基础AC：变身效果 → armor_override → 默认 getAC
+    // 计算基础AC：变身效果 → armor_override → 护盾池 → 默认 getAC
     let baseAC
+    let acBaseSource = 'equipment'
     if (creatureTransformData && creatureTransformData.acMode === 'replace') {
       // 变身替换模式：直接使用生物的 AC
       baseAC = creatureTransformData.creature.ac ?? 10
+      acBaseSource = 'transform'
     } else if (creatureTransformData && creatureTransformData.acMode === 'add') {
       // 变身叠加模式：生物 AC 作为加值叠加到现有 AC 上
       const creatureAC = creatureTransformData.creature.ac ?? 0
@@ -644,6 +654,7 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
         const equipmentAC = getAC(charWithBuffedAbilities)
         baseAC = (equipmentAC?.total ?? 10) + creatureAC
       }
+      acBaseSource = 'transform'
     } else if (creatureTransformData && creatureTransformData.acMode === 'max_formula') {
       // 取高值模式：公式值（如 13+感知调整值）与生物AC 取较高者
       const creatureAC = creatureTransformData.creature.ac ?? 10
@@ -653,6 +664,7 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
         formulaVal += abilityModifier(finalAbilities[abilKey] ?? 10)
       }
       baseAC = Math.max(formulaVal, creatureAC)
+      acBaseSource = 'transform'
     } else if (hasAnyEnabledBase) {
       const dexMod = abilityModifier(finalAbilities.dex ?? 10)
       let acFromDex = 0
@@ -662,9 +674,11 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
           : dexMod
       }
       baseAC = armorOverrideBase + acFromDex + armorOverrideExtra
+      acBaseSource = 'armor_override'
     } else if (hasShieldPool) {
       // 护盾池效果：基础AC = 10（护盾池current通过ac_bonus注入，替换护甲AC）
       baseAC = 10
+      acBaseSource = 'shield_pool'
     } else {
       baseAC = getAC(charWithBuffedAbilities)
     }
@@ -1041,6 +1055,8 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       advantage,
       ac,
       acBonus,
+      acBase: baseACTotal,
+      acBaseSource,
       speedBonus,
       swimSpeedBonus,
       climbSpeedBonus,
@@ -1052,6 +1068,7 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       spellAttackBonus,
       spellDamageBonuses,
       proficiencyOverride: profOverride,
+      grantedSkillProficiencies,
       flightSpeed,
       flightHover,
       saveBonusPerAbility,

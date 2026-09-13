@@ -245,4 +245,32 @@ describe('buildCardsFromCharacter 始终从源数据生成', () => {
     expect(card.activeAbility.name).toBe('主动测试')
     expect(card.activeAbility.cooldown).toBe('long_rest')
   })
+
+  it('临时变身 BUFF 的 creature_transform 不被当作 charge_item 子效果过滤掉', () => {
+    const transform = { effectType: 'creature_transform', value: { creatureId: 'c1', acMode: 'max_formula', wildShapeMode: true } }
+    const character = {
+      buffs: [{ id: 'b3', source: '变身: 棕熊', sourceKind: 'temporary', enabled: true, effects: [transform] }],
+    }
+    const [entry] = getMergedBuffsViaCards(character)
+    expect(entry.effects.map(e => e.effectType)).toContain('creature_transform')
+  })
+
+  it('条目自带 charge_item 时，顶层的释放载荷类型仍被剔除', () => {
+    const character = {
+      buffs: [{
+        id: 'b4',
+        source: '带载荷',
+        enabled: true,
+        effects: [
+          { effectType: 'charge_item', value: { actionCost: 'action', effects: [{ type: 'damage' }] } },
+          { effectType: 'damage', value: { formula: '2d6' } },
+          { effectType: 'ac_bonus', value: 1 },
+        ],
+      }],
+    }
+    const [card] = buildCardsFromCharacter(character)
+    const types = (card.buffEffects ?? []).map(e => e.effectType)
+    expect(types).not.toContain('damage')
+    expect(types).toContain('ac_bonus')
+  })
 })

@@ -15,7 +15,7 @@ import { dataTransferHasType } from '../lib/dndTransferTypes'
 import { formatDurationBrief } from '../lib/durationModel'
 import { computeSuppressedEffects } from '../hooks/useBuffCalculator'
 import { useModule } from '../contexts/ModuleContext'
-import { buildClassFeatureBuffKey } from '../lib/defaultBuffPatchStore'
+import { clearDefaultBuffPatch, buildClassFeatureBuffKey } from '../lib/defaultBuffPatchStore'
 import { inputClass } from '../lib/inputStyles'
 import { BUFF_TYPES } from '../data/buffTypes'
 
@@ -42,7 +42,6 @@ export default function BuffManager({
   subordinates = [],
   onEditRace,
   onEditBackground,
-  onDisableClassFeatureBuff,
   charClasses = [],
 }) {
   const [debugVisible, setDebugVisible] = useState(false)
@@ -171,10 +170,10 @@ export default function BuffManager({
     const col = getColumnKeyForBuff(b)
     if (col !== 'adventure' && col !== 'temporary') {
       if (b?.fromItem || b?.fromFeat || b?.fromInvocation || b?.fromFightingStyle || b?.fromRace || b?.fromBackground) return
-      // 子职/职业特性 BUFF：仅停用本角色，不动模组默认（避免一处删、全员没）
+      // 子职/职业特性 BUFF：清除默认效果补丁，触发重算后自动消失
       if (b?.fromClassFeature) {
         const key = buildClassFeatureBuffKey(b.sourceClass, b.sourceSubclass, b.featureId)
-        onDisableClassFeatureBuff?.(key)
+        clearDefaultBuffPatch(currentModuleId, 'classFeature', key)
         return
       }
     }

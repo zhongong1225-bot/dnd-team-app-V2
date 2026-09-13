@@ -12,8 +12,7 @@ import {
   getAC,
   calcMaxHP,
   getHPBuffSum,
-  getACModeOptionsForCharacter,
-  getEffectiveACCalculationMode,
+  AC_CALCULATION_MODES,
   evaluateBuffValue,
 } from '../lib/formulas'
 import {
@@ -24,6 +23,7 @@ import {
 } from '../hooks/useBuffCalculator'
 import { getMergedBuffsForCalculator, getEffectsFromBuff, getEffectsFromItem } from '../lib/effects/effectMapping'
 import { skillProfFactor } from '../data/dndSkills'
+import { effectiveSkillLevel } from './AbilityModule'
 import { CONDITION_OPTIONS, CONDITION_DESCRIPTIONS, EXHAUSTION_DESCRIPTIONS, DAMAGE_TYPES, ABILITY_NAMES_ZH, getDamageTypeLabel, getDamageTypeValue, formatDamageForAttack, parseDamageString, scopeMatchesCombatMean, SCOPE_KIND, normalizeScope, CREATURE_TYPE_OPTIONS } from '../data/buffTypes'
 import { inputClass, inputClassInline } from '../lib/inputStyles'
 import { hpBarMainFillClass, HP_BAR_TEMP_FILL_CLASS } from '../lib/hpBarShared'
@@ -554,13 +554,34 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     return null
   }, [char?.equippedWorn, char?.equippedHeld, char?.inventory, char?.shieldPoolStates])
 
-  const acModeOptions = useMemo(() => getACModeOptionsForCharacter(char), [char?.['class'], char?.multiclass, char?.prestige])
-  const acModeEffective = getEffectiveACCalculationMode(char)
-  // 变身状态下隐藏 AC 模式下拉框（由变身BUFF自动覆盖）
-  const hasTransformBuff = Array.isArray(char.buffs) && char.buffs.some(b => 
-    b.enabled !== false && Array.isArray(b.effects) && b.effects.some(e => e?.effectType === 'creature_transform')
-  )
-  const showAcModeSelect = canEdit && acModeOptions.length > 1 && !hasTransformBuff
+  const transformInfo = buffStats?.creatureTransform
+  const acSourceLabel = transformInfo
+    ? (transformInfo.wildShapeMode ? '荒野变形' : (transformInfo.creatureName || '变身'))
+    : (acResult.acCalculationMode && acResult.acCalculationMode !== 'equipment'
+        ? (AC_CALCULATION_MODES[acResult.acCalculationMode]?.label ?? '')
+        : '')
+  const acBonusText = (buffStats?.acBonus ?? 0) !== 0 ? `+ Buff加值 ${(buffStats?.acBonus ?? 0) >= 0 ? '+' : ''}${buffStats.acBonus}` : null
+  const acBaseSource = buffStats?.acBaseSource ?? 'equipment'
+  const acOverrideLine = transformInfo
+    ? (transformInfo.acMode === 'max_formula'
+        ? `${transformInfo.acFormulaBase ?? 13}+${ABILITY_NAMES_ZH[transformInfo.acFormulaAbility] ?? ''}调整值 与生物AC ${transformInfo.creatureAC ?? '—'} 取高`
+        : transformInfo.acMode === 'add' ? `装备AC + 生物AC ${transformInfo.creatureAC ?? 0}` : `生物AC ${transformInfo.creatureAC ?? '—'}`)
+    : acBaseSource === 'shield_pool' ? `护盾池替换护甲，基础AC ${buffStats?.acBase ?? '—'}`
+    : acBaseSource === 'armor_override' ? `效果覆盖护甲，基础AC ${buffStats?.acBase ?? '—'}`
+    : null
+  const acBreakdown = acOverrideLine
+    ? [acOverrideLine, acBonusText].filter(Boolean).join(' → ') + ` = ${acTotal}`
+    : [
+        acResult.acFormulaNote ? `特性基准 ${acResult.base ?? '—'}` : `基础AC ${acResult.base ?? '—'}`,
+        !acResult.acFormulaNote ? `+ 敏调 ${(acResult.dexContrib ?? 0) >= 0 ? '+' : ''}${acResult.dexContrib ?? 0}` : null,
+        (acResult.shieldBase ?? acResult.shield) > 0 ? `+ 盾AC ${acResult.shieldBase ?? acResult.shield}` : null,
+        (acResult.shieldMagic ?? 0) > 0 ? `+ 盾牌增强 ${acResult.shieldMagic}` : null,
+        (acResult.armorMagic ?? 0) > 0 ? `+ 盔甲增强 ${acResult.armorMagic}` : null,
+        (acResult.outerMagic ?? 0) > 0 ? `+ 外袍 ${acResult.outerMagic}` : null,
+        (acResult.other ?? 0) !== 0 ? `+ 其他 ${(acResult.other ?? 0) >= 0 ? '+' : ''}${acResult.other}` : null,
+        (acResult.buff ?? 0) !== 0 ? `+ BUFF ${(acResult.buff ?? 0) >= 0 ? '+' : ''}${acResult.buff}` : null,
+        acBonusText,
+      ].filter(Boolean).join(' → ') + ` = ${acTotal}`
   const isCreatureTemplate = char?.subordinateTemplate === 'creature'
   /** 与豁免/技能一致：用 Buff 合并后的体质参与每级 HP，否则专长「体质+N」不会增加上限 */
   const abilitiesForMaxHp = buffStats?.abilities ?? abilities
@@ -703,16 +724,20 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setHpBuffTemp(hp?.buffTemp ?? 0)
   }, [hp?.current, hp?.temp, hp?.buffTemp])
 
-  /** BUFF 临时生命：BUFF 变化时同步到当前值；已扣减时不自动回涨 */
-  const prevBuffTempHpRef = useRef(hp?.buffTemp ?? 0)
+  /** BUFF 临时生命：BUFF 上限变化时同步；已扣减时不自动回涨，但没有 BUFF 支撑的残留值要清掉 */
+  const buffTempSyncRef = useRef({ id: char?.id, max: Math.max(0, Number(hp?.buffTemp) || 0) })
   useEffect(() => {
-    const max = Math.max(0, Number(buffStats?.tempHp) || 0)
-    if (max !== prevBuffTempHpRef.current) {
-      setHpBuffTemp(max)
-      prevBuffTempHpRef.current = max
-      onSave({ hp: { current: hpCurrent, max: maxHp, temp: hpTemp, buffTemp: max } })
-    }
-  }, [buffStats?.tempHp])
+    if (!buffStats) return
+    const max = Math.max(0, Number(buffStats.tempHp) || 0)
+    const persisted = Math.max(0, Number(hp?.buffTemp) || 0)
+    const prev = buffTempSyncRef.current
+    const sourceChanged = prev.id !== char?.id || prev.max !== max
+    buffTempSyncRef.current = { id: char?.id, max }
+    if (!sourceChanged && persisted <= max) return
+    const next = sourceChanged ? max : Math.min(persisted, max)
+    setHpBuffTemp(next)
+    if (next !== persisted) onSave({ hp: { current: hpCurrent, max: maxHp, temp: hpTemp, buffTemp: next } })
+  }, [buffStats?.tempHp, hp?.buffTemp, char?.id])
 
   useEffect(() => {
     setConditions(Array.isArray(char?.conditions) ? [...char.conditions] : [])
@@ -2039,7 +2064,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
 
   const dexMod = abilityModifier(effectiveAbilities?.dex ?? 10)
   const init = dexMod + (buffStats?.initBonus ?? 0)
-  const perception = 10 + abilityModifier(effectiveAbilities?.wis ?? 10) + Math.floor(prof * skillProfFactor(char?.skills?.perception || 'none'))
+  const perception = 10 + abilityModifier(effectiveAbilities?.wis ?? 10) + Math.floor(prof * skillProfFactor(effectiveSkillLevel(char?.skills?.perception, !!buffStats?.grantedSkillProficiencies?.perception)))
   const speedBase = (char?.speed ?? 30) + (buffStats?.speedBonus ?? 0)
   const speedPenalty = buffStats?.speedExhaustionPenalty ?? 0
   const speed = Math.max(0, Math.floor(speedBase * (buffStats?.speedMultiplier ?? 1)) - speedPenalty)
@@ -2439,19 +2464,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         {/* AC 卡片 - 带护盾池时显示电弧能量场效果 */}
         <div className={`relative isolate rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-2 sm:p-3 flex items-center justify-center gap-1.5 sm:gap-2 ${COMBAT_INNER_RIM_ONLY} ${wornArmorWithShieldPool && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold ? 'arc-field-active bg-[#1a2740]/40' : wornArmorWithShieldPool ? 'arc-field-depleted' : ''}`}
           title={[
-            buffStats?.ac != null ? `由 Buff 计算器得出: ${acTotal}` : null,
-            acResult.acFormulaNote ? `职业特性：${acResult.acFormulaNote}` : null,
-            [
-              acResult.acFormulaNote ? `特性基准 ${acResult.base ?? '—'}` : `基础AC ${acResult.base ?? '—'}`,
-              !acResult.acFormulaNote ? `+ 敏调 ${(acResult.dexContrib ?? 0) >= 0 ? '+' : ''}${acResult.dexContrib ?? 0}` : null,
-              (acResult.shieldBase ?? acResult.shield) > 0 ? `+ 盾AC ${acResult.shieldBase ?? acResult.shield}` : null,
-              (acResult.shieldMagic ?? 0) > 0 ? `+ 盾牌增强 ${acResult.shieldMagic}` : null,
-              (acResult.armorMagic ?? 0) > 0 ? `+ 盔甲增强 ${acResult.armorMagic}` : null,
-              (acResult.outerMagic ?? 0) > 0 ? `+ 外袍 ${acResult.outerMagic}` : null,
-              (acResult.other ?? 0) !== 0 ? `+ 其他 ${(acResult.other ?? 0) >= 0 ? '+' : ''}${acResult.other}` : null,
-              `+ BUFF ${(acResult.buff ?? 0) >= 0 ? '+' : ''}${acResult.buff ?? 0}`,
-              (buffStats?.acBonus ?? 0) !== 0 ? `+ Buff加值 ${(buffStats?.acBonus ?? 0) >= 0 ? '+' : ''}${buffStats?.acBonus}` : null,
-            ].filter(Boolean).join(' → ') + ` = ${acTotal}`,
+            acSourceLabel ? `AC 来源：${acSourceLabel}` : null,
+            acBreakdown,
           ].filter(Boolean).join('\n')}
         >
           {/* 渐变边框层 */}
@@ -2466,20 +2480,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           {wornArmorWithShieldPool && wornArmorWithShieldPool.spCurrent > wornArmorWithShieldPool.spThreshold && (
             <div className="arc-horizontal-stripes absolute inset-0 rounded-lg pointer-events-none -z-10" />
           )}
-          {showAcModeSelect ? (
-            <select
-              value={acModeEffective}
-              onChange={(e) => onSave({ acCalculationMode: e.target.value || 'equipment' })}
-              className={inputClass + ' !w-[8.75rem] max-w-[9.5rem] shrink-0 h-7 text-xs py-0 pl-2 pr-7 box-border'}
-              title="AC 计算方式"
-            >
-              {acModeOptions.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          ) : acModeEffective !== 'equipment' ? (
+          {acSourceLabel ? (
             <span className="text-xs text-gray-400 leading-tight inline-block min-w-0 max-w-[9.5rem] shrink-0 text-left whitespace-nowrap">
-              {acModeOptions.find((o) => o.value === acModeEffective)?.label ?? ''}
+              {acSourceLabel}
             </span>
           ) : null}
           <div className="flex flex-col items-end justify-center gap-1 sm:gap-1.5 shrink-0">

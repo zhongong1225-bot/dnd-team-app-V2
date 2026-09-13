@@ -17,6 +17,7 @@ import { HARDCODED_CLASS_FEATURE_BUFFS } from '../../data/classFeatureDefaultBuf
 import { getChoiceEffects, CLASS_FEATURE_CHOICE_REGISTRY, CHOICE_ID_ALIASES } from '../../data/classFeatureChoiceRegistry'
 import { findShieldSlot } from '../equipmentLayers'
 import { getMergedBuffsViaCards } from '../cardAdapter'
+import { isFormulaValue } from '../formulas'
 
 const FEAT_BY_ID = new Map(FEATS.map((x) => [x.id, x]))
 const INVOCATION_BY_ID = new Map(ELDRITCH_INVOCATIONS.map((x) => [x.id, x]))
@@ -420,9 +421,6 @@ export function getBuffsFromClassFeatures(character, moduleId) {
   if (!character) return []
   const features = getAvailableFeatures(character)
   const classFeatureChoices = character.classFeatureChoices || null
-  const disabledClassFeatureSet = Array.isArray(character.disabledClassFeatureBuffs)
-    ? new Set(character.disabledClassFeatureBuffs)
-    : null
   return features
     .map((f, index) => {
       const buffKey = buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)
@@ -430,8 +428,6 @@ export function getBuffsFromClassFeatures(character, moduleId) {
       let effects = Array.isArray(defaultPatch?.effects) && defaultPatch.effects.length ? defaultPatch.effects : []
       let duration = defaultPatch?.duration
       let enabled = defaultPatch?.enabled !== false
-      // 本角色停用：仅影响该角色，不动模组默认
-      if (enabled && disabledClassFeatureSet?.has(buffKey)) enabled = false
       let sourceLabel = f.name
       let optionId = null
 
@@ -822,7 +818,7 @@ export function getFlatEffectEntries(buffs, char) {
         const v = e.value
         const proto = { scope: e.scope, scopeDetail: e.scopeDetail, itemInventoryId: b?.itemInventoryId, break20: e.break20 }
         if (v.maxHp) out.push({ ...proto, effectType: 'max_hp_bonus', value: v.maxHp })
-        if (v.regen > 0) out.push({ ...proto, effectType: 'regeneration', value: v.regen })
+        if (isFormulaValue(v.regen) || v.regen > 0) out.push({ ...proto, effectType: 'regeneration', value: v.regen })
         continue
       }
 

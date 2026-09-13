@@ -144,7 +144,7 @@ export default function HouseRules() {
         规则收录
       </h1>
       <p className="text-dnd-text-muted text-xs mb-4 leading-relaxed">
-        规则大全：职业库、专长表、武技库等与角色卡共用数据。{isAdmin ? 'DM 可在各条旁使用铅笔图标编辑展示名称与正文（视条目而定），即时生效并写入本机当前战役。' : null}
+        规则大全：职业库、专长表、武技库等与角色卡共用数据。{isAdmin ? 'DM 可在各条旁使用铅笔图标编辑展示名称与正文（视条目而定），即时生效并随当前战役同步。' : null}
       </p>
 
       {/* 房规与模组说明 */}

@@ -175,3 +175,21 @@ export async function saveDefaultBuffPatches(moduleId, entries) {
   )
   if (error) throw error
 }
+
+export async function fetchRuleTextOverrides(moduleId) {
+  const mod = moduleId ?? 'default'
+  const { data, error } = await supabase.from('custom_library').select('*').eq('lib_key', `rule_text_overrides_${mod}`).maybeSingle()
+  if (error) throw error
+  if (!data) return null
+  const payload = Array.isArray(data.data) ? data.data[0] : data.data
+  return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : null
+}
+
+export async function saveRuleTextOverridesRow(moduleId, record) {
+  const mod = moduleId ?? 'default'
+  const { error } = await supabase.from('custom_library').upsert(
+    { lib_key: `rule_text_overrides_${mod}`, data: [record || {}], updated_at: new Date().toISOString() },
+    { onConflict: 'lib_key' }
+  )
+  if (error) throw error
+}

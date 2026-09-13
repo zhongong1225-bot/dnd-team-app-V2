@@ -474,7 +474,10 @@ function normalizeValueForSave(module, currentEffect) {
   if (needsSubSelect === 'maxHpAndRegen') {
     if (typeof value === 'number') return { maxHp: value, regen: 0 }
     if (value && typeof value === 'object' && !Array.isArray(value)) {
-      return { maxHp: Number(value.maxHp) || 0, regen: Number(value.regen) || 0 }
+      return {
+        maxHp: isFormulaValue(value.maxHp) ? value.maxHp : (Number(value.maxHp) || 0),
+        regen: isFormulaValue(value.regen) ? value.regen : (Number(value.regen) || 0),
+      }
     }
     return { maxHp: 0, regen: 0 }
   }
@@ -5601,13 +5604,13 @@ function EffectValueEditor({
           <div className="rounded-md bg-[#161e2b]/50 p-2.5 flex items-center gap-4 w-full">
             <div className="flex items-center gap-2">
               <span className={lblCls}>生命上限</span>
-              <NumberStepper value={v.maxHp ?? 0} compact narrow className="!h-6"
-                onChange={(n) => onChange({ ...module, value: { ...v, maxHp: Number(n) || 0 } })} />
+              <NumberStepper value={v.maxHp ?? 0} compact narrow className="!h-6" referenceData={activeReferenceData}
+                onChange={(n) => onChange({ ...module, value: { ...v, maxHp: isFormulaValue(n) ? n : (Number(n) || 0) } })} />
             </div>
             <div className="flex items-center gap-2">
               <span className={lblCls}>再生/回合</span>
-              <NumberStepper value={v.regen ?? 0} compact narrow className="!h-6" min={0}
-                onChange={(n) => onChange({ ...module, value: { ...v, regen: Number(n) || 0 } })} />
+              <NumberStepper value={v.regen ?? 0} compact narrow className="!h-6" min={0} referenceData={activeReferenceData}
+                onChange={(n) => onChange({ ...module, value: { ...v, regen: isFormulaValue(n) ? n : (Number(n) || 0) } })} />
             </div>
           </div>
         )
@@ -6006,7 +6009,7 @@ function UpgradeEditor({ upgrade, baseValue, effectType, category, charClasses, 
   )
 }
 
-export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClear, defaultSourceKind, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData, sourceNameOptions = [], sourceKindOptions = BUFF_SOURCE_KIND_OPTIONS_EDITABLE, compact = false, readOnly = false, hideDuration = false, subordinates = [], charResources, spellSlots, charClasses = [] }) {
+export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClear, defaultSourceKind, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData, sourceNameOptions = [], sourceKindOptions = BUFF_SOURCE_KIND_OPTIONS_EDITABLE, compact = false, readOnly = false, hideDuration = false, subordinates = [], charResources, spellSlots, charClasses = [], footerHint = null }) {
   const sourceKindLocked = !!(initial?.fromFeat || initial?.fromItem)
   const [source, setSource] = useState(initial?.source ?? '')
   const [duration, setDuration] = useState(() => normalizeDuration(initial?.duration))
@@ -6650,7 +6653,9 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
 
 
       {!readOnly && (
-      <div className={`flex gap-2 justify-end ${compact ? 'pt-1' : 'pt-2'}`}>
+      <div className={`flex items-center gap-2 ${footerHint ? 'justify-between' : 'justify-end'} ${compact ? 'pt-1' : 'pt-2'}`}>
+        {footerHint ? <div className="min-w-0 flex-1 text-xs text-gray-400">{footerHint}</div> : null}
+        <div className="flex gap-2 shrink-0">
         <button type="button" onClick={onCancel} className={`${compact ? 'px-3 py-1 text-xs' : 'px-4 py-2 text-sm'} rounded-lg bg-[#2a3a4e] border border-[#3a4a5e] text-[#c0c0c0] hover:bg-[#3a4a5e]`}>
           取消
         </button>
@@ -6662,6 +6667,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
         <button type="submit" className={`${compact ? 'px-3 py-1 text-xs' : 'px-4 py-2 text-sm'} rounded-lg bg-[#c79a42] hover:bg-[#d4a84d] text-[#1a1a1a] font-medium shadow-[0_0_12px_rgba(199,154,66,0.3)]`}>
           保存
         </button>
+        </div>
       </div>
       )}
     </form>

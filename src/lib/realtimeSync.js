@@ -13,6 +13,7 @@ import { loadCustomSpellsFromSupabase } from '../data/spellDatabase'
 import { loadCustomRacesFromSupabase } from '../data/races'
 import { loadModuleLibraryFromSupabase } from './moduleLibraryStore'
 import { loadDefaultBuffPatchesFromSupabase, DEFAULT_BUFF_PATCHES_EVENT } from './defaultBuffPatchStore'
+import { hydrateRuleTextOverridesFromSupabase } from './ruleTextOverrides'
 
 const DEBOUNCE_MS = 450
 
@@ -152,6 +153,18 @@ export function startSupabaseRealtime({ ownerName, isAdmin, moduleId }) {
     }, DEBOUNCE_MS)
   }
 
+  let ruleTextRtTimer = null
+  const onRuleTextOverridesChange = () => {
+    clearTimeout(ruleTextRtTimer)
+    ruleTextRtTimer = setTimeout(async () => {
+      try {
+        await hydrateRuleTextOverridesFromSupabase(mod)
+      } catch (e) {
+        console.warn('[Realtime] rule_text_overrides refresh failed', e)
+      }
+    }, DEBOUNCE_MS)
+  }
+
   function userPrefsFilter(name) {
     const s = String(name || '').trim()
     if (!s) return null
@@ -215,6 +228,11 @@ export function startSupabaseRealtime({ ownerName, isAdmin, moduleId }) {
       'postgres_changes',
       { event: '*', schema: 'public', table: 'custom_library', filter: `lib_key=eq.default_buff_patches_${mod}` },
       onDefaultBuffPatchesChange
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'custom_library', filter: `lib_key=eq.rule_text_overrides_${mod}` },
+      onRuleTextOverridesChange
     )
 
   if (prefsFilter) {

@@ -171,16 +171,16 @@ function getACFromLayers(character, getLayerSlotData) {
   }
 }
 
-/** 职业 AC 计算方式（角色字段 acCalculationMode） */
+/** 职业 AC 计算方式（自动匹配，不由用户选择） */
 export const AC_CALCULATION_MODES = {
   equipment: { label: '按装备计算' },
-  druid_wild: { label: '荒野变形', requiresClass: '德鲁伊', formula: '13+感知调整值' },
   monk_unarmored: { label: '武僧无甲', requiresClass: '武僧', formula: '10+感知调整值+敏捷调整值' },
   sorcerer_draconic: { label: '龙族体魄', requiresClass: '术士', formula: '10+魅力调整值+敏捷调整值' },
   barbarian_unarmored: { label: '蛮人无甲', requiresClass: '野蛮人', formula: '10+体质调整值+敏捷调整值' },
 }
 
-const CLASS_FEATURE_AC_MODE_KEYS = ['druid_wild', 'monk_unarmored', 'sorcerer_draconic', 'barbarian_unarmored']
+/** 无甲才生效的职业特性 AC 模式（德鲁伊荒野变形由变身 BUFF 接管，不在此列） */
+const UNARMORED_AC_MODE_KEYS = ['monk_unarmored', 'sorcerer_draconic', 'barbarian_unarmored']
 
 /** 起始职业、兼职、进阶职业中是否包含该职业名 */
 export function characterHasClassName(char, className) {
@@ -191,28 +191,37 @@ export function characterHasClassName(char, className) {
   return false
 }
 
-/** 当前实际生效的 AC 模式（职业不符或未知时回退按装备） */
-export function getEffectiveACCalculationMode(char) {
-  const raw = char?.acCalculationMode
-  if (raw == null || raw === '' || raw === 'equipment') return 'equipment'
-  const def = AC_CALCULATION_MODES[raw]
-  if (!def || !def.requiresClass) return 'equipment'
-  return characterHasClassName(char, def.requiresClass) ? raw : 'equipment'
-}
-
-/** 战斗面板下拉：按装备 + 当前角色可用的职业公式 */
-export function getACModeOptionsForCharacter(char) {
-  const opts = [{ value: 'equipment', label: '按装备计算' }]
-  for (const key of CLASS_FEATURE_AC_MODE_KEYS) {
-    const def = AC_CALCULATION_MODES[key]
-    if (def?.requiresClass && characterHasClassName(char, def.requiresClass)) {
-      opts.push({ value: key, label: def.label })
-    }
+/** 是否穿着护甲：三层槽位看身体盔甲是否真的提供 AC 基准（衣服不算），旧版看 armorNote / armorType */
+export function isWearingArmor(character) {
+  const equipment = character?.equipment ?? {}
+  if (useLayersForAC(equipment, character)) {
+    const body = getLayerSlotData(character, 'bodyArmor')
+    if (!body.entry) return false
+    if (String(body.entry?.['类型'] ?? '').trim() === '衣服') return false
+    const parsed = body.note ? parseArmorNote(body.note) : null
+    return !!parsed && !parsed.isShield && (parsed.baseAC ?? 0) > 0
   }
-  return opts
+  const armorNote = equipment.armorNote != null ? String(equipment.armorNote).trim() : ''
+  const parsed = armorNote ? parseArmorNote(armorNote) : null
+  if (parsed && !parsed.isShield) return true
+  return (equipment.armorType || 'unarmored') !== 'unarmored'
 }
 
-/** 职业特性基准 AC（不含盾/其它加值）；mode 须为 CLASS_FEATURE_AC_MODE_KEYS 之一 */
+/** 自动匹配 AC 计算方式：穿甲按装备算，无甲时在职业特性公式中取高于装备基准的最高者 */
+export function getAutoACCalculationMode(character) {
+  if (isWearingArmor(character)) return 'equipment'
+  const equipBase = 10 + abilityModifier(character?.abilities?.dex ?? 10)
+  let best = null
+  for (const key of UNARMORED_AC_MODE_KEYS) {
+    const def = AC_CALCULATION_MODES[key]
+    if (!def?.requiresClass || !characterHasClassName(character, def.requiresClass)) continue
+    const val = getClassFeatureAC(character, key)
+    if (val != null && val > equipBase && (best == null || val > best.val)) best = { key, val }
+  }
+  return best ? best.key : 'equipment'
+}
+
+/** 职业特性基准 AC（不含盾/其它加值）；mode 须为 UNARMORED_AC_MODE_KEYS 之一 */
 export function getClassFeatureAC(character, mode) {
   const abilities = character?.abilities ?? {}
   const dex = abilityModifier(abilities.dex ?? 10)
@@ -220,8 +229,6 @@ export function getClassFeatureAC(character, mode) {
   const con = abilityModifier(abilities.con ?? 10)
   const cha = abilityModifier(abilities.cha ?? 10)
   switch (mode) {
-    case 'druid_wild':
-      return 13 + wis
     case 'monk_unarmored':
       return 10 + wis + dex
     case 'sorcerer_draconic':
@@ -273,13 +280,14 @@ function applyClassFeatureACOverlay(character, mode, components, includeBodyArmo
 /**
  * AC = 基础AC + 敏调 + 盾AC + 盾牌增强加值 + 盔甲增强加值 + BUFF
  * 若装备使用三层穿戴槽位则按上述公式从槽位与背包条目取数；否则用 armorNote / armorType
- * 可选 acCalculationMode：德鲁伊荒野变形 / 武僧无甲 / 术士龙族体魄 / 野蛮人无甲（替换护甲基准，盾与其它加值仍累加）
+ * AC 计算方式自动匹配：穿甲按装备算，无甲时武僧/术士/野蛮人的特性公式接管（盾与其它加值仍累加）
+ * 德鲁伊荒野变形不在此处理，由变身 BUFF 在 computeBuffStats 中覆盖 AC
  */
 export function getAC(character) {
   const abilities = character?.abilities ?? {}
   const equipment = character?.equipment ?? {}
   const dexMod = abilityModifier(abilities.dex ?? 10)
-  const effectiveMode = getEffectiveACCalculationMode(character)
+  const effectiveMode = getAutoACCalculationMode(character)
 
   if (useLayersForAC(equipment, character)) {
     const result = getACFromLayers(character, getLayerSlotData)

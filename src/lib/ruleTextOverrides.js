@@ -1,8 +1,15 @@
 /**
- * 规则收录 / 角色卡 共用的「名称与正文覆盖」：按战役 moduleId 存 localStorage，便于 DM 在网页上改职业/子职特性名称与正文、专长等而不立刻改代码。
+ * 规则收录 / 角色卡 共用的「名称与正文覆盖」：按战役 moduleId 存储，便于 DM 在网页上改职业/子职特性名称与正文、专长等而不立刻改代码。
  * 不替代代码库数据；仅在有覆盖键时替换展示文案。
+ * 存储双通道：localStorage 立即生效；启用 Supabase 时镜像到 custom_library（lib_key=rule_text_overrides_<moduleId>），
+ * 启动 / 切换战役 / 实时推送时按「保存时间新者赢」合并，使覆盖随战役跨设备同步。
  */
 import { canonicalClassName } from '../data/classDatabase'
+import { isSupabaseEnabled } from './supabase'
+import {
+  fetchRuleTextOverrides as fetchRemoteRecord,
+  saveRuleTextOverridesRow,
+} from './teamDataSupabase'
 
 const STORAGE_PREFIX = 'dnd-rule-text-overrides-v1-'
 
@@ -13,30 +20,87 @@ export function ruleTextOverridesStorageKey(moduleId) {
   return `${STORAGE_PREFIX}${m}`
 }
 
-export function loadRuleTextOverrides(moduleId) {
-  try {
-    const raw = localStorage.getItem(ruleTextOverridesStorageKey(moduleId))
-    if (!raw) return {}
-    const j = JSON.parse(raw)
-    if (j && typeof j.entries === 'object' && j.entries !== null) return { ...j.entries }
-  } catch {
-    /* ignore */
-  }
-  return {}
+function normalizeRecord(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
+  if (!payload.entries || typeof payload.entries !== 'object' || Array.isArray(payload.entries)) return null
+  return { entries: { ...payload.entries }, updatedAt: Number(payload.updatedAt) || 0 }
 }
 
-export function saveRuleTextOverrides(moduleId, entries) {
+function readLocalRecord(moduleId) {
   try {
-    localStorage.setItem(
-      ruleTextOverridesStorageKey(moduleId),
-      JSON.stringify({ entries, updatedAt: Date.now() }),
-    )
+    const raw = localStorage.getItem(ruleTextOverridesStorageKey(moduleId))
+    if (!raw) return null
+    return normalizeRecord(JSON.parse(raw))
+  } catch {
+    return null
+  }
+}
+
+function writeLocalRecord(moduleId, record) {
+  try {
+    localStorage.setItem(ruleTextOverridesStorageKey(moduleId), JSON.stringify(record))
   } catch {
     /* ignore */
   }
+}
+
+function emitChanged(moduleId) {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(RULE_TEXT_OVERRIDES_EVENT, { detail: { moduleId } }))
   }
+}
+
+export function loadRuleTextOverrides(moduleId) {
+  return readLocalRecord(moduleId)?.entries ?? {}
+}
+
+export function saveRuleTextOverrides(moduleId, entries, updatedAt = Date.now()) {
+  const record = { entries, updatedAt }
+  writeLocalRecord(moduleId, record)
+  emitChanged(moduleId)
+  if (isSupabaseEnabled()) {
+    saveRuleTextOverridesRow(moduleId, record).catch((e) => {
+      console.warn('[ruleTextOverrides] 云端保存失败', e)
+    })
+  }
+}
+
+/**
+ * 纯合并：保存时间新者赢；时间相同不动。
+ * 云端无有效记录且本地有内容 → 首连上传；本地无记录而云端有 → 落地本地。
+ * @returns {{ winner: {entries: object, updatedAt: number}|null, replaceLocal: boolean, upload: boolean }}
+ */
+export function mergeRuleTextOverrideRecords(local, remote) {
+  const l = normalizeRecord(local)
+  const r = normalizeRecord(remote)
+  if (!r) {
+    const hasLocal = !!l && Object.keys(l.entries).length > 0
+    return { winner: l, replaceLocal: false, upload: hasLocal }
+  }
+  if (!l) return { winner: r, replaceLocal: true, upload: false }
+  if (r.updatedAt > l.updatedAt) return { winner: r, replaceLocal: true, upload: false }
+  if (l.updatedAt > r.updatedAt) return { winner: l, replaceLocal: false, upload: true }
+  return { winner: l, replaceLocal: false, upload: false }
+}
+
+/** 从云端拉取并与本地合并；赢方回写另一方。本地被替换时派发事件驱动界面刷新。 */
+export async function hydrateRuleTextOverridesFromSupabase(moduleId) {
+  if (!isSupabaseEnabled()) return loadRuleTextOverrides(moduleId)
+  try {
+    const remote = normalizeRecord(await fetchRemoteRecord(moduleId))
+    const { winner, replaceLocal, upload } = mergeRuleTextOverrideRecords(readLocalRecord(moduleId), remote)
+    if (replaceLocal && winner) {
+      writeLocalRecord(moduleId, winner)
+      emitChanged(moduleId)
+    } else if (upload && winner) {
+      await saveRuleTextOverridesRow(moduleId, winner).catch((e) => {
+        console.warn('[ruleTextOverrides] 云端首连上传失败', e)
+      })
+    }
+  } catch (e) {
+    console.warn('[ruleTextOverrides] 云端合并失败', e)
+  }
+  return loadRuleTextOverrides(moduleId)
 }
 
 export function buildClassFeatureKey(className, featureId) {

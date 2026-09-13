@@ -48,7 +48,7 @@ export default function RuleTextOverrideControl({
       <button
         type="button"
         className={buttonClassName}
-        title={`${label}（存于本机·当前战役）`}
+        title={`${label}（随当前战役同步）`}
         aria-label={label}
         onClick={() => setOpen(true)}
       >
@@ -80,7 +80,7 @@ export default function RuleTextOverrideControl({
               </button>
             </div>
             <p className="px-3 pt-2 text-[11px] text-dnd-text-muted leading-snug">
-              保存后仅替换展示文案，不写回代码；数据存在本浏览器当前战役下。与队友同步需各自粘贴或后续接云端。
+              保存后仅替换展示文案，不写回代码；数据随当前战役保存，启用云端时在设备间同步。
             </p>
             <div className="p-3 flex-1 min-h-0 flex flex-col gap-2">
               <textarea

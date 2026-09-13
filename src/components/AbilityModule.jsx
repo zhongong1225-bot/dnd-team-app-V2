@@ -64,6 +64,14 @@ function summarizeLabels(labels, max = 6) {
   return `${labels.slice(0, max).join('、')} 等${labels.length}项`
 }
 
+/** BUFF/种族/专长赠送的技能熟练：与手动设置取高，锁定至少熟练（手动可升到专精，但不能取消到熟练以下） */
+export function effectiveSkillLevel(manualLevel, granted) {
+  if (!granted) return manualLevel || 'none'
+  return manualLevel === 'expertise' ? 'expertise' : 'prof'
+}
+
+const GRANTED_BELOW_PROF = new Set(['none', 'half'])
+
 /** 合并体质豁免与专注豁免上的优势/劣势（如战地施法者专注优势 + 其他来源的豁免劣势） */
 function mergeSaveAndConcentrationAdvantage(saveAdv, concentrationAdv) {
   const s = saveAdv === 'advantage' ? 'advantage' : saveAdv === 'disadvantage' ? 'disadvantage' : 'normal'
@@ -236,6 +244,8 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
     }
   }, [savesBase.str, savesBase.dex, savesBase.con, savesBase.int, savesBase.wis, savesBase.cha, buffStats?.saveProficiencyGranted])
   const skillsState = char?.skills ?? {}
+  /** 由 BUFF/种族特性/专长赠送的技能熟练（引擎在 computeBuffStats 中聚合 skill_proficiency 效果） */
+  const grantedSkills = useMemo(() => buffStats?.grantedSkillProficiencies ?? {}, [buffStats?.grantedSkillProficiencies])
   const proficiencies = useMemo(() => normalizeProfState(char?.proficiencies), [char?.proficiencies])
   const toolOptions = useMemo(() => {
     const labels = ITEM_DATABASE
@@ -367,11 +377,12 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
 
   const skillMod = useCallback((skill) => {
     const mod = abilityModifier(effectiveAbilities[skill.ab] ?? 10)
-    const factor = skillProfFactor(skillsState[skill.id] || 'none')
+    const level = effectiveSkillLevel(skillsState[skill.id], !!grantedSkills[skill.id])
+    const factor = skillProfFactor(level)
     const skillBuff = buffStats?.skillBonusPerSkill?.[skill.id] ?? 0
     const concentrationPart = skill.id === 'concentration' ? (buffStats?.concentrationBonus ?? 0) : 0
     return mod + Math.floor(prof * factor) + skillBuff + concentrationPart
-  }, [effectiveAbilities, skillsState, prof, buffStats?.skillBonusPerSkill, buffStats?.concentrationBonus])
+  }, [effectiveAbilities, skillsState, grantedSkills, prof, buffStats?.skillBonusPerSkill, buffStats?.concentrationBonus])
 
   const skillsByAb = useMemo(() => {
     const m = { str: [], dex: [], con: [], int: [], wis: [], cha: [] }
@@ -548,7 +559,8 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
                   <ul className="divide-y divide-white/[0.06]">
                     {skillList.map((skill) => {
                       const total = skillMod(skill)
-                      const current = skillsState[skill.id] || 'none'
+                      const granted = !!grantedSkills[skill.id]
+                      const current = effectiveSkillLevel(skillsState[skill.id], granted)
                       const isRolling = rollingId === skill.id
 
                       return (
@@ -568,14 +580,15 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
                             <select
                               value={current}
                               onChange={(e) => setSkill(skill.id, e.target.value)}
+                              title={granted ? '由种族/专长/BUFF 赠送，锁定至少熟练（可升到专精）' : undefined}
                               className={`h-4.5 min-w-[4rem] w-12 rounded border border-gray-600 bg-gray-800 text-[9px] pl-1 pr-4 font-medium focus:border-dnd-gold-light focus:ring-1 focus:ring-dnd-gold-light ${getSkillRowLabelClass(current)}`}
                             >
                               {SKILL_PROF_OPTIONS.map((o) => (
-                                <option key={o.value} value={o.value}>{o.label}</option>
+                                <option key={o.value} value={o.value} disabled={granted && GRANTED_BELOW_PROF.has(o.value)}>{o.label}</option>
                               ))}
                             </select>
                           ) : (
-                            <span className="shrink-0 flex items-center justify-center w-4" title={current}>
+                            <span className="shrink-0 flex items-center justify-center w-4" title={granted ? '由种族/专长/BUFF 赠送，锁定至少熟练' : current}>
                               <ProficiencyIcon level={current} className="w-3.5 h-3.5" />
                             </span>
                           )}
