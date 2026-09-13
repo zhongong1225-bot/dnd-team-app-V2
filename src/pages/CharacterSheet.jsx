@@ -1075,19 +1075,10 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
               }
             })
             
-            if (strongAbilities.size === 0) return null
+            // 即使没有强势属性，也应该显示分配区域（所有属性都只能+1）
             
             const assignments = raceCard.asiAssignments || []
             const ALL_ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha']
-            
-            // 计算已分配的总点数
-            const totalPointsUsed = assignments.reduce((sum, a) => {
-              if (!a.ability) return sum
-              const isStrong = strongAbilities.has(a.ability)
-              // 检查这个属性是否被分配了多次
-              const count = assignments.filter(x => x.ability === a.ability).length
-              return sum + (isStrong ? Math.min(count, 2) : 1)
-            }, 0)
             
             const handleAsiChange = (index, ability, amount) => {
               const existing = [...assignments]
@@ -1102,6 +1093,8 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
             
             const getAvailableAmounts = (ability) => {
               if (!ability) return [1, 2]
+              // 如果没有定义强势属性，所有属性都只能+1
+              if (strongAbilities.size === 0) return [1]
               const isStrong = strongAbilities.has(ability)
               return isStrong ? [1, 2] : [1]
             }
@@ -2975,22 +2968,33 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
       if (effects.length > 0) row.featBuffPatch = { effects }
       next = [...raw, row]
     } else {
-      next = raw.map((f) => {
-        if (f?.slotId !== pickerState.slotId) return f
-        const slot = slots.find((s) => s.id === pickerState.slotId)
-        const updated = {
-          ...f,
+      const slot = slots.find((s) => s.id === pickerState.slotId)
+      if (raw.some((f) => f?.slotId === pickerState.slotId)) {
+        next = raw.map((f) => {
+          if (f?.slotId !== pickerState.slotId) return f
+          const updated = {
+            ...f,
+            featId,
+            level: slot?.level ?? f?.level ?? 1,
+            sourceClass: slot?.sourceClass ?? f?.sourceClass ?? '',
+          }
+          if (effects.length > 0) {
+            updated.featBuffPatch = { effects }
+          } else if (updated.featBuffPatch != null) {
+            delete updated.featBuffPatch
+          }
+          return updated
+        })
+      } else {
+        const row = {
+          slotId: pickerState.slotId,
           featId,
-          level: slot?.level ?? f?.level ?? 1,
-          sourceClass: slot?.sourceClass ?? f?.sourceClass ?? '',
+          level: slot?.level ?? 1,
+          sourceClass: slot?.sourceClass ?? '',
         }
-        if (effects.length > 0) {
-          updated.featBuffPatch = { effects }
-        } else if (updated.featBuffPatch != null) {
-          delete updated.featBuffPatch
-        }
-        return updated
-      })
+        if (effects.length > 0) row.featBuffPatch = { effects }
+        next = [...raw, row]
+      }
     }
     onSave({ selectedFeats: next })
     closePicker()
@@ -4469,6 +4473,7 @@ export default function CharacterSheet() {
                         <div className="mt-2 space-y-1.5">
                           {displayTraits.map((t) => {
                             const isChoice = Array.isArray(t.choiceOptions) && t.choiceOptions.length > 0
+                            const isFeatGrant = !!t.grantsOriginFeat
                             const chosenOpt = isChoice ? (t.choiceOptions || []).find(o => o.id === char.raceCard?.traitChoices?.[t.id]) : null
                             const activeCards = isChoice ? (chosenOpt?.cards || []) : (t.cards || [])
                             const effectSummaries = activeCards.map(c =>
@@ -4492,18 +4497,31 @@ export default function CharacterSheet() {
                                 category="种族"
                                 sourceMain={selRace.name}
                                 sourceSub={t._isSubrace ? '亚种特性' : '种族特性'}
-                                name={isChoice ? (
+                                name={(isChoice || isFeatGrant) ? (
                                   <span className="inline-flex items-center justify-center gap-1.5 max-w-full">
                                     <span className="truncate" style={{ fontSize: '14px', fontWeight: 600, color: '#f0f0f0' }}>{t.name}</span>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => { e.stopPropagation(); setProfileTraitChoiceModal(t.id) }}
-                                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] shrink-0 text-amber-300/80 hover:text-amber-200 hover:bg-amber-500/15 border border-amber-400/20"
-                                      title={`选择：${t.name}`}
-                                    >
-                                      {chosenOpt ? chosenOpt.label : '未选择'}
-                                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                                    </button>
+                                    {isChoice && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); setProfileTraitChoiceModal(t.id) }}
+                                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] shrink-0 text-amber-300/80 hover:text-amber-200 hover:bg-amber-500/15 border border-amber-400/20"
+                                        title={`选择：${t.name}`}
+                                      >
+                                        {chosenOpt ? chosenOpt.label : '未选择'}
+                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                                      </button>
+                                    )}
+                                    {isFeatGrant && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); setRaceFeatPickerOpen(true) }}
+                                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] shrink-0 text-amber-300/80 hover:text-amber-200 hover:bg-amber-500/15 border border-amber-400/20"
+                                        title={`选择：${t.name}`}
+                                      >
+                                        {raceFeatGrantName || '未选择'}
+                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                                      </button>
+                                    )}
                                   </span>
                                 ) : t.name}
                                 description={t.description || undefined}
@@ -4567,6 +4585,18 @@ export default function CharacterSheet() {
                         </>
                       )
                     })()}
+
+                    {/* 种族特性赠送起源专长选择弹窗（人类「多才多艺」） */}
+                    <FeatPickerModal
+                      isOpen={raceFeatPickerOpen}
+                      onClose={() => setRaceFeatPickerOpen(false)}
+                      onConfirm={handleRaceFeatPick}
+                      overridesMap={sheetOverridesMap}
+                      selectedIds={new Set((char?.selectedFeats ?? []).map((f) => f?.featId).filter(Boolean))}
+                      allowedCategories={['起源专长']}
+                      moduleId={sheetModuleId}
+                      formulaContext={buffFormulaContext}
+                    />
 
                     {/* 背景特性展示（占位，背景编辑器待开发） */}
                     {char.backgroundCard?.backgroundId && (() => {
