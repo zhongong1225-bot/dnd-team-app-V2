@@ -5,8 +5,8 @@ import { textareaClass, inputClass } from '../lib/inputStyles'
 import {
   loadRuleTextOverrides,
   resolveRuleText,
-  setRuleTextEntry,
-  clearRuleTextEntry,
+  setRuleTextEntries,
+  clearRuleTextEntries,
 } from '../lib/ruleTextOverrides'
 
 /**
@@ -36,14 +36,15 @@ export default function RuleTextPairOverrideControl({
   if (!isAdmin || !nameKey || !descKey) return null
 
   const handleSave = () => {
-    setRuleTextEntry(moduleId, nameKey, draftName, originalName)
-    setRuleTextEntry(moduleId, descKey, draftDesc, originalDescription)
+    setRuleTextEntries(moduleId, [
+      { key: nameKey, value: draftName, originalText: originalName },
+      { key: descKey, value: draftDesc, originalText: originalDescription },
+    ])
     setOpen(false)
   }
 
   const handleReset = () => {
-    clearRuleTextEntry(moduleId, nameKey)
-    clearRuleTextEntry(moduleId, descKey)
+    clearRuleTextEntries(moduleId, [nameKey, descKey])
     setDraftName(originalName ?? '')
     setDraftDesc(originalDescription ?? '')
     setOpen(false)

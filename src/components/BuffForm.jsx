@@ -474,8 +474,9 @@ function normalizeValueForSave(module, currentEffect) {
   if (needsSubSelect === 'maxHpAndRegen') {
     if (typeof value === 'number') return { maxHp: value, regen: 0 }
     if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const rawMaxHp = value.maxHp != null ? value.maxHp : value.bonus
       return {
-        maxHp: isFormulaValue(value.maxHp) ? value.maxHp : (Number(value.maxHp) || 0),
+        maxHp: isFormulaValue(rawMaxHp) ? rawMaxHp : (Number(rawMaxHp) || 0),
         regen: isFormulaValue(value.regen) ? value.regen : (Number(value.regen) || 0),
       }
     }

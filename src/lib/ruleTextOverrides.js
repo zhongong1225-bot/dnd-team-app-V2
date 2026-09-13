@@ -54,8 +54,9 @@ export function loadRuleTextOverrides(moduleId) {
   return readLocalRecord(moduleId)?.entries ?? {}
 }
 
-export function saveRuleTextOverrides(moduleId, entries, updatedAt = Date.now()) {
-  const record = { entries, updatedAt }
+export function saveRuleTextOverrides(moduleId, entries, updatedAt) {
+  const prev = Number(readLocalRecord(moduleId)?.updatedAt) || 0
+  const record = { entries, updatedAt: Math.max(Number(updatedAt) || Date.now(), prev + 1) }
   writeLocalRecord(moduleId, record)
   emitChanged(moduleId)
   if (isSupabaseEnabled()) {
@@ -157,19 +158,28 @@ export function resolveRuleText(map, key, fallback) {
 }
 
 export function setRuleTextEntry(moduleId, key, value, originalText) {
+  setRuleTextEntries(moduleId, [{ key, value, originalText }])
+}
+
+/** 批量改键：整表只算一次、只保存一次，防止分次写云时旧记录竞态覆盖新记录 */
+export function setRuleTextEntries(moduleId, patches) {
   const map = { ...loadRuleTextOverrides(moduleId) }
-  const next = String(value ?? '').trimEnd()
-  const orig = String(originalText ?? '').trimEnd()
-  if (next === '' || next === orig) {
-    delete map[key]
-  } else {
-    map[key] = value
+  for (const p of patches || []) {
+    if (!p?.key) continue
+    const next = String(p.value ?? '').trimEnd()
+    const orig = String(p.originalText ?? '').trimEnd()
+    if (next === '' || next === orig) delete map[p.key]
+    else map[p.key] = p.value
   }
   saveRuleTextOverrides(moduleId, map)
 }
 
 export function clearRuleTextEntry(moduleId, key) {
+  clearRuleTextEntries(moduleId, [key])
+}
+
+export function clearRuleTextEntries(moduleId, keys) {
   const map = { ...loadRuleTextOverrides(moduleId) }
-  delete map[key]
+  for (const key of keys || []) delete map[key]
   saveRuleTextOverrides(moduleId, map)
 }

@@ -439,12 +439,18 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       if (v.actions > 0) parts.push(`额外动作+${v.actions}`)
       return parts.join('，') || effectLabel
     }
-    if (buff.effectType === 'max_hp_bonus' && v && typeof v === 'object') {
+    if (buff.effectType === 'max_hp_bonus' && (typeof v === 'number' || isFormulaValue(v))) {
+      return isFormulaValue(v)
+        ? `${effectLabel}${formatFormulaLabelWithEval(v, context)}`
+        : `${effectLabel}${v >= 0 ? '+' : ''}${v}`
+    }
+    if (buff.effectType === 'max_hp_bonus' && v && typeof v === 'object' && !isFormulaValue(v)) {
+      const maxHp = v.maxHp != null ? v.maxHp : v.bonus
       const parts = []
-      if (v.maxHp) {
-        parts.push(isFormulaValue(v.maxHp)
-          ? `生命上限${formatFormulaLabelWithEval(v.maxHp, context)}`
-          : `生命上限${v.maxHp >= 0 ? '+' : ''}${v.maxHp}`)
+      if (maxHp) {
+        parts.push(isFormulaValue(maxHp)
+          ? `生命上限${formatFormulaLabelWithEval(maxHp, context)}`
+          : `生命上限${maxHp >= 0 ? '+' : ''}${maxHp}`)
       }
       if (isFormulaValue(v.regen) || v.regen > 0) {
         parts.push(isFormulaValue(v.regen)
@@ -900,12 +906,21 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
       if (v.actions > 0) parts.push(`动作+${v.actions}`)
       return { label: effectLabel, value: parts.length ? parts.join('，') : null }
     }
-    if (buff.effectType === 'max_hp_bonus' && v && typeof v === 'object') {
+    if (buff.effectType === 'max_hp_bonus' && (typeof v === 'number' || isFormulaValue(v))) {
+      return {
+        label: effectLabel,
+        value: isFormulaValue(v)
+          ? formatFormulaLabelWithEval(v, context)
+          : `${v >= 0 ? '+' : ''}${v}`,
+      }
+    }
+    if (buff.effectType === 'max_hp_bonus' && v && typeof v === 'object' && !isFormulaValue(v)) {
+      const maxHp = v.maxHp != null ? v.maxHp : v.bonus
       const parts = []
-      if (v.maxHp) {
-        parts.push(isFormulaValue(v.maxHp)
-          ? `HP${formatFormulaLabelWithEval(v.maxHp, context)}`
-          : `HP${v.maxHp >= 0 ? '+' : ''}${v.maxHp}`)
+      if (maxHp) {
+        parts.push(isFormulaValue(maxHp)
+          ? `HP${formatFormulaLabelWithEval(maxHp, context)}`
+          : `HP${maxHp >= 0 ? '+' : ''}${maxHp}`)
       }
       if (isFormulaValue(v.regen) || v.regen > 0) {
         parts.push(isFormulaValue(v.regen)

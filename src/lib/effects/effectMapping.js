@@ -813,11 +813,12 @@ export function getFlatEffectEntries(buffs, char) {
         continue
       }
 
-      // 生命上限+再生 → max_hp_bonus (number) + regeneration (number)
+      // 生命上限+再生 → max_hp_bonus (number) + regeneration (number)；兼容旧格式 { bonus }
       if (e.effectType === 'max_hp_bonus' && e.value && typeof e.value === 'object') {
         const v = e.value
         const proto = { scope: e.scope, scopeDetail: e.scopeDetail, itemInventoryId: b?.itemInventoryId, break20: e.break20 }
-        if (v.maxHp) out.push({ ...proto, effectType: 'max_hp_bonus', value: v.maxHp })
+        const maxHp = v.maxHp != null ? v.maxHp : v.bonus
+        if (maxHp) out.push({ ...proto, effectType: 'max_hp_bonus', value: maxHp })
         if (isFormulaValue(v.regen) || v.regen > 0) out.push({ ...proto, effectType: 'regeneration', value: v.regen })
         continue
       }

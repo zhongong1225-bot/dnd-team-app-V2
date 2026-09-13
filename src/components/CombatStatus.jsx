@@ -14,6 +14,7 @@ import {
   getHPBuffSum,
   AC_CALCULATION_MODES,
   evaluateBuffValue,
+  isFormulaValue,
 } from '../lib/formulas'
 import {
   useBuffCalculator,
@@ -2169,10 +2170,16 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       }
     })
     mergedBuffs.forEach((b) => {
+      const unwrapMaxHp = (raw) => {
+        if (raw && typeof raw === 'object' && !isFormulaValue(raw) && !Array.isArray(raw)) {
+          return raw.maxHp != null ? raw.maxHp : raw.bonus
+        }
+        return raw
+      }
       if (Array.isArray(b.effects)) {
         b.effects.forEach((e) => {
           if (e.effectType === 'max_hp_bonus') {
-            const v = evaluateBuffValue(e.value, itemFormulaContext)
+            const v = evaluateBuffValue(unwrapMaxHp(e.value), itemFormulaContext)
             if (v !== 0) {
               const src = b.source?.trim() || '未知来源'
               hpBonusSources.push(`${src} ${v > 0 ? '+' : ''}${v}`)
@@ -2180,7 +2187,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           }
         })
       } else if (b.effectType === 'max_hp_bonus') {
-        const v = evaluateBuffValue(b.value, itemFormulaContext)
+        const v = evaluateBuffValue(unwrapMaxHp(b.value), itemFormulaContext)
         if (v !== 0) {
           const src = b.source?.trim() || '未知来源'
           hpBonusSources.push(`${src} ${v > 0 ? '+' : ''}${v}`)
