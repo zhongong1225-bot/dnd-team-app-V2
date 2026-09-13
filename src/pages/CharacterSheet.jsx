@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo, forwardRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ChevronUp, ChevronDown, ChevronRight, Trash2, Star, Upload, X, Plus, Settings, Zap, RefreshCw, Pencil, Power } from 'lucide-react'
+import { ChevronUp, ChevronDown, ChevronRight, Trash2, Star, Upload, X, Plus, Settings, Zap, RefreshCw, Pencil } from 'lucide-react'
 
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
@@ -193,6 +193,18 @@ const CS_LIST_BODY = 'text-sm text-gray-400 leading-relaxed'
 const CS_LIST_SECTION_LBL = 'text-dnd-gold-light text-[10px] uppercase tracking-wider font-bold'
 const CS_ICON_16 = 'h-4 w-4 shrink-0'
 const CS_ICON_BTN = 'inline-flex shrink-0 items-center justify-center rounded p-1.5'
+
+// DM 默认效果编辑器底部提示：区分"已持久化"与"仍是硬编码默认模板"
+function defaultBuffCloudHint({ online, saved }) {
+  if (online) {
+    return saved
+      ? <span className="text-emerald-400">✓ 已存入云端</span>
+      : <span>当前为默认模板，点"保存"后自动存入云端</span>
+  }
+  return saved
+    ? <span className="text-gray-400">✓ 已保存到本地浏览器</span>
+    : <span>当前为默认模板，保存到本地浏览器</span>
+}
 
 const NameInput = forwardRef(function NameInput({ value, onChange, onFocus, onBlur, onKeyDown, className }, ref) {
   return (
@@ -606,25 +618,6 @@ function getProfileRaceInfo(char) {
   const dv = Number(subrace?.darkvision ?? race?.darkvision ?? 0)
   const hasRace = !!raceCard.raceId
 
-  const assignments = raceCard.asiAssignments || []
-  const asiChips = []
-  normalizeAbilityScoreBonuses(race?.abilityScoreBonuses, []).forEach((b, i) => {
-    const ability = assignments.filter((a) => a.source === 'race')[i]?.ability
-    asiChips.push({
-      key: `race-${i}`,
-      text: `+${b.amount} ${ability ? ABILITY_NAMES_ZH[ability] : '未分配'}`,
-      assigned: !!ability,
-    })
-  })
-  normalizeAbilityScoreBonuses(subrace?.abilityScoreBonuses, []).forEach((b, i) => {
-    const ability = assignments.filter((a) => a.source === 'subrace')[i]?.ability
-    asiChips.push({
-      key: `sub-${i}`,
-      text: `+${b.amount} ${ability ? ABILITY_NAMES_ZH[ability] : '未分配'}`,
-      assigned: !!ability,
-    })
-  })
-
   return {
     race,
     subrace,
@@ -634,7 +627,6 @@ function getProfileRaceInfo(char) {
     sizeLabel,
     speedText: hasRace ? speedParts.join(' ') : '',
     sensesText: hasRace ? (dv > 0 ? `黑暗视觉 ${dv}尺` : '无') : '',
-    asiChips,
   }
 }
 
@@ -755,7 +747,7 @@ function AppearanceReadGrid({ char, raceInfo }) {
 }
 
 /** 整合到外观区的种族/背景选择器 + 基础信息 + BUFF 编辑器 */
-function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRaceBuffEditorOpen, backgroundBuffEditorOpen, setBackgroundBuffEditorOpen, showTraitsOnly, referenceData, baseReferenceData, formulaContext, expandedRaceTraitIds, onToggleRaceTraitExpand, parts = 'all', showControls = true }) {
+function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRaceBuffEditorOpen, backgroundBuffEditorOpen, setBackgroundBuffEditorOpen, showTraitsOnly, referenceData, baseReferenceData, formulaContext, expandedRaceTraitIds, onToggleRaceTraitExpand, parts = 'all', showControls = true, readonlyAsi = false }) {
   const raceCard = char?.raceCard || {}
   const backgroundCard = char?.backgroundCard || {}
 
@@ -906,22 +898,25 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                 category="种族"
                 sourceMain={selectedRace.name}
                 sourceSub={t._isSubrace ? '亚种特性' : '种族特性'}
-                name={t.name}
+                name={isChoice ? (
+                  <span className="inline-flex items-center justify-center gap-1.5 max-w-full">
+                    <span className="truncate" style={{ fontSize: '14px', fontWeight: 600, color: '#f0f0f0' }}>{t.name}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setRaceTraitChoiceModal(t.id) }}
+                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] shrink-0 text-amber-300/80 hover:text-amber-200 hover:bg-amber-500/15 border border-amber-400/20"
+                      title={`选择：${t.name}`}
+                    >
+                      {chosenOpt ? chosenOpt.label : '未选择'}
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+                  </span>
+                ) : t.name}
                 buffTags={effectSummaries.slice(0, 3)}
                 description={t.description || undefined}
                 expanded={isExpanded}
                 onToggleExpand={() => onToggleRaceTraitExpand(t.id)}
-              >
-                {isChoice && (
-                  <button
-                    onClick={() => setRaceTraitChoiceModal(t.id)}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-amber-300/80 hover:text-amber-200 hover:bg-amber-500/15 border border-amber-400/20"
-                  >
-                    {chosenOpt ? chosenOpt.label : '未选择'}
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                  </button>
-                )}
-              </CardView>
+              />
             )
           })}
       </div>
@@ -967,7 +962,7 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
 
   return (
     <>
-    {(showBasics || showSelectors) && (
+    {(showBasics || showSelectors || readonlyAsi) && (
     <div className={parts === 'basics' ? 'min-w-0' : 'mt-2 min-w-0'} style={{ display: 'grid', gridTemplateColumns: 'repeat(14, minmax(0, 1fr))', gap: '0.5rem' }}>
       {/* 种族 + [亚种] + 背景按钮行 */}
       {showSelectors && (
@@ -1060,91 +1055,104 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
         </>
       )}
 
-      {showSelectors && raceCard.raceId && (
+      {(showSelectors || readonlyAsi) && raceCard.raceId && (
         <>
           {/* 属性加值分配 — 从种族定义的加值槽生成下拉菜单 */}
           {(() => {
             const raceBonuses = normalizeAbilityScoreBonuses(selectedRace?.abilityScoreBonuses, [])
             const subraceBonuses = normalizeAbilityScoreBonuses(selectedSubrace?.abilityScoreBonuses, [])
-            const allSlots = [
-              ...raceBonuses.map((b, i) => ({ ...b, source: 'race', slotKey: `race-${i}` })),
-              ...subraceBonuses.map((b, i) => ({ ...b, source: 'subrace', slotKey: `sub-${i}` })),
-            ]
-            if (allSlots.length === 0) return null
+            
+            // 收集所有强势属性（种族编辑器中勾选的属性）
+            const strongAbilities = new Set()
+            raceBonuses.forEach(b => {
+              if (Array.isArray(b.allowedAbilities)) {
+                b.allowedAbilities.forEach(k => strongAbilities.add(k))
+              }
+            })
+            subraceBonuses.forEach(b => {
+              if (Array.isArray(b.allowedAbilities)) {
+                b.allowedAbilities.forEach(k => strongAbilities.add(k))
+              }
+            })
+            
+            if (strongAbilities.size === 0) return null
+            
             const assignments = raceCard.asiAssignments || []
             const ALL_ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha']
-            const handleAsiChange = (slotSource, slotIndex, ability) => {
+            
+            // 计算已分配的总点数
+            const totalPointsUsed = assignments.reduce((sum, a) => {
+              if (!a.ability) return sum
+              const isStrong = strongAbilities.has(a.ability)
+              // 检查这个属性是否被分配了多次
+              const count = assignments.filter(x => x.ability === a.ability).length
+              return sum + (isStrong ? Math.min(count, 2) : 1)
+            }, 0)
+            
+            const handleAsiChange = (index, ability, amount) => {
               const existing = [...assignments]
-              const slotEntries = existing.filter(a => a.source === slotSource)
-              const otherEntries = existing.filter(a => a.source !== slotSource)
-              slotEntries[slotIndex] = { source: slotSource, ability }
-              onSave({ raceCard: { ...raceCard, asiAssignments: [...otherEntries, ...slotEntries] } })
+              // 移除旧的分配
+              existing.splice(index, 1)
+              // 添加新的分配
+              if (ability) {
+                existing.push({ ability, amount })
+              }
+              onSave({ raceCard: { ...raceCard, asiAssignments: existing } })
             }
-            const getAvailableKeys = (b) => {
-              if (Array.isArray(b.allowedAbilities) && b.allowedAbilities.length > 0) return b.allowedAbilities
-              return ALL_ABILITY_KEYS
+            
+            const getAvailableAmounts = (ability) => {
+              if (!ability) return [1, 2]
+              const isStrong = strongAbilities.has(ability)
+              return isStrong ? [1, 2] : [1]
             }
-            const renderHint = (b) => {
-              if (!Array.isArray(b.allowedAbilities) || b.allowedAbilities.length === 0) return null
-              if (b.allowedAbilities.length === ALL_ABILITY_KEYS.length) return null
-              return <span className="text-[9px] text-amber-400/60">限:{b.allowedAbilities.map(k => ABILITY_NAMES_ZH[k]).join(',')}</span>
+            
+            const isAbilityTaken = (ability, currentIndex) => {
+              return assignments.some((a, idx) => idx !== currentIndex && a.ability === ability)
             }
+            
+            // 确保assignments数组至少有3个元素
+            const displayAssignments = [...assignments]
+            while (displayAssignments.length < 3) {
+              displayAssignments.push({ ability: '', amount: 1 })
+            }
+            
             return (
               <>
                 <span className="col-span-2 text-right text-[11px] text-gray-400 font-medium bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">属性加值</span>
                 <div className="col-span-12 flex items-center gap-3 bg-white/[0.03] rounded-md border border-gray-700/40 px-3 py-1.5">
-                  {raceBonuses.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-gray-500 shrink-0">种族</span>
-                      {raceBonuses.map((b, i) => {
-                        const current = (assignments.filter(a => a.source === 'race') || [])[i]?.ability || ''
-                        const takenByOthers = assignments.filter(a => a.source === 'race').map((a, idx) => idx !== i ? a.ability : null).filter(Boolean)
-                        const keys = getAvailableKeys(b)
-                        return (
-                          <div key={i} className="flex items-center gap-1.5">
-                            <select value={current} onChange={e => handleAsiChange('race', i, e.target.value)}
-                              className="px-2 py-1 rounded bg-gray-800/60 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 min-w-[110px]">
-                              <option value="">+{b.amount} → ?</option>
-                              {keys.map(k => (
-                                <option key={k} value={k} disabled={takenByOthers.includes(k)}>
-                                  +{b.amount} → {ABILITY_NAMES_ZH[k]}
-                                </option>
-                              ))}
-                            </select>
-                            {renderHint(b)}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                  {subraceBonuses.length > 0 && raceBonuses.length > 0 && (
-                    <div className="w-px h-5 bg-gray-700/50" />
-                  )}
-                  {subraceBonuses.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-gray-500 shrink-0">亚种</span>
-                      {subraceBonuses.map((b, i) => {
-                        const subAssignments = assignments.filter(a => a.source === 'subrace')
-                        const current = subAssignments[i]?.ability || ''
-                        const takenByOthers = subAssignments.map((a, idx) => idx !== i ? a.ability : null).filter(Boolean)
-                        const keys = getAvailableKeys(b)
-                        return (
-                          <div key={i} className="flex items-center gap-1.5">
-                            <select value={current} onChange={e => handleAsiChange('subrace', i, e.target.value)}
-                              className="px-2 py-1 rounded bg-gray-800/60 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 min-w-[110px]">
-                              <option value="">+{b.amount} → ?</option>
-                              {keys.map(k => (
-                                <option key={k} value={k} disabled={takenByOthers.includes(k)}>
-                                  +{b.amount} → {ABILITY_NAMES_ZH[k]}
-                                </option>
-                              ))}
-                            </select>
-                            {renderHint(b)}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
+                  <span className="text-[10px] text-gray-500 shrink-0">分配</span>
+                  {displayAssignments.slice(0, 3).map((assignment, i) => {
+                    const availableAmounts = getAvailableAmounts(assignment.ability)
+                    return (
+                      <div key={i} className="flex items-center gap-1.5">
+                        <select 
+                          value={assignment.ability || ''} 
+                          onChange={e => handleAsiChange(i, e.target.value, assignment.amount)}
+                          disabled={!canEdit}
+                          className="px-2 py-1 rounded bg-gray-800/60 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 min-w-[90px]"
+                        >
+                          <option value="">选择属性</option>
+                          {ALL_ABILITY_KEYS.map(k => (
+                            <option key={k} value={k} disabled={isAbilityTaken(k, i)}>
+                              {ABILITY_NAMES_ZH[k]}{strongAbilities.has(k) ? ' (强)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {assignment.ability && (
+                          <select
+                            value={assignment.amount}
+                            onChange={e => handleAsiChange(i, assignment.ability, Number(e.target.value))}
+                            disabled={!canEdit}
+                            className="px-1.5 py-1 rounded bg-gray-800/60 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 w-[60px]"
+                          >
+                            {availableAmounts.map(amt => (
+                              <option key={amt} value={amt}>+{amt}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </>
             )
@@ -1681,11 +1689,42 @@ const CLASS_PSIONIC_FEAT_LEVELS = {
   魂灵学者: [5, 9, 15, 20],
 }
 
+/** 解析角色种族定义：raceId 优先，缺失时按 customName 回退匹配内置种族 */
+function resolveRaceDefinition(char) {
+  const raceCard = char?.raceCard || {}
+  let race = raceCard.raceId ? getRaceById(raceCard.raceId) : null
+  if (!race && raceCard.customName) {
+    const name = raceCard.customName.trim()
+    race = getAllRaces().find((r) => r.name === name) || null
+  }
+  return race
+}
+
 /** 根据角色职业与总等级，计算应获得的专长槽位 */
 export function computeFeatSlots(character, totalLevel) {
   const slots = []
   if (totalLevel >= 1) {
     slots.push({ id: 'origin', level: 1, sourceClass: '', category: '起源专长', label: '1级' })
+  }
+  // 种族特性赠送的额外起源专长槽（如人类「多才多艺」）
+  const race = resolveRaceDefinition(character)
+  if (race) {
+    const sub = character?.raceCard?.subraceId && Array.isArray(race.subraces)
+      ? race.subraces.find((s) => s.id === character.raceCard.subraceId) || null
+      : null
+    const raceTraits = [...(race.traits || []), ...(sub?.traits || [])]
+    let grantCount = 0
+    for (const t of raceTraits) {
+      if (!t?.grantsOriginFeat) continue
+      grantCount += 1
+      slots.push({
+        id: grantCount === 1 ? 'origin_race' : `origin_race_${grantCount}`,
+        level: 1,
+        sourceClass: '',
+        category: '起源专长',
+        label: '种族特性',
+      })
+    }
   }
   const classes = getCharacterClasses(character)
   for (const { name, level } of classes) {
@@ -2382,14 +2421,9 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
           const cfEffectSummaries = cfEffectsSource.map(e =>
                 getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText, scope: e.scope, scopeDetail: e.scopeDetail }, formulaContext)
               ).filter(Boolean)
-          const cfHasBuff = Array.isArray(cfCard?.buffEffects) && cfCard.buffEffects.length > 0
-          const isCfDisabled = Array.isArray(char?.disabledClassFeatureBuffs) && char.disabledClassFeatureBuffs.includes(cfBuffKey)
-          const cfBuffTags = (() => {
-            const base = cfEffectSummaries.length > 0
-              ? cfEffectSummaries.slice(0, 3)
-              : (cfScopeLabel ? [cfScopeLabel] : [])
-            return isCfDisabled ? ['已停用', ...base] : base
-          })()
+          const cfBuffTags = cfEffectSummaries.length > 0
+            ? cfEffectSummaries.slice(0, 3)
+            : (cfScopeLabel ? [cfScopeLabel] : [])
           // 护盾池检测（统一从 card.buffEffects 查找，包含所有来源的效果）
           const cfShieldPoolEffect = cfCard && Array.isArray(cfCard.buffEffects)
             ? cfCard.buffEffects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
@@ -2442,38 +2476,21 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
                 sourceSub={f.sourceSubclass || f.sourceClass}
                 buffTags={cfBuffTags}
                 headerRight={
-                  <div className="flex items-center gap-0.5">
-                    {canEdit && cfHasBuff && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          const cur = Array.isArray(char?.disabledClassFeatureBuffs) ? char.disabledClassFeatureBuffs : []
-                          const next = cur.includes(cfBuffKey) ? cur.filter((k) => k !== cfBuffKey) : [...cur, cfBuffKey]
-                          onSave({ disabledClassFeatureBuffs: next })
-                        }}
-                        className={`w-7 h-7 flex items-center justify-center rounded-md transition-all active:scale-95 ${isCfDisabled ? 'text-red-400/80 hover:text-red-300 hover:bg-red-900/30' : 'text-gray-500 hover:text-emerald-400 hover:bg-gray-700/50'}`}
-                        title={isCfDisabled ? '本角色已停用该增益，点击恢复' : '仅对本角色停用该增益（不影响其他角色与模组默认）'}
-                      >
-                        <Power className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (isChoiceType) {
-                          setChoiceModalFeature(f)
-                        } else {
-                          setBuffEditorFeature(f)
-                        }
-                      }}
-                      className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
-                      title={isChoiceType ? '选择特性选项' : '配置 BUFF 效果'}
-                    >
-                      <Settings className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (isChoiceType) {
+                        setChoiceModalFeature(f)
+                      } else {
+                        setBuffEditorFeature(f)
+                      }
+                    }}
+                    className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
+                    title={isChoiceType ? '选择特性选项' : '配置 BUFF 效果'}
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                  </button>
                 }
                 footer={<ClassFeatureActions feature={f} moduleId={moduleId} char={char} onSave={onSave} />}
               >
@@ -2618,6 +2635,10 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
             referenceData,
             baseReferenceData,
             formulaContext,
+            footerHint: defaultBuffCloudHint({
+              online: isSupabaseEnabled(),
+              saved: !!loadDefaultBuffPatch(moduleId, 'classFeature', buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id)),
+            }),
             initial: {
               source: `${buffEditorFeature.sourceClass}-${buffEditorFeature.name}`,
               cardName: editCardName,
@@ -2752,6 +2773,10 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
             referenceData,
             baseReferenceData,
             formulaContext,
+            footerHint: defaultBuffCloudHint({
+              online: isSupabaseEnabled(),
+              saved: !!loadDefaultBuffPatch(moduleId, 'classFeature', buildClassFeatureOptionBuffKey(buffEditorOption.feature.sourceClass, buffEditorOption.feature.sourceSubclass, buffEditorOption.feature.id, buffEditorOption.optionId)),
+            }),
             initial: {
               source: `${buffEditorOption.feature.sourceClass}-${buffEditorOption.feature.name}（${buffEditorOption.optionLabel}）`,
               cardName: editOptionCardName,
@@ -3920,6 +3945,25 @@ export default function CharacterSheet() {
     persist({ ...char, raceCard: { ...char.raceCard, traitChoices: choices } })
     setProfileTraitChoiceModal(null)
   }
+  // 种族特性赠送的起源专长（如人类「多才多艺」）：写入 origin_race 槽，与专长区同一数据源
+  const [raceFeatPickerOpen, setRaceFeatPickerOpen] = useState(false)
+  const raceFeatRow = (char?.selectedFeats ?? []).find((f) => f?.slotId === 'origin_race' && f?.featId)
+  const raceFeatGrantName = raceFeatRow ? (FEATS.find((x) => x.id === raceFeatRow.featId)?.name || raceFeatRow.featId) : ''
+  const handleRaceFeatPick = ({ featId, effects = [] }) => {
+    if (!featId) return
+    const raw = char?.selectedFeats ?? []
+    const buildRow = (f) => {
+      const row = { ...f, slotId: 'origin_race', featId, level: 1, sourceClass: '' }
+      if (effects.length > 0) row.featBuffPatch = { effects }
+      else delete row.featBuffPatch
+      return row
+    }
+    const next = raw.some((f) => f?.slotId === 'origin_race')
+      ? raw.map((f) => (f?.slotId === 'origin_race' ? buildRow(f) : f))
+      : [...raw, buildRow({})]
+    persist({ ...char, selectedFeats: next })
+    setRaceFeatPickerOpen(false)
+  }
   const mergedBuffs = useMemo(
     () => getMergedBuffsForCalculator(char, sheetModuleId),
     [
@@ -4354,7 +4398,7 @@ export default function CharacterSheet() {
                   </div>
 
                   {/* 右栏：肖像 + 背景故事（窄屏 contents，让两块各自参与外层排序） */}
-                  <div className="contents lg:grid lg:grid-rows-[minmax(0,2fr)_minmax(0,1fr)] lg:gap-3 lg:min-h-0 lg:col-start-2 lg:row-start-1 lg:row-span-3">
+                  <div className="contents lg:grid lg:grid-rows-[420px_minmax(140px,1fr)] lg:gap-3 lg:min-h-0 lg:col-start-2 lg:row-start-1 lg:row-span-3">
                     <div className="order-2 min-w-0 h-[300px] max-h-[320px] lg:order-none lg:h-auto lg:max-h-none lg:min-h-0">
                       <AvatarFrame char={char} canEdit={canEdit} onSave={persist} portrait />
                     </div>
@@ -4397,20 +4441,11 @@ export default function CharacterSheet() {
                     className="order-4 lg:order-none lg:col-start-1 lg:row-start-3"
                   >
                     <RaceBackgroundInline char={char} canEdit={canEdit} onSave={persist}
-                      parts="racebg" showControls={editingSection === 'racebg'}
+                      parts="racebg" showControls={editingSection === 'racebg'} readonlyAsi
                       raceBuffEditorOpen={raceBuffEditorOpen} setRaceBuffEditorOpen={setRaceBuffEditorOpen}
                       backgroundBuffEditorOpen={backgroundBuffEditorOpen} setBackgroundBuffEditorOpen={setBackgroundBuffEditorOpen}
                       referenceData={referenceData} baseReferenceData={baseReferenceData} formulaContext={buffFormulaContext}
                       expandedRaceTraitIds={expandedRaceTraitIds} onToggleRaceTraitExpand={toggleRaceTraitExpand} />
-
-                    {/* 属性加值芯片（只读态） */}
-                    {editingSection !== 'racebg' && raceInfo.asiChips.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5 mb-2">
-                        {raceInfo.asiChips.map((chip) => (
-                          <span key={chip.key} className={`profile-chip${chip.assigned ? '' : ' profile-chip-dim'}`}>{chip.text}</span>
-                        ))}
-                      </div>
-                    )}
 
                     {/* 种族特性展示 */}
                     {(() => {
@@ -4457,7 +4492,20 @@ export default function CharacterSheet() {
                                 category="种族"
                                 sourceMain={selRace.name}
                                 sourceSub={t._isSubrace ? '亚种特性' : '种族特性'}
-                                name={t.name}
+                                name={isChoice ? (
+                                  <span className="inline-flex items-center justify-center gap-1.5 max-w-full">
+                                    <span className="truncate" style={{ fontSize: '14px', fontWeight: 600, color: '#f0f0f0' }}>{t.name}</span>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); setProfileTraitChoiceModal(t.id) }}
+                                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] shrink-0 text-amber-300/80 hover:text-amber-200 hover:bg-amber-500/15 border border-amber-400/20"
+                                      title={`选择：${t.name}`}
+                                    >
+                                      {chosenOpt ? chosenOpt.label : '未选择'}
+                                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                                    </button>
+                                  </span>
+                                ) : t.name}
                                 description={t.description || undefined}
                                 expanded={isExpanded}
                                 onToggleExpand={() => toggleRaceTraitExpand(t.id)}
@@ -4480,17 +4528,7 @@ export default function CharacterSheet() {
                                     />
                                   )
                                 })() : undefined}
-                              >
-                                {isChoice && (
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); setProfileTraitChoiceModal(t.id) }}
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-amber-300/80 hover:text-amber-200 hover:bg-amber-500/15 border border-amber-400/20 mb-1"
-                                  >
-                                    {chosenOpt ? chosenOpt.label : '未选择'}
-                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                                  </button>
-                                )}
-                              </CardView>
+                              />
                             )
                           })}
                         </div>
@@ -4619,11 +4657,6 @@ export default function CharacterSheet() {
               formulaContext={buffFormulaContext}
               onEditRace={() => setRaceBuffEditorOpen(true)}
               onEditBackground={() => setBackgroundBuffEditorOpen(true)}
-              onDisableClassFeatureBuff={(key) => {
-                const cur = Array.isArray(char.disabledClassFeatureBuffs) ? char.disabledClassFeatureBuffs : []
-                if (cur.includes(key)) return
-                persist({ disabledClassFeatureBuffs: [...cur, key] })
-              }}
             />
           </section>
           )}
