@@ -270,8 +270,10 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
     onChange({ ...race, grantedSkills: (race.grantedSkills || []).map((s, i) => i === idx ? val : s) })
   }
 
-  // ── 属性加值编辑（统一6选3模式）───────────────────────────────────────
-  const raceBonuses = normalizeAbilityScoreBonuses(race.abilityScoreBonuses, [])
+  // ─ 属性加值编辑（统一6选3模式）───────────────────────────────────────
+  // 确保abilityScoreBonuses字段存在，避免undefined导致的问题
+  const safeRace = { ...race, abilityScoreBonuses: race.abilityScoreBonuses || [] }
+  const raceBonuses = normalizeAbilityScoreBonuses(safeRace.abilityScoreBonuses, [])
   
   /** 切换属性勾选状态（标记为强势属性） */
   const toggleAbilitySelection = (abilityKey) => {
