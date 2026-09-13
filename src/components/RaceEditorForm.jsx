@@ -277,10 +277,10 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
   const toggleAbilitySelection = (abilityKey) => {
     // 收集当前所有已勾选的属性
     const allAbilities = raceBonuses.flatMap(b => Array.isArray(b.allowedAbilities) ? b.allowedAbilities : [])
-    const isSelected = allAbilities.includes(abilityKey)
+    const count = allAbilities.filter(a => a === abilityKey).length
     
-    if (isSelected) {
-      // 取消勾选：移除该属性的所有出现
+    if (count >= 2) {
+      // 已连点2次，再次点击则移除所有
       const next = raceBonuses.map(b => {
         if (!Array.isArray(b.allowedAbilities)) return b
         const updated = b.allowedAbilities.filter(k => k !== abilityKey)
@@ -292,10 +292,30 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
         return { ...b, allowedAbilities: updated }
       }).filter(b => b.amount > 0 || Array.isArray(b.allowedAbilities))
       
-      // 重新组织为槽位结构
       onChange({ ...race, abilityScoreBonuses: reorganizeBonusSlots(next) })
+    } else if (count === 1) {
+      // 已点1次，再次点击则再添加一次（变成+2强项）
+      if (allAbilities.length >= 3) {
+        alert('最多只能选择3个属性')
+        return
+      }
+      
+      // 添加到第一个空槽或创建新槽
+      const firstEmptyIdx = raceBonuses.findIndex(b => !Array.isArray(b.allowedAbilities) || b.allowedAbilities.length === 0)
+      let next
+      if (firstEmptyIdx >= 0) {
+        next = raceBonuses.map((b, i) => 
+          i === firstEmptyIdx 
+            ? { ...b, allowedAbilities: [...(b.allowedAbilities || []), abilityKey] }
+            : b
+        )
+      } else {
+        next = [...raceBonuses, { amount: 1, allowedAbilities: [abilityKey] }]
+      }
+      
+      onChange({ ...race, abilityScoreBonuses: next })
     } else {
-      // 新增勾选：检查总数是否已达上限3
+      // 未勾选，新增勾选：检查总数是否已达上限3
       if (allAbilities.length >= 3) {
         alert('最多只能选择3个属性')
         return
@@ -574,12 +594,22 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
                 const count = allAbilities.filter(a => a === k).length
                 return (
                   <label key={k} className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={count > 0}
-                      onChange={() => toggleAbilitySelection(k)}
-                      className={`accent-[#c79a42] ${count >= 2 ? 'accent-red-500' : ''}`}
-                    />
+                    <div className="relative flex items-center justify-center w-4 h-4 rounded border border-dnd-gold/30 bg-dnd-bg-secondary">
+                      <input
+                        type="checkbox"
+                        checked={count > 0}
+                        onChange={() => toggleAbilitySelection(k)}
+                        className="absolute inset-0 opacity-0 cursor-pointer"
+                      />
+                      {count === 1 && (
+                        <svg className="w-3 h-3 text-dnd-gold" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                      {count === 2 && (
+                        <span className="text-[10px] font-bold text-red-400">×2</span>
+                      )}
+                    </div>
                     <span className={`${count >= 2 ? 'text-red-400 font-semibold' : 'text-white'}`}>
                       {ABILITY_SHORT[k]} ({['力','敏','体','智','感','魅'][ABILITY_KEYS.indexOf(k)]})
                     </span>
