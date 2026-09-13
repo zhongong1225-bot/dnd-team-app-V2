@@ -273,14 +273,14 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
   // ── 属性加值编辑（统一6选3模式）───────────────────────────────────────
   const raceBonuses = normalizeAbilityScoreBonuses(race.abilityScoreBonuses, [])
   
-  /** 切换属性勾选状态（自动分配+2或+1） */
+  /** 切换属性勾选状态（标记为强势属性） */
   const toggleAbilitySelection = (abilityKey) => {
     // 收集当前所有已勾选的属性
     const allAbilities = raceBonuses.flatMap(b => Array.isArray(b.allowedAbilities) ? b.allowedAbilities : [])
-    const count = allAbilities.filter(a => a === abilityKey).length
+    const isSelected = allAbilities.includes(abilityKey)
     
-    if (count >= 2) {
-      // 已连点2次，再次点击则移除所有
+    if (isSelected) {
+      // 取消勾选：移除该属性
       const next = raceBonuses.map(b => {
         if (!Array.isArray(b.allowedAbilities)) return b
         const updated = b.allowedAbilities.filter(k => k !== abilityKey)
@@ -293,31 +293,10 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
       }).filter(b => b.amount > 0 || Array.isArray(b.allowedAbilities))
       
       onChange({ ...race, abilityScoreBonuses: reorganizeBonusSlots(next) })
-    } else if (count === 1) {
-      // 已点1次，再次点击则再添加一次（变成+2强项）
-      if (allAbilities.length >= 3) {
-        alert('最多只能选择3个属性')
-        return
-      }
-      
-      // 添加到第一个空槽或创建新槽
-      const firstEmptyIdx = raceBonuses.findIndex(b => !Array.isArray(b.allowedAbilities) || b.allowedAbilities.length === 0)
-      let next
-      if (firstEmptyIdx >= 0) {
-        next = raceBonuses.map((b, i) => 
-          i === firstEmptyIdx 
-            ? { ...b, allowedAbilities: [...(b.allowedAbilities || []), abilityKey] }
-            : b
-        )
-      } else {
-        next = [...raceBonuses, { amount: 1, allowedAbilities: [abilityKey] }]
-      }
-      
-      onChange({ ...race, abilityScoreBonuses: next })
     } else {
-      // 未勾选，新增勾选：检查总数是否已达上限3
-      if (allAbilities.length >= 3) {
-        alert('最多只能选择3个属性')
+      // 新增勾选：检查总数是否已达上限
+      if (allAbilities.length >= 6) {
+        alert('最多只能选择6个属性作为强势属性')
         return
       }
       
@@ -338,27 +317,23 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
     }
   }
   
-  /** 重新组织槽位：合并相同属性，确保结构合理 */
+  /** 重新组织槽位：每个勾选的属性作为一个独立的强势属性槽位 */
   const reorganizeBonusSlots = (slots) => {
-    // 统计每个属性的出现次数
-    const countMap = {}
+    // 收集所有被勾选的属性（去重）
+    const selectedAbilities = new Set()
     slots.forEach(b => {
       if (Array.isArray(b.allowedAbilities)) {
-        b.allowedAbilities.forEach(k => {
-          countMap[k] = (countMap[k] || 0) + 1
-        })
+        b.allowedAbilities.forEach(k => selectedAbilities.add(k))
       }
     })
     
-    // 重建槽位：连勾的放前面（amount=2），单独的放后面（amount=1）
-    const strong = Object.entries(countMap).filter(([_, c]) => c >= 2).map(([k]) => k)
-    const weak = Object.entries(countMap).filter(([_, c]) => c === 1).map(([k]) => k)
+    // 为每个选中的属性创建一个槽位（amount=1表示这是一个强势属性标记）
+    const newSlots = Array.from(selectedAbilities).map(k => ({
+      amount: 1,
+      allowedAbilities: [k]
+    }))
     
-    const newSlots = []
-    strong.forEach(k => newSlots.push({ amount: 2, allowedAbilities: [k] }))
-    weak.forEach(k => newSlots.push({ amount: 1, allowedAbilities: [k] }))
-    
-    return newSlots.length > 0 ? newSlots : [{ amount: 1 }]
+    return newSlots.length > 0 ? newSlots : []
   }
   
   const patchBonusAmount = (idx, val) => {
@@ -587,30 +562,27 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
 
           {/* Row2 Col2: 属性加值 */}
           <div className={sectionCls}>
-            <div className="text-[10px] text-dnd-text-muted mb-2">选择3个属性（点1次+1，连点2次+2强项）</div>
+            <div className="text-[10px] text-dnd-text-muted mb-2">勾选强势属性（角色创建时可分配+2，未勾选最多+1）</div>
             <div className="flex flex-wrap gap-x-3 gap-y-1.5">
               {ABILITY_KEYS.map(k => {
                 const allAbilities = raceBonuses.flatMap(b => Array.isArray(b.allowedAbilities) ? b.allowedAbilities : [])
-                const count = allAbilities.filter(a => a === k).length
+                const isSelected = allAbilities.includes(k)
                 return (
                   <label key={k} className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
                     <div className="relative flex items-center justify-center w-4 h-4 rounded border border-dnd-gold/30 bg-dnd-bg-secondary">
                       <input
                         type="checkbox"
-                        checked={count > 0}
+                        checked={isSelected}
                         onChange={() => toggleAbilitySelection(k)}
                         className="absolute inset-0 opacity-0 cursor-pointer"
                       />
-                      {count === 1 && (
+                      {isSelected && (
                         <svg className="w-3 h-3 text-dnd-gold" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                         </svg>
                       )}
-                      {count === 2 && (
-                        <span className="text-[10px] font-bold text-red-400">×2</span>
-                      )}
                     </div>
-                    <span className={`${count >= 2 ? 'text-red-400 font-semibold' : 'text-white'}`}>
+                    <span className={`${isSelected ? 'text-dnd-gold font-semibold' : 'text-white'}`}>
                       {ABILITY_SHORT[k]} ({['力','敏','体','智','感','魅'][ABILITY_KEYS.indexOf(k)]})
                     </span>
                   </label>
