@@ -313,7 +313,7 @@ export default function RaceEditorForm({ race, onChange, onSave, onCancel, showS
         next = [...raceBonuses, { amount: 1, allowedAbilities: [abilityKey] }]
       }
       
-      onChange({ ...race, abilityScoreBonuses: next })
+      onChange({ ...race, abilityScoreBonuses: reorganizeBonusSlots(next) })
     }
   }
   
