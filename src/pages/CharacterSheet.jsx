@@ -1112,17 +1112,17 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
             return (
               <>
                 <span className="col-span-2 text-right text-[11px] text-gray-400 font-medium bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">属性加值</span>
-                <div className="col-span-12 flex items-center gap-3 bg-white/[0.03] rounded-md border border-gray-700/40 px-3 py-1.5">
+                <div className="col-span-12 flex flex-wrap items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-3 py-1.5">
                   <span className="text-[10px] text-gray-500 shrink-0">分配</span>
                   {displayAssignments.slice(0, 3).map((assignment, i) => {
                     const availableAmounts = getAvailableAmounts(assignment.ability)
                     return (
-                      <div key={i} className="flex items-center gap-1.5">
+                      <div key={i} className="flex items-center gap-1.5 shrink-0">
                         <select 
                           value={assignment.ability || ''} 
                           onChange={e => handleAsiChange(i, e.target.value, assignment.amount)}
                           disabled={!canEdit}
-                          className="px-2 py-1 rounded bg-gray-800/60 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 min-w-[90px]"
+                          className="px-2 py-1 rounded bg-gray-800/60 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 w-[80px]"
                         >
                           <option value="">选择属性</option>
                           {ALL_ABILITY_KEYS.map(k => (
@@ -1136,7 +1136,7 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                             value={assignment.amount}
                             onChange={e => handleAsiChange(i, assignment.ability, Number(e.target.value))}
                             disabled={!canEdit}
-                            className="px-1.5 py-1 rounded bg-gray-800/60 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 w-[60px]"
+                            className="px-1.5 py-1 rounded bg-gray-800/60 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 w-[50px]"
                           >
                             {availableAmounts.map(amt => (
                               <option key={amt} value={amt}>+{amt}</option>
@@ -3151,6 +3151,15 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                         {name}
                       </span>
                     </InfoTooltip>
+                  ) : canEdit ? (
+                    <button
+                      type="button"
+                      onClick={() => openPickerForSlot(slot)}
+                      className="w-full h-full flex items-center justify-center gap-1.5 text-sm font-medium text-dnd-gold-light hover:text-dnd-gold transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                      选择专长
+                    </button>
                   ) : ''}
                   headerRight={
                     canEdit && row?.featId ? (
@@ -3172,15 +3181,6 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                           <RefreshCw className="w-3.5 h-3.5" />
                         </button>
                       </div>
-                    ) : canEdit && !row?.featId ? (
-                      <button
-                        type="button"
-                        onClick={() => openPickerForSlot(slot)}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium bg-dnd-gold/15 text-dnd-gold-light hover:bg-dnd-gold/25 border border-dnd-gold/40 transition-all active:scale-95"
-                      >
-                        <Plus className="w-3 h-3" />
-                        选择
-                      </button>
                     ) : null
                   }
                   footer={row?.featId && hasActiveAbility ? (() => {
