@@ -294,12 +294,19 @@ function normalizeTrait(t) {
 /** 确保种族数据完整（兜底默认值） */
 export function normalizeRace(race) {
   if (!race) return { ...DEFAULT_RACE, abilityScoreBonuses: DEFAULT_RACE.abilityScoreBonuses.map(b => ({ ...b })) }
+  
+  // 如果race明确定义了abilityScoreBonuses字段（即使是空数组），就使用它；否则使用默认值
+  const hasExplicitBonuses = race.hasOwnProperty('abilityScoreBonuses')
+  const bonusesToUse = hasExplicitBonuses 
+    ? normalizeAbilityScoreBonuses(race.abilityScoreBonuses, [])
+    : DEFAULT_RACE.abilityScoreBonuses
+  
   return {
     ...DEFAULT_RACE,
     ...race,
     spellcastingAbility: race.spellcastingAbility || null,
     speed: { ...DEFAULT_RACE.speed, ...(race.speed || {}) },
-    abilityScoreBonuses: normalizeAbilityScoreBonuses(race.abilityScoreBonuses, DEFAULT_RACE.abilityScoreBonuses),
+    abilityScoreBonuses: bonusesToUse,
     spells: Array.isArray(race.spells) ? race.spells : [],
     traits: Array.isArray(race.traits) ? race.traits.map(normalizeTrait) : [],
     tables: Array.isArray(race.tables) ? race.tables : [],
