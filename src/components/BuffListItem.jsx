@@ -45,6 +45,10 @@ function getScopePrefix(scope, scopeDetail) {
   return ''
 }
 
+/** 卡片摘要简称，刻意短于效果编辑器里的全名：法强=法术命中与DC同值 */
+const SPELL_POWER_MODE_SHORT = { both: '法强', attack: '法术攻击', dc: 'DC' }
+const ATTACK_ENHANCEMENT_SHORT = '攻击增强'
+
 /** 命中/伤害加值摘要：全局 + 分武器行 / 旧版 weaponScope + weaponCategories */
 function formatAttackDamageBonusSummaryText(effectType, v, context = {}) {
   if (effectType !== 'attack_damage_bonus' || !v || typeof v !== 'object' || Array.isArray(v)) return ''
@@ -147,7 +151,9 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
   // 速度增加：数字值（种族自动生成）和对象值（手动编辑器）都需要处理
   if (buff.effectType === 'base_speed_increment') {
     if (typeof v === 'number') {
-      return v !== 0 ? `${effectLabel}${v >= 0 ? '+' : ''}${v}尺` : effectLabel
+      // 数字格式：显示绝对速度值（基础30 + 增量）
+      const totalSpeed = 30 + v
+      return `${effectLabel}${totalSpeed}尺`
     }
     if (v && typeof v === 'object' && !Array.isArray(v) && !isFormulaValue(v)) {
       const parts = []
@@ -158,14 +164,28 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
           const evalNum = evaluateBuffValue(val, context)
           const formulaLabel = formatFormulaLabel(val)
           if (!Number.isNaN(evalNum)) {
-            const sign = evalNum >= 0 ? '+' : ''
-            parts.push(`${label}速度${formulaLabel}（${sign}${evalNum}尺）`)
+            // 对于walk，显示绝对速度值；其他类型显示相对增量
+            if (key === 'walk') {
+              const totalSpeed = 30 + evalNum
+              parts.push(`${label}速度${formulaLabel}（${totalSpeed}尺）`)
+            } else {
+              const sign = evalNum >= 0 ? '+' : ''
+              parts.push(`${label}速度${formulaLabel}（${sign}${evalNum}尺）`)
+            }
           } else {
             parts.push(`${label}速度${formulaLabel}`)
           }
         } else {
           const num = Number(val)
-          if (num) parts.push(`${label}速度${num >= 0 ? '+' : ''}${num}尺`)
+          if (num) {
+            // 对于walk，显示绝对速度值（基础30 + 增量）
+            if (key === 'walk') {
+              const totalSpeed = 30 + num
+              parts.push(`${label}速度${totalSpeed}尺`)
+            } else {
+              parts.push(`${label}速度${num >= 0 ? '+' : ''}${num}尺`)
+            }
+          }
         }
       }
       add('walk', '步行')
@@ -379,11 +399,12 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       return text ? effectLabel + text : effectLabel
     }
     if (buff.effectType === 'attack_enhancement_bonus' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const shortLabel = `${scopePrefix}${ATTACK_ENHANCEMENT_SHORT}`
       const val = v.val ?? 0
-      if (isFormulaValue(val)) return `${effectLabel}${formatFormulaLabelWithEval(val, context)}`
+      if (isFormulaValue(val)) return `${shortLabel}${formatFormulaLabelWithEval(val, context)}`
       const num = Number(val) || 0
       const sign = num >= 0 ? '+' : ''
-      return `${effectLabel}${sign}${num}`
+      return `${shortLabel}${sign}${num}`
     }
     if (buff.effectType === 'hit_bonus' && v && typeof v === 'object' && !Array.isArray(v)) {
       const parts = []
@@ -466,7 +487,7 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       return parts.join('，') || effectLabel
     }
     if (buff.effectType === 'spell_attack_bonus' && v && typeof v === 'object') {
-      const modeLabel = v.mode === 'attack' ? '攻击' : v.mode === 'dc' ? 'DC' : '攻击/DC'
+      const modeLabel = SPELL_POWER_MODE_SHORT[v.mode] ?? SPELL_POWER_MODE_SHORT.both
       const val = v.value || 0
       const sign = val >= 0 ? '+' : ''
       return `${modeLabel}${sign}${val}`
@@ -764,9 +785,9 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
     }
     if (buff.effectType === 'attack_enhancement_bonus' && v && typeof v === 'object' && !Array.isArray(v)) {
       const val = v.val ?? 0
-      if (isFormulaValue(val)) return { label: effectLabel, value: formatFormulaLabelWithEval(val, context) }
+      if (isFormulaValue(val)) return { label: ATTACK_ENHANCEMENT_SHORT, value: formatFormulaLabelWithEval(val, context) }
       const num = Number(val) || 0
-      return { label: effectLabel, value: num !== 0 ? (num >= 0 ? `+${num}` : String(num)) : null }
+      return { label: ATTACK_ENHANCEMENT_SHORT, value: num !== 0 ? (num >= 0 ? `+${num}` : String(num)) : null }
     }
     if (buff.effectType === 'hit_bonus' && v && typeof v === 'object' && !Array.isArray(v)) {
       const parts = []
@@ -936,10 +957,10 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
       return { label: effectLabel, value: parts.length ? parts.join('，') : null }
     }
     if (buff.effectType === 'spell_attack_bonus' && v && typeof v === 'object') {
-      const modeLabel = v.mode === 'attack' ? '攻击' : v.mode === 'dc' ? 'DC' : '攻击/DC'
+      const modeLabel = SPELL_POWER_MODE_SHORT[v.mode] ?? SPELL_POWER_MODE_SHORT.both
       const val = v.value || 0
       const sign = val >= 0 ? '+' : ''
-      return { label: '法术强度', value: `${modeLabel}${sign}${val}` }
+      return { label: modeLabel, value: `${sign}${val}` }
     }
     if (buff.effectType === 'crit_range' && v && typeof v === 'object') {
       const parts = []
