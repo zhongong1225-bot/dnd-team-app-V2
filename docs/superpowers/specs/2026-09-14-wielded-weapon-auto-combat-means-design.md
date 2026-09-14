@@ -149,7 +149,7 @@ entry.combatMeanConfig = {
 1. 命中 = 属性调整值 +（熟练时）熟练加值；被 BUFF 归入"专家"的类别熟练加值翻倍（`combatMeanUtils.js:373,435` 已实现）。
 2. **不熟练 → 伤害不加属性调整值**。当前未实现（`combatMeanUtils.js:436` 只看攻击模式，不看熟练）。
 3. **副手附赠攻击 → 伤害不加属性调整值**，除非有"双武器战斗"效果。前半已实现（`weaponVersatileMode === 'bonus_action'` 置 0），"除非"缺失。
-4. 规则原文是"无法加入属性调整值（**除非该调整值为负数**）"。当前实现是硬置 0，负调整值角色被白送。改为：置 0 与"加负值"取更差者。
+4. 规则原文是"无法加入属性调整值（**除非该调整值为负数**）"——负数不属于被剥夺加值，而是**正常参与计算**。当前实现把这一档硬置 0，等于白送负调整值角色。改为取"置 0"与"加该负值"中更差者，即负数照常扣。
 
 即：
 
@@ -173,10 +173,14 @@ damageMod = canAddAbilityMod ? abilityMod
 
 **归属也要改正**：那条效果是"双武器战斗"战斗风格（`fightingStyles.js:48-52`）的收益；双持客专长原文（`feats.js:146-149`）自己写明额外攻击**不能**加属性调整值，它给的是"可以用非轻型武器"。所以：
 
-- 双持客默认效果改为 `offhand_ignores_light`。
-- "双武器战斗"配上 `two_weapon_fighting_bonus`。战斗风格目前只在 DM 配过 `styleBuffPatch` 时才有数值（`effectMapping.js:326-347,391-410`），因此需补一份与 `featDefaultBuffs.js` 同构的代码级回退默认，否则新角色不配 UI 就拿不到该收益。
+- 双持客的默认效果（`featDefaultBuffs.js:377-395`）改为 `offhand_ignores_light`。专长已有代码级默认表，这是一处内容归属纠错。
+- 两个效果登记进 `buffTypes.js` 效果字典，登记后**自动出现在效果编辑器**里，无需新 UI。
 
-两者都进效果字典后，DM 可通过效果编辑器自行配置，符合"AI 造引擎、DM 填内容"。
+**"双武器战斗"的收益不需要新建任何文件或回退表**——核实结果：战斗风格的选择器已经挂在职业特性卡上（`CharacterSheet.jsx:2095-2166` `FightingStylesBlock`，按 `sourceFeatureId` 归属到具体职业特性，存 `char.selectedFightingStyles`），并且选择弹窗 `FightingStylePicker.jsx:176-184,206+` 里已经有"配置默认 BUFF（DM）"入口调用效果编辑器，配置按模组绑定、之后选该风格的人自动获得。
+
+所以本次引擎工作只有三件：把 `two_weapon_fighting_bonus` 与 `offhand_ignores_light` 登记进效果字典；在 `computeBuffStats` 里聚合；在 `computePhysicalWeaponStats` 与派生器里消费。DM 侧由你在"双武器战斗 → 配置默认 BUFF"里挂上效果即可，符合"AI 造引擎、DM 填内容"，不产生第二套来源。
+
+若通用编辑器对布尔型效果的输入不够直观，则在 `BuffForm.jsx` 为这两个效果提供专用控件（预期不需要）。
 
 ## 九、实时性不变量
 
@@ -238,8 +242,8 @@ prepare → confirm → roll_attack → roll_damage → result
 | `src/data/itemDatabase.js` | 武器原型补 `proficiencyTier`，补齐未归组武器 |
 | `src/components/ItemAddForm.jsx` | 暴露 `proficiencyTier`，供 DM 标注自制武器 |
 | `src/components/AbilityModule.jsx` | 分组按钮改读 `proficiencyTier`，删本地两份清单 |
-| `src/data/featDefaultBuffs.js` | 双持客默认效果改 `offhand_ignores_light` |
-| `src/data/fightingStyleDefaultBuffs.js` | 新增：战斗风格代码级回退默认（双武器战斗 → `two_weapon_fighting_bonus`） |
+| `src/data/featDefaultBuffs.js` | 双持客默认效果改正为 `offhand_ignores_light`（原挂的 `two_weapon_fighting_bonus` 属双武器战斗） |
+| `src/components/BuffForm.jsx` | 仅在通用输入不够直观时，为两个新效果提供专用控件 |
 | `src/lib/chargeItemModel.js` | 修 `getMainHandWeaponDamageType` 死代码 |
 
 ## 十三、测试与验证
@@ -259,6 +263,7 @@ prepare → confirm → roll_attack → roll_damage → result
 5. 开一个新临时 BUFF 上身 → 卡上命中/伤害同帧变化，不需要重开弹窗。
 6. 点武器卡名字 → 五步流：投 d20 → 出现"询问 DM"两按钮、无 AC 输入框 → 点"命中，投伤害" → 伤害用当帧数值。
 7. 主手清空后，引用它的组合技卡显示"未选择主手段"而不是消失。
+8. 在"双武器战斗 → 配置默认 BUFF"里挂上 `two_weapon_fighting_bonus` 并保存 → 副手卡的伤害立刻出现属性调整值；停用该风格后立刻消失。这条同时验证"引擎提供效果、DM 填内容"的链路完整。
 
 ## 十四、已确认的决策记录
 
@@ -275,3 +280,5 @@ prepare → confirm → roll_attack → roll_damage → result
 | 数值实时性 | 卡上不得有快照；攻击与伤害各自在投骰瞬间现算 |
 | 释放流程 | 与主动释放五步流统一，删除输入 AC 的旧面板（三处一起改） |
 | 新增效果 | 双武器战斗（副手可加调整值）、双持客（副手免轻型要求） |
+| 负数属性调整值 | 正常参与计算，不归零（规则原文"除非为负数"即此意，用户 2026-09-14 确认） |
+| 战斗风格接线 | 不新建默认效果表、不新增 UI。选择器已在职业特性卡上（`FightingStylesBlock`），弹窗已有"配置默认 BUFF（DM）"；本次只把效果登记进字典并接上消费端 |
