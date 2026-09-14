@@ -229,7 +229,7 @@ export function buildRaceDefinitionEffects(raceDef, subrace, raceCard) {
   if (!raceDef) return []
   const effects = []
 
-  // ── 速度 → base_speed_increment（对象格式） ──
+  // ── 速度 → base_speed_increment（对象格式，存储绝对速度值） ──
   const raceSpeed = raceDef.speed || {}
   const subSpeed = subrace?.speed || {}
   const walk = Number(subSpeed.walk ?? raceSpeed.walk ?? 30)
@@ -237,11 +237,11 @@ export function buildRaceDefinitionEffects(raceDef, subrace, raceCard) {
   const swim = Number(subSpeed.swim ?? raceSpeed.swim ?? 0)
   const fly = Number(subSpeed.fly ?? raceSpeed.fly ?? 0)
 
-  const walkDelta = walk - 30
-  if (walkDelta !== 0 || climb > 0 || swim > 0 || fly > 0) {
+  // 只有当速度与默认值（walk=30, 其他=0）不同时才生成效果
+  if (walk !== 30 || climb > 0 || swim > 0 || fly > 0) {
     effects.push({
       effectType: 'base_speed_increment',
-      value: { walk: walkDelta, climb, swim, fly },
+      value: { walk, climb, swim, fly },
     })
   }
 

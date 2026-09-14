@@ -151,9 +151,8 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
   // 速度增加：数字值（种族自动生成）和对象值（手动编辑器）都需要处理
   if (buff.effectType === 'base_speed_increment') {
     if (typeof v === 'number') {
-      // 数字格式：显示绝对速度值（基础30 + 增量）
-      const totalSpeed = 30 + v
-      return `${effectLabel}${totalSpeed}尺`
+      // 数字格式：直接显示绝对速度值
+      return `${effectLabel}${v}尺`
     }
     if (v && typeof v === 'object' && !Array.isArray(v) && !isFormulaValue(v)) {
       const parts = []
@@ -164,27 +163,15 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
           const evalNum = evaluateBuffValue(val, context)
           const formulaLabel = formatFormulaLabel(val)
           if (!Number.isNaN(evalNum)) {
-            // 对于walk，显示绝对速度值；其他类型显示相对增量
-            if (key === 'walk') {
-              const totalSpeed = 30 + evalNum
-              parts.push(`${label}速度${formulaLabel}（${totalSpeed}尺）`)
-            } else {
-              const sign = evalNum >= 0 ? '+' : ''
-              parts.push(`${label}速度${formulaLabel}（${sign}${evalNum}尺）`)
-            }
+            parts.push(`${label}速度${formulaLabel}（${evalNum}尺）`)
           } else {
             parts.push(`${label}速度${formulaLabel}`)
           }
         } else {
           const num = Number(val)
           if (num) {
-            // 对于walk，显示绝对速度值（基础30 + 增量）
-            if (key === 'walk') {
-              const totalSpeed = 30 + num
-              parts.push(`${label}速度${totalSpeed}尺`)
-            } else {
-              parts.push(`${label}速度${num >= 0 ? '+' : ''}${num}尺`)
-            }
+            // 直接显示绝对速度值
+            parts.push(`${label}速度${num}尺`)
           }
         }
       }
