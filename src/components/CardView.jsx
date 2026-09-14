@@ -53,7 +53,7 @@ function CardView({
     <button
       type="button"
       onClick={(e) => { e.stopPropagation(); onConfigure() }}
-      className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
+      className="w-7 h-7 flex items-center justify-center rounded-md text-[#667788] hover:text-dnd-gold hover:bg-white/[0.06] transition-all active:scale-95"
       title={configureTitle || '配置'}
     >
       <Settings className="w-3.5 h-3.5" />
@@ -445,7 +445,8 @@ export function EnergyBarButton({
 export function SlotPanel({ title, count, headerActions, children, className = '' }) {
   return (
     <div className={`module-panel panel-highlight-top ${className}`}>
-      <div className="flex items-center justify-between mb-2">
+      {/* 标题行固定高度：带操作按钮与纯文字标题的面板，下方卡片列表起始位置一致 */}
+      <div className="flex items-center justify-between mb-2" style={{ height: '26px' }}>
         <span className="text-sm font-bold text-gray-300">
           {title}{count != null ? `（${count}）` : ''}
         </span>

@@ -174,7 +174,7 @@ export default function FightingStylePicker({
                       <button
                         type="button"
                         onClick={() => setEditingDefaultBuff(true)}
-                        className="inline-flex items-center gap-1.5 text-xs text-dnd-gold-light hover:text-dnd-gold transition-colors"
+                        className="inline-flex items-center gap-1.5 text-xs text-[#8899aa] hover:text-dnd-gold transition-colors"
                       >
                         <Settings className="w-3.5 h-3.5" />
                         配置默认 BUFF（DM）

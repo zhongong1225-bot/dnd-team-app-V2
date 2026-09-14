@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo, forwardRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ChevronUp, ChevronDown, ChevronRight, Trash2, Star, Upload, X, Plus, Settings, Zap, RefreshCw, Pencil } from 'lucide-react'
+import { ChevronUp, ChevronDown, ChevronRight, Trash2, Star, Upload, X, Plus, Settings, Zap, RefreshCw, Pencil, Check } from 'lucide-react'
 
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
@@ -286,12 +286,12 @@ function AvatarFrame({ char, canEdit, onSave, large, portrait }) {
             htmlFor={placeholderId}
             className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 cursor-pointer"
           >
-            <Upload size={18} style={{ color: '#55677c' }} />
-            <span className="text-[11px]" style={{ color: '#66788c' }}>上传头像</span>
+            <Upload size={18} style={{ color: '#556677' }} />
+            <span className="text-[11px]" style={{ color: '#667788' }}>上传头像</span>
           </label>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-[11px]" style={{ color: '#66788c' }}>暂无头像</span>
+            <span className="text-[11px]" style={{ color: '#667788' }}>暂无头像</span>
           </div>
         )}
         {canEdit && (
@@ -514,7 +514,7 @@ function BackstoryBlock({ char, canEdit, onSave, fillHeight }) {
         />
       ) : (
         <div className={readOnlyClass}>
-          {char?.backstory || <span style={{ color: '#55677c' }}>—</span>}
+          {char?.backstory || <span style={{ color: '#556677' }}>—</span>}
         </div>
       )}
     </div>
@@ -637,8 +637,8 @@ function ProfileSection({ title, canEdit, editing, onToggleEdit, className = '',
       <div className="flex items-center gap-2 mb-2">
         <h3 className="profile-card-title">{title}</h3>
         {canEdit && onToggleEdit && (
-          <button type="button" className="profile-edit-btn ml-auto" onClick={onToggleEdit}>
-            {editing ? '完成' : '编辑'}
+          <button type="button" className="profile-edit-btn ml-auto" onClick={onToggleEdit} title={editing ? '完成' : '编辑'}>
+            {editing ? <Check size={12} /> : <Pencil size={12} />}
           </button>
         )}
       </div>
@@ -690,7 +690,7 @@ function ProfileIdentityBar({ char, canEdit, editing, onToggleEdit, persist, nam
             </div>
           ) : (
             <>
-              <div className="truncate" style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.25, color: '#dfe6ee' }}>
+              <div className="truncate" style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.25, color: '#f0f0f0' }}>
                 {char.name || '未命名'}
               </div>
               <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
@@ -705,8 +705,8 @@ function ProfileIdentityBar({ char, canEdit, editing, onToggleEdit, persist, nam
           )}
         </div>
         {canEdit && (
-          <button type="button" className="profile-edit-btn" onClick={onToggleEdit}>
-            {editing ? '完成' : '编辑'}
+          <button type="button" className="profile-edit-btn" onClick={onToggleEdit} title={editing ? '完成' : '编辑'}>
+            {editing ? <Check size={12} /> : <Pencil size={12} />}
           </button>
         )}
       </div>
@@ -884,8 +884,8 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
     setBackgroundBuffEditorOpen(false)
   }
 
-  const selCls = 'flex-1 min-w-0 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50'
-  const txtCls = 'w-12 px-1.5 py-0.5 rounded bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 text-center focus:outline-none focus:border-dnd-gold/50'
+  const selCls = 'flex-1 min-w-0 px-2 py-1 rounded-md bg-[#141c28] border border-[#2a3a4e] text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50'
+  const txtCls = 'w-12 px-1.5 py-0.5 rounded bg-[#141c28] border border-[#2a3a4e] text-xs text-gray-200 text-center focus:outline-none focus:border-dnd-gold/50'
 
   // 效果类型→中文名映射（从 BUFF_TYPES 构建）
   const effectTypeLabelMap = useMemo(() => {
@@ -940,12 +940,17 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
         )}
         {displayTraits.length > 0 && displayTraits.map((t) => {
             const isChoice = Array.isArray(t.choiceOptions) && t.choiceOptions.length > 0
+            const isFeatGrant = !!t.grantsOriginFeat
             const chosenOpt = isChoice ? (t.choiceOptions || []).find(o => o.id === raceCard.traitChoices?.[t.id]) : null
             const activeCards = isChoice ? (chosenOpt?.cards || []) : (t.cards || [])
             const effectSummaries = activeCards.map(c =>
               getEffectSummaryShort({ effectType: c.effectType, value: c.value, customText: c.customText, scope: c.scope, scopeDetail: c.scopeDetail }, formulaContext)
             ).filter(Boolean)
             const isExpanded = expandedRaceTraitIds.has(t.id)
+            
+            // 检查是否已选择起源专长
+            const raceFeatSelected = (char?.selectedFeats ?? []).some(f => f?.slotId === 'origin_race')
+            
             return (
               <CardView
                 key={t.id}
@@ -954,18 +959,31 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                 category="种族"
                 sourceMain={selectedRace.name}
                 sourceSub={t._isSubrace ? '亚种特性' : '种族特性'}
-                name={isChoice ? (
+                name={(isChoice || isFeatGrant) ? (
                   <span className="inline-flex items-center justify-center gap-1.5 max-w-full">
                     <span className="truncate" style={{ fontSize: '14px', fontWeight: 600, color: '#f0f0f0' }}>{t.name}</span>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); setRaceTraitChoiceModal(t.id) }}
-                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] shrink-0 text-amber-300/80 hover:text-amber-200 hover:bg-amber-500/15 border border-amber-400/20"
-                      title={`选择：${t.name}`}
-                    >
-                      {chosenOpt ? chosenOpt.label : '未选择'}
-                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                    </button>
+                    {isChoice && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setRaceTraitChoiceModal(t.id) }}
+                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] shrink-0 text-dnd-gold-light/80 hover:text-dnd-gold-light hover:bg-dnd-gold/10 border border-dnd-gold/25"
+                        title={`选择：${t.name}`}
+                      >
+                        {chosenOpt ? chosenOpt.label : '未选择'}
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                      </button>
+                    )}
+                    {isFeatGrant && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setRaceFeatPickerOpen(true) }}
+                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] shrink-0 text-dnd-gold-light/80 hover:text-dnd-gold-light hover:bg-dnd-gold/10 border border-dnd-gold/25"
+                        title={`选择起源专长`}
+                      >
+                        {raceFeatSelected ? '已选择' : '选择专长'}
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                      </button>
+                    )}
                   </span>
                 ) : t.name}
                 buffTags={effectSummaries.slice(0, 3)}
@@ -992,11 +1010,11 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                   <button
                     key={opt.id}
                     onClick={() => handleTraitChoiceSelect(choiceTrait.id, opt.id)}
-                    className={`w-full text-left px-3 py-2 rounded border transition-colors ${isSelected ? 'border-amber-400/50 bg-amber-500/10' : 'border-white/10 bg-white/[0.03] hover:border-white/20'}`}
+                    className={`w-full text-left px-3 py-2 rounded border transition-colors ${isSelected ? 'border-dnd-gold/50 bg-dnd-gold/10' : 'border-[#2a3a4e] bg-[#1a2535] hover:border-[#3a4a5e]'}`}
                   >
                     <div className="flex items-center gap-2">
-                      <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${isSelected ? 'border-amber-400' : 'border-gray-500'}`}>
-                        {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
+                      <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${isSelected ? 'border-dnd-gold' : 'border-gray-500'}`}>
+                        {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-dnd-gold" />}
                       </div>
                       <span className="text-xs font-medium text-gray-200">{opt.label}</span>
                     </div>
@@ -1033,18 +1051,18 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
         setEditingRaceData(initRace || normalizeRace({ name: '' }))
         isNewRaceRef.current = !initRaceId
         setRaceBuffEditorOpen(true)
-      }} className={`${selectedRace?.subraces?.length > 0 ? 'col-span-5' : 'col-span-7'} flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.03] border border-gray-700/40 text-xs text-gray-200 hover:border-dnd-gold/50 transition-colors min-w-0`}>
-        <span className="text-gray-400 shrink-0 text-[11px] font-medium">种族</span>
+      }} className={`${selectedRace?.subraces?.length > 0 ? 'col-span-5' : 'col-span-7'} flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#1a2535] border border-[#2a3a4e] text-xs text-gray-200 hover:border-dnd-gold/50 transition-colors min-w-0`}>
+        <span className="text-[#8899aa] shrink-0 text-[11px] font-medium">种族</span>
         <span className="truncate text-gray-200">{
           // 优先使用 raceId 匹配的种族名称，customName 仅用于纯自定义种族（无 raceId 或 raceId 无法匹配）
           (raceCard.raceId && selectedRace?.name) 
             ? selectedRace.name 
             : (raceCard.customName || selectedRace?.name || '— 选择种族 —')
         }</span>
-        <Pencil size={12} className="text-dnd-gold/60 shrink-0 ml-auto" />
+        <Pencil size={12} className="text-[#667788] shrink-0 ml-auto" />
       </button>
       {selectedRace && selectedRace.subraces.length > 0 && (
-        <select value={raceCard.subraceId || ''} onChange={(e) => handleSubraceChange(e.target.value)} className="col-span-2 px-2 py-1.5 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+        <select value={raceCard.subraceId || ''} onChange={(e) => handleSubraceChange(e.target.value)} className="col-span-2 px-2 py-1.5 rounded-md bg-[#141c28] border border-[#2a3a4e] text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
           <option value="">— 亚种 —</option>
           {selectedRace.subraces.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
@@ -1056,10 +1074,10 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
         setBgEditName(bgName)
         setBgEditDesc(bgDesc)
         setBackgroundBuffEditorOpen(true)
-      }} className="col-span-7 flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.03] border border-gray-700/40 text-xs text-gray-200 hover:border-dnd-gold/50 transition-colors min-w-0">
-        <span className="text-gray-400 shrink-0 text-[11px] font-medium">背景</span>
+      }} className="col-span-7 flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#1a2535] border border-[#2a3a4e] text-xs text-gray-200 hover:border-dnd-gold/50 transition-colors min-w-0">
+        <span className="text-[#8899aa] shrink-0 text-[11px] font-medium">背景</span>
         <span className="truncate text-gray-200">{backgroundCard.customName || selectedBackground?.name || '— 选择背景 —'}</span>
-        <Pencil size={12} className="text-dnd-gold/60 shrink-0 ml-auto" />
+        <Pencil size={12} className="text-[#667788] shrink-0 ml-auto" />
       </button>
       </>
       )}
@@ -1068,8 +1086,8 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
       {showBasics && raceCard.raceId && (
         <>
           {/* 体型 / 移速 / 感官 — 只读展示 — 4 + 4 + 6 = 14 */}
-          <div className="col-span-4 flex items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">
-            <span className="shrink-0 w-8 text-right text-[11px] text-gray-400 font-medium">体型</span>
+          <div className="col-span-4 flex items-center gap-2 bg-[#1a2535] rounded-md border border-[#2a3a4e] px-2 py-1.5">
+            <span className="shrink-0 w-8 text-right text-[11px] text-[#8899aa] font-medium">体型</span>
             {(selectedRace?.sizeOptions || []).length > 1 ? (
               <select
                 value={raceCard.sizeSelected || selectedRace?.sizeDefault || ''}
@@ -1084,8 +1102,8 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
               <span className="text-xs text-gray-200">{RACE_SIZES.find(s => s.value === (raceCard.sizeSelected || selectedRace?.sizeDefault))?.label || selectedRace?.sizeDefault || '—'}</span>
             )}
           </div>
-          <div className="col-span-4 flex items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">
-            <span className="shrink-0 w-8 text-right text-[11px] text-gray-400 font-medium">移速</span>
+          <div className="col-span-4 flex items-center gap-2 bg-[#1a2535] rounded-md border border-[#2a3a4e] px-2 py-1.5">
+            <span className="shrink-0 w-8 text-right text-[11px] text-[#8899aa] font-medium">移速</span>
             <span className="text-xs text-gray-200">
               {(() => {
                 const sp = selectedRace?.speed || {}
@@ -1099,8 +1117,8 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
               })()}
             </span>
           </div>
-          <div className="col-span-6 flex items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">
-            <span className="shrink-0 w-8 text-right text-[11px] text-gray-400 font-medium">感官</span>
+          <div className="col-span-6 flex items-center gap-2 bg-[#1a2535] rounded-md border border-[#2a3a4e] px-2 py-1.5">
+            <span className="shrink-0 w-8 text-right text-[11px] text-[#8899aa] font-medium">感官</span>
             <span className="text-xs text-gray-200">
               {(() => {
                 const dv = Number(selectedSubrace?.darkvision ?? selectedRace?.darkvision ?? 0)
@@ -1163,8 +1181,8 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
             
             return (
               <>
-                <span className="col-span-2 text-right text-[11px] text-gray-400 font-medium bg-white/[0.03] rounded-md border border-gray-700/40 px-2 py-1.5">属性加值</span>
-                <div className="col-span-12 flex items-center gap-2 bg-white/[0.03] rounded-md border border-gray-700/40 px-3 py-1.5">
+                <span className="col-span-2 text-right text-[11px] text-[#8899aa] font-medium bg-[#1a2535] rounded-md border border-[#2a3a4e] px-2 py-1.5">属性加值</span>
+                <div className="col-span-12 flex items-center gap-2 bg-[#1a2535] rounded-md border border-[#2a3a4e] px-3 py-1.5">
                   {!asiEditMode ? (
                     // 只读模式：显示已分配的属性
                     <>
@@ -1173,10 +1191,10 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                         <button
                           type="button"
                           onClick={handleAsiEditStart}
-                          className="flex items-center gap-1 px-2 py-1 rounded text-[10px] text-dnd-gold hover:bg-dnd-gold/10 border border-dnd-gold/30 shrink-0"
+                          className="flex items-center justify-center px-1.5 py-1 rounded text-[#667788] hover:bg-white/[0.06] hover:text-dnd-gold shrink-0"
+                          title="编辑属性加值"
                         >
                           <Pencil size={10} />
-                          编辑
                         </button>
                       )}
                     </>
@@ -1191,7 +1209,7 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                             <select 
                               value={assignment.ability || ''} 
                               onChange={e => handleAsiDraftChange(i, e.target.value, assignment.amount)}
-                              className="px-2 py-1 rounded bg-gray-800/60 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 w-[90px]"
+                              className="px-2 py-1 rounded bg-[#141c28] border border-[#2a3a4e] text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 w-[90px]"
                             >
                               <option value="">选择属性</option>
                               {ALL_ABILITY_KEYS.map(k => (
@@ -1212,7 +1230,7 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                                   if (val > maxAmount) val = maxAmount
                                   handleAsiDraftChange(i, assignment.ability, val)
                                 }}
-                                className="px-1.5 py-1 rounded bg-gray-800/60 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 w-[45px] text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                className="px-1.5 py-1 rounded bg-[#141c28] border border-[#2a3a4e] text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 w-[45px] text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                               />
                             )}
                           </div>
@@ -1365,7 +1383,7 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-400 shrink-0">背景</span>
                   <select value={backgroundCard.backgroundId || ''} onChange={(e) => handleBackgroundChange(e.target.value)}
-                    className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
+                    className="flex-1 px-2 py-1 rounded-md bg-[#141c28] border border-[#2a3a4e] text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50">
                     <option value="">— 选择背景 —</option>
                     {BACKGROUNDS.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                     <option value="custom">自定义背景...</option>
@@ -1374,12 +1392,12 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-400 shrink-0">名称</span>
                   <input type="text" value={bgEditName} onChange={(e) => setBgEditName(e.target.value)}
-                    className="flex-1 px-2 py-1 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50"
+                    className="flex-1 px-2 py-1 rounded-md bg-[#141c28] border border-[#2a3a4e] text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50"
                     placeholder={selectedBackground?.name || '背景名称'} />
                 </div>
                 <div>
                   <textarea value={bgEditDesc} onChange={(e) => setBgEditDesc(e.target.value)} rows={18}
-                    className="w-full px-2 py-1.5 rounded-md bg-gray-800/50 border border-gray-700/50 text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold/50"
+                    className="w-full px-2 py-1.5 rounded-md bg-[#141c28] border border-[#2a3a4e] text-xs text-gray-300 leading-relaxed whitespace-pre-line resize-y focus:outline-none focus:border-dnd-gold/50"
                     placeholder="背景描述" />
                 </div>
                 <p className="text-xs text-dnd-text-muted">背景效果</p>
@@ -2262,6 +2280,102 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
   )
 }
 
+/** 火铳手「专注点」特殊能力表：卡内展开，每条能力带主动释放按钮（扣专注点） */
+function FocusAbilitiesBlock({ char, onSave }) {
+  const [lastResult, setLastResult] = useState(null)
+  const [useChargeValue, setUseChargeValue] = useState(null)
+
+  const focusAbilities = getClassData('火铳手')?.focusAbilities || []
+  const cls = getCharacterClasses(char).find((c) => c.name === '火铳手')
+  const classLevel = cls?.level || 0
+  const subclass = cls?.subclass || ''
+  const focusRes = (char?.classResources || []).find((r) => r.resourceKey === 'focus_points')
+  const focusCurrent = focusRes?.current || 0
+
+  const visible = focusAbilities.filter((a) => {
+    if ((a.minLevel || 1) > classLevel) return false
+    if (a.exclusiveSubclass && a.exclusiveSubclass !== subclass) return false
+    return true
+  })
+
+  if (visible.length === 0) return null
+
+  const buildChargeValue = (a) => {
+    const value = { title: a.name, description: a.effect }
+    const diceMatch = /(\d+)\s*d\s*(\d+)/.exec(a.effect || '')
+    if (diceMatch) {
+      value.damageDiceCount = Number(diceMatch[1])
+      value.damageDiceSides = Number(diceMatch[2])
+    }
+    return {
+      resourceType: 'focus_points',
+      charges: a.cost || 1,
+      actionCost: 'none',
+      recovery: { method: 'short_rest', kind: 'full', fixed: 0, diceCount: 1, diceSides: 6, diceBonus: 0 },
+      effects: [{ type: 'custom_logic', value }],
+    }
+  }
+
+  return (
+    <div className="mt-1 mb-2">
+      <div className="text-xs font-semibold text-[#8899aa] mb-1.5">专注点 · 特殊能力</div>
+      <div className="space-y-1">
+        {visible.map((a) => {
+          const cost = a.cost || 1
+          const insufficient = focusCurrent < cost
+          return (
+            <div
+              key={a.id}
+              className="flex items-start gap-2 rounded-md border border-[#2a3a4e] bg-[#1a2535] px-2 py-1.5"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[13px] font-semibold text-white">{a.name}</span>
+                  <span className="shrink-0 text-[11px] font-bold text-[#c79a42]">专注点 ×{cost}</span>
+                  {a.exclusiveSubclass && (
+                    <span className="shrink-0 text-[10px] text-[#667788] border border-[#2a3a4e] rounded px-1">
+                      {a.exclusiveSubclass}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[11px] text-[#8899aa] leading-snug mt-0.5">{a.effect}</div>
+              </div>
+              <div className="shrink-0 w-24">
+                <EnergyBarButton
+                  name="释放"
+                  chargeInfo={`×${cost}`}
+                  disabled={insufficient}
+                  disabledReason={insufficient ? `专注点不足（需要 ${cost}，剩余 ${focusCurrent}）` : ''}
+                  onClick={() => setUseChargeValue(buildChargeValue(a))}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      {lastResult && (
+        <div className="w-full mt-1 text-[11px] text-gray-300 space-y-0.5">
+          {lastResult.lines.map((line, i) => (
+            <div key={i}>{line}</div>
+          ))}
+        </div>
+      )}
+      {useChargeValue && (
+        <AbilityUseModal
+          chargeValue={useChargeValue}
+          char={char}
+          featureName="专注点 · 特殊能力"
+          onConfirm={(patch, lines) => {
+            if (patch && Object.keys(patch).length > 0) onSave(patch)
+            setLastResult({ lines })
+          }}
+          onClose={() => setUseChargeValue(null)}
+        />
+      )}
+    </div>
+  )
+}
+
 /** 职业特性选择块：需要玩家做互斥选择的特性（如原初职能：术师/卫士） */
 function ClassFeatureChoiceBlock({ char, feature, canEdit, onSave, modalOpen: externalModalOpen, onOpenModal, hideInline, onEditOptionBuff }) {
   const [internalModalOpen, setInternalModalOpen] = useState(false)
@@ -2363,7 +2477,7 @@ function ClassFeatureChoiceBlock({ char, feature, canEdit, onSave, modalOpen: ex
                           e.stopPropagation()
                           onEditOptionBuff({ feature, optionId: opt.id, optionLabel: opt.label })
                         }}
-                        className="p-1.5 rounded-lg text-gray-500 hover:bg-white/10 hover:text-dnd-gold transition-colors shrink-0"
+                        className="p-1.5 rounded-lg text-[#667788] hover:bg-white/[0.06] hover:text-dnd-gold transition-colors shrink-0"
                         title={`配置 ${opt.label} BUFF 效果`}
                       >
                         <Settings className="w-4 h-4" />
@@ -2569,7 +2683,7 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
                         setBuffEditorFeature(f)
                       }
                     }}
-                    className="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
+                    className="w-7 h-7 flex items-center justify-center rounded-md text-[#667788] hover:text-dnd-gold hover:bg-white/[0.06] transition-all active:scale-95"
                     title={isChoiceType ? '选择特性选项' : '配置 BUFF 效果'}
                   >
                     <Settings className="w-3.5 h-3.5" />
@@ -2598,6 +2712,9 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
                 })()}
                 {f.id === 'eldritch_invocations' && (
                   <EldritchInvocationsBlock char={char} canEdit={canEdit} onSave={onSave} moduleId={moduleId} />
+                )}
+                {f.id === 'focus_points' && f.sourceClass === '火铳手' && (
+                  <FocusAbilitiesBlock char={char} onSave={onSave} />
                 )}
                 {FIGHTING_STYLE_FEATURE_IDS.has(f.id) && (
                   <FightingStylesBlock char={char} feature={f} canEdit={canEdit} onSave={onSave} moduleId={moduleId} />
@@ -3257,7 +3374,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                         <button
                           type="button"
                           onClick={() => setFeatBuffEditor({ row, slot })}
-                          className="w-6 h-6 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
+                          className="w-6 h-6 flex items-center justify-center rounded-md text-[#667788] hover:text-dnd-gold hover:bg-white/[0.06] transition-all active:scale-95"
                           title="编辑效果"
                         >
                           <Settings className="w-3.5 h-3.5" />
@@ -3265,7 +3382,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                         <button
                           type="button"
                           onClick={() => openPickerForSlot(slot)}
-                          className="w-6 h-6 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
+                          className="w-6 h-6 flex items-center justify-center rounded-md text-[#667788] hover:text-dnd-gold hover:bg-white/[0.06] transition-all active:scale-95"
                           title="更换专长"
                         >
                           <RefreshCw className="w-3.5 h-3.5" />
@@ -3408,7 +3525,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
                         <button
                           type="button"
                           onClick={() => setFeatBuffEditor({ row })}
-                          className="w-6 h-6 flex items-center justify-center rounded-md text-gray-500 hover:text-dnd-gold-light hover:bg-gray-700/50 transition-all active:scale-95"
+                          className="w-6 h-6 flex items-center justify-center rounded-md text-[#667788] hover:text-dnd-gold hover:bg-white/[0.06] transition-all active:scale-95"
                           title="编辑效果"
                         >
                           <Settings className="w-3.5 h-3.5" />
@@ -3719,7 +3836,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId, referenceData, b
                   <button
                     type="button"
                     onClick={() => setSubclassFeatureEditor({ className: classVal, subclassName: subclass })}
-                    className="shrink-0 w-6 h-6 flex items-center justify-center text-gray-500 hover:text-gray-300 transition-colors"
+                    className="shrink-0 w-6 h-6 flex items-center justify-center text-[#667788] hover:text-dnd-gold hover:bg-white/[0.06] transition-colors"
                     title="编辑子职特性 BUFF"
                   >
                     <Settings className="w-3.5 h-3.5" />
@@ -3882,7 +3999,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId, referenceData, b
                         <button
                           type="button"
                           onClick={() => setSubclassBuffEditor({ feature: f, className: scClassName, subclassName })}
-                          className="shrink-0 w-6 h-6 flex items-center justify-center text-gray-500 hover:text-gray-300 transition-colors"
+                          className="shrink-0 w-6 h-6 flex items-center justify-center text-[#667788] hover:text-dnd-gold hover:bg-white/[0.06] transition-colors"
                           title="配置 BUFF"
                         >
                           <Settings className="w-3.5 h-3.5" />
@@ -4594,7 +4711,7 @@ export default function CharacterSheet() {
                                       <button
                                         type="button"
                                         onClick={(e) => { e.stopPropagation(); setProfileTraitChoiceModal(t.id) }}
-                                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] shrink-0 text-amber-300/80 hover:text-amber-200 hover:bg-amber-500/15 border border-amber-400/20"
+                                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] shrink-0 text-dnd-gold-light/80 hover:text-dnd-gold-light hover:bg-dnd-gold/10 border border-dnd-gold/25"
                                         title={`选择：${t.name}`}
                                       >
                                         {chosenOpt ? chosenOpt.label : '未选择'}
@@ -4605,7 +4722,7 @@ export default function CharacterSheet() {
                                       <button
                                         type="button"
                                         onClick={(e) => { e.stopPropagation(); setRaceFeatPickerOpen(true) }}
-                                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] shrink-0 text-amber-300/80 hover:text-amber-200 hover:bg-amber-500/15 border border-amber-400/20"
+                                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] shrink-0 text-dnd-gold-light/80 hover:text-dnd-gold-light hover:bg-dnd-gold/10 border border-dnd-gold/25"
                                         title={`选择：${t.name}`}
                                       >
                                         {raceFeatGrantName || '未选择'}
@@ -4656,11 +4773,11 @@ export default function CharacterSheet() {
                                     <button
                                       key={opt.id}
                                       onClick={() => handleProfileTraitChoiceSelect(choiceTrait.id, opt.id)}
-                                      className={`w-full text-left px-3 py-2 rounded border transition-colors ${isSelected ? 'border-amber-400/50 bg-amber-500/10' : 'border-white/10 bg-white/[0.03] hover:border-white/20'}`}
+                                      className={`w-full text-left px-3 py-2 rounded border transition-colors ${isSelected ? 'border-dnd-gold/50 bg-dnd-gold/10' : 'border-[#2a3a4e] bg-[#1a2535] hover:border-[#3a4a5e]'}`}
                                     >
                                       <div className="flex items-center gap-2">
-                                        <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${isSelected ? 'border-amber-400' : 'border-gray-500'}`}>
-                                          {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
+                                        <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${isSelected ? 'border-dnd-gold' : 'border-gray-500'}`}>
+                                          {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-dnd-gold" />}
                                         </div>
                                         <span className="text-xs font-medium text-gray-200">{opt.label}</span>
                                       </div>
@@ -4693,11 +4810,11 @@ export default function CharacterSheet() {
                       const selBg = getBackgroundById(char.backgroundCard.backgroundId)
                       const bgName = char.backgroundCard.customName || selBg?.name || '背景'
                       return (
-                        <div className="mt-2 bg-white/[0.03] rounded-md border border-yellow-600/30 px-3 py-2">
+                        <div className="mt-2 bg-[#1a2535] rounded-md border border-[#2a3a4e] px-3 py-2">
                           <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">【{bgName}】背景特性</span>
+                            <span className="text-[10px] font-semibold text-[#8899aa] uppercase tracking-wider">【{bgName}】背景特性</span>
                           </div>
-                          <p className="text-[11px] text-gray-500 mt-1">背景编辑器开发中...</p>
+                          <p className="text-[11px] text-[#667788] mt-1">背景编辑器开发中...</p>
                         </div>
                       )
                     })()}
