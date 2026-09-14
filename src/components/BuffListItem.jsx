@@ -183,6 +183,12 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
     if (bonus === 0) {
       return `${typeLabel}速度（等于行走速度）`
     }
+    // 对于步行速度，显示绝对速度值（基础30 + 加成）
+    if (v.type === 'walk') {
+      const totalSpeed = 30 + bonus
+      return `${typeLabel}速度${totalSpeed}尺`
+    }
+    // 其他类型显示相对加成
     const sign = bonus >= 0 ? '+' : ''
     return `${typeLabel}速度${sign}${bonus}尺`
   }

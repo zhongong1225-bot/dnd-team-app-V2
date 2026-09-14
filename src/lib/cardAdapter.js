@@ -267,23 +267,13 @@ export function buildRaceDefinitionEffects(raceDef, subrace, raceCard) {
   }
 
   if (Array.isArray(assignments)) {
-    const allBonuses = [
-      ...raceBonuses.map((b, i) => ({ ...b, source: 'race', index: i })),
-      ...subraceBonuses.map((b, i) => ({ ...b, source: 'subrace', index: i })),
-    ]
-
     for (const assignment of assignments) {
-      if (!assignment.ability) continue
-      const matchingBonus = allBonuses.find(
-        b => b.source === assignment.source && !b._matched
-      )
-      if (matchingBonus) {
-        matchingBonus._matched = true
-        effects.push({
-          effectType: 'ability_score_uncapped',
-          value: { [assignment.ability]: matchingBonus.amount },
-        })
-      }
+      if (!assignment.ability || !assignment.amount) continue
+      // 新格式：直接读取 ability + amount
+      effects.push({
+        effectType: 'ability_score_uncapped',
+        value: { [assignment.ability]: assignment.amount },
+      })
     }
   }
 
