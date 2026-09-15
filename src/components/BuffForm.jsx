@@ -527,6 +527,15 @@ export function normalizeValueForSave(module, currentEffect) {
   return value
 }
 
+/** 解析模块保存时的最终 effectType（抽离为纯函数以便测试） */
+export function resolveSaveEffectType(mod, catDataByKey) {
+  const effList = catDataByKey?.[mod.category]?.effects ?? []
+  if (effList.some((e) => e.key === mod.effectType)) return mod.effectType
+  // 未知但非空的类型（旧版/自制/跨版本）原样保留，避免被改写成该类别首个效果而损坏数据
+  if (mod.effectType) return mod.effectType
+  return effList[0]?.key ?? ''
+}
+
 /** 是否需单独一行的复杂数值（多选/网格等） */
 function isComplexValueType(currentEffect) {
   if (!currentEffect) return false
@@ -6130,7 +6139,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
       }
       const catData = catDataByKey[mod.category]
       const effList = catData?.effects ?? []
-      const effectType = effList.some((e) => e.key === mod.effectType) ? mod.effectType : (effList[0]?.key ?? '')
+      const effectType = resolveSaveEffectType(mod, catDataByKey)
       const currentEffect = effList.find((x) => x.key === effectType)
       let val = normalizeValueForSave(mod, currentEffect)
       if (currentEffect?.key?.startsWith('custom_')) {
