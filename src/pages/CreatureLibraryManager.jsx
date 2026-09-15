@@ -151,6 +151,12 @@ export default function CreatureLibraryManager() {
     return () => { cancelled = true }
   }, [refresh])
 
+  useEffect(() => {
+    const onRealtime = () => refresh()
+    window.addEventListener('dnd-realtime-custom-library', onRealtime)
+    return () => window.removeEventListener('dnd-realtime-custom-library', onRealtime)
+  }, [refresh])
+
   const filtered = creatures.filter(c =>
     !filter || c.name.toLowerCase().includes(filter.toLowerCase())
   )

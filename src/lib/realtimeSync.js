@@ -11,6 +11,7 @@ import { loadCampaignModulesFromSupabase, loadUserPrefsFromSupabase } from './mo
 import { loadCustomItemsFromSupabase } from '../data/itemDatabase'
 import { loadCustomSpellsFromSupabase } from '../data/spellDatabase'
 import { loadCustomRacesFromSupabase } from '../data/races'
+import { loadCreatureLibraryFromSupabase } from '../data/creatureLibrary'
 import { loadModuleLibraryFromSupabase } from './moduleLibraryStore'
 import { loadDefaultBuffPatchesFromSupabase, DEFAULT_BUFF_PATCHES_EVENT } from './defaultBuffPatchStore'
 import { hydrateRuleTextOverridesFromSupabase } from './ruleTextOverrides'
@@ -119,7 +120,7 @@ export function startSupabaseRealtime({ ownerName, isAdmin, moduleId }) {
     clearTimeout(customRtTimer)
     customRtTimer = setTimeout(async () => {
       try {
-        await Promise.all([loadCustomItemsFromSupabase(), loadCustomSpellsFromSupabase(), loadCustomRacesFromSupabase()])
+        await Promise.all([loadCustomItemsFromSupabase(), loadCustomSpellsFromSupabase(), loadCustomRacesFromSupabase(), loadCreatureLibraryFromSupabase()])
         emit('dnd-realtime-custom-library')
       } catch (e) {
         console.warn('[Realtime] custom_library refresh failed', e)
@@ -217,6 +218,16 @@ export function startSupabaseRealtime({ ownerName, isAdmin, moduleId }) {
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'custom_library', filter: 'lib_key=eq.custom_spells' },
+      onCustomLibraryChange
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'custom_library', filter: 'lib_key=eq.custom_races' },
+      onCustomLibraryChange
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'custom_library', filter: 'lib_key=eq.creature_library' },
       onCustomLibraryChange
     )
     .on(
