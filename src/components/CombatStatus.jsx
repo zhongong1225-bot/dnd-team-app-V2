@@ -3,7 +3,7 @@
  * 显示：HP、AC、先攻、死亡豁免、状态效果、力竭、其它职业资源、战斗手段
  */
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Plus, Minus, Trash2, Dices, Shield } from 'lucide-react'
+import { Plus, Minus, Trash2, Dices, Shield, Pencil } from 'lucide-react'
 import { useRoll } from '../contexts/RollContext'
 import { useModule } from '../contexts/ModuleContext'
 import {
@@ -45,7 +45,7 @@ import GainEditor from './combat/GainEditor'
 import {
   DAMAGE_TYPE_OPTIONS, DAMAGE_TYPE_SHORT, HIT_RESOLUTION_LABELS, COMBO_ATTACHMENT_SOURCE_TYPES, COMBO_CLASS_FEATURE_OPTIONS,
   inferDamageDiceFromText, isValidComboAttachment, getCombatMeanLabel,
-  getSpellAbilityForAttackFromBuffs, resolvePhysicalWeaponAbilityKind, isRangedWeaponProto, weaponUsesDex, inferPhysicalWeaponAbilityFromProto,
+  getSpellAbilityForAttackFromBuffs, resolvePhysicalWeaponAbilityKind, isRangedWeaponProto, weaponUsesDex,
   getDefaultWeaponMode, getWeaponModeOptions, getAbilityOptions, getWeaponBaseDamageObjects, stripDiceFlatMod, getWeaponNote, weaponHasTwoHanded, weaponHasThrown, weaponHasVersatile, weaponHasLight, isDualWieldingLightWeapons,
   parseWeaponAttack, formatWeaponAttackDiceDisplay, formatSignedModifier, getWeaponAttackStringForParsing,
   GAIN_TYPES, getEnabledGains, sumGainAttackBonus, sumGainDamageBonus, sumGainPerDieBonus, getGainExtraDice, getGainAdvantage, hasGainDiceFloor2,
@@ -58,7 +58,7 @@ import {
 import { deriveWieldedWeaponMeans } from './combat/deriveWieldedWeaponMeans'
 import { collectTierMemberIds } from '../lib/weaponProficiency'
 
-import { getItemById, getItemList, ITEM_DATABASE, parseWeaponNoteToTraits } from '../data/itemDatabase'
+import { getItemById, ITEM_DATABASE, parseWeaponNoteToTraits } from '../data/itemDatabase'
 import { getSpellById, getWandScrollSpellPower, getMergedSpells } from '../data/spellDatabase'
 import { getSpellcastingLevel, getMaxSpellSlotsByRing, getHitDice, getPrimarySpellcastingAbility, getCharacterClasses, getPactLevel, getPactSlotsByLevel } from '../data/classDatabase'
 import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
@@ -708,10 +708,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [damageRollConfirm, setDamageRollConfirm] = useState(null) // { attackResult, spellName, damageList, isSpellAttack, critThreatMin, nwSpellAtk, slotLevel, spellData }
   const [recoverySummary, setRecoverySummary] = useState(null) // { eventType, summary }
   const [focusSpellMap, setFocusSpellMap] = useState({}) // { [inventoryIndex]: spellSub } 法器当前选中的内含法术
-  const combatMeansRef = useRef(combatMeans)
-  useEffect(() => {
-    combatMeansRef.current = combatMeans
-  }, [combatMeans])
 
   useEffect(() => {
     setShowSpellModule(char?.showSpellModule !== false)
@@ -923,10 +919,11 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     })))
   }, [char?.id, char?.combatMeans])
 
-  const legacyPurgeRef = useRef(false)
+  // 按角色 id 去重：同一挂载内切换角色时，每个角色都要各自清理并写回一次
+  const legacyPurgedIdsRef = useRef(new Set())
   useEffect(() => {
-    if (legacyPurgeRef.current) return
-    legacyPurgeRef.current = true
+    if (!char?.id || legacyPurgedIdsRef.current.has(char.id)) return
+    legacyPurgedIdsRef.current.add(char.id)
     const raw = Array.isArray(char?.combatMeans) ? char.combatMeans : []
     const purged = sanitizeLegacyCombatMeans(raw)
     if (purged !== raw) saveCombatMeans(purged)
@@ -3016,7 +3013,12 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                 <div className="flex items-center gap-1 text-[11px] text-gray-500">
                   <span>组合技</span>
                   <span className="text-white/70">{cm.name || cm.id}</span>
-                  <span>未选择主手段，请点铅笔重新选择</span>
+                  <span>未选择主手段，需重新选择</span>
+                  {canEdit && (
+                    <button type="button" onClick={() => openEditComboMean(cm)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-dnd-gold-light shrink-0" title="编辑组合技">
+                      <Pencil size={12} />
+                    </button>
+                  )}
                 </div>
               </div>
             )
