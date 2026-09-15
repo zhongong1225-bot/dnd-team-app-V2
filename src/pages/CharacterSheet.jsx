@@ -3,7 +3,7 @@
  * 含：角色名、外观/基础、经验与等级、职业、Buff、背包、同调位。
  * 备份于恢复战斗状态之前。
  */
-import { useState, useEffect, useCallback, useRef, useMemo, forwardRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, forwardRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ChevronUp, ChevronDown, ChevronRight, Trash2, Star, Upload, X, Plus, Settings, Zap, RefreshCw, Pencil, Check } from 'lucide-react'
 
@@ -4562,7 +4562,9 @@ export default function CharacterSheet() {
     return () => window.removeEventListener('dnd-realtime-characters', onRealtime)
   }, [id])
 
-  useEffect(() => {
+  // 必须在 layout 阶段赋值：子组件的 useEffect 先于父组件的 useEffect 执行，
+  // 放在 passive effect 里会让子组件首次挂载时发出的 onSave 撞上 charIdRef.current === null 被静默丢弃
+  useLayoutEffect(() => {
     charIdRef.current = char?.id ?? null
   }, [char?.id])
 
