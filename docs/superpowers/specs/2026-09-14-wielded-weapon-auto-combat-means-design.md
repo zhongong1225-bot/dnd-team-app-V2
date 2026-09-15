@@ -114,14 +114,20 @@
 entry.combatMeanConfig = {
   nameSuffix: string,
   damageTypeOverride: string,
-  versatileMode: 'one_hand' | 'two_hand' | 'ranged' | null,
+  versatileMode: 'one_hand' | 'two_hand' | 'ranged' | null,   // 副手卡不写这一项
   extraDamageDice: [],
   targetCreatureType: string,
+  abilityForAttack: string,                                    // 只在与原型词条推断不一致时存
   disabledAutoGainKeys: string[],
 }
 ```
 
-六项，与现卡可配项一一对应（熟练除外，见第七节），无新增无删减。**不含数值**（`disabledAutoGainKeys` 存的是增益标识，不是增益值）。
+七项，与现卡可配项一一对应（熟练除外，见第七节）。**不含数值**（`disabledAutoGainKeys` 存的是增益标识，不是增益值）。
+
+两项刻意不落地成快照（写侧见 `deriveWieldedWeaponMeans.js` `buildWeaponMeanConfig`）：
+
+- `versatileMode` 对副手卡不写。副手槽恒以附赠动作发动，不是玩家可配的档；落盘走 `{...prev, ...next}` 合并，一旦写下去就会盖掉同一把剑在主手时存的伤害骰档。
+- `abilityForAttack` 与原型词条推断（如「灵巧」）一致时存空串。存了就成了快照，DM 之后给原型补「灵巧」也不会跟着变。
 
 - 写：仅玩家在当前角色上操作。不写 `itemDatabase.js` 原型，避免污染全库与其他角色。
 - 跟随物品：入仓库、跨角色转移时随条目走（附魔设定属于这把武器）；物品删除时一并消失，不留孤儿。
@@ -134,14 +140,15 @@ entry.combatMeanConfig = {
 
 **熟练来源**：`char.proficiencies.weapons`——角色页"熟练项设置"里的武器熟练清单，存的是武器原型编号数组（`AbilityModule.jsx:630-665`）。"简易武器""军用武器"两个整组按钮（`AbilityModule.jsx:636-647`）实质是把整组编号批量写入该数组。派生卡判定熟练 = 手持武器的原型编号是否在数组中。
 
-**必须先补的数据缺口**：分组编号清单在代码里写了两遍且都不全——
+**补掉的数据缺口**：分组编号清单在代码里写了**三**份，前两份还都不全——
 
-- `AbilityModule.jsx:30-37` `SIMPLE_WEAPON_IDS` / `MARTIAL_WEAPON_IDS`（按原型编号）
-- `buffTypes.js:784-793` `SIMPLE_WEAPON_CATEGORIES` / `MARTIAL_WEAPON_CATEGORIES`（按类别名），`isSimpleWeaponProto` / `isMartialWeaponProto`（`buffTypes.js:796-815`，目前未导出）
+- `AbilityModule.jsx` 原 `SIMPLE_WEAPON_IDS` / `MARTIAL_WEAPON_IDS`（按原型编号）→ 已删，改由 `src/lib/weaponProficiency.js` `collectTierMemberIds(ITEM_DATABASE)` 从原型现算
+- `buffTypes.js` 原 `SIMPLE_WEAPON_CATEGORIES` / `MARTIAL_WEAPON_CATEGORIES`（按类别名）与 `isSimpleWeaponProto` / `isMartialWeaponProto`（当时未导出）→ 已删清单，两个判定函数改为读 `getWeaponProficiencyTier` 并导出
+- `AbilityModule.jsx:33` `LEGACY_FIREARM_IDS`（`gun_blunderbuss` / `gun_musket` / `gun_pistol`）→ **刻意保留**。它不是分组清单，是迁移用的历史名单：旧存档逐把写入火器 id，`normalizeProfState` 按它把这些 id 收敛成整组伪 id `'firearms'`。内置火器也因此不逐把列出（`AbilityModule.jsx:252-254`），否则就是永远勾不上的选项。
 
-战镐、矛、轻剑之外的部分军用武器、火器类未归组。后果是静默的：点了"军用武器"的角色，手里未归组的武器被判不熟练，命中与伤害双双偏低。
+战镐、矛、轻剑之外的部分军用武器、火器类原先未归组。后果是静默的：点了"军用武器"的角色，手里未归组的武器被判不熟练，命中与伤害双双偏低。
 
-**处理**：给武器原型新增 `proficiencyTier`（取值 `simple` / `martial` / `firearm`）字段作为唯一事实源，上述两处清单与两个判定函数改为读它；物品编辑器（`ItemAddForm`）暴露该字段，否则 DM 自制武器无法标注。
+**已落地**：武器原型的 `proficiencyTier`（取值 `simple` / `martial` / `firearm`，`buffTypes.js:932` `getWeaponProficiencyTier`）是唯一事实源，缺字段时按物品类型兜底推断（`类型 === '枪械'` → `firearm`）；整组授予伪 id 由 `WEAPON_TIER_GRANTED_IDS`（`buffTypes.js:929`）统一给出，其中火器刻意用复数 `'firearms'` 而非选项表的单数 `'firearm'`——老存档写入的就是复数形式，"统一"掉会让这些角色丢失火器熟练。物品编辑器（`ItemAddForm`）已暴露该字段，DM 自制武器可自行标注。
 **保险**：分级不明的武器一律按熟练处理（宁滥勿缺，不因数据遗漏压低数值）。
 
 **计算规则四条**，全部落在 `combatMeanUtils.js:363` `computePhysicalWeaponStats` 一处，不新增第二套算法：
@@ -198,9 +205,10 @@ damageMod = canAddAbilityMod ? abilityMod
 
 现有战斗手段点击后的路径与主动技能路径不一致，且违反使用模型：
 
-- 武器卡 / 变身天生武器卡 / 变身生物法术卡点击 → 投 d20 → 弹 `CombatStatus.jsx:3673-3886` 的面板，**要求输入对手 AC**，未命中时 `CombatStatus.jsx:1372` 调 `alert()` 提示。
+- 武器卡 / 变身天生武器卡 / 变身生物法术卡 / 法术攻击卡 / 道具卡点击 → 投 d20 → 直接进 `CombatStatus.jsx:3672-3886` 与 `:3888-3942` 两个伤害确认面板，面板里逐条勾选 BUFF 加值与额外伤害骰、并手动确认重击，**全程没有"询问 DM 是否命中"这一步**。
+- 自行判命中并 `alert('攻击未命中！')` 的那段在 `handleCreatureSpellAttackResult`，已核实**无任何调用点**，属死代码。
 
-本项目是玩家侧线下工具，命中与否由线下 DM 裁定（AGENTS.md 第一节）。工具索要 AC 并自行判命中/未命中属于越界。
+本项目是玩家侧线下工具，命中与否由线下 DM 裁定（AGENTS.md 第一节）。旧路径的问题有两条：一是跳过命中确认直接投伤害，等于默认玩家已经命中；二是它与装备栏攻击走的 `AbilityUseModal` 是两套造型、两套步骤序，同一件事在同一个界面里有两种做法（2026-09-15 用户裁定必须合一）。
 
 **统一为主动释放的五步流**（`AbilityUseModal.jsx:6` 注释与 `:1257` step 状态、`:1649-1685` 攻击骰界面）：
 
@@ -214,9 +222,14 @@ prepare → confirm → roll_attack → roll_damage → result
 
 `roll_attack` 步投出 d20 后显示"询问 DM：攻击总值 X 是否命中？"，给"未命中"与"命中，投伤害"两个按钮，**没有输入框**。进入 `roll_damage` 时按第九节重新现算伤害加值。`result` 汇总命中骰、伤害骰与重击。
 
-**三处一起改，旧面板整条删除**：武器卡（含派生卡）、变身天生武器卡（`CombatStatus.jsx:3236-3311`）、变身生物法术卡（`CombatStatus.jsx:3314` 起）。删除对象：`CombatStatus.jsx` 中 `damageRollConfirm` 的两个渲染块（`:3673-3886`、`:3889-3940`）与 `handleCreatureSpellAttackResult`（`:1359-1397`）。
+**五处一起改，旧面板整条删除**，拆成两步落地：
 
-顺带清理：`chargeItemModel.js:956-975` `getMainHandWeaponDamageType` 按 `slot.slotId === 'mainHand'` 与 `mainHand.weaponId` 查找，而真实手持槽形状是 `{ id: 'main' | 'off' | 'held_<t>', inventoryId }`，条件永不成立，属死代码。改为复用派生器的主手解析结果或直接用 `buildItemSlotMap`。
+- Task 13：武器卡（含派生卡）、变身天生武器卡（`CombatStatus.jsx:3236-3311`）、变身生物法术卡（`CombatStatus.jsx:3314` 起）——改为注册实时计划 + 调 `openWeaponAttackFlow`。
+- Task 14：法术攻击卡（`combat/SpellAttackCard.jsx`）、道具卡（`combat/ItemUseCard.jsx`）——同一条路径；道具卡的攻击型内含法术顺带接回消耗链路（原先只弹确认面板，既不扣充能也不扣法术位）。
+
+删除对象：`CombatStatus.jsx` 中 `damageRollConfirm` 的两个渲染块（`:3672-3886`、`:3888-3942`，共约 275 行）与 `handleCreatureSpellAttackResult`（原 `:1359-1397`，已核实无任何调用点的死代码）。
+
+顺带清理：`chargeItemModel.js:1051-1070`（修复前行号）`getMainHandWeaponDamageType` 恒返回空串。根因不是"条件永不成立"，而是它读的 `slotId` / `weaponId` / `invEntry.damageType` **三个字段在真实数据里都不存在**：手持槽形状是 `{ id: 'main' | 'off' | 'held_<t>', inventoryId }`，`find(s => s?.slotId === 'mainHand')` 落空后由 `|| held[0]` 兜底取到第一个槽（未必是主手）；槽上没有 `weaponId`，那条分支不进；背包条目的伤害类型字段是中文 `伤害` 而非 `damageType`，兜底分支同样取不到。结果是所有"与主手武器同类型"的效果静默失效。已改为按 `id === 'main'` 定位主手槽、经 `inventoryId` 找到背包条目、再用 `getItemById` 取原型，按 `伤害 / damageType / proto.伤害` 顺序取值（现位于 `:1114-1133`）。
 
 ## 十一、存量数据清理与组合技
 
@@ -234,12 +247,18 @@ prepare → confirm → roll_attack → roll_damage → result
 
 | 文件 | 改动 |
 |------|------|
-| `src/lib/combatMeans/deriveWieldedWeapons.js` | 新增：派生器纯函数 + 副手合法性 + 稳定 id |
-| `src/lib/combatMeans/deriveWieldedWeapons.test.js` | 新增：规则单测 |
+| `src/lib/weaponProficiency.js` | 新增：熟练档位单一事实源（`collectTierMemberIds` / `isWeaponTierGranted` / `isWeaponProtoProficient`） |
+| `src/lib/weaponProficiency.test.js` | 新增：档位判定与分级不明回退单测 |
+| `src/components/combat/deriveWieldedWeaponMeans.js` | 新增：派生器纯函数 + 副手合法性 + 稳定 id + 配置写侧 `buildWeaponMeanConfig` |
+| `src/components/combat/deriveWieldedWeaponMeans.test.js` | 新增：规则单测 |
 | `src/components/combat/combatMeanUtils.js` | `computePhysicalWeaponStats` 落地计算规则 2/3/4；自动增益改为现算入口 |
 | `src/components/CombatStatus.jsx` | 武器卡数组改为派生 + 非物理存量合并；删同步 effect `:903-929`；删 `damageRollConfirm` 两块与 `handleCreatureSpellAttackResult`；`getWeaponsFromInventory` 由派生器取代；物理条目读取期过滤 |
 | `src/components/combat/WeaponAttackCard.jsx` | 接受派生卡；槽位标签；三态样式；点击改走五步流 |
 | `src/components/combat/AddWeaponStep.jsx` | 删"武器熟练"勾选框；增益清单改现算；保存写入 `entry.combatMeanConfig` |
+| `src/components/combat/AddMeanTypeStep.jsx` | 删除"物理攻击"入口——武器卡只能由手持槽派生，不可手工新建；仅剩道具攻击 / 法术攻击 / 组合技 |
+| `src/components/combat/AddComboStep.jsx` | "主手段"下拉改为列出当前派生武器卡 + 剩余法术卡，存其派生 id |
+| `src/components/combat/SpellAttackCard.jsx` | 迁到五步流：注册实时计划；非施法者算不出法术攻击加值时名字列不可点（否则先扣法术位再无事发生） |
+| `src/components/combat/ItemUseCard.jsx` | 迁到五步流：注册实时计划并带 `resourceLabel`（充能点数）与 `onCommitted`（只扣充能，不二次投伤害）；删除卡内自建的攻击→伤害分步界面 |
 | `src/components/AbilityUseModal.jsx` | 支持以武器卡为输入的攻击→伤害五步流 |
 | `src/data/buffTypes.js` | 登记两个效果；`isSimpleWeaponProto` / `isMartialWeaponProto` 改为读 `proficiencyTier` 并导出 |
 | `src/hooks/useBuffCalculator.js` | `computeBuffStats` 聚合两个新效果为 `buffStats` 上的布尔字段 |
@@ -268,6 +287,18 @@ prepare → confirm → roll_attack → roll_damage → result
 6. 点武器卡名字 → 五步流：投 d20 → 出现"询问 DM"两按钮、无 AC 输入框 → 点"命中，投伤害" → 伤害用当帧数值。
 7. 主手清空后，引用它的组合技卡显示"未选择主手段"而不是消失。
 8. 在"双武器战斗 → 配置默认 BUFF"里挂上 `two_weapon_fighting_bonus` 并保存 → 副手卡的伤害立刻出现属性调整值；停用该风格后立刻消失。这条同时验证"引擎提供效果、DM 填内容"的链路完整。
+9. 组合技编辑器的"主手段"下拉能选到派生武器卡，建出的组合技卡点名字走同一套五步流。
+10. 释放流程进行中（已过准备步、尚未投伤害）新挂一条 BUFF → 本次伤害结算吃到它。注册表是取值函数而非快照，这条是第九节不变量的端到端验证。
+
+### 实测执行记录（2026-09-15）
+
+跑过的：**1、2、5、6、9 通过**；4 只跑了前半（副手拿非轻型 → 灰卡带原因），后半"学到双持客后转可用"未跑；7 未跑（未实测渲染，但 `CombatStatus.jsx:3089-3100` 的兜底分支与 `combatMeanUtils.js:800` 的置空迁移都在，构造上成立）。
+
+**8 未跑，被权限挡住**：该战役里当前账号 `isAdmin` 为假，职业特性上的"配置默认 BUFF"入口只读（`CharacterSheet.jsx:3107-3109`）。改用玩家自建临时 BUFF 挂 `two_weapon_fighting_bonus` 的绕行方案没走通。引擎侧改由单测覆盖：`useBuffCalculator` 的聚合（`computeBuffStats.test.js:110-133`）与消费端（`combatMeanUtils.test.js:142`、`combatMeanUtils.js:459`）。
+
+**3（荒野变形）未跑**：测试角色是战士，没有荒野变形。变身天生武器卡（`nw_` 前缀）与变身生物法术卡（`cs_` 前缀）两条分支目前只有代码审读 + 构建通过 + `no-undef` 探针干净作为保障，未经浏览器实测。
+
+**顺带查出的内容缺口（非代码缺陷）**：战斗风格"双武器战斗"没有任何默认效果（`featDefaultBuffs.js:376-389` 只有双持客的 `offhand_ignores_light`），该战役也没有 DM 补丁。结果是选了它只生成一张效果清单为空的虚拟 BUFF（摘要显示"—"），副手卡的伤害永远拿不到属性调整值。按最高原则这应由 DM 在"双武器战斗 → 配置默认 BUFF"里补——而那正是第 8 条被挡住的同一个入口。
 
 ## 十四、已确认的决策记录
 
