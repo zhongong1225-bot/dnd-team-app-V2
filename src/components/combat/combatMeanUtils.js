@@ -605,7 +605,7 @@ export function buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellMe
   const isPhysical = cm?.type === 'physical'
   const isSpellAttack = cm?.type === 'spell_attack' || cm?.type === 'spell'
   const pushOnce = (type, payload) => {
-    const id = 'g_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6)
+    const id = 'auto_' + type
     gains.push({ id, type, enabled: true, auto: true, ...payload })
   }
   const hasAutoGain = (type) => gains.some((g) => g.type === type && g.auto)
@@ -704,6 +704,24 @@ export function buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellMe
 export function mergeAutoGains(currentGains, autoGains) {
   const manual = (currentGains || []).filter((g) => !g.auto)
   return [...autoGains, ...manual]
+}
+
+/**
+ * 渲染期现算该卡当前应得的增益：自动部分由 BUFF 集合反推，手动部分留在卡上。
+ * 不写盘 —— 这是"卡上不得有数值快照"不变量的落点。
+ * @param {object} cm
+ * @param {{buffStats:object, mergedBuffs:array, character:object, formulaContext:object, primaryForGains?:object}} opts
+ */
+export function computeLiveGains(cm, opts = {}) {
+  const { buffStats, mergedBuffs, character, formulaContext, primaryForGains } = opts
+  const source = primaryForGains || cm
+  const isSpellMean = source?.type === 'spell_attack' || source?.type === 'spell'
+  const auto = buildDefaultGainsFromBuffs(source, buffStats, mergedBuffs, isSpellMean, character || null, formulaContext || {})
+  const disabled = new Set(Array.isArray(cm?.disabledAutoGainKeys) ? cm.disabledAutoGainKeys : [])
+  const keptAuto = disabled.size ? auto.filter((g) => !disabled.has(g.type)) : auto
+  // 历史上自动增益会被误存成手动条目，不过滤则源 BUFF 消失后残值仍在
+  const manual = (Array.isArray(cm?.gains) ? cm.gains : []).filter((g) => g && !g.auto)
+  return [...keptAuto, ...manual]
 }
 
 function gainsNormalize(g) {

@@ -6,6 +6,7 @@ import {
   getEffectiveCastLevel,
   computePhysicalWeaponStats,
   sanitizeLegacyCombatMeans,
+  computeLiveGains,
 } from './combatMeanUtils'
 import { getItemById } from '../../data/itemDatabase'
 
@@ -219,5 +220,48 @@ describe('sanitizeLegacyCombatMeans', () => {
     expect(sanitizeLegacyCombatMeans(undefined)).toEqual([])
     expect(sanitizeLegacyCombatMeans(null)).toEqual([])
     expect(sanitizeLegacyCombatMeans([])).toEqual([])
+  })
+})
+
+describe('computeLiveGains', () => {
+  const buffsFrom = (effects) => [{ id: 'b', name: 'x', enabled: true, effects }]
+  const mean = { type: 'spell_attack', spellName: '灼热之手', gains: [{ id: 'g0', type: 'damageBonus', value: 1, enabled: true }] }
+
+  it('不持久化：同一入参重复调用返回完全相同的结果（含 id）', () => {
+    const a = computeLiveGains(mean, { buffStats: {}, mergedBuffs: buffsFrom([{ effectType: 'damage_bonus', scope: 'global', scopeDetail: [], value: 2 }]) })
+    const b = computeLiveGains(mean, { buffStats: {}, mergedBuffs: buffsFrom([{ effectType: 'damage_bonus', scope: 'global', scopeDetail: [], value: 2 }]) })
+    expect(a).toEqual(b)
+  })
+
+  it('自动增益 id 确定性，手动增益保留原 id', () => {
+    const live = computeLiveGains(mean, { buffStats: {}, mergedBuffs: buffsFrom([{ effectType: 'damage_bonus', scope: 'global', scopeDetail: [], value: 2 }]) })
+    expect(live.find((g) => g.auto).id).toBe('auto_damageBonus')
+    expect(live.find((g) => !g.auto).id).toBe('g0')
+  })
+
+  it('保留手动增益', () => {
+    const live = computeLiveGains(mean, { buffStats: {}, mergedBuffs: [] })
+    expect(live.some((g) => g.type === 'damageBonus' && g.value === 1 && !g.auto)).toBe(true)
+  })
+
+  it('按 disabledAutoGainKeys 过滤掉指定类型', () => {
+    const live = computeLiveGains({ ...mean, disabledAutoGainKeys: ['extraDice'] }, {
+      buffStats: {},
+      mergedBuffs: buffsFrom([{ effectType: 'extra_damage_dice', scope: 'global', scopeDetail: [], value: '2d6 火焰' }]),
+    })
+    expect(live.some((g) => g.type === 'extraDice')).toBe(false)
+  })
+
+  it('源 BUFF 消失后不留残值', () => {
+    const withBuff = computeLiveGains(mean, { buffStats: {}, mergedBuffs: buffsFrom([{ effectType: 'dice_floor_2', scope: 'global', scopeDetail: [], value: true }]) })
+    expect(withBuff.some((g) => g.type === 'diceFloor2')).toBe(true)
+    const without = computeLiveGains(mean, { buffStats: {}, mergedBuffs: [] })
+    expect(without.some((g) => g.type === 'diceFloor2')).toBe(false)
+  })
+
+  it('自动与手动同类型共存时两条都保留（不互相覆盖）', () => {
+    const live = computeLiveGains(mean, { buffStats: {}, mergedBuffs: buffsFrom([{ effectType: 'damage_bonus', scope: 'global', scopeDetail: [], value: 2 }]) })
+    expect(live.filter((g) => g.type === 'damageBonus')).toHaveLength(2)
+    expect(live.filter((g) => g.type === 'damageBonus').every((g) => g.enabled !== false)).toBe(true)
   })
 })
