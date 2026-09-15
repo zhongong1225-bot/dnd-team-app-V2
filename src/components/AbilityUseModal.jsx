@@ -10,7 +10,7 @@
  * 所有掷骰通过 `dnd-external-roll` CustomEvent 触发 3D 骰子动画。
  */
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useRef } from 'react'
 import { X } from 'lucide-react'
 import {
   normalizeChargeItemValue,
@@ -29,7 +29,7 @@ import {
   resolveLevelScaling,
   getMainHandWeaponDamageType,
 } from '../lib/chargeItemModel'
-import { rollDice } from '../data/weaponDatabase'
+import { rollDice, rollCombatDicePool } from '../data/weaponDatabase'
 import { proficiencyBonus, abilityModifier, calcMaxHP, getHPBuffSum } from '../lib/formulas'
 import { getCharacterClasses, getPrimarySpellcastingAbility, getMaxSpellSlotsByRing } from '../data/classDatabase'
 import { getCreatureById, parseCreatureHp, listCreatures } from '../data/creatureLibrary'
@@ -1259,13 +1259,21 @@ function ConfirmStepContent({
 /* ══════════════════════════════════════════════════════════════
  * AbilityUseModal — 主组件（状态机）
  * ══════════════════════════════════════════════════════════════ */
-export default function AbilityUseModal({ chargeValue, activeAbility, char, featureName, onConfirm, onClose }) {
+export default function AbilityUseModal({ chargeValue, activeAbility, char, featureName, onConfirm, onClose, attackPreset }) {
+  // 投骰瞬间读最新 preset，避免弹窗打开期间的旧闭包把数值冻成快照
+  const presetRef = useRef(attackPreset)
+  presetRef.current = attackPreset
+  const displayName = attackPreset?.name || featureName || ''
+
   // 支持两种输入：chargeValue（充能物品）或 activeAbility（主动技能）
   const effectiveChargeValue = useMemo(
     () => chargeValue || (activeAbility ? activeAbilityToChargeValue(activeAbility) : null),
     [chargeValue, activeAbility]
   )
-  const norm = useMemo(() => normalizeChargeItemValue(effectiveChargeValue), [effectiveChargeValue])
+  const norm = useMemo(() => {
+    const base = normalizeChargeItemValue(effectiveChargeValue)
+    return attackPreset ? { ...base, resourceType: 'none', effects: [] } : base
+  }, [effectiveChargeValue, attackPreset])
 
   /* ── 状态机 ── */
   const [step, setStep] = useState('prepare') // prepare | confirm | roll_attack | roll_damage | result
@@ -1284,7 +1292,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
   const [showIrreversible, setShowIrreversible] = useState(false)
 
   /* ── 派生值 ── */
-  const flowType = useMemo(() => classifyFlowType(norm.effects), [norm.effects])
+  const flowType = useMemo(() => (attackPreset ? 'attack' : classifyFlowType(norm.effects)), [norm.effects, attackPreset])
   const hasDice = useMemo(() => hasDiceEffects(norm.effects), [norm.effects])
   const stepLabels = useMemo(() => getStepLabels(flowType, hasDice), [flowType, hasDice])
   const lastStepIndex = stepLabels.length - 1
@@ -1518,24 +1526,36 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
     const { patch: resourcePatch, lines: resourceLines } = consumeResources()
     flashIrreversible()
 
-    const d20Roll = rollDice('1d20')
-    const atkBonus = computeSpellAttack()
-    const natural = d20Roll.total
-    const bonus = atkBonus || 0
-    const total = natural + bonus
+    const atk = presetRef.current?.getAttack ? presetRef.current.getAttack() : null
+    const isPreset = !!atk
+    const atkBonus = isPreset ? (Number(atk.bonus) || 0) : (computeSpellAttack() || 0)
+    const adv = atk && (atk.advantage === 'advantage' || atk.advantage === 'disadvantage') ? atk.advantage : null
+    const critMin = Number.isFinite(Number(atk?.critThreatMinNatural)) && atk?.critThreatMinNatural != null
+      ? Math.max(1, Math.min(20, Math.floor(Number(atk.critThreatMinNatural)))) : 20
+    const critDiceMultiplier = Math.max(2, Number(atk?.critDiceMultiplier) || 2)
+
+    let natural, diceValues, formula
+    if (adv) {
+      const a = rollDice('1d20'), b = rollDice('1d20')
+      diceValues = [a.total, b.total]
+      formula = '2d20'
+      natural = adv === 'advantage' ? Math.max(a.total, b.total) : Math.min(a.total, b.total)
+    } else {
+      const single = rollDice('1d20')
+      natural = single.total
+      diceValues = [single.total]
+      formula = '1d20'
+    }
+    const total = natural + atkBonus
+    const isCrit = isPreset ? natural >= critMin : natural === 20
 
     setAttackResult({
-      natural, bonus, total,
-      isCrit: natural === 20,
-      isFumble: natural === 1,
-      resourcePatch, resourceLines,
+      natural, bonus: atkBonus, total, isCrit, critMin, critDiceMultiplier,
+      isFumble: natural === 1 && !isCrit, advantage: adv, resourcePatch, resourceLines,
     })
 
-    // 3D 骰子动画：攻击骰
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('dnd-external-roll', {
-        detail: { animate: true, formula: '1d20', diceValues: [natural] },
-      }))
+      window.dispatchEvent(new CustomEvent('dnd-external-roll', { detail: { animate: true, formula, diceValues } }))
     }
 
     setStep('roll_attack')
@@ -1557,6 +1577,46 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
       resourcePatch = consumed.patch
       allLines.push(...consumed.lines)
       flashIrreversible()
+    }
+
+    // 物理攻击预设：伤害在投骰这一刻由调用方的 getDamagePlan() 现算
+    if (presetRef.current?.getDamagePlan) {
+      const plan = presetRef.current.getDamagePlan() || {}
+      const diceList = Array.isArray(plan.diceList) ? plan.diceList : []
+      const flatMod = Number(plan.flatMod) || 0
+      const mult = attackInfo?.isCrit ? Math.max(2, Number(attackInfo.critDiceMultiplier) || 2) : 1
+      const byType = {}
+      const animParts = [], animValues = []
+      for (const d of diceList) {
+        const expr = String(d?.dice || '').trim()
+        if (!expr) continue
+        const type = String(d?.type || '').trim() || '—'
+        for (let k = 0; k < mult; k++) {
+          const pool = rollCombatDicePool(expr)
+          if (!pool.parsed) continue
+          byType[type] = (byType[type] || 0) + pool.diceSum + pool.flatMod
+          animParts.push(expr)
+          animValues.push(...pool.rolls)
+        }
+      }
+      if (flatMod) {
+        const types = Object.keys(byType)
+        const bucket = types.length === 1 ? types[0] : '—'
+        byType[bucket] = (byType[bucket] || 0) + flatMod
+      }
+      const linesText = Object.entries(byType).map(([t, v]) => `${v} ${t}`).join(' + ') || '0'
+      allLines.push(`🩸 伤害: ${linesText}`)
+      if (mult > 1) allLines.push(`⚡ 重击：伤害骰 ×${mult}`)
+      if (animParts.length > 0 && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('dnd-external-roll', {
+          detail: { animate: true, formula: animParts.join(','), diceValues: animValues },
+        }))
+      }
+      setResultFailed(false)
+      setResultLines(allLines)
+      setStep('result')
+      onConfirm(resourcePatch, allLines)
+      return
     }
 
     const { patch: effectPatch, lines: effectLines, animParts, animValues } = processAllEffects(buildEffectsCtx())
@@ -1678,12 +1738,13 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
             )}
 
             <div className="mt-4 text-center animate-[fadeIn_200ms_ease-in]">
-              <div className="text-xs text-gray-400 mb-2">攻击骰结果（{featureName}）</div>
+              <div className="text-xs text-gray-400 mb-2">攻击骰结果（{displayName}）</div>
               <div className="text-4xl font-bold text-dnd-gold-light mb-1">{attackResult.natural}</div>
               <div className="text-sm text-gray-400">
                 {attackResult.bonus >= 0 ? '+' : ''}{attackResult.bonus} = <span className="text-white font-bold text-base">{attackResult.total}</span>
               </div>
-              {attackResult.isCrit && <div className="text-xs text-yellow-400 mt-1">⚡ 天然 20 — 重击！</div>}
+              {attackResult.isCrit && <div className="text-xs text-yellow-400 mt-1">⚡ 天然 {attackResult.natural} ≥ {attackResult.critMin} — 重击！</div>}
+              {attackResult.advantage && <div className="text-[10px] text-gray-500 mt-1">{attackResult.advantage === 'advantage' ? '优势投掷' : '劣势投掷'}（取{attackResult.advantage === 'advantage' ? '高' : '低'}）</div>}
               {attackResult.isFumble && <div className="text-xs text-red-400 mt-1">💀 天然 1 — 大失败！</div>}
               <div className="text-[10px] text-gray-500 mt-2">询问 DM：攻击总值 {attackResult.total} 是否命中？</div>
             </div>
@@ -1718,7 +1779,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
 
           <div className="flex items-center justify-between mt-3 mb-3">
             <h3 className="text-sm font-bold text-dnd-gold-light">
-              {step === 'prepare' ? `使用 ${featureName}` : '确认释放'}
+              {step === 'prepare' ? `使用 ${displayName}` : '确认释放'}
             </h3>
             <button type="button" onClick={onClose} className="text-gray-400 hover:text-white">
               <X size={14} />
@@ -1740,7 +1801,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
             )}
             {step === 'confirm' && (
               <ConfirmStepContent
-                norm={norm} featureName={featureName} flowType={flowType}
+                norm={norm} featureName={displayName} flowType={flowType}
                 amt={amt} executeLabel={executeLabel}
                 isSpellSlot={isSpellSlot} isFreeSlot={isFreeSlot} isNone={isNone}
                 isClassResource={isClassResource} resLabel={resLabel}
