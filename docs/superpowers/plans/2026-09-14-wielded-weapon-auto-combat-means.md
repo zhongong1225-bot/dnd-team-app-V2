@@ -1054,6 +1054,16 @@ git add src/components/combat/combatMeanUtils.js src/components/combat/combatMea
 git commit -m "feat: computeLiveGains 渲染期现算战斗手段增益"
 ```
 
+- [ ] **Step 6（实现后回填的交接要点，供 Task 9/11/13/14 参考）**
+
+自动增益 id 已改为**确定性** `'auto_' + type`（`pushOnce`，`combatMeanUtils.js:608`），不再是 `Date.now()+随机`。依据：`computeLiveGains` 每帧调用，而 `GainEditor.jsx:76` 用 `key={g.id}`、`:80` 用 `updateItem(g.id, {enabled})` 按 id 寻址，随机 id 会让勾选写到下一帧就不存在的 id 上。安全性由 `hasAutoGain(type)` 保证（每种 type 最多一条 auto 增益，全仓已 grep 确认无人按 `g_` 前缀解析 id，区分自动/手动一律读 `g.auto` 布尔位）。**注意 id 固定 ≠ 已合并**：`damage_bonus`/`attack_bonus`/`per_die_bonus` 跨 BUFF 求和，而 `extraDice`/`advantage`/`diceFloor2` 只取首个来源、其余静默丢弃（既有行为，非本任务引入）。
+
+`computeLiveGains` 的调用约定（已写进函数 JSDoc）：每次返回**新数组**，**禁止**放进 `useMemo`/`useEffect` 的依赖或回写磁盘；手动项与 `cm.gains` **共享对象引用**，改写必须走 `{...g, ...patch}`。真正影响取数的入参只有三个：`mergedBuffs` 必须是含虚拟 BUFF 的合并全集（漏虚拟 BUFF = 专长/特性加值静默归零）、`character` 缺失会让物理卡拿不到 `weaponProto`（带 scope 的加值全部落空）、`formulaContext` 缺失会让 `attack_enhancement_bonus` / `hit_bonus` 求值为 NaN 被丢弃。`opts.buffStats` 目前是**死参数**（`buildDefaultGainsFromBuffs` 按 `cm.type` 自判，不读它），保留只为 Task 9 调用点形状稳定。
+
+**已确认缺口**：`item` 类型卡在 `buildDefaultGainsFromBuffs` 里 `isPhysical`/`isSpellAttack` 皆假，`scopeMatches` 只放行 `global` 范围（`:633-638`）—— 道具卡上的非 global 加值拿不到。属既有行为，Task 14 迁移道具卡时一并处理，本任务未动。
+
+**Task 11 待收**：`GainEditor` 现在用 `enabled: false` 关闭自动增益（`:78-80` 那条勾选框），但自动部分是每帧现算的，下一次渲染就会把 `enabled` 冲掉 —— 真正的开关是写 `cm.disabledAutoGainKeys`（按 type）。Task 11 做武器配置编辑器时必须把这条勾选框改成读写 `disabledAutoGainKeys`，否则"关掉某条自动增益"不可持久。同时 `mergeAutoGains` / `gainsContentEqual` 是旧快照写盘路径的部件，Task 9 Step 3 删 effect 后若组件无引用则一并清理（函数本身可留到无引用再删）。
+
 ---
 
 ### Task 9: CombatStatus 接入派生卡并删除快照同步
