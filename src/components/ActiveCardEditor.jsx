@@ -6,7 +6,8 @@
  */
 
 import { inputClass } from '../lib/inputStyles'
-import { NumberStepper, LevelScalingEditor } from './BuffForm'
+import { NumberStepper, LevelScalingEditor, DEFAULT_FORMULA_REFERENCE_DATA } from './BuffForm'
+import { isFormulaValue } from '../lib/formulas'
 import {
   normalizeChargeItemValue,
   RECOVERY_METHODS,
@@ -75,9 +76,13 @@ export default function ActiveCardEditor({
   charResources,
   spellSlots,
   charClasses = [],
+  referenceData,
 }) {
   const chargeData = normalizeChargeItemValue(data)
   const patch = (patchObj) => onChange({ ...chargeData, ...patchObj })
+  // 充能数公式引用：排除法术 DC / 法术攻击加值——角色态上下文对这两者求值为 0，会让换算结果与选取时预览的值不一致
+  const chargesReferenceData = (referenceData && referenceData.length ? referenceData : DEFAULT_FORMULA_REFERENCE_DATA)
+    .filter((opt) => opt && opt.ref !== 'spellDc' && opt.ref !== 'spellAttack')
   const recoveryMethods = Array.isArray(chargeData.recovery?.method)
     ? chargeData.recovery.method
     : (chargeData.recovery?.method ? [chargeData.recovery.method] : ['long_rest'])
@@ -176,8 +181,9 @@ export default function ActiveCardEditor({
               <span className="text-[10px] text-dnd-text-muted shrink-0">总充能</span>
               <NumberStepper
                 value={chargeData.charges}
-                onChange={(v) => patch({ charges: Math.max(0, Math.min(999, v)) })}
+                onChange={(v) => patch({ charges: isFormulaValue(v) ? v : Math.max(0, Math.min(999, v)) })}
                 min={0} max={999} compact narrow className="!h-7"
+                referenceData={chargesReferenceData}
               />
               <span className="text-green-400 text-[10px] font-bold uppercase tracking-wider shrink-0 ml-1">恢复</span>
               <div className="flex items-center gap-x-2 gap-y-1 flex-wrap">
@@ -253,7 +259,7 @@ export default function ActiveCardEditor({
             <span className="text-gray-500 text-[10px]">无资源消耗</span>
           )}
         </div>
-        {isCharges && (
+        {isCharges && !isFormulaValue(chargeData.charges) && (
           <LevelScalingEditor
             entries={chargeData.levelScaling}
             onChange={(v) => patch({ levelScaling: v })}

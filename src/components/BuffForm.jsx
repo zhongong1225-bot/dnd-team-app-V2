@@ -100,7 +100,7 @@ const HIT_RESOLUTION_OPTIONS = [
 ]
 
 /** 默认公式引用数据：调用方未提供 referenceData 时仍允许选择常见变量 */
-const DEFAULT_FORMULA_REFERENCE_DATA = [
+export const DEFAULT_FORMULA_REFERENCE_DATA = [
   { label: '力量调整值', value: 0, ref: 'abilityModifier', ability: 'str' },
   { label: '敏捷调整值', value: 0, ref: 'abilityModifier', ability: 'dex' },
   { label: '体质调整值', value: 0, ref: 'abilityModifier', ability: 'con' },
@@ -1502,6 +1502,10 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
   const data = normalizeChargeItemValue(module.value)
   const patchData = (patch) => onChange({ ...module, value: { ...data, ...patch } })
 
+  // 充能数公式引用：排除法术 DC / 法术攻击加值——角色态上下文对这两者求值为 0，会让换算结果与选取时预览的值不一致
+  const chargesReferenceData = (referenceData && referenceData.length ? referenceData : DEFAULT_FORMULA_REFERENCE_DATA)
+    .filter((opt) => opt && opt.ref !== 'spellDc' && opt.ref !== 'spellAttack')
+
   const labelCls = EDT_LABEL
   const inputCls = EDT_INPUT
   const selectCls = EDT_SELECT
@@ -1706,13 +1710,13 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
             <span className={labelCls}>总充能</span>
             <NumberStepper
               value={data.charges}
-              onChange={(v) => patchData({ charges: Math.max(0, Math.min(999, v)) })}
+              onChange={(v) => patchData({ charges: isFormulaValue(v) ? v : Math.max(0, Math.min(999, v)) })}
               min={0}
               max={999}
               compact
               narrow
               className="!h-6"
-              referenceData={referenceData}
+              referenceData={chargesReferenceData}
             />
           </>
         )}
@@ -1730,8 +1734,8 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
         </label>
       </div>
 
-      {/* ── 充能总数随等级提高（仅充能数模式） ── */}
-      {isChargesMode && (
+      {/* ── 充能总数随等级提高（仅充能数模式，且未使用公式引用时） ── */}
+      {isChargesMode && !isFormulaValue(data.charges) && (
         <LevelScalingEditor
           entries={data.levelScaling}
           onChange={(v) => patchData({ levelScaling: v })}
@@ -6630,6 +6634,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
                           charResources={charResources}
                           spellSlots={spellSlots}
                           charClasses={charClasses}
+                          referenceData={referenceData}
                           renderEffects={() => {
                             const addChargeEffect = (type) => updateModule(mod.id, { value: normalizeChargeItemValue({ ...chargeData, effects: [...(chargeData.effects || []), createChargeEffectEntry(type)] }) })
                             return (

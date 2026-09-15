@@ -116,6 +116,76 @@ function formatArmorOverrideSummary(v, context, hideBase = false) {
 
 /** 单条效果的简化文案（用于外层一行展示），如 "心灵抗性"、"智力-2，感知+2"、"生命上限+26" */
 export function getEffectSummaryShort(buff, context = {}, baseContext = context) {
+  const v = buff.value
+  
+  // === 优先处理已知但未在 buffTypes.js 中注册的效果类型 ===
+  
+  // spell_granted: 显示授予的法术列表
+  if (buff.effectType === 'spell_granted' && v && typeof v === 'object' && !Array.isArray(v)) {
+    const spellMap = getSpellNameMap()
+    const spells = []
+    if (Array.isArray(v.cantrips) && v.cantrips.length > 0) {
+      spells.push(...v.cantrips.map(s => spellMap[s] || s))
+    }
+    if (Array.isArray(v.level1) && v.level1.length > 0) {
+      spells.push(...v.level1.map(s => `${spellMap[s] || s}(1环)`))
+    }
+    if (Array.isArray(v.level2) && v.level2.length > 0) {
+      spells.push(...v.level2.map(s => `${spellMap[s] || s}(2环)`))
+    }
+    if (Array.isArray(v.level3) && v.level3.length > 0) {
+      spells.push(...v.level3.map(s => `${spellMap[s] || s}(3环)`))
+    }
+    return spells.length > 0 ? `习得：${spells.join('、')}` : '授予法术'
+  }
+
+  // saving_throw_advantage: 显示豁免优势
+  if (buff.effectType === 'saving_throw_advantage' && v && typeof v === 'object' && !Array.isArray(v)) {
+    const condition = v.condition
+    const conditionLabel = getConditionLabel(condition) || condition || '状态'
+    return `${conditionLabel}豁免优势`
+  }
+
+  // skill_proficiency: 显示技能熟练
+  if (buff.effectType === 'skill_proficiency' && v && typeof v === 'object' && !Array.isArray(v)) {
+    const skill = v.skill
+    const skillLabel = SKILLS.find(s => s.id === skill)?.label || skill || '技能'
+    return `${skillLabel}熟练`
+  }
+
+  // darkvision_bonus: 显示暗视加成
+  if (buff.effectType === 'darkvision_bonus' && typeof v === 'object' && !Array.isArray(v)) {
+    const bonus = Number(v.bonus) || 0
+    return `暗视+${bonus}尺`
+  }
+  
+  // damage_type_relation: 显示伤害关系（抗性/免疫/易伤）
+  if (buff.effectType === 'damage_type_relation' && v && typeof v === 'object' && !Array.isArray(v)) {
+    const types = Array.isArray(v.types) ? v.types : []
+    const relation = v.relation
+    const relationLabels = { resist: '抗性', immune: '免疫', vulnerable: '易伤' }
+    const relationLabel = relationLabels[relation] || relation || '关系'
+    const typeLabels = types.map(t => getDamageTypeLabel(t) || t).filter(Boolean)
+    if (typeLabels.length === 0) return relationLabel
+    return `${typeLabels.join('、')}${relationLabel}`
+  }
+  
+  // speed_bonus: 显示速度加成
+  if (buff.effectType === 'speed_bonus' && v && typeof v === 'object' && !Array.isArray(v)) {
+    const typeLabels = { walk: '步行', fly: '飞行', swim: '游泳', climb: '攀爬' }
+    const typeLabel = typeLabels[v.type] || v.type || '移动'
+    const bonus = Number(v.bonus) || 0
+    if (bonus === 0) {
+      return `${typeLabel}速度（等于行走速度）`
+    }
+    if (v.type === 'walk') {
+      const totalSpeed = 30 + bonus
+      return `${typeLabel}速度${totalSpeed}尺`
+    }
+    const sign = bonus >= 0 ? '+' : ''
+    return `${typeLabel}速度${sign}${bonus}尺`
+  }
+
   const info = getEffectInfo(buff.effectType)
   if (!info) {
     // 未知效果类型：尝试智能解析 value
@@ -135,9 +205,9 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       }
       // 否则返回键值对摘要
       const pairs = keys.slice(0, 3).map(k => {
-        const v = buff.value[k]
-        if (typeof v === 'object') return `${k}: [对象]`
-        return `${k}: ${v}`
+        const val = buff.value[k]
+        if (typeof val === 'object') return `${k}: [对象]`
+        return `${k}: ${val}`
       })
       return `[${buff.effectType}] ${pairs.join(', ')}`
     }
@@ -165,48 +235,8 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
   const rawLabel = info.effect.label ?? buff.effectType
   const scopePrefix = getScopePrefix(buff.scope, buff.scopeDetail)
   const effectLabel = `${scopePrefix}${rawLabel}`
-  const v = buff.value
 
-  // spell_granted: 显示授予的法术列表
-  if (buff.effectType === 'spell_granted' && v && typeof v === 'object' && !Array.isArray(v)) {
-    const spellMap = getSpellNameMap()
-    const spells = []
-    if (Array.isArray(v.cantrips) && v.cantrips.length > 0) {
-      spells.push(...v.cantrips.map(s => spellMap[s] || s))
-    }
-    if (Array.isArray(v.level1) && v.level1.length > 0) {
-      spells.push(...v.level1.map(s => `${spellMap[s] || s}(1环)`))
-    }
-    if (Array.isArray(v.level2) && v.level2.length > 0) {
-      spells.push(...v.level2.map(s => `${spellMap[s] || s}(2环)`))
-    }
-    if (Array.isArray(v.level3) && v.level3.length > 0) {
-      spells.push(...v.level3.map(s => `${spellMap[s] || s}(3环)`))
-    }
-    return spells.length > 0 ? `习得：${spells.join('、')}` : effectLabel
-  }
-
-  // saving_throw_advantage: 显示豁免优势
-  if (buff.effectType === 'saving_throw_advantage' && v && typeof v === 'object' && !Array.isArray(v)) {
-    const condition = v.condition
-    const conditionLabel = getConditionLabel(condition) || condition || '状态'
-    return `${conditionLabel}豁免优势`
-  }
-
-  // skill_proficiency: 显示技能熟练
-  if (buff.effectType === 'skill_proficiency' && v && typeof v === 'object' && !Array.isArray(v)) {
-    const skill = v.skill
-    const skillLabel = SKILLS.find(s => s.id === skill)?.label || skill || '技能'
-    return `${skillLabel}熟练`
-  }
-
-  // darkvision_bonus: 显示暗视加成
-  if (buff.effectType === 'darkvision_bonus' && typeof v === 'object' && !Array.isArray(v)) {
-    const bonus = Number(v.bonus) || 0
-    return `暗视+${bonus}尺`
-  }
-
-  if (info.effect.dataType === 'boolean') return buff.value ? effectLabel : ''
+  if (info.effect.dataType === 'boolean') return v ? effectLabel : ''
   if (buff.effectType === 'item_storage' && typeof v === 'number') {
     return `容量（${v}磅）`
   }

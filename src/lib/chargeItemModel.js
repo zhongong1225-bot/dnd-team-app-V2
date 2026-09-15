@@ -37,7 +37,7 @@ import { createEmptyContainedSpellSub } from './containedSpellModel'
 import { getDamageTypeLabel, getDamageTypeValue } from '../data/buffTypes'
 import { getCharacterClasses } from '../data/classDatabase'
 import { getWeaponById } from '../data/weaponDatabase'
-import { isFormulaValue, formatFormulaLabel, evaluateBuffValue } from './formulas'
+import { isFormulaValue, formatFormulaLabel, evaluateBuffValue, proficiencyBonus } from './formulas'
 
 /* ── 随机库（random_table）常量 ── */
 export const DICE_TYPE_OPTIONS = [
@@ -316,6 +316,44 @@ export function createChargeEffectEntry(type, overrides = {}) {
   return { id, type, applyMultiplier: true, value: {}, ...overrides }
 }
 
+/** 充能数归一化：普通数字 或 公式对象（{ ref, ability?, className?, mult?, add?, min? }） */
+function normalizeChargesField(raw) {
+  if (isFormulaValue(raw)) {
+    const formula = { ref: raw.ref }
+    if (typeof raw.ability === 'string' && raw.ability) formula.ability = raw.ability
+    if (typeof raw.className === 'string' && raw.className) formula.className = raw.className
+    formula.mult = Number(raw.mult) || 1
+    formula.add = Number(raw.add) || 0
+    const min = Number(raw.min)
+    if (Number.isFinite(min)) formula.min = min
+    return formula
+  }
+  return typeof raw === 'number' ? Math.max(0, raw) : (parseInt(raw, 10) || 0)
+}
+
+/**
+ * 把「角色数据」或「现成公式上下文」统一成 evaluateBuffValue 需要的形状。
+ * 公式上下文形态见 useBuffCalculator：{ level, abilities, prof, spellDC, spellAttack, classLevels, speed }
+ */
+export function buildChargeFormulaContext(charOrContext) {
+  const o = charOrContext && typeof charOrContext === 'object' && !Array.isArray(charOrContext) ? charOrContext : null
+  if (!o) return {}
+  const looksLikeContext = typeof o.prof === 'number' || (o.classLevels && typeof o.classLevels === 'object' && !Array.isArray(o.classLevels))
+  if (looksLikeContext) return o
+  const classLevels = getClassLevelMap(o)
+  const totalClassLevels = Object.values(classLevels).reduce((s, v) => s + v, 0)
+  const level = Math.max(1, Number(o.level) || totalClassLevels || 1)
+  return {
+    level,
+    abilities: o.abilities && typeof o.abilities === 'object' ? o.abilities : {},
+    prof: proficiencyBonus(level),
+    classLevels,
+    speed: Number(o.speed) || 30,
+    spellDC: 0,
+    spellAttack: 0,
+  }
+}
+
 /** 把任意旧 value 归一化为 charge_item 结构 */
 export function normalizeChargeItemValue(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -340,9 +378,7 @@ export function normalizeChargeItemValue(value) {
     resourceType = 'spell_slot'
     consumptionMode = 'free'
   }
-  const charges = typeof value.charges === 'number'
-    ? Math.max(0, value.charges)
-    : (parseInt(value.charges, 10) || 0)
+  const charges = normalizeChargesField(value.charges)
   // actionCost
   const validActionCosts = ACTION_COST_OPTIONS.map((o) => o.value)
   const actionCost = validActionCosts.includes(value.actionCost) ? value.actionCost : 'action'
@@ -628,7 +664,7 @@ export function formatChargeItemBrief(value, char = null) {
   if (norm.resourceType === 'none') {
     // 无消耗，不显示充能信息
   } else if (norm.resourceType === 'charges') {
-    parts.push(`${char ? resolveChargeItemCharges(value, char) : norm.charges}`)
+    parts.push(`${char ? resolveChargeItemCharges(value, char) : (isFormulaValue(norm.charges) ? formatFormulaLabel(norm.charges) : norm.charges)}`)
     parts.push(formatRecoveryBrief(norm.recovery))
   } else {
     const resLabel = RESOURCE_TYPE_OPTIONS.find((o) => o.value === norm.resourceType)?.label ?? norm.resourceType
@@ -933,7 +969,7 @@ export function getMaxSpendableAmount(norm, char) {
   if (!norm || !char) return 1
   if (norm.resourceType === 'none') return 1
   if (norm.resourceType === 'charges') {
-    return Math.max(1, Math.floor(Number(norm.charges) || 1))
+    return Math.max(1, Math.floor(resolveChargeItemCharges(norm, char)))
   }
   // 法术位消耗
   if (norm.resourceType === 'spell_slot') {
@@ -1039,6 +1075,9 @@ export function resolveLevelScaling(baseValue, levelScaling, char, numericKeys) 
  */
 export function resolveChargeItemCharges(value, char) {
   const norm = normalizeChargeItemValue(value)
+  if (isFormulaValue(norm.charges)) {
+    return Math.max(0, Math.floor(evaluateBuffValue(norm.charges, buildChargeFormulaContext(char))))
+  }
   const resolved = resolveLevelScaling({ charges: norm.charges }, norm.levelScaling, char, ['charges'])
   return Math.max(0, Number(resolved.charges) || 0)
 }
