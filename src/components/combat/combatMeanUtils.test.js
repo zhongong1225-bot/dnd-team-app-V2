@@ -157,6 +157,13 @@ describe('sanitizeLegacyCombatMeans', () => {
     expect(out.map((m) => m.id)).toEqual(['cm_1_spell', 'cm_2_combo', 'cm_3_combo'])
     expect(out[1].primaryMeanId).toBe(null)
     expect(out[2].primaryMeanId).toBe('cm_1_spell')
+    // 未受影响的元素必须是同一个对象：调用方靠引用比较决定是否写回/重渲染
+    expect(out[0]).toBe(raw[1])
+    expect(out[2]).toBe(raw[3])
+    expect(out[1]).not.toBe(raw[2])
+    // 解绑只改 primaryMeanId，其余字段一个都不能丢
+    expect(out[0].spellName).toBe('火焰箭')
+    expect(out[1].attachments).toEqual([{ name: '至圣斩' }])
   })
 
   it('无物理条目时返回同一引用（避免无谓重渲染）', () => {
@@ -164,9 +171,27 @@ describe('sanitizeLegacyCombatMeans', () => {
     expect(sanitizeLegacyCombatMeans(raw)).toBe(raw)
   })
 
-  it('非物理条目原样保留字段', () => {
-    const raw = [{ id: 'i', type: 'item', itemInventoryIndex: 0 }]
-    expect(sanitizeLegacyCombatMeans(raw)).toEqual(raw)
+  it('发生清理时，未受影响的 item 条目仍是同一对象且 itemInventoryIndex 不丢', () => {
+    const raw = [
+      { id: 'p', type: 'physical', weaponInventoryIndex: 3 },
+      { id: 'i', type: 'item', itemInventoryIndex: 0 },
+    ]
+    const out = sanitizeLegacyCombatMeans(raw)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toBe(raw[1])
+    expect(out[0].itemInventoryIndex).toBe(0)
+  })
+
+  it('物理条目缺 id 时，primaryMeanId 缺失的组合技不被改写', () => {
+    const raw = [
+      { type: 'physical', weaponInventoryIndex: 1 },
+      { id: 'c1', type: 'combo', attachments: [] },
+      { id: 'c2', type: 'combo', primaryMeanId: undefined, attachments: [] },
+    ]
+    const out = sanitizeLegacyCombatMeans(raw)
+    expect(out.map((m) => m.id)).toEqual(['c1', 'c2'])
+    expect(out[0]).toBe(raw[1])
+    expect(out[1]).toBe(raw[2])
   })
 
   it('老存档没写 type 的武器条目也要清掉，并解绑引用它的组合技', () => {
