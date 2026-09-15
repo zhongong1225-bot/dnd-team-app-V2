@@ -105,7 +105,7 @@ function ExplosiveItemCard({ itemMeanOpt, currentQty, damageText, rangeDisplay, 
         <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>数量</span>
         <span className={`text-white ${CM_MEAN_HI} tabular-nums`}>{currentQty}</span>
         {itemMeanOpt.dice && currentQty > 0 && (
-          <button type="button" onClick={() => setExplosiveUsePending({ inventoryIndex: itemMeanOpt.index, name: itemMeanOpt.name, diceExpr: itemMeanOpt.dice, damageType: itemMeanOpt.damageType, gains: getEnabledGainsFromMean(cm) })} className={CM_BTN_GOLD} title={quickRollTitle('投掷伤害（使用后扣 1 数量）')} aria-label={quickRollTitle('投掷伤害（使用后扣 1 数量）')}>
+          <button type="button" onClick={() => setExplosiveUsePending({ inventoryIndex: itemMeanOpt.index, name: itemMeanOpt.name, diceExpr: itemMeanOpt.dice, damageType: itemMeanOpt.damageType, gains })} className={CM_BTN_GOLD} title={quickRollTitle('投掷伤害（使用后扣 1 数量）')} aria-label={quickRollTitle('投掷伤害（使用后扣 1 数量）')}>
             <QuickRollIcon />
           </button>
         )}
@@ -252,7 +252,7 @@ function FocusItemCard({ itemMeanOpt, currentCharge, chargeMax, spellRange, hitT
                   name: itemMeanOpt.name, 
                   combatMeanId: meanId, 
                   spellSub: selectedSub, 
-                  gains: getEnabledGainsFromMean(cm), 
+                  gains, 
                   spellDamageExtras: selectedSub?._damageExtras || { flatBonus: 0, extraDice: [] }, 
                   damageFloor2: selectedSub?._diceFloor2 || false 
                 })
@@ -275,11 +275,6 @@ function FocusItemCard({ itemMeanOpt, currentCharge, chargeMax, spellRange, hitT
       </div>
     </>
   )
-}
-
-/* ── 辅助：从 cm 获取启用的增益 ── */
-function getEnabledGainsFromMean(cm) {
-  return Array.isArray(cm?.gains) ? cm.gains.filter((g) => g && g.enabled !== false) : []
 }
 
 /* ══════════════════════════════════════════════════
@@ -501,7 +496,7 @@ export default function ItemUseCard({ displayMean, itemMeanOpt, ctx }) {
                     name: itemMeanOpt.name, 
                     combatMeanId: cm.id, 
                     spellSub: selectedSub, 
-                    gains: getEnabledGainsFromMean(cm), 
+                    gains, 
                     spellDamageExtras: selectedSub?._damageExtras || { flatBonus: 0, extraDice: [] }, 
                     damageFloor2: selectedSub?._diceFloor2 || false 
                   })

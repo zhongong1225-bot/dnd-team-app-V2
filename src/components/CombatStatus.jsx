@@ -494,6 +494,39 @@ function computeSpellRangeDisplay(rawRange, multiplier = 1, bonus = 0) {
   return text
 }
 
+const normalizeCombatMeanType = (t) => {
+  if (t === 'spell_attack' || t === 'spell' || t === 'item' || t === 'combo') return t
+  return 'physical'
+}
+
+/** state 形状归一化（含存量物理卡清理）：saveCombatMeans 那份是写回序列化、字段集不同，两者不可合并 */
+function normalizeCombatMeanEntries(arr) {
+  const list = sanitizeLegacyCombatMeans(Array.isArray(arr) ? arr : [])
+  return list.map((m, idx) => ({
+    id: m.id ?? `cm_${idx}_${m.type === 'combo' ? 'combo' : m.type || 'physical'}`,
+    type: normalizeCombatMeanType(m.type),
+    weaponInventoryIndex: m.weaponInventoryIndex ?? null,
+    itemInventoryIndex: m.itemInventoryIndex ?? null,
+    spellId: m.spellId ?? null,
+    spellName: m.spellName ?? '',
+    spellLevel: m.spellLevel ?? null,
+    hitResolution: m.hitResolution ?? 'spell_attack',
+    damageDice: m.damageDice ?? '',
+    damageTypeSpell: m.damageTypeSpell ?? '',
+    extraDamageDice: Array.isArray(m.extraDamageDice) ? m.extraDamageDice : [],
+    abilityForAttack: m.abilityForAttack ?? null,
+    damageType: m.damageType ?? null,
+    weaponVersatileMode: m.weaponVersatileMode || null,
+    weaponProficient: m.weaponProficient !== false,
+    weaponNameSuffix: m.weaponNameSuffix ?? '',
+    targetCreatureType: m.targetCreatureType ?? '',
+    primaryMeanId: m.primaryMeanId ?? null,
+    attachments: Array.isArray(m.attachments) ? m.attachments : [],
+    gains: Array.isArray(m.gains) ? m.gains : [],
+    disabledAutoGainKeys: Array.isArray(m.disabledAutoGainKeys) ? m.disabledAutoGainKeys : [],
+  }))
+}
+
 export default function CombatStatus({ char, hp, abilities, level, canEdit, onSave, moduleId }) {
   const { openForCheck } = useRoll()
   const { currentModuleId } = useModule()
@@ -633,36 +666,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     onSave({ shields: next })
   }, [onSave])
 
-  const normalizeCombatMeanType = (t) => {
-    if (t === 'spell_attack' || t === 'spell' || t === 'item' || t === 'combo') return t
-    return 'physical'
-  }
-  const [combatMeans, setCombatMeans] = useState(() => {
-    const arr = sanitizeLegacyCombatMeans(Array.isArray(char?.combatMeans) ? char.combatMeans : [])
-    return arr.map((m, idx) => ({
-      id: m.id ?? `cm_${idx}_${m.type === 'combo' ? 'combo' : m.type || 'physical'}`,
-      type: normalizeCombatMeanType(m.type),
-      weaponInventoryIndex: m.weaponInventoryIndex ?? null,
-      itemInventoryIndex: m.itemInventoryIndex ?? null,
-      spellId: m.spellId ?? null,
-      spellName: m.spellName ?? '',
-      spellLevel: m.spellLevel ?? null,
-      hitResolution: m.hitResolution ?? 'spell_attack',
-      damageDice: m.damageDice ?? '',
-      damageTypeSpell: m.damageTypeSpell ?? '',
-      extraDamageDice: Array.isArray(m.extraDamageDice) ? m.extraDamageDice : [],
-      abilityForAttack: m.abilityForAttack ?? null,
-      damageType: m.damageType ?? null,
-      weaponVersatileMode: m.weaponVersatileMode || null,
-      weaponProficient: m.weaponProficient !== false,
-      weaponNameSuffix: m.weaponNameSuffix ?? '',
-      targetCreatureType: m.targetCreatureType ?? '',
-      primaryMeanId: m.primaryMeanId ?? null,
-      attachments: Array.isArray(m.attachments) ? m.attachments : [],
-      gains: Array.isArray(m.gains) ? m.gains : [],
-      disabledAutoGainKeys: Array.isArray(m.disabledAutoGainKeys) ? m.disabledAutoGainKeys : [],
-    }))
-  })
+  const [combatMeans, setCombatMeans] = useState(() => normalizeCombatMeanEntries(char?.combatMeans))
 
   const tierMemberIds = useMemo(() => collectTierMemberIds(ITEM_DATABASE), [])
   const profWeaponIds = useMemo(
@@ -670,15 +674,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     [char?.proficiencies?.weapons],
   )
   const derivedMeans = useMemo(
-    () => deriveWieldedWeaponMeans(char, {
+    // 传窄对象而非整只 char：派生器只读这两个字段，依赖也必须收窄，否则 char 任一无关字段变动都重建全部派生卡
+    () => deriveWieldedWeaponMeans({ equippedHeld: char?.equippedHeld, inventory: char?.inventory }, {
       profWeapons: profWeaponIds,
       tierMemberIds,
       offhandIgnoresLight: !!buffStats?.offhandIgnoresLight,
       isTransformed: !!buffStats?.creatureTransform,
     }),
-    [char, profWeaponIds, tierMemberIds, buffStats?.offhandIgnoresLight, buffStats?.creatureTransform],
+    [char?.equippedHeld, char?.inventory, profWeaponIds, tierMemberIds, buffStats?.offhandIgnoresLight, buffStats?.creatureTransform],
   )
-  /** 渲染列表：派生武器卡在前，剩余非物理卡在后 */
   const renderedMeans = useMemo(() => [...derivedMeans, ...combatMeans], [derivedMeans, combatMeans])
 
   const [showAddCombatMeanModal, setShowAddCombatMeanModal] = useState(false)
@@ -893,40 +897,20 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   }, [char?.id, char?.['class'], char?.classLevel, char?.subclass, char?.multiclass, char?.prestige, char?.selectedFeats, buffStats?.abilities])
 
   useEffect(() => {
-    const arr = sanitizeLegacyCombatMeans(Array.isArray(char?.combatMeans) ? char.combatMeans : [])
-    setCombatMeans(arr.map((m, idx) => ({
-      id: m.id ?? `cm_${idx}_${m.type === 'combo' ? 'combo' : m.type || 'physical'}`,
-      type: normalizeCombatMeanType(m.type),
-      weaponInventoryIndex: m.weaponInventoryIndex ?? null,
-      itemInventoryIndex: m.itemInventoryIndex ?? null,
-      spellId: m.spellId ?? null,
-      spellName: m.spellName ?? '',
-      spellLevel: m.spellLevel ?? null,
-      hitResolution: m.hitResolution ?? 'spell_attack',
-      damageDice: m.damageDice ?? '',
-      damageTypeSpell: m.damageTypeSpell ?? '',
-      extraDamageDice: Array.isArray(m.extraDamageDice) ? m.extraDamageDice : [],
-      abilityForAttack: m.abilityForAttack ?? null,
-      damageType: m.damageType ?? null,
-      weaponVersatileMode: m.weaponVersatileMode || null,
-      weaponProficient: m.weaponProficient !== false,
-      weaponNameSuffix: m.weaponNameSuffix ?? '',
-      targetCreatureType: m.targetCreatureType ?? '',
-      primaryMeanId: m.primaryMeanId ?? null,
-      attachments: Array.isArray(m.attachments) ? m.attachments : [],
-      gains: Array.isArray(m.gains) ? m.gains : [],
-      disabledAutoGainKeys: Array.isArray(m.disabledAutoGainKeys) ? m.disabledAutoGainKeys : [],
-    })))
+    setCombatMeans(normalizeCombatMeanEntries(char?.combatMeans))
   }, [char?.id, char?.combatMeans])
 
   // 按角色 id 去重：同一挂载内切换角色时，每个角色都要各自清理并写回一次
   const legacyPurgedIdsRef = useRef(new Set())
   useEffect(() => {
     if (!char?.id || legacyPurgedIdsRef.current.has(char.id)) return
-    legacyPurgedIdsRef.current.add(char.id)
-    const raw = Array.isArray(char?.combatMeans) ? char.combatMeans : []
+    const raw = Array.isArray(char?.combatMeans) ? char.combatMeans : null
+    // 角色数据分两段加载时 combatMeans 会晚于 id 到达：未到位不能记账，否则真数据到了反而永久漏清
+    if (raw === null) return
     const purged = sanitizeLegacyCombatMeans(raw)
-    if (purged !== raw) saveCombatMeans(purged)
+    // 只按引用比较决定是否写回：再包一层 [...] 会让引用恒不等，与整条 upsert 撞成写循环
+    if (purged !== raw) saveCombatMeans(normalizeCombatMeanEntries(purged))
+    legacyPurgedIdsRef.current.add(char.id)
   }, [char?.id, char?.combatMeans])
 
   useEffect(() => {
@@ -1086,7 +1070,10 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   }
   const confirmAddComboMean = () => {
     const primary = combatMeans.find((m) => m.id === addComboPrimaryId)
-    if (!primary) return
+    if (!primary) {
+      alert('请先选择主手段。')
+      return
+    }
     if (primary.type === 'combo' || primary.id === editingCombatMeanId) {
       alert('组合技的主手段不能选择另一个组合技，也不能选择当前组合技自身。')
       return
@@ -1120,7 +1107,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   }
   const openEditComboMean = (cm) => {
     setEditingCombatMeanId(cm.id)
-    setAddComboPrimaryId(cm.primaryMeanId ?? null)
+    // 派生卡 id 含槽位下标，手持位重排后即失效：回填前必须确认它仍在渲染列表里，否则下拉空白却带着值
+    const stillRendered = renderedMeans.some((m) => m.id === cm.primaryMeanId)
+    setAddComboPrimaryId(stillRendered ? cm.primaryMeanId : null)
     setAddComboAttachments(
       Array.isArray(cm.attachments)
         ? cm.attachments.map((a) => ({
@@ -1131,8 +1120,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         : []
     )
     const primary = combatMeans.find((m) => m.id === cm.primaryMeanId)
-    const isSpellPrimary = primary && primary.type === 'spell_attack'
-    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(primary || cm, buffStats, mergedBuffs, !!isSpellPrimary, char))
+    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(primary || cm, buffStats, mergedBuffs, char))
     setAddMeanStep('combo')
     setShowAddCombatMeanModal(true)
   }
@@ -1145,17 +1133,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setAddSpellAttackDamageType(getDamageTypeLabel(cm.damageTypeSpell))
     setAddSpellAttackSpellLevel(cm.spellLevel != null ? String(cm.spellLevel) : '')
     setAddTargetCreatureType(cm.targetCreatureType || '')
-    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, true, char))
+    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, char))
     setAddMeanStep('spell_attack')
     setShowAddCombatMeanModal(true)
   }
   const openEditItemMean = (cm) => {
     setEditingCombatMeanId(cm.id)
     setAddItemIndex(cm.itemInventoryIndex ?? null)
-    const itemOpt = cm.itemInventoryIndex != null ? itemMeansFromInv.find((x) => x.index === cm.itemInventoryIndex) : null
-    const isSpellItem = itemOpt && (itemOpt.kind === 'focus' || itemOpt.kind === 'scroll')
     setAddTargetCreatureType(cm.targetCreatureType || '')
-    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellItem, char))
+    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, char))
     setAddMeanStep('item')
     setShowAddCombatMeanModal(true)
   }
@@ -1244,10 +1230,14 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     else inv[inventoryIndex] = { ...entry, qty }
     onSave({ inventory: inv })
   }
+  // 派生卡不落盘：它的配置写回要等武器编辑器改写物品条目，走 combatMeans 分支只会静默丢失或白做整条 upsert
+  const isDerivedCombatMean = (id) => !!renderedMeans.find((m) => m.id === id)?.derived
   const removeCombatMean = (id) => {
+    if (isDerivedCombatMean(id)) return
     saveCombatMeans(combatMeans.filter((m) => m.id !== id))
   }
   const updateCombatMean = (id, patch) => {
+    if (isDerivedCombatMean(id)) return
     saveCombatMeans(combatMeans.map((m) => (m.id === id ? { ...m, ...patch } : m)))
   }
 
@@ -1518,7 +1508,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setAddTargetCreatureType(cm.targetCreatureType || '')
     setAddWeaponExtraDice(Array.isArray(cm.extraDamageDice) ? [...cm.extraDamageDice] : [])
     setShowWeaponExtraDiceEditor(false)
-    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, false, char))
+    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, char))
     setAddMeanStep('weapon')
     setShowAddCombatMeanModal(true)
   }, [weaponsFromInv, buffStats, mergedBuffs])
@@ -3011,9 +3001,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             if (isCombo && !comboPrimary) return (
               <div key={cm.id} className={`rounded-lg border border-dashed border-gray-600/70 bg-gray-800/40 p-2 ${COMBAT_LIST_ROW_SHADOW}`}>
                 <div className="flex items-center gap-1 text-[11px] text-gray-500">
-                  <span>组合技</span>
-                  <span className="text-white/70">{cm.name || cm.id}</span>
-                  <span>未选择主手段，需重新选择</span>
+                  <span>组合技：未选择主手段，需重新选择</span>
                   {canEdit && (
                     <button type="button" onClick={() => openEditComboMean(cm)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-dnd-gold-light shrink-0" title="编辑组合技">
                       <Pencil size={12} />
@@ -3053,7 +3041,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             }
 
             return (
-              <>
+              <React.Fragment key={cm.id}>
                 {isItem && itemMeanOpt ? (
                   <ItemUseCard displayMean={displayMean} itemMeanOpt={itemMeanOpt} ctx={cardCtx} />
                 ) : isSpellAttack ? (
@@ -3202,7 +3190,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                     )}
                   </div>
                 )}
-              </>
+              </React.Fragment>
             )
 
           })}
@@ -3533,8 +3521,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       const primary = combatMeans[0] || null
                       setAddComboPrimaryId(primary ? primary.id : null)
                       setAddComboAttachments([])
-                      const isSpellPrimary = primary && (primary.type === 'spell_attack' || primary.type === 'spell')
-                      setAddGains(buildDefaultGainsFromBuffs(primary || {}, buffStats, mergedBuffs, !!isSpellPrimary, char))
+                      setAddGains(buildDefaultGainsFromBuffs(primary || {}, buffStats, mergedBuffs, char))
                       setAddMeanStep('combo')
                     }}
                     onCancel={() => setShowAddCombatMeanModal(false)}

@@ -600,7 +600,7 @@ export function hasGainDiceFloor2(gains) {
 }
 
 /** 根据 BUFF 自动生成默认增益 */
-export function buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellMean = false, character = null, formulaContext = {}) {
+export function buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, character = null, formulaContext = {}) {
   const gains = []
   const isPhysical = cm?.type === 'physical'
   const isSpellAttack = cm?.type === 'spell_attack' || cm?.type === 'spell'
@@ -717,8 +717,7 @@ export function mergeAutoGains(currentGains, autoGains) {
 export function computeLiveGains(cm, opts = {}) {
   const { buffStats, mergedBuffs, character, formulaContext, primaryForGains } = opts
   const source = primaryForGains || cm
-  const isSpellMean = source?.type === 'spell_attack' || source?.type === 'spell'
-  const auto = buildDefaultGainsFromBuffs(source, buffStats, mergedBuffs, isSpellMean, character || null, formulaContext || {})
+  const auto = buildDefaultGainsFromBuffs(source, buffStats, mergedBuffs, character || null, formulaContext || {})
   const disabled = new Set(Array.isArray(cm?.disabledAutoGainKeys) ? cm.disabledAutoGainKeys : [])
   const keptAuto = disabled.size ? auto.filter((g) => !disabled.has(g.type)) : auto
   // 丢弃存档快照里带 auto 标记的条目，一律换成上面现算的结果，否则源 BUFF 消失后残值仍在

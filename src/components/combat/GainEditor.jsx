@@ -7,14 +7,14 @@ import { inputClass } from '../../lib/inputStyles'
 import { NumberStepper } from '../BuffForm'
 import { GAIN_TYPES, buildDefaultGainsFromBuffs, mergeAutoGains, gainsContentEqual } from './combatMeanUtils'
 
-export default function GainEditor({ gains, onChange, cm, buffStats, mergedBuffs, character, formulaContext, isSpellMean = false }) {
+export default function GainEditor({ gains, onChange, cm, buffStats, mergedBuffs, character, formulaContext }) {
   const [addingType, setAddingType] = useState(null)
   const items = Array.isArray(gains) ? gains : []
   const makeId = () => 'g_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6)
 
   const autoGains = useMemo(
-    () => buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellMean, character, formulaContext),
-    [cm, buffStats, mergedBuffs, isSpellMean, character, formulaContext]
+    () => buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, character, formulaContext),
+    [cm, buffStats, mergedBuffs, character, formulaContext]
   )
 
   useEffect(() => {
