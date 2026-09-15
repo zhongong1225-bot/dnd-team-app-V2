@@ -4,7 +4,9 @@ import {
   parseUpcastDiceFromDescription,
   applyUpcastToDamageList,
   getEffectiveCastLevel,
+  computePhysicalWeaponStats,
 } from './combatMeanUtils'
+import { getItemById } from '../../data/itemDatabase'
 
 const FIREBALL_DESC =
   '明亮的闪光从你的指间飞驰向施法距离内你指定的一点，并随着一声低吼迸成一片烈焰。目标点周围半径20尺球状区域内的每个生物必须进行一次敏捷豁免。豁免失败者将受到8d6点火焰伤害，豁免成功则伤害减半。\n区域内所有未被着装或携带的可燃物件会开始燃烧。\n升环施法：使用的法术位每比三环高一环，此伤害就增加1d6。'
@@ -76,5 +78,56 @@ describe('getEffectiveCastLevel', () => {
   it('戏法（0 环）不升环', () => {
     expect(getEffectiveCastLevel(0, 0, 3)).toBe(0)
     expect(getEffectiveCastLevel('', 0, 2)).toBe(0)
+  })
+})
+
+function optFor(itemId) {
+  const proto = getItemById(itemId)
+  return { entry: { id: 'inv_x', itemId }, proto, name: proto.类别, 攻击: proto.攻击, 伤害: proto.伤害 }
+}
+const CTX = {
+  effectiveAbilities: { str: 6, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+  prof: 3, spellAbility: 'int', buffStats: {}, flatBuffEffects: [], itemFormulaContext: {},
+}
+const cm = (over) => ({ type: 'physical', weaponProficient: true, gains: [], extraDamageScores: [], ...over })
+
+describe('computePhysicalWeaponStats 属性调整值门控', () => {
+  // 副手用例用手斧而非匕首：匕首附注含「灵巧」会被推断为 dex 属性，测不到 str 门控
+  it('熟练 + 主手 → 命中加熟练、伤害加调整值', () => {
+    const s = computePhysicalWeaponStats(cm({}), optFor('longsword'), CTX)
+    expect(s.abilityMod).toBe(-2)
+    expect(s.physicalAttackBonus).toBe(-2 + 3)
+    expect(s.damageMod).toBe(-2)
+  })
+
+  it('不熟练 → 命中不加熟练，伤害不加调整值（负数仍扣）', () => {
+    const s = computePhysicalWeaponStats(cm({ weaponProficient: false }), optFor('longsword'), CTX)
+    expect(s.physicalAttackBonus).toBe(-2)
+    expect(s.damageMod).toBe(-2)
+  })
+
+  it('不熟练 + 正调整值 → 伤害为 0', () => {
+    const ctx = { ...CTX, effectiveAbilities: { ...CTX.effectiveAbilities, str: 20 } }
+    const s = computePhysicalWeaponStats(cm({ weaponProficient: false }), optFor('longsword'), ctx)
+    expect(s.abilityMod).toBe(5)
+    expect(s.damageMod).toBe(0)
+  })
+
+  it('副手附赠攻击 → 不加调整值（正数被剥夺）', () => {
+    const ctx = { ...CTX, effectiveAbilities: { ...CTX.effectiveAbilities, str: 20 } }
+    const s = computePhysicalWeaponStats(cm({ weaponVersatileMode: 'bonus_action' }), optFor('handaxe'), ctx)
+    expect(s.damageMod).toBe(0)
+  })
+
+  it('副手附赠攻击 + 双武器战斗效果 → 加调整值', () => {
+    const ctx = { ...CTX, effectiveAbilities: { ...CTX.effectiveAbilities, str: 20 }, buffStats: { twoWeaponFightingBonus: true } }
+    const s = computePhysicalWeaponStats(cm({ weaponVersatileMode: 'bonus_action' }), optFor('handaxe'), ctx)
+    expect(s.damageMod).toBe(5)
+  })
+
+  it('规则原文"除非为负数"：负调整值被剥夺时仍照常扣', () => {
+    const s = computePhysicalWeaponStats(cm({ weaponVersatileMode: 'bonus_action' }), optFor('handaxe'), CTX)
+    expect(s.abilityMod).toBe(-2)
+    expect(s.damageMod).toBe(-2)
   })
 })

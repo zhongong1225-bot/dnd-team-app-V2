@@ -433,7 +433,9 @@ export function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
   const abilityKey = weaponAbilityKind === 'spell' ? spellAbility : weaponAbilityKind
   const abilityMod = abilityModifier(effectiveAbilities?.[abilityKey] ?? 10)
   const physicalAttackBonus = abilityMod + (weaponProficient ? (weaponIsExpert ? prof * 2 : prof) : 0) + buffAttackBonus + gainAttackBonus
-  const damageMod = cm.weaponVersatileMode === 'bonus_action' ? 0 : abilityMod
+  const isBonusActionOffhand = cm.weaponVersatileMode === 'bonus_action'
+  const canAddAbilityMod = weaponProficient && !(isBonusActionOffhand && !buffStats?.twoWeaponFightingBonus)
+  const damageMod = canAddAbilityMod ? abilityMod : Math.min(0, abilityMod)
   const weaponExtraDiceStrings = [...getMergedWeaponExtraDiceStrings(cm, weaponOpt), ...gainExtraDice, ...newEffectExtraDice]
   const allWeaponDiceCount = (attackParsed.diceList || []).reduce((s, d) => s + (parseCombatDiceExpression(d)?.count || 0), 0) +
     weaponExtraDiceStrings.reduce((s, d) => s + (parseCombatDiceExpression(String(d).split(' ')[0])?.count || 0), 0)
@@ -446,6 +448,7 @@ export function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
     gainPerDieBonus, gainExtraDice, gainAdvantage, gainDiceFloor2, attackParsed, rawDamageType,
     physicalAttackBonus, damageMod, weaponExtraDiceStrings, allWeaponDiceCount,
     weaponPerDieMod, totalDamageMod, displayDamageType, newEffectHitBonusAdvantage,
+    canAddAbilityMod, isBonusActionOffhand,
   }
 }
 
