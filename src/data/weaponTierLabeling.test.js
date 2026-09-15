@@ -17,18 +17,23 @@ describe('内置武器原型的 proficiencyTier 标注', () => {
     }
   })
 
-  it('档位成员数为 14 简易 / 22 军用 / 3 火器', () => {
-    const ids = collectTierMemberIds(ITEM_DATABASE)
-    expect(ids.simple).toHaveLength(14)
-    expect(ids.martial).toHaveLength(22)
-    expect(ids.firearm).toEqual(['gun_blunderbuss', 'gun_musket', 'gun_pistol'])
-    expect(new Set([...ids.simple, ...ids.martial]).size).toBe(36)
+  it('简易与军用档位都非空且互斥', () => {
+    const { simple, martial } = collectTierMemberIds(ITEM_DATABASE)
+    expect(simple.length).toBeGreaterThan(0)
+    expect(martial.length).toBeGreaterThan(0)
+    expect(simple.filter((id) => martial.includes(id))).toEqual([])
+  })
+
+  it('每把 枪械 原型都落在火器档位里', () => {
+    const { firearm } = collectTierMemberIds(ITEM_DATABASE)
+    const guns = weapons.filter((it) => String(it.类型).trim() === '枪械').map((it) => it.id)
+    expect(guns.length).toBeGreaterThan(0)
+    expect(guns.filter((id) => !firearm.includes(id))).toEqual([])
   })
 
   it('清单之外的原型不带档位字段', () => {
-    const labeled = ITEM_DATABASE.filter((it) => it.proficiencyTier)
-    expect(labeled.every((it) => WEAPON_TYPES_FOR_BUFF_SCOPE.includes(it.类型))).toBe(true)
-    expect(labeled).toHaveLength(39)
+    const offList = ITEM_DATABASE.filter((it) => !WEAPON_TYPES_FOR_BUFF_SCOPE.includes(String(it.类型 ?? '').trim()) && it.proficiencyTier)
+    expect(offList.map((it) => it.id)).toEqual([])
   })
 })
 

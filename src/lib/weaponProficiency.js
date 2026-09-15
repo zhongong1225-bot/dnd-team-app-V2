@@ -19,6 +19,18 @@ export function collectTierMemberIds(items) {
 }
 
 /**
+ * 整组熟练是否已授予：认整组伪 id，也认旧存档的"逐一全选"
+ * @param {'simple'|'martial'|'firearm'} tier
+ * @param {string[]} profWeapons char.proficiencies.weapons
+ * @param {{simple:string[],martial:string[],firearm:string[]}} tierMemberIds collectTierMemberIds 的结果
+ */
+export function isWeaponTierGranted(tier, profWeapons, tierMemberIds) {
+  const owned = Array.isArray(profWeapons) ? profWeapons : []
+  const members = tierMemberIds?.[tier] || []
+  return owned.includes(WEAPON_TIER_GRANTED_IDS[tier]) || (members.length > 0 && members.every((id) => owned.includes(id)))
+}
+
+/**
  * @param {object|null} proto 武器原型
  * @param {string[]} profWeapons char.proficiencies.weapons
  * @param {{simple:string[],martial:string[],firearm:string[]}} tierMemberIds collectTierMemberIds 的结果
@@ -28,7 +40,5 @@ export function isWeaponProtoProficient(proto, profWeapons, tierMemberIds) {
   const tier = getWeaponProficiencyTier(proto)
   if (!tier) return true
   if (proto?.id && owned.has(proto.id)) return true
-  if (owned.has(WEAPON_TIER_GRANTED_IDS[tier])) return true
-  const members = tierMemberIds?.[tier] || []
-  return members.length > 0 && members.every((id) => owned.has(id))
+  return isWeaponTierGranted(tier, profWeapons, tierMemberIds)
 }

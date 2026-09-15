@@ -4,8 +4,8 @@ import { useRoll } from '../contexts/RollContext'
 import { abilityModifier, proficiencyBonus } from '../lib/characterStore'
 import { SAVE_NAMES, SKILLS, SKILL_PROF_OPTIONS, skillProfFactor } from '../data/dndSkills'
 import { NumberStepper } from './BuffForm'
-import { getItemList, ITEM_DATABASE } from '../data/itemDatabase'
-import { collectTierMemberIds } from '../lib/weaponProficiency'
+import { getItemList, getItemDisplayName, ITEM_DATABASE } from '../data/itemDatabase'
+import { collectTierMemberIds, isWeaponTierGranted } from '../lib/weaponProficiency'
 import { WEAPON_TIER_GRANTED_IDS } from '../data/buffTypes'
 
 const ABILITY_NAMES_ZH = { str: '力量', dex: '敏捷', con: '体质', int: '智力', wis: '感知', cha: '魅力' }
@@ -251,8 +251,14 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
   const weaponOptions = useMemo(() => {
     // 内置火器不逐把列出：normalizeProfState 会把它们收敛成整组伪 id 'firearms'，列出来就是永远勾不上的选项
     const list = getItemList()
-      .filter((it) => (it?.类型 === '近战武器' || it?.类型 === '远程武器' || it?.类型 === '枪械') && it?.类别 && it?.id && it.id !== 'smart_weapon' && !LEGACY_FIREARM_IDS.includes(it.id))
-      .map((it) => ({ id: it.id, label: String(it.类别).trim() }))
+      .filter((it) => (it?.类型 === '近战武器' || it?.类型 === '远程武器' || it?.类型 === '枪械') && it?.id && it.id !== 'smart_weapon' && !LEGACY_FIREARM_IDS.includes(it.id))
+      .map((it) => {
+        const cat = String(it.类别 ?? '').trim()
+        // 自定义武器的类别默认都是「自定义」，照原样当标签会出现一排同名复选框，摘要里的 Set 还会把它们折叠成一个
+        const label = (cat && cat !== '自定义' ? cat : '') || String(getItemDisplayName(it)).trim()
+        return { id: it.id, label }
+      })
+      .filter((x) => x.label && x.label !== '—')
     const seen = new Set()
     const base = list.filter((x) => { if (seen.has(x.id)) return false; seen.add(x.id); return true })
     return [...base, { id: 'firearms', label: '枪械' }]
@@ -261,19 +267,20 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
   const simpleWeaponIds = tierMemberIds.simple
   const martialWeaponIds = tierMemberIds.martial
   const weaponLabelById = useMemo(() => Object.fromEntries(weaponOptions.map((w) => [w.id, w.label])), [weaponOptions])
+  /** 整组熟练是否已授予：摘要标签、整组按钮高亮、点击后的写入方向共用同一判定，UI 与引擎（isWeaponProtoProficient）同源 */
+  const simpleGroupGranted = isWeaponTierGranted('simple', proficiencies.weapons, tierMemberIds)
+  const martialGroupGranted = isWeaponTierGranted('martial', proficiencies.weapons, tierMemberIds)
   const selectedWeaponLabels = useMemo(() => {
     const selected = new Set(proficiencies.weapons)
-    const simpleAll = selected.has('simple') || (simpleWeaponIds.length > 0 && simpleWeaponIds.every((id) => selected.has(id)))
-    const martialAll = selected.has('martial') || (martialWeaponIds.length > 0 && martialWeaponIds.every((id) => selected.has(id)))
     const labels = []
-    if (martialAll) labels.push('军用武器')
-    if (simpleAll) labels.push('简易武器')
-    if (!martialAll) {
+    if (martialGroupGranted) labels.push('军用武器')
+    if (simpleGroupGranted) labels.push('简易武器')
+    if (!martialGroupGranted) {
       martialWeaponIds.forEach((id) => {
         if (selected.has(id) && weaponLabelById[id]) labels.push(weaponLabelById[id])
       })
     }
-    if (!simpleAll) {
+    if (!simpleGroupGranted) {
       simpleWeaponIds.forEach((id) => {
         if (selected.has(id) && weaponLabelById[id]) labels.push(weaponLabelById[id])
       })
@@ -284,7 +291,7 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
       if (!covered.has(id) && weaponLabelById[id]) labels.push(weaponLabelById[id])
     })
     return Array.from(new Set(labels))
-  }, [proficiencies.weapons, simpleWeaponIds, martialWeaponIds, weaponLabelById])
+  }, [proficiencies.weapons, simpleWeaponIds, martialWeaponIds, weaponLabelById, simpleGroupGranted, martialGroupGranted])
 
   const updateAbility = useCallback((key, value) => {
     const next = { ...abilities, [key]: Math.max(1, Math.min(MAX_BASE_ABILITY_SCORE, Number(value) || 10)) }
@@ -350,12 +357,12 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
 
   const toggleWeaponGroup = useCallback((tier, ids) => {
     const grantedId = WEAPON_TIER_GRANTED_IDS[tier]
-    const allOn = ids.every((id) => proficiencies.weapons.includes(id)) && proficiencies.weapons.includes(grantedId)
+    const allOn = isWeaponTierGranted(tier, proficiencies.weapons, tierMemberIds)
     const nextWeapons = allOn
       ? proficiencies.weapons.filter((id) => !ids.includes(id) && id !== grantedId)
       : Array.from(new Set([...proficiencies.weapons, ...ids, grantedId]))
     saveProficiencies({ ...proficiencies, weapons: nextWeapons })
-  }, [proficiencies, saveProficiencies])
+  }, [proficiencies, saveProficiencies, tierMemberIds])
 
   // 豁免 = 属性调整值 +（若该豁免熟练则 + 熟练加值）+ Buff（含 save_bonus、体质上的专注增强等）
   const saveMod = useCallback((key) => {
@@ -625,14 +632,14 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
                   <button
                     type="button"
                     onClick={() => toggleWeaponGroup('simple', simpleWeaponIds)}
-                    className={`px-2 py-1 rounded border text-xs ${simpleWeaponIds.every((id) => proficiencies.weapons.includes(id)) && proficiencies.weapons.includes('simple') ? 'border-[#C79A42] bg-[#C79A42]/20 text-[#C79A42]' : 'border-gray-600 text-gray-300 hover:bg-gray-700'}`}
+                    className={`px-2 py-1 rounded border text-xs ${simpleGroupGranted ? 'border-[#C79A42] bg-[#C79A42]/20 text-[#C79A42]' : 'border-gray-600 text-gray-300 hover:bg-gray-700'}`}
                   >
                     简易武器
                   </button>
                   <button
                     type="button"
                     onClick={() => toggleWeaponGroup('martial', martialWeaponIds)}
-                    className={`px-2 py-1 rounded border text-xs ${martialWeaponIds.every((id) => proficiencies.weapons.includes(id)) && proficiencies.weapons.includes('martial') ? 'border-[#C79A42] bg-[#C79A42]/20 text-[#C79A42]' : 'border-gray-600 text-gray-300 hover:bg-gray-700'}`}
+                    className={`px-2 py-1 rounded border text-xs ${martialGroupGranted ? 'border-[#C79A42] bg-[#C79A42]/20 text-[#C79A42]' : 'border-gray-600 text-gray-300 hover:bg-gray-700'}`}
                   >
                     军用武器
                   </button>

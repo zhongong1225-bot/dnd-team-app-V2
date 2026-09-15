@@ -11,7 +11,7 @@ import { Pencil, X } from 'lucide-react'
 import { getItemListGrouped, getItemById, getItemDisplayName, parseWeaponNoteToTraits, buildWeaponNoteFromTraits, WEAPON_TRAIT_OPTIONS, WEAPON_MASTERY_OPTIONS, itemRequiresAttunement, resolveEntryRequiresAttunement, addCustomItem, updateCustomItem, forkItemAsCustom, getCustomItems, getOfficialNonMagicalItemTemplates } from '../data/itemDatabase'
 import { inputClass, inputClassInline, textareaClass } from '../lib/inputStyles'
 import { useModule } from '../contexts/ModuleContext'
-import { BUFF_TYPES, getCategories, normalizeEffectCategory, parseDamageString, formatDamageForAttack, ITEM_STORAGE_DEFAULT_ITEM_IDS, WEAPON_PROFICIENCY_OPTIONS } from '../data/buffTypes'
+import { BUFF_TYPES, getCategories, normalizeEffectCategory, parseDamageString, formatDamageForAttack, ITEM_STORAGE_DEFAULT_ITEM_IDS, WEAPON_PROFICIENCY_OPTIONS, getWeaponProficiencyTier } from '../data/buffTypes'
 import { DamageDiceInlineRow, NumberStepper } from './BuffForm'
 import BuffForm from './BuffForm'
 import BuffEditorModal from './BuffEditorModal'
@@ -402,7 +402,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       const { traits, range, ammoCategory } = parseWeaponNoteToTraits(entry?.附注 ?? proto?.附注 ?? '')
       setWeaponTraits(traits)
       setWeaponRange((entry?.攻击距离 ?? range ?? proto?.攻击距离 ?? '').trim())
-      setWeaponTier((entry?.proficiencyTier ?? proto?.proficiencyTier ?? '').trim())
+      setWeaponTier(getWeaponProficiencyTier(proto) ?? '')
       setWeaponAmmoCategory(ammoCategory ?? '')
       setWeaponMastery((entry?.精通 != null && entry?.精通 !== '') ? String(entry.精通) : (proto?.精通 ?? ''))
     } else {
@@ -468,7 +468,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       const { traits, range, ammoCategory } = parseWeaponNoteToTraits(proto.附注 ?? '')
       setWeaponTraits(traits)
       setWeaponRange((proto.攻击距离 ?? range ?? '').trim())
-      setWeaponTier((proto.proficiencyTier ?? '').trim())
+      setWeaponTier(getWeaponProficiencyTier(proto) ?? '')
       setWeaponAmmoCategory(ammoCategory ?? '')
       setWeaponMastery(proto.精通 ?? '')
     }
@@ -695,17 +695,24 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       ? (armorFields.armorSubtype || '')
       : (typeChanged ? subtypeForType(type) : (proto?.子类型 ?? ''))
     const subChanged = isArmor && nextSub !== (proto?.子类型 ?? '')
-    if (type && (typeChanged || subChanged)) {
+    /** 档位与类型无关：只改熟练档位也必须写回原型，否则会静默丢失；比对基准与下拉框回读用的是同一个归一化判定 */
+    const tierChanged = isWeapon && weaponTier !== (getWeaponProficiencyTier(proto) ?? '')
+    const rewriteTypeFields = typeChanged || subChanged
+    if (type && (rewriteTypeFields || tierChanged)) {
       const typePatch = {
-        类型: type,
-        子类型: nextSub,
-        攻击: isWeapon ? (攻击 || '') : '',
-        伤害: isWeapon ? (伤害 || '') : '',
-        精通: isWeapon && 精通 ? 精通 : '',
-        附注: 附注 != null ? String(附注).trim() : '',
-        攻击距离: (isWeapon || isExplosive) ? (攻击距离 || '') : '',
+        // 攻击/附注/精通 等先按「这一件库存条目」初始化，只有类型真的变了才允许覆盖共享原型
+        ...(rewriteTypeFields ? {
+          类型: type,
+          子类型: nextSub,
+          攻击: isWeapon ? (攻击 || '') : '',
+          伤害: isWeapon ? (伤害 || '') : '',
+          精通: isWeapon && 精通 ? 精通 : '',
+          附注: 附注 != null ? String(附注).trim() : '',
+          攻击距离: (isWeapon || isExplosive) ? (攻击距离 || '') : '',
+          爆炸半径: isExplosive ? (Number(explosiveRadius) || 0) : 0,
+        } : {}),
+        // 走到这里说明类型字段被重写或档位有变化：档位单独变化时补丁里只有这一个字段
         proficiencyTier: isWeapon ? weaponTier : '',
-        爆炸半径: isExplosive ? (Number(explosiveRadius) || 0) : 0,
       }
       const isCustomProto = !!proto && getCustomItems().some((x) => x.id === proto.id)
       if (proto && isCustomProto) {

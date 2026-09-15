@@ -1,11 +1,36 @@
 import { describe, it, expect } from 'vitest'
-import { isWeaponProtoProficient, collectTierMemberIds } from './weaponProficiency'
+import { isWeaponProtoProficient, isWeaponTierGranted, collectTierMemberIds } from './weaponProficiency'
+import { ITEM_DATABASE } from '../data/itemDatabase'
 
 const TIER_IDS = {
   simple: ['club', 'dagger'],
   martial: ['longsword', 'greatsword'],
   firearm: ['gun_pistol'],
 }
+
+describe('isWeaponTierGranted', () => {
+  it('旧存档逐一全选（内置军用武器全部拥有、不带伪 id）判定为整组已授予', () => {
+    const ids = collectTierMemberIds(ITEM_DATABASE)
+    expect(ids.martial.length).toBeGreaterThan(0)
+    expect(isWeaponTierGranted('martial', ids.martial, ids)).toBe(true)
+  })
+  it('只存伪 id 也判定为整组已授予', () => {
+    expect(isWeaponTierGranted('martial', ['martial'], TIER_IDS)).toBe(true)
+    expect(isWeaponTierGranted('firearm', ['firearms'], TIER_IDS)).toBe(true)
+  })
+  it('只选一半不算整组已授予', () => {
+    expect(isWeaponTierGranted('martial', ['longsword'], TIER_IDS)).toBe(false)
+    expect(isWeaponTierGranted('martial', ['longsword', 'club'], TIER_IDS)).toBe(false)
+  })
+  it('成员表为空时不放行（避免空数组 every 恒真）', () => {
+    expect(isWeaponTierGranted('martial', [], { ...TIER_IDS, martial: [] })).toBe(false)
+    expect(isWeaponTierGranted('martial', ['longsword'], {})).toBe(false)
+  })
+  it('熟练数组缺失时不整组放行', () => {
+    expect(isWeaponTierGranted('martial', undefined, TIER_IDS)).toBe(false)
+    expect(isWeaponTierGranted('martial', null, TIER_IDS)).toBe(false)
+  })
+})
 
 describe('isWeaponProtoProficient', () => {
   it('按原型 id 命中', () => {
