@@ -4161,7 +4161,7 @@ function briefClassSummary(c) {
 export default function CharacterSheet() {
   const { id } = useParams()
   const { user, isAdmin } = useAuth()
-  const { currentModuleId } = useModule()
+  const { currentModuleId, setCurrentModuleId, modules } = useModule()
   const sheetModuleId = currentModuleId || 'default'
   const [char, setChar] = useState(null)
   const [editingName, setEditingName] = useState(null)
@@ -4469,6 +4469,15 @@ export default function CharacterSheet() {
       cancelled = true
     }
   }, [id])
+
+  // DM 配置按战役分桶：角色页必须读角色自己所属的战役桶，
+  // 否则跨战役打开角色会读到空桶（同一角色在不同浏览器显示不一致）
+  useEffect(() => {
+    const target = char?.moduleId
+    if (!target || target === currentModuleId) return
+    if (!modules.some((m) => m?.id === target)) return
+    setCurrentModuleId(target)
+  }, [char?.moduleId, currentModuleId, modules, setCurrentModuleId])
 
   useEffect(() => {
     if (!id || id === 'new') return
