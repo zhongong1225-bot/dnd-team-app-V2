@@ -481,8 +481,8 @@ export function getBuffsFromClassFeatures(character, moduleId) {
         const choiceResult = getChoiceEffects(buffKey, classFeatureChoices)
         if (choiceResult) effects = choiceResult.effects
       }
-      // 回退到硬编码职业特性 BUFF（如血肉堡垒）
-      if (effects.length === 0 && HARDCODED_CLASS_FEATURE_BUFFS[buffKey]) {
+      // 回退到硬编码职业特性 BUFF（如血肉堡垒）；DM 显式清空（墓碑）时不回退
+      if (effects.length === 0 && !defaultPatch?.tombstone && HARDCODED_CLASS_FEATURE_BUFFS[buffKey]) {
         const hardcoded = HARDCODED_CLASS_FEATURE_BUFFS[buffKey]
         effects = Array.isArray(hardcoded.effects) ? hardcoded.effects : []
       }

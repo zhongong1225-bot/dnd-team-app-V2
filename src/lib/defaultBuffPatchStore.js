@@ -185,6 +185,7 @@ export function loadDefaultBuffPatch(moduleId, kind, id) {
   if (!patch || typeof patch !== 'object') return null
   return {
     effects: Array.isArray(patch.effects) ? patch.effects : [],
+    ...(patch.tombstone ? { tombstone: true } : {}),
     ...(patch.duration != null && String(patch.duration).trim() !== ''
       ? { duration: String(patch.duration).trim() }
       : {}),
@@ -245,7 +246,8 @@ export function saveDefaultBuffPatch(moduleId, kind, id, patch) {
   const enabled = patch?.enabled !== false
   if (effects.length === 0 && !duration && enabled && !patch?.cardName && !patch?.cardDescription
     && !(patch?.cardScope && typeof patch.cardScope === 'object' && patch.cardScope.type && patch.cardScope.type !== 'global')) {
-    delete map[key]
+    // 墓碑：DM 显式清空效果，须与「从未配置」区分，否则读取端会回退硬编码默认使清空复活
+    map[key] = { effects: [], tombstone: true }
   } else {
     map[key] = {
       effects: effects.map((e) => ({ ...e })),

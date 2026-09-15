@@ -2897,6 +2897,7 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
                   buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id),
                 )
                 if (patch && Array.isArray(patch.effects) && patch.effects.length) return patch.effects
+                if (patch?.tombstone) return []
                 const bk = buildClassFeatureBuffKey(buffEditorFeature.sourceClass, buffEditorFeature.sourceSubclass, buffEditorFeature.id)
                 return HARDCODED_CLASS_FEATURE_BUFFS[bk] || []
               })(),
@@ -4109,6 +4110,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId, referenceData, b
                 effects: (() => {
                   const patch = loadDefaultBuffPatch(moduleId, 'classFeature', buffKey)
                   if (patch && Array.isArray(patch.effects) && patch.effects.length) return patch.effects
+                  if (patch?.tombstone) return []
                   return HARDCODED_CLASS_FEATURE_BUFFS[buffKey] || []
                 })(),
                 enabled: (() => {
