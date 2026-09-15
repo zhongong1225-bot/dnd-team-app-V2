@@ -554,16 +554,17 @@ export function isValidComboAttachment(a) {
   return !!(a && a.name && /^\d+d\d+/i.test(a.damageDice || ''))
 }
 
+/** 武器手段显示名的唯一格式化口径：后缀紧跟名字不加空格，卡片/下拉/组合技附件共用 */
+export function getWeaponMeanDisplayName(mean, fallbackName = '武器') {
+  const name = mean?.weaponOpt?.name || fallbackName
+  const suffix = mean?.weaponNameSuffix ? String(mean.weaponNameSuffix).trim() : ''
+  return name + suffix
+}
+
 /** 获取非组合技战斗手段的显示名称 */
-export function getCombatMeanLabel(mean, { weaponsFromInv = [], itemMeansFromInv = [] } = {}) {
+export function getCombatMeanLabel(mean, { itemMeansFromInv = [] } = {}) {
   if (!mean) return '—'
-  if (mean.type === 'physical') {
-    const suffix = mean.weaponNameSuffix ? String(mean.weaponNameSuffix).trim() : ''
-    if (mean.weaponOpt?.name) return mean.weaponOpt.name + (suffix ? ` ${suffix}` : '')
-    const w = weaponsFromInv.find((x) => x.index === mean.weaponInventoryIndex)
-    if (w) return w.name + (suffix ? ` ${suffix}` : '')
-    return '武器' + (suffix ? ` (${suffix})` : '') + (mean.weaponInventoryIndex != null ? ` #${mean.weaponInventoryIndex}` : '')
-  }
+  if (mean.type === 'physical') return getWeaponMeanDisplayName(mean)
   if (mean.type === 'spell_attack' || mean.type === 'spell') return mean.spellName || '法术'
   if (mean.type === 'item') {
     const it = itemMeansFromInv.find((x) => x.index === mean.itemInventoryIndex)
@@ -724,6 +725,18 @@ export function computeLiveGains(cm, opts = {}) {
   // 丢弃存档快照里带 auto 标记的条目，一律换成上面现算的结果，否则源 BUFF 消失后残值仍在
   const manual = (Array.isArray(cm?.gains) ? cm.gains : []).filter((g) => g && !g.auto)
   return [...keptAuto, ...manual]
+}
+
+/**
+ * 增益清单勾选状态 → 待存档的 disabledAutoGainKeys（computeLiveGains 过滤的逆运算）。
+ * 只记 auto 项里被取消勾选的 type：手动项不落此字段，派生卡也没有安放手动增益的地方。
+ */
+export function deriveDisabledAutoGainKeys(gains) {
+  const keys = []
+  for (const g of Array.isArray(gains) ? gains : []) {
+    if (g?.auto && g.enabled === false && g.type && !keys.includes(g.type)) keys.push(g.type)
+  }
+  return keys
 }
 
 function gainsNormalize(g) {

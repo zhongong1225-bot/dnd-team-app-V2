@@ -7,7 +7,7 @@ import { inputClass } from '../../lib/inputStyles'
 import { NumberStepper } from '../BuffForm'
 import { GAIN_TYPES, buildDefaultGainsFromBuffs, mergeAutoGains, gainsContentEqual } from './combatMeanUtils'
 
-export default function GainEditor({ gains, onChange, cm, buffStats, mergedBuffs, character, formulaContext }) {
+export default function GainEditor({ gains, onChange, cm, buffStats, mergedBuffs, character, formulaContext, manualGainsDisabled }) {
   const [addingType, setAddingType] = useState(null)
   const items = Array.isArray(gains) ? gains : []
   const makeId = () => 'g_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6)
@@ -18,7 +18,13 @@ export default function GainEditor({ gains, onChange, cm, buffStats, mergedBuffs
   )
 
   useEffect(() => {
-    const next = mergeAutoGains(items, autoGains)
+    // autoGains 每次 BUFF 变动都整批重建且不携带勾选状态，不按 type 回填就会把玩家关掉的增益冲回启用；
+    // 依赖必须留在 [autoGains]：加进 items 会让玩家每次勾选都触发一次自我覆盖
+    const disabledTypes = new Set(items.filter((g) => g?.auto && g.enabled === false).map((g) => g.type))
+    const keptAuto = disabledTypes.size
+      ? autoGains.map((g) => (disabledTypes.has(g.type) ? { ...g, enabled: false } : g))
+      : autoGains
+    const next = mergeAutoGains(items, keptAuto)
     if (!gainsContentEqual(items, next)) {
       onChange(next)
     }
@@ -44,7 +50,7 @@ export default function GainEditor({ gains, onChange, cm, buffStats, mergedBuffs
       <div className="mb-1 flex items-center justify-between gap-2">
         <label className="text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">增益</label>
         <div className="flex items-center gap-1.5">
-          {addingType !== null ? (
+          {manualGainsDisabled ? null : addingType !== null ? (
             <select
               value={addingType}
               onChange={(e) => { const t = e.target.value; if (t) addItem(t) }}
@@ -68,7 +74,7 @@ export default function GainEditor({ gains, onChange, cm, buffStats, mergedBuffs
           )}
         </div>
       </div>
-      {items.length === 0 && <p className="text-dnd-text-muted text-[10px]">暂无增益，点击「增加增益」添加。</p>}
+      {items.length === 0 && <p className="text-dnd-text-muted text-[10px]">{manualGainsDisabled ? '增益由 BUFF 自动提供，取消勾选可关掉某条。' : '暂无增益，点击「增加增益」添加。'}</p>}
       <div className="space-y-1.5">
         {items.map((g) => {
           const typeLabel = GAIN_TYPES.find((t) => t.key === g.type)?.label || g.type

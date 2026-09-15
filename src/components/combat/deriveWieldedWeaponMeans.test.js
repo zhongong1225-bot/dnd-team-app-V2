@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest'
-import { deriveWieldedWeaponMeans, makeWieldedMeanId, WIELDED_UNAVAILABLE_NO_MAIN } from './deriveWieldedWeaponMeans'
+import { deriveWieldedWeaponMeans, makeWieldedMeanId, buildWeaponMeanConfig, WIELDED_UNAVAILABLE_NO_MAIN } from './deriveWieldedWeaponMeans'
 
 let seq = 0
 /** 造一份角色：held 传原型 id 数组（null = 空槽） */
@@ -231,5 +231,70 @@ describe('deriveWieldedWeaponMeans', () => {
     expect(plain[1]).toMatchObject({ available: false, unavailableReason: '缺少轻型词条，且未获得双持客' })
     const dual = bySlot(deriveWieldedWeaponMeans(charWith(['dagger', 'light_crossbow']), { ...CTX, offhandIgnoresLight: true }))
     expect(dual[1]).toMatchObject({ available: false, unavailableReason: '缺少轻型词条，且未获得双持客' })
+  })
+})
+
+describe('buildWeaponMeanConfig', () => {
+  const form = {
+    nameSuffix: '（+1）',
+    damageType: '火焰',
+    versatileMode: 'two_hand',
+    extraDamageDice: ['1d6 寒冷'],
+    targetCreatureType: '异怪',
+    ability: 'dex',
+    gains: [
+      { id: 'auto_damageBonus', type: 'damageBonus', value: 2, auto: true, enabled: false },
+      { id: 'g_manual', type: 'attackBonus', value: 1, enabled: true },
+    ],
+  }
+
+  it('主手写满七项，含被关掉的自动增益', () => {
+    expect(buildWeaponMeanConfig({ slotIndex: 0 }, form)).toEqual({
+      nameSuffix: '（+1）',
+      damageTypeOverride: '火焰',
+      versatileMode: 'two_hand',
+      extraDamageDice: ['1d6 寒冷'],
+      targetCreatureType: '异怪',
+      abilityForAttack: 'dex',
+      disabledAutoGainKeys: ['damageBonus'],
+    })
+  })
+
+  it('副手一个键都不多写：versatileMode 不落，否则武器回主手会静默改掉主手卡伤害骰', () => {
+    const cfg = buildWeaponMeanConfig({ slotIndex: 1 }, form)
+    expect('versatileMode' in cfg).toBe(false)
+    expect(cfg.nameSuffix).toBe('（+1）')
+  })
+
+  it('缺项按空值写，不留 undefined（merge 进旧配置时要把上次的值清掉）', () => {
+    const cfg = buildWeaponMeanConfig({ slotIndex: 0 }, {})
+    expect(cfg).toMatchObject({ nameSuffix: '', damageTypeOverride: '', versatileMode: '', abilityForAttack: '' })
+    expect(cfg.extraDamageDice).toEqual([])
+    expect(cfg.disabledAutoGainKeys).toEqual([])
+  })
+
+  it('额外伤害骰是拷贝，写侧不回改表单数组', () => {
+    const cfg = buildWeaponMeanConfig({ slotIndex: 0 }, form)
+    cfg.extraDamageDice.push('2d8')
+    expect(form.extraDamageDice).toEqual(['1d6 寒冷'])
+  })
+
+  it('往返：写进物品条目后重新派生的卡读回同一组值', () => {
+    const char = charWith(['longsword', 'dagger'])
+    char.inventory[0].combatMeanConfig = buildWeaponMeanConfig({ slotIndex: 0 }, form)
+    char.inventory[1].combatMeanConfig = buildWeaponMeanConfig({ slotIndex: 1 }, form)
+    const cards = bySlot(deriveWieldedWeaponMeans(char, CTX))
+    for (const card of [cards[0], cards[1]]) {
+      expect(card).toMatchObject({
+        weaponNameSuffix: '（+1）',
+        damageType: '火焰',
+        targetCreatureType: '异怪',
+        abilityForAttack: 'dex',
+        extraDamageDice: ['1d6 寒冷'],
+        disabledAutoGainKeys: ['damageBonus'],
+      })
+    }
+    expect(cards[0].weaponVersatileMode).toBe('two_hand')
+    expect(cards[1].weaponVersatileMode).toBe('bonus_action')
   })
 })

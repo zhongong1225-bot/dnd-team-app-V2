@@ -44,18 +44,18 @@ import AddComboStep from './combat/AddComboStep'
 import GainEditor from './combat/GainEditor'
 import {
   DAMAGE_TYPE_OPTIONS, DAMAGE_TYPE_SHORT, HIT_RESOLUTION_LABELS, COMBO_ATTACHMENT_SOURCE_TYPES, COMBO_CLASS_FEATURE_OPTIONS,
-  inferDamageDiceFromText, isValidComboAttachment, getCombatMeanLabel,
+  inferDamageDiceFromText, isValidComboAttachment,
   getSpellAbilityForAttackFromBuffs, resolvePhysicalWeaponAbilityKind, isRangedWeaponProto, weaponUsesDex,
-  getDefaultWeaponMode, getWeaponModeOptions, getAbilityOptions, getWeaponBaseDamageObjects, stripDiceFlatMod, getWeaponNote, weaponHasTwoHanded, weaponHasThrown, weaponHasVersatile, weaponHasLight, isDualWieldingLightWeapons,
+  getDefaultWeaponMode, inferPhysicalWeaponAbilityFromProto, getWeaponModeOptions, getAbilityOptions, getWeaponBaseDamageObjects, stripDiceFlatMod, getWeaponNote, weaponHasTwoHanded, weaponHasThrown, weaponHasVersatile, weaponHasLight, isDualWieldingLightWeapons,
   parseWeaponAttack, formatWeaponAttackDiceDisplay, formatSignedModifier, getWeaponAttackStringForParsing,
-  GAIN_TYPES, getEnabledGains, sumGainAttackBonus, sumGainDamageBonus, sumGainPerDieBonus, getGainExtraDice, getGainAdvantage, hasGainDiceFloor2,
+  getEnabledGains, sumGainAttackBonus, sumGainDamageBonus, sumGainPerDieBonus, getGainExtraDice, getGainAdvantage, hasGainDiceFloor2,
   computePhysicalWeaponStats, buildDefaultGainsFromBuffs,
-  getWeaponEntrySpellAbility, getWeaponEntryDamageExtras, getMergedWeaponExtraDiceStrings, filterExtraDiceAgainstMain,
+  getWeaponEntryDamageExtras, getMergedWeaponExtraDiceStrings, filterExtraDiceAgainstMain,
   parseSpellDamageFromDescription, spellUsesAttack, inferSaveFromSpellDescription, normalizeSpellName,
   applyUpcastToDamageList, getEffectiveCastLevel,
   sanitizeLegacyCombatMeans, computeLiveGains,
 } from './combat/combatMeanUtils'
-import { deriveWieldedWeaponMeans } from './combat/deriveWieldedWeaponMeans'
+import { deriveWieldedWeaponMeans, buildWeaponMeanConfig } from './combat/deriveWieldedWeaponMeans'
 import { collectTierMemberIds } from '../lib/weaponProficiency'
 
 import { getItemById, ITEM_DATABASE, parseWeaponNoteToTraits } from '../data/itemDatabase'
@@ -327,20 +327,6 @@ function consumeDeathWard(char, mergedBuffs) {
     }
   }
   return null
-}
-
-/** 从背包中筛出武器（类型=武器或枪械），返回 { index, entry, proto, name, 攻击, 伤害 } */
-function getWeaponsFromInventory(inventory = []) {
-  return inventory
-    .map((entry, index) => {
-      const proto = entry?.itemId ? getItemById(entry.itemId) : null
-      if (!proto || (proto.类型 !== '近战武器' && proto.类型 !== '远程武器' && proto.类型 !== '枪械')) return null
-      const 攻击 = entry.攻击 ?? proto.攻击 ?? '—'
-      const 伤害 = entry.伤害 ?? proto.伤害 ?? '—'
-      const name = (entry.name && String(entry.name).trim()) || proto.类别 || proto.name || '—'
-      return { index, entry, proto, name, 攻击, 伤害 }
-    })
-    .filter(Boolean)
 }
 
 /** 从背包中筛出消耗品-爆炸品（类型=消耗品 子类型=爆炸品，或 类型=爆炸物），用于战斗手段 */
@@ -694,13 +680,13 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [addSpellAttackDice, setAddSpellAttackDice] = useState('')
   const [addSpellAttackDamageType, setAddSpellAttackDamageType] = useState('')
   const [addSpellAttackSpellLevel, setAddSpellAttackSpellLevel] = useState('')
-  const [addWeaponIndex, setAddWeaponIndex] = useState(null)
   const [addWeaponNameSuffix, setAddWeaponNameSuffix] = useState('')
   const [addAbility, setAddAbility] = useState('str')
   const [addDamageType, setAddDamageType] = useState('')
   const [addWeaponMode, setAddWeaponMode] = useState('one_hand')
-  const [addWeaponProficient, setAddWeaponProficient] = useState(true)
   const [addTargetCreatureType, setAddTargetCreatureType] = useState('')
+  /** 正在编辑的手持武器派生卡：编辑器初值与写回目标都取自它，配置落在它对应的物品条目上 */
+  const [editingDerivedMean, setEditingDerivedMean] = useState(null)
   const [addItemIndex, setAddItemIndex] = useState(null)
   const [addGains, setAddGains] = useState([])
   const [addComboPrimaryId, setAddComboPrimaryId] = useState(null)
@@ -948,14 +934,13 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const openAddCombatMeanModal = () => {
     setEditingCombatMeanId(null)
     setAddMeanStep('type')
-    setAddWeaponIndex(null)
+    setEditingDerivedMean(null)
     setAddAbility('str')
     setAddWeaponMode('one_hand')
     setAddDamageType('')
     setAddWeaponNameSuffix('')
     setAddWeaponExtraDice([])
     setShowWeaponExtraDiceEditor(false)
-    setAddWeaponProficient(true)
     setAddTargetCreatureType('')
     setAddSpellAttackSpellLevel('')
     setAddGains([])
@@ -963,26 +948,31 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setAddComboAttachments([])
     setShowAddCombatMeanModal(true)
   }
-  const confirmAddWeaponMean = () => {
-    const patch = {
-      type: 'physical',
-      weaponInventoryIndex: addWeaponIndex,
-      spellId: null,
-      extraDamageDice: [...addWeaponExtraDice],
-      abilityForAttack: addAbility,
-      damageType: addDamageType || null,
-      weaponVersatileMode: addWeaponMode || null,
-      weaponProficient: addWeaponProficient,
-      weaponNameSuffix: (addWeaponNameSuffix || '').trim(),
-      targetCreatureType: addTargetCreatureType || '',
+  /**
+   * 武器配置落盘：认物品编号不认槽位，主手/备用位之间移动同一把剑配置不丢。
+   * 整条记录是 read-modify-write upsert，一次保存只调一次 onSave、且只写 inventory 一个字段。
+   */
+  const saveWeaponConfig = (derivedMean, nextConfig) => {
+    const inv = Array.isArray(char?.inventory) ? char.inventory : []
+    const idx = inv.findIndex((e) => e?.id === derivedMean?.weaponInventoryId)
+    if (idx < 0) return
+    const prev = (inv[idx].combatMeanConfig && typeof inv[idx].combatMeanConfig === 'object') ? inv[idx].combatMeanConfig : {}
+    const nextEntry = { ...inv[idx], combatMeanConfig: { ...prev, ...nextConfig } }
+    onSave({ inventory: inv.map((e, i) => (i === idx ? nextEntry : e)) })
+  }
+  const submitWeaponConfig = () => {
+    if (!editingDerivedMean) return
+    saveWeaponConfig(editingDerivedMean, buildWeaponMeanConfig(editingDerivedMean, {
+      nameSuffix: addWeaponNameSuffix,
+      damageType: addDamageType,
+      versatileMode: addWeaponMode,
+      extraDamageDice: addWeaponExtraDice,
+      targetCreatureType: addTargetCreatureType,
+      ability: addAbility,
       gains: addGains,
-    }
-    if (editingCombatMeanId) {
-      updateCombatMean(editingCombatMeanId, patch)
-      setEditingCombatMeanId(null)
-    } else {
-      saveCombatMeans([...combatMeans, { id: 'cm_' + Date.now(), ...patch }])
-    }
+    }))
+    setEditingDerivedMean(null)
+    setEditingCombatMeanId(null)
     setShowWeaponExtraDiceEditor(false)
     setShowAddCombatMeanModal(false)
   }
@@ -1230,7 +1220,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     else inv[inventoryIndex] = { ...entry, qty }
     onSave({ inventory: inv })
   }
-  // 派生卡不落盘：它的配置写回要等武器编辑器改写物品条目，走 combatMeans 分支只会静默丢失或白做整条 upsert
+  // 派生卡不在 combatMeans 里（配置写回物品条目），按 id 改/删只会命中空气，却仍白做一趟整条记录的 upsert
   const isDerivedCombatMean = (id) => !!renderedMeans.find((m) => m.id === id)?.derived
   const removeCombatMean = (id) => {
     if (isDerivedCombatMean(id)) return
@@ -1486,32 +1476,23 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     })
   }
 
-  const weaponsFromInv = useMemo(() => getWeaponsFromInventory(char?.inventory ?? []), [char?.inventory])
-
-  const openEditWeaponMean = useCallback((cm) => {
-    setEditingCombatMeanId(cm.id)
-    setAddWeaponIndex(cm.weaponInventoryIndex ?? null)
-    setAddWeaponNameSuffix(cm.weaponNameSuffix ?? '')
-    const wForEdit =
-      cm.weaponInventoryIndex != null ? weaponsFromInv.find((x) => x.index === cm.weaponInventoryIndex) : null
-    const rawDamageType = cm.damageType || (wForEdit ? parseWeaponAttack(getWeaponAttackStringForParsing(wForEdit, cm.weaponVersatileMode)).type : null)
-    const flatEffects = getFlatEffectEntries(mergedBuffs, char)
-    const spellAbilityOverride = getSpellAbilityForAttackFromBuffs(flatEffects, {
-      weaponProto: wForEdit?.proto,
-      damageType: rawDamageType,
-      sourceItemInventoryId: wForEdit?.entry?.id,
-    }) || getWeaponEntrySpellAbility(wForEdit?.entry)
-    setAddAbility(resolvePhysicalWeaponAbilityKind(cm, wForEdit, spellAbilityOverride))
-    setAddDamageType(cm.damageType ? String(cm.damageType) : '')
-    setAddWeaponMode(cm.weaponVersatileMode || getDefaultWeaponMode(wForEdit))
-    setAddWeaponProficient(cm.weaponProficient !== false)
-    setAddTargetCreatureType(cm.targetCreatureType || '')
-    setAddWeaponExtraDice(Array.isArray(cm.extraDamageDice) ? [...cm.extraDamageDice] : [])
+  const openEditWeaponMean = useCallback((mean) => {
+    setEditingDerivedMean(mean)
+    setEditingCombatMeanId(mean.id)
+    setAddWeaponNameSuffix(mean.weaponNameSuffix || '')
+    setAddDamageType(mean.damageType ? String(mean.damageType) : '')
+    setAddWeaponMode(mean.weaponVersatileMode || getDefaultWeaponMode(mean.weaponOpt))
+    setAddAbility(mean.abilityForAttack || inferPhysicalWeaponAbilityFromProto(mean.weaponOpt?.proto))
+    setAddTargetCreatureType(mean.targetCreatureType || '')
+    setAddWeaponExtraDice(Array.isArray(mean.extraDamageDice) ? [...mean.extraDamageDice] : [])
     setShowWeaponExtraDiceEditor(false)
-    setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, char))
+    // 派生卡的 gains 恒为空：播种只能现算，并按存档里关掉的 key 复原勾选，否则重开编辑器全是勾上的
+    const disabled = new Set(Array.isArray(mean.disabledAutoGainKeys) ? mean.disabledAutoGainKeys : [])
+    setAddGains(buildDefaultGainsFromBuffs(mean, buffStats, mergedBuffs, char)
+      .map((g) => (disabled.has(g.type) ? { ...g, enabled: false } : g)))
     setAddMeanStep('weapon')
     setShowAddCombatMeanModal(true)
-  }, [weaponsFromInv, buffStats, mergedBuffs])
+  }, [buffStats, mergedBuffs, char])
 
   const explosivesFromInv = useMemo(() => getExplosivesFromInventory(char?.inventory ?? []), [char?.inventory])
   const focusFromInv = useMemo(() => getFocusItemsFromInventory(char?.inventory ?? []), [char?.inventory])
@@ -1533,23 +1514,20 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   }, [char?.spells])
   const effectiveAbilities = buffStats?.abilities ?? abilities
   const { spellAbility, spellAttackBonus, spellDC, prof } = getSpellcastingCombatStats(char, buffStats, level, abilities)
+  /** 编辑中的表单值盖在派生卡底上：GainEditor 现算的自动清单与卡片渲染的 computeLiveGains 因此同源 */
+  const draftWeaponCm = useMemo(() => (editingDerivedMean ? {
+    ...editingDerivedMean,
+    abilityForAttack: addAbility || null,
+    damageType: addDamageType || null,
+    weaponVersatileMode: addWeaponMode || null,
+    targetCreatureType: addTargetCreatureType || '',
+    extraDamageDice: [...addWeaponExtraDice],
+  } : null), [editingDerivedMean, addAbility, addDamageType, addWeaponMode, addTargetCreatureType, addWeaponExtraDice])
   const previewWeaponStats = useMemo(() => {
-    if (addMeanStep !== 'weapon' || addWeaponIndex == null) return null
-    const w = weaponsFromInv.find((x) => x.index === addWeaponIndex)
-    if (!w) return null
-    const previewCm = {
-      id: 'preview',
-      type: 'physical',
-      weaponInventoryIndex: addWeaponIndex,
-      abilityForAttack: addAbility,
-      damageType: addDamageType || null,
-      weaponVersatileMode: addWeaponMode || null,
-      weaponProficient: addWeaponProficient,
-      targetCreatureType: addTargetCreatureType || '',
-      extraDamageDice: [...addWeaponExtraDice],
-      gains: addGains,
-    }
-    return computePhysicalWeaponStats(previewCm, w, {
+    if (addMeanStep !== 'weapon' || !draftWeaponCm) return null
+    const weaponOpt = draftWeaponCm.weaponOpt
+    if (!weaponOpt) return null
+    return computePhysicalWeaponStats({ ...draftWeaponCm, gains: addGains }, weaponOpt, {
       effectiveAbilities,
       prof,
       spellAbility,
@@ -1557,10 +1535,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       flatBuffEffects,
       itemFormulaContext,
     })
-  }, [addMeanStep, addWeaponIndex, addAbility, addDamageType, addWeaponMode, addWeaponProficient, addTargetCreatureType, addWeaponExtraDice, addGains, weaponsFromInv, effectiveAbilities, prof, spellAbility, buffStats, flatBuffEffects, itemFormulaContext])
+  }, [addMeanStep, draftWeaponCm, addGains, effectiveAbilities, prof, spellAbility, buffStats, flatBuffEffects, itemFormulaContext])
   const draftSpellCm = useMemo(() => ({ type: 'spell_attack', targetCreatureType: addTargetCreatureType || '' }), [addTargetCreatureType])
   const draftItemCm = useMemo(() => ({ type: 'item', itemInventoryIndex: addItemIndex ?? null, targetCreatureType: addTargetCreatureType || '' }), [addItemIndex, addTargetCreatureType])
-  const draftWeaponCm = useMemo(() => ({ type: 'physical', weaponInventoryIndex: addWeaponIndex ?? null, damageType: addDamageType || null, targetCreatureType: addTargetCreatureType || '' }), [addWeaponIndex, addDamageType, addTargetCreatureType])
   const spellcastingLevel = getSpellcastingLevel(char)
   const maxSlotsByRing = useMemo(() => getMaxSpellSlotsByRing(char), [char])
   const spellSlotsMaxOverride = char?.spellSlotsMax && typeof char.spellSlotsMax === 'object' ? char.spellSlotsMax : {}
@@ -3491,7 +3468,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             </div>
           )}
           {showAddCombatMeanModal && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" onClick={() => { setEditingCombatMeanId(null); setShowWeaponExtraDiceEditor(false); setShowAddCombatMeanModal(false); }}>
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" onClick={() => { setEditingCombatMeanId(null); setEditingDerivedMean(null); setShowWeaponExtraDiceEditor(false); setShowAddCombatMeanModal(false); }}>
               <div className="rounded-lg border border-gray-600 bg-gray-800 p-4 shadow-xl max-w-sm w-full mx-2" onClick={(e) => e.stopPropagation()}>
                 {addMeanStep === 'type' && (
                   <AddMeanTypeStep
@@ -3565,14 +3542,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                 )}
                 {addMeanStep === 'weapon' && (
                   <AddWeaponStep
-                    weaponIndex={addWeaponIndex} setWeaponIndex={setAddWeaponIndex}
+                    weaponOpt={editingDerivedMean?.weaponOpt ?? null}
                     weaponNameSuffix={addWeaponNameSuffix} setWeaponNameSuffix={setAddWeaponNameSuffix}
                     ability={addAbility} setAbility={setAddAbility}
                     damageType={addDamageType} setDamageType={setAddDamageType}
                     weaponMode={addWeaponMode} setWeaponMode={setAddWeaponMode}
-                    weaponProficient={addWeaponProficient} setWeaponProficient={setAddWeaponProficient}
+                    weaponModeReadOnlyLabel={editingDerivedMean?.slotIndex === 1 ? editingDerivedMean.actionLabel : null}
+                    weaponProficient={editingDerivedMean?.weaponProficient !== false}
                     targetCreatureType={addTargetCreatureType} setTargetCreatureType={setAddTargetCreatureType}
-                    weaponsFromInv={weaponsFromInv} char={char} canEdit={canEdit}
+                    char={char} canEdit={canEdit}
                     addWeaponExtraDice={addWeaponExtraDice} setAddWeaponExtraDice={setAddWeaponExtraDice}
                     showExtraDiceEditor={showWeaponExtraDiceEditor} setShowExtraDiceEditor={setShowWeaponExtraDiceEditor}
                     extraCount={addWeaponExtraCount} setExtraCount={setAddWeaponExtraCount}
@@ -3583,8 +3561,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                     addGains={addGains} setAddGains={setAddGains}
                     draftWeaponCm={draftWeaponCm} buffStats={buffStats} mergedBuffs={mergedBuffs} itemFormulaContext={itemFormulaContext}
                     editingCombatMeanId={editingCombatMeanId}
-                    onBack={() => { setEditingCombatMeanId(null); setShowWeaponExtraDiceEditor(false); setAddMeanStep('type'); }}
-                    onSave={confirmAddWeaponMean}
+                    onBack={() => { setEditingCombatMeanId(null); setEditingDerivedMean(null); setShowWeaponExtraDiceEditor(false); setAddMeanStep('type'); }}
+                    onSave={submitWeaponConfig}
                   />
                 )}
               </div>

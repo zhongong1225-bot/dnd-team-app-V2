@@ -11,6 +11,7 @@ import {
 import { parseWeaponNoteToTraits } from '../../data/itemDatabase'
 import { getDamageTypeLabel } from '../../data/buffTypes'
 import { parseCombatDiceExpression } from '../../data/weaponDatabase'
+import { getWeaponMeanDisplayName } from './combatMeanUtils'
 
 const COMBAT_MEAN_ROW_GRID =
   'grid grid-cols-[5fr_3fr_3fr_12fr_1fr] items-center gap-x-1 w-full min-w-0 overflow-hidden'
@@ -127,9 +128,7 @@ export default function WeaponAttackCard({ displayMean, weaponOpt, ctx, comboSuf
     ? (physStats.weaponProficient === false ? '（不熟练不加）' : '（副手不加）')
     : ''
 
-  const weaponName = weaponOpt?.name ?? '—'
-  const suffix = displayMean.weaponNameSuffix ? String(displayMean.weaponNameSuffix).trim() : ''
-  const fullName = weaponName + suffix + comboSuffix
+  const fullName = getWeaponMeanDisplayName(displayMean) + comboSuffix
 
   const damageTooltip = `伤害加值明细：属性调整值 ${damageMod >= 0 ? '+' : ''}${damageMod}${abilityModNote}，Buff 伤害加值 ${buffDamageBonus >= 0 ? '+' : ''}${buffDamageBonus}，增益伤害加值 ${gainDamageBonus >= 0 ? '+' : ''}${gainDamageBonus}${weaponPerDieMod !== 0 ? `，每骰加成 ${weaponPerDieMod >= 0 ? '+' : ''}${weaponPerDieMod}` : ''}`
   const extraFiltered = filterExtraDiceAgainstMain(attackParsed, rawDamageType, weaponExtraDiceStrings)
@@ -159,7 +158,6 @@ export default function WeaponAttackCard({ displayMean, weaponOpt, ctx, comboSuf
   })
 
   const onEdit = isCombo ? () => openEditComboMean(displayMean) : () => openEditWeaponMean(displayMean)
-  const editBadgeClick = () => openEditWeaponMean(displayMean)
 
   // 构建BUFF加值列表（从physStats提取）
   const buffBonuses = []
@@ -241,7 +239,7 @@ export default function WeaponAttackCard({ displayMean, weaponOpt, ctx, comboSuf
             {displayDamageType}
             {extraFiltered.map((d) => ` + ${d}`).join('')}
           </span>
-          {renderAutoGainBadges(gains, editBadgeClick)}
+          {renderAutoGainBadges(gains, onEdit)}
         </div>
 
         {/* 删除列 */}

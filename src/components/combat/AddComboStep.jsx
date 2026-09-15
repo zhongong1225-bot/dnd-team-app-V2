@@ -8,7 +8,7 @@ import { MARTIAL_TECHNIQUES, getMartialTechniqueById } from '../../data/martialT
 import GainEditor from './GainEditor'
 import {
   DAMAGE_TYPE_OPTIONS, COMBO_ATTACHMENT_SOURCE_TYPES, COMBO_CLASS_FEATURE_OPTIONS,
-  getCombatMeanLabel, inferDamageDiceFromText, parseWeaponAttack, getWeaponAttackStringForParsing,
+  getCombatMeanLabel, getWeaponMeanDisplayName, inferDamageDiceFromText, parseWeaponAttack, getWeaponAttackStringForParsing,
 } from './combatMeanUtils'
 
 export default function AddComboStep({
@@ -30,9 +30,8 @@ export default function AddComboStep({
       const mean = nonComboCombatMeans.find((m) => m.id === nextId)
       if (mean) {
         if (mean.type === 'physical') {
-          const suffix = mean.weaponNameSuffix ? String(mean.weaponNameSuffix).trim() : ''
           const parsed = mean.weaponOpt ? parseWeaponAttack(getWeaponAttackStringForParsing(mean.weaponOpt, mean.weaponVersatileMode)) : null
-          base.name = (mean.weaponOpt?.name || '武器') + (suffix ? ` ${suffix}` : '')
+          base.name = getWeaponMeanDisplayName(mean)
           base.damageDice = parsed?.dice || ''
           base.damageType = mean.damageType || parsed?.type || ''
         } else if (mean.type === 'spell_attack') {

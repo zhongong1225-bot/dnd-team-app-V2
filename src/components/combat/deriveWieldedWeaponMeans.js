@@ -7,7 +7,7 @@
 import { getItemById, getItemDisplayName } from '../../data/itemDatabase'
 import { isWeaponProtoProficient } from '../../lib/weaponProficiency'
 import {
-  weaponHasLight, weaponHasTwoHanded, weaponHasVersatile, getDefaultWeaponMode,
+  weaponHasLight, weaponHasTwoHanded, weaponHasVersatile, getDefaultWeaponMode, deriveDisabledAutoGainKeys,
 } from './combatMeanUtils'
 
 const WEAPON_TYPES = new Set(['近战武器', '远程武器', '枪械'])
@@ -114,4 +114,24 @@ export function deriveWieldedWeaponMeans(character, ctx = {}) {
       }
     })
     .filter(Boolean)
+}
+
+/**
+ * 武器编辑器表单值 → 物品条目的 combatMeanConfig（本文件读侧 cfg 的写侧，七项一一对应）
+ *
+ * 副手卡不写 versatileMode：上面 :91 对副手恒为 bonus_action，
+ * 若把 one_hand / two_hand 存进条目，这把武器回到主手时会静默改掉主手卡的伤害骰。
+ */
+export function buildWeaponMeanConfig(mean, form = {}) {
+  const str = (v) => (typeof v === 'string' ? v : '')
+  const cfg = {
+    nameSuffix: str(form.nameSuffix),
+    damageTypeOverride: str(form.damageType),
+    extraDamageDice: Array.isArray(form.extraDamageDice) ? [...form.extraDamageDice] : [],
+    targetCreatureType: str(form.targetCreatureType),
+    abilityForAttack: str(form.ability),
+    disabledAutoGainKeys: deriveDisabledAutoGainKeys(form.gains),
+  }
+  if (mean?.slotIndex !== 1) cfg.versatileMode = str(form.versatileMode)
+  return cfg
 }

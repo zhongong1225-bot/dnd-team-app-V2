@@ -5,6 +5,8 @@ import {
   applyUpcastToDamageList,
   getEffectiveCastLevel,
   getCombatMeanLabel,
+  getWeaponMeanDisplayName,
+  deriveDisabledAutoGainKeys,
   computePhysicalWeaponStats,
   sanitizeLegacyCombatMeans,
   computeLiveGains,
@@ -288,17 +290,64 @@ describe('computeLiveGains', () => {
   })
 })
 
-describe('getCombatMeanLabel 对派生武器卡', () => {
-  it('优先用 weaponOpt.name + 后缀', () => {
-    const derived = { id: 'wielded_0_inv_9', type: 'physical', derived: true, weaponOpt: { name: '长剑' }, weaponNameSuffix: '（+1）' }
-    expect(getCombatMeanLabel(derived, {})).toBe('长剑 （+1）')
+describe('getCombatMeanLabel / getWeaponMeanDisplayName 武器命名口径', () => {
+  const derived = { id: 'wielded_0_inv_9', type: 'physical', derived: true, weaponOpt: { name: '长剑' }, weaponNameSuffix: '（+1）' }
+
+  it('优先用 weaponOpt.name，后缀紧跟名字不加空格', () => {
+    expect(getCombatMeanLabel(derived, {})).toBe('长剑（+1）')
   })
-  it('派生卡即使带 weaponInventoryIndex 也优先用 weaponOpt.name', () => {
-    const derived = { id: 'wielded_1_inv_9', type: 'physical', derived: true, weaponInventoryIndex: 0, weaponOpt: { name: '匕首' } }
-    expect(getCombatMeanLabel(derived, { weaponsFromInv: [{ index: 0, name: '别的武器' }] })).toBe('匕首')
+
+  it('派生卡即使带 weaponInventoryIndex 也用 weaponOpt.name', () => {
+    expect(getCombatMeanLabel({ ...derived, weaponInventoryIndex: 0 }, {})).toBe('长剑（+1）')
   })
-  it('旧式按背包下标的条目仍能解析（回归保护）', () => {
-    const legacy = { id: 'cm_0', type: 'physical', weaponInventoryIndex: 2 }
-    expect(getCombatMeanLabel(legacy, { weaponsFromInv: [{ index: 1, name: 'A' }, { index: 2, name: '战锤' }] })).toBe('战锤')
+
+  it('卡片名与下拉名同口径（两处不得各写一份拼接）', () => {
+    expect(getCombatMeanLabel(derived, {})).toBe(getWeaponMeanDisplayName(derived))
+  })
+
+  it('无后缀时只有名字；无武器名时回退"武器"', () => {
+    expect(getWeaponMeanDisplayName({ weaponOpt: { name: '匕首' }, weaponNameSuffix: '   ' })).toBe('匕首')
+    expect(getWeaponMeanDisplayName({})).toBe('武器')
+    expect(getWeaponMeanDisplayName(null, '主手')).toBe('主手')
+  })
+
+  it('后缀两端空白不进显示名', () => {
+    expect(getWeaponMeanDisplayName({ weaponOpt: { name: '长剑' }, weaponNameSuffix: ' +1 ' })).toBe('长剑+1')
+  })
+})
+
+describe('deriveDisabledAutoGainKeys', () => {
+  it('记下被取消勾选的自动增益，即使清单里另有手动增益', () => {
+    // 回归：旧写法用 some(x => x.type === k || !autoKeys.has(x.type))，只要有一条手动增益结果就恒空
+    const gains = [
+      { id: 'auto_damageBonus', type: 'damageBonus', value: 2, auto: true, enabled: false },
+      { id: 'g_manual', type: 'extraDice', dice: '1d6 火焰', enabled: true },
+      { id: 'auto_attackBonus', type: 'attackBonus', value: 1, auto: true, enabled: true },
+    ]
+    expect(deriveDisabledAutoGainKeys(gains)).toEqual(['damageBonus'])
+  })
+
+  it('未勾选的手动增益不进名单（它由 gains 自己的 enabled 表达）', () => {
+    expect(deriveDisabledAutoGainKeys([{ id: 'g1', type: 'advantage', enabled: false }])).toEqual([])
+  })
+
+  it('同 type 重复关掉只记一次；非数组入参返回空', () => {
+    const gains = [
+      { id: 'a', type: 'extraDice', auto: true, enabled: false },
+      { id: 'b', type: 'extraDice', auto: true, enabled: false },
+    ]
+    expect(deriveDisabledAutoGainKeys(gains)).toEqual(['extraDice'])
+    expect(deriveDisabledAutoGainKeys(undefined)).toEqual([])
+  })
+
+  it('与 computeLiveGains 互为逆运算：写侧记下的 key 正好让读侧滤掉该自动增益', () => {
+    const buffs = [{ id: 'b', name: 'x', enabled: true, effects: [{ effectType: 'damage_bonus', scope: 'global', scopeDetail: [], value: 2 }] }]
+    const card = { type: 'spell_attack', gains: [] }
+    const edited = [{ id: 'auto_damageBonus', type: 'damageBonus', value: 2, auto: true, enabled: false }]
+    const keys = deriveDisabledAutoGainKeys(edited)
+    expect(keys).toEqual(['damageBonus'])
+    const live = computeLiveGains({ ...card, disabledAutoGainKeys: keys }, { buffStats: {}, mergedBuffs: buffs })
+    expect(live.some((g) => g.type === 'damageBonus')).toBe(false)
+    expect(computeLiveGains(card, { buffStats: {}, mergedBuffs: buffs }).some((g) => g.type === 'damageBonus')).toBe(true)
   })
 })

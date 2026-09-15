@@ -1,5 +1,5 @@
 /**
- * 添加战斗手段 — 武器攻击表单（含额外伤害骰编辑器）
+ * 武器战斗手段编辑器 — 只编辑手持槽派生卡，配置由调用方写回物品条目 combatMeanConfig（含额外伤害骰编辑器）
  */
 import React from 'react'
 import { Plus } from 'lucide-react'
@@ -8,16 +8,16 @@ import { NumberStepper } from '../BuffForm'
 import GainEditor from './GainEditor'
 import {
   DAMAGE_TYPE_OPTIONS,
-  getWeaponModeOptions, getAbilityOptions, inferPhysicalWeaponAbilityFromProto,
-  parseWeaponAttack, getDefaultWeaponMode, getWeaponAttackStringForParsing,
+  getWeaponModeOptions, getAbilityOptions,
   formatWeaponAttackDiceDisplay, formatSignedModifier, filterExtraDiceAgainstMain,
 } from './combatMeanUtils'
 
 export default function AddWeaponStep({
-  weaponIndex, setWeaponIndex, weaponNameSuffix, setWeaponNameSuffix,
+  weaponOpt, weaponNameSuffix, setWeaponNameSuffix,
   ability, setAbility, damageType, setDamageType, weaponMode, setWeaponMode,
-  weaponProficient, setWeaponProficient, targetCreatureType, setTargetCreatureType,
-  weaponsFromInv, char, canEdit,
+  weaponModeReadOnlyLabel,
+  weaponProficient, targetCreatureType, setTargetCreatureType,
+  char, canEdit,
   addWeaponExtraDice, setAddWeaponExtraDice,
   showExtraDiceEditor, setShowExtraDiceEditor,
   extraCount, setExtraCount, extraSides, setExtraSides,
@@ -26,48 +26,29 @@ export default function AddWeaponStep({
   addGains, setAddGains, draftWeaponCm, buffStats, mergedBuffs, itemFormulaContext,
   editingCombatMeanId, onBack, onSave,
 }) {
-  const currentWeapon = weaponIndex != null ? weaponsFromInv.find((x) => x.index === weaponIndex) : null
-
-  const handleWeaponChange = (v) => {
-    setWeaponIndex(v)
-    const w = v != null ? weaponsFromInv.find((x) => x.index === v) : null
-    if (w?.proto) {
-      setAbility(inferPhysicalWeaponAbilityFromProto(w.proto))
-      const parsed = parseWeaponAttack(w.攻击)
-      const autoType = parsed.type && parsed.type !== '—' ? parsed.type : ''
-      setDamageType(autoType)
-      setWeaponMode(getDefaultWeaponMode(w))
-    } else {
-      setDamageType('')
-      setWeaponMode('one_hand')
-    }
-  }
-
   return (
     <>
       <h3 className="text-dnd-gold-light text-sm font-bold mb-3">{editingCombatMeanId ? '编辑武器' : '武器攻击'}</h3>
       <div className="space-y-2.5 text-sm">
         <div>
           <label className="block text-dnd-text-muted text-xs mb-0.5">武器</label>
-          <div className="flex items-center gap-1.5 w-full min-w-0 flex-nowrap">
-            <select
-              value={weaponIndex ?? ''}
-              onChange={(e) => handleWeaponChange(e.target.value === '' ? null : parseInt(e.target.value, 10))}
-              className={inputClass + ' h-8 text-xs shrink-0 max-w-[10rem]'}
-              disabled={!canEdit}
+          <div className="flex items-center gap-1.5 w-full min-w-0">
+            <div
+              className={inputClass + ' h-8 text-xs flex items-center shrink-0 max-w-[12rem] truncate'}
               style={{ width: 'auto', minWidth: '6rem' }}
-            >
-              <option value="">—</option>
-              {weaponsFromInv.map((w) => <option key={w.index} value={w.index}>{w.name}</option>)}
-            </select>
+              title="武器由手持槽决定，此处不可改选"
+            >{weaponOpt?.name ?? '—'}</div>
             <input type="text" value={weaponNameSuffix} onChange={(e) => setWeaponNameSuffix(e.target.value)} placeholder="追加名称" className={inputClass + ' h-8 text-xs flex-1 min-w-0'} />
           </div>
+          <p className="mt-0.5 text-[10px] text-dnd-text-muted">要换武器请在装备栏调整手持槽</p>
         </div>
         <div className="grid grid-cols-3 gap-2">
           <div className="min-w-0">
             <label className="block text-dnd-text-muted text-xs mb-0.5">战斗模式</label>
-            {(() => {
-              const modeOptions = getWeaponModeOptions(currentWeapon, char)
+            {weaponModeReadOnlyLabel ? (
+              <div className={inputClass + ' w-full h-8 text-xs flex items-center text-white'} title="副手固定以附赠动作发动，无需配置">{weaponModeReadOnlyLabel}</div>
+            ) : (() => {
+              const modeOptions = getWeaponModeOptions(weaponOpt, char)
               const currentLabel = modeOptions.find((o) => o.value === weaponMode)?.label ?? modeOptions[0]?.label ?? ''
               if (modeOptions.length <= 1) return <div className={inputClass + ' w-full h-8 text-xs flex items-center text-white'}>{currentLabel || '—'}</div>
               return (
@@ -80,7 +61,7 @@ export default function AddWeaponStep({
           <div className="min-w-0">
             <label className="block text-dnd-text-muted text-xs mb-0.5">属性</label>
             {(() => {
-              const abilityOptions = getAbilityOptions(currentWeapon, ability)
+              const abilityOptions = getAbilityOptions(weaponOpt, ability)
               const currentLabel = abilityOptions.find((o) => o.value === ability)?.label ?? abilityOptions[0]?.label ?? ''
               if (abilityOptions.length <= 1) return <div className={inputClass + ' w-full h-8 text-xs flex items-center text-white'}>{currentLabel || '—'}</div>
               return (
@@ -98,10 +79,11 @@ export default function AddWeaponStep({
             </select>
           </div>
         </div>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" checked={weaponProficient} onChange={(e) => setWeaponProficient(e.target.checked)} className="rounded border-gray-500" />
-          <span className="text-dnd-text-body text-xs">武器熟练</span>
-        </label>
+        <div className="flex items-center gap-2 text-xs">
+          <span className={weaponProficient ? 'text-dnd-gold-light' : 'text-dnd-text-muted'}>
+            {weaponProficient ? '✓ 已熟练（命中含熟练加值，伤害含属性调整值）' : '未熟练（命中不含熟练加值，伤害不含属性调整值）'}
+          </span>
+        </div>
         {previewWeaponStats && (
           <div className="rounded border border-gray-600/80 bg-gray-900/40 p-2 space-y-1.5">
             <div className="text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">实时预览</div>
@@ -194,10 +176,10 @@ export default function AddWeaponStep({
           )}
         </div>
       </div>
-      <GainEditor gains={addGains} onChange={setAddGains} cm={draftWeaponCm} buffStats={buffStats} mergedBuffs={mergedBuffs} character={char} formulaContext={itemFormulaContext} />
+      <GainEditor gains={addGains} onChange={setAddGains} cm={draftWeaponCm} buffStats={buffStats} mergedBuffs={mergedBuffs} character={char} formulaContext={itemFormulaContext} manualGainsDisabled />
       <div className="flex gap-2 mt-3">
         <button type="button" onClick={onBack} className="flex-1 py-1.5 rounded border border-gray-500 text-gray-400 text-xs">上一步</button>
-        <button type="button" onClick={onSave} disabled={weaponIndex == null} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 text-white text-xs">{editingCombatMeanId ? '保存' : '确认'}</button>
+        <button type="button" onClick={onSave} disabled={!weaponOpt || !canEdit} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 text-white text-xs">{editingCombatMeanId ? '保存' : '确认'}</button>
       </div>
     </>
   )
