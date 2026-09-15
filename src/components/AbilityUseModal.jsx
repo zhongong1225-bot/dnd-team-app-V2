@@ -1272,6 +1272,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
   )
   const norm = useMemo(() => {
     const base = normalizeChargeItemValue(effectiveChargeValue)
+    // 预设自带伤害构成与消耗规则，由 getter 在投骰那一刻现算；再走效果管线会重复投一遍、重复扣一次
     return attackPreset ? { ...base, resourceType: 'none', effects: [] } : base
   }, [effectiveChargeValue, attackPreset])
 
@@ -1286,7 +1287,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
   const [selectedCreatureId, setSelectedCreatureId] = useState(null)
 
   /* ── 攻击骰结果（携带已消耗资源的 patch，命中/未命中时引用） ── */
-  const [attackResult, setAttackResult] = useState(null) // { natural, bonus, total, isCrit, isFumble, resourcePatch, resourceLines }
+  const [attackResult, setAttackResult] = useState(null) // { natural, bonus, total, isCrit, critMin, critDiceMultiplier, isFumble, advantage, resourcePatch, resourceLines }
 
   /* ── 不可撤回提示 ── */
   const [showIrreversible, setShowIrreversible] = useState(false)
@@ -1530,8 +1531,8 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
     const isPreset = !!atk
     const atkBonus = isPreset ? (Number(atk.bonus) || 0) : (computeSpellAttack() || 0)
     const adv = atk && (atk.advantage === 'advantage' || atk.advantage === 'disadvantage') ? atk.advantage : null
-    const critMin = Number.isFinite(Number(atk?.critThreatMinNatural)) && atk?.critThreatMinNatural != null
-      ? Math.max(1, Math.min(20, Math.floor(Number(atk.critThreatMinNatural)))) : 20
+    const rawCritMin = Number(atk?.critThreatMinNatural)
+    const critMin = Number.isFinite(rawCritMin) && rawCritMin >= 1 ? Math.min(20, Math.floor(rawCritMin)) : 20
     const critDiceMultiplier = Math.max(2, Number(atk?.critDiceMultiplier) || 2)
 
     let natural, diceValues, formula
@@ -1591,13 +1592,19 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
         const expr = String(d?.dice || '').trim()
         if (!expr) continue
         const type = String(d?.type || '').trim() || '—'
-        for (let k = 0; k < mult; k++) {
-          const pool = rollCombatDicePool(expr)
-          if (!pool.parsed) continue
-          byType[type] = (byType[type] || 0) + pool.diceSum + pool.flatMod
-          animParts.push(expr)
-          animValues.push(...pool.rolls)
+        const first = rollCombatDicePool(expr)
+        if (!first.parsed) continue
+        // 重击只翻倍骰面，表达式自带的 ±N 加一次（与 rollCombatDicePool 注释、CombatStatus 投掷口径一致）
+        const { count, sides, flatMod: exprFlat } = first.parsed
+        let sum = first.diceSum + exprFlat
+        animValues.push(...first.rolls)
+        for (let k = 1; k < mult; k++) {
+          const again = rollCombatDicePool(expr)
+          sum += again.diceSum
+          animValues.push(...again.rolls)
         }
+        byType[type] = (byType[type] || 0) + sum
+        animParts.push(`${count * mult}d${sides}${exprFlat ? `${exprFlat > 0 ? '+' : ''}${exprFlat}` : ''}`)
       }
       if (flatMod) {
         const types = Object.keys(byType)
