@@ -955,14 +955,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const saveWeaponConfig = (derivedMean, nextConfig) => {
     const inv = Array.isArray(char?.inventory) ? char.inventory : []
     const idx = inv.findIndex((e) => e?.id === derivedMean?.weaponInventoryId)
-    if (idx < 0) return
+    if (idx < 0) return false
     const prev = (inv[idx].combatMeanConfig && typeof inv[idx].combatMeanConfig === 'object') ? inv[idx].combatMeanConfig : {}
     const nextEntry = { ...inv[idx], combatMeanConfig: { ...prev, ...nextConfig } }
     onSave({ inventory: inv.map((e, i) => (i === idx ? nextEntry : e)) })
+    return true
   }
   const submitWeaponConfig = () => {
     if (!editingDerivedMean) return
-    saveWeaponConfig(editingDerivedMean, buildWeaponMeanConfig(editingDerivedMean, {
+    const saved = saveWeaponConfig(editingDerivedMean, buildWeaponMeanConfig(editingDerivedMean, {
       nameSuffix: addWeaponNameSuffix,
       damageType: addDamageType,
       versatileMode: addWeaponMode,
@@ -971,6 +972,11 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       ability: addAbility,
       gains: addGains,
     }))
+    // 编辑期间武器被卸下或删除：静默关窗会让玩家以为配置已经存下
+    if (!saved) {
+      alert('这把武器已不在背包里，配置无法保存。')
+      return
+    }
     setEditingDerivedMean(null)
     setEditingCombatMeanId(null)
     setShowWeaponExtraDiceEditor(false)
