@@ -74,6 +74,10 @@ function saveLib(moduleId, library) {
   }
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('dnd-realtime-module-library'))
+    // 专长配置存在模组库而非独立补丁表，须同样通知 BUFF 重算，否则保存后卡片停留在旧数值
+    window.dispatchEvent(
+      new CustomEvent(DEFAULT_BUFF_PATCHES_EVENT, { detail: { moduleId: normMod(moduleId) } }),
+    )
   }
 }
 
@@ -162,7 +166,7 @@ function findFeatTemplate(library, featId) {
  * @param {string} moduleId
  * @param {'feat'|'invocation'|'fightingStyle'|'classFeature'} kind
  * @param {string} id - 对 classFeature 使用 buildClassFeatureBuffKey() 生成的复合 key
- * @returns {{ effects: Array, duration?: string, enabled?: boolean } | null}
+ * @returns {{ effects: Array, duration?: string, enabled?: boolean, tombstone?: true, cardScope?: object } | null}
  */
 export function loadDefaultBuffPatch(moduleId, kind, id) {
   if (!id) return null
@@ -175,8 +179,10 @@ export function loadDefaultBuffPatch(moduleId, kind, id) {
     const duration = cloneDurationRaw(t.duration)
     return {
       effects: Array.isArray(t.effects) ? t.effects : [],
+      ...(t.tombstone ? { tombstone: true } : {}),
       ...(duration ? { duration } : {}),
       ...(t.enabled === false ? { enabled: false } : {}),
+      ...(t.cardScope && typeof t.cardScope === 'object' ? { cardScope: t.cardScope } : {}),
     }
   }
 
@@ -196,12 +202,12 @@ export function loadDefaultBuffPatch(moduleId, kind, id) {
 }
 
 /**
- * 保存默认 BUFF 补丁（空效果且无持续时间则删除）
+ * 保存默认 BUFF 补丁（空效果且无持续时间写墓碑模板，而非删除）
  * 专长类型写入模组库 buffTemplates（sourceKind='feat'），其他类型写入独立存储。
  * @param {string} moduleId
  * @param {'feat'|'invocation'|'fightingStyle'|'classFeature'} kind
  * @param {string} id
- * @param {{ effects?: Array, duration?: string, enabled?: boolean, sourceName?: string } | null} patch
+ * @param {{ effects?: Array, duration?: string, enabled?: boolean, sourceName?: string, cardScope?: object } | null} patch
  */
 export function saveDefaultBuffPatch(moduleId, kind, id, patch) {
   if (!id) return
@@ -214,13 +220,17 @@ export function saveDefaultBuffPatch(moduleId, kind, id, patch) {
     const duration = cloneDurationRaw(patch?.duration)
     const enabled = patch?.enabled !== false
     const sourceName = patch?.sourceName || id
+    const hasCardScope = !!(patch?.cardScope && typeof patch.cardScope === 'object'
+      && patch.cardScope.type && patch.cardScope.type !== 'global')
+    const tplId = idx !== -1 ? library.buffTemplates[idx].id : generateId('bufftpl')
 
-    if (effects.length === 0 && !duration && enabled) {
-      // 删除
-      if (idx !== -1) library.buffTemplates.splice(idx, 1)
+    let tpl
+    if (effects.length === 0 && !duration && enabled && !hasCardScope) {
+      // 墓碑：DM 显式清空须与「从未配置」区分，否则读取端回退硬编码模板使清空复活
+      tpl = { id: tplId, source: sourceName, sourceKind: 'feat', featId: id, effects: [], enabled: true, tombstone: true }
     } else {
-      const tpl = {
-        id: idx !== -1 ? library.buffTemplates[idx].id : generateId('bufftpl'),
+      tpl = {
+        id: tplId,
         source: sourceName,
         sourceKind: 'feat',
         featId: id,
@@ -228,12 +238,12 @@ export function saveDefaultBuffPatch(moduleId, kind, id, patch) {
         enabled,
       }
       if (duration) tpl.duration = duration
-      if (idx !== -1) {
-        library.buffTemplates[idx] = tpl
-      } else {
-        library.buffTemplates.push(tpl)
-      }
+      if (hasCardScope) tpl.cardScope = { ...patch.cardScope }
     }
+
+    if (idx !== -1) library.buffTemplates[idx] = tpl
+    else library.buffTemplates.push(tpl)
+
     saveLib(moduleId, library)
     return
   }
