@@ -12,8 +12,8 @@ import * as cmUtils from './combatMeanUtils'
 describe('CombatStatus 对 combatMeanUtils 的导入完整性', () => {
   const src = readFileSync(join(process.cwd(), 'src/components/CombatStatus.jsx'), 'utf8')
   const lines = src.split('\n')
-  const start = lines.findIndex((l) => l === 'import {')
-  const end = lines.findIndex((l, i) => i > start && l === "} from './combat/combatMeanUtils'")
+  const end = lines.findIndex((l) => l === "} from './combat/combatMeanUtils'")
+  const start = lines.slice(0, end).lastIndexOf('import {')
   const importBlock = lines.slice(start + 1, end).join(',')
   const body = lines.slice(0, start).concat(lines.slice(end + 1)).join('\n')
 
