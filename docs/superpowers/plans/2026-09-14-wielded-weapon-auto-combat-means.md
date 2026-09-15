@@ -770,6 +770,19 @@ git add src/components/combat/deriveWieldedWeaponMeans.js src/components/combat/
 git commit -m "feat: 手持武器自动派生战斗手段卡纯函数"
 ```
 
+- [ ] **Step 6（实现后回填的交接要点，供 Task 6/9/11/16 参考）**
+
+副手识别按**数组下标 `i === 1`**，不按 `slot.id === 'off'`。理由：`equipmentSlotUtils.js` 的 `SLOT_GROUPS`/`buildItemSlotMap`/`applySlotChange` 全按 `held_${index}` 下标语义读写，`EquipmentAndInventory.jsx` 的 `HELD_FIXED = 2` 使前两格永不被压缩或重排；而 `'main'`/`'off'` 只是新存档的默认字面量，`migrateSlots` 会把老槽位写成 `held_${i}`，`buffEffectCoverage.test.js:102` 里甚至有完全不带 `id` 的存档 —— 认 id 会让这些角色的副手**漏掉合法性校验**（更坏的失效方向）。
+
+派生卡输出的取值约定：
+- 卡上没有展示名字段；名字取 `card.weaponOpt.name`，背包下标取 `card.weaponInventoryIndex`（`weaponOpt` 本身没有 `.index`）。`buildDefaultGainsFromBuffs` 走的正是 `character.inventory[cm.weaponInventoryIndex]`，Task 8 无需改。
+- `damageType` 未配置时是 `''`，而旧持久化卡是 `null`；`weaponVersatileMode` 恒为具体字符串，旧卡可能是 `null`。后续任何 `!= null` 判断都要改成真值判断。
+- `available` **只**表达副手合法性，不含不熟练/装填/同调/资源状态。不熟练要不要灰卡、灰卡文案放哪，由 Task 6/9 决定；两处以上用到的原因字符串应收进共享枚举。
+- 备用位（下标 ≥ 2）各出一张 `1 动作` 卡，不做互相占用检查（设计已核准），Task 16 文档需向玩家说明。
+- `cfg.versatileMode` 优先于副手的 `bonus_action` 默认值。Task 11 若允许在副手物品上选攻击模式，必须先定这条优先级。
+- `extraDamageDice` / `disabledAutoGainKeys` 从 `entry.combatMeanConfig` 浅拷贝出来，防止下游 `push` 直接改写已存档物品数据。
+- 派生 id 前缀 `wielded_` 与持久化 id 前缀 `cm_` 天然不冲突；若合并后的列表要过 `normalizeCombatMeanType`，注意它会为 spell/combo 补 `null` 键。
+
 ---
 
 ### Task 6: 伤害加值规则 2/3/4
