@@ -475,6 +475,7 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
     }
     if (buff.effectType === 'spell_attack_bonus' && v && typeof v === 'object') {
       const modeLabel = SPELL_POWER_MODE_SHORT[v.mode] ?? SPELL_POWER_MODE_SHORT.both
+      if (isFormulaValue(v.value)) return `${modeLabel}${formatFormulaLabelWithEval(v.value, context)}`
       const val = v.value || 0
       const sign = val >= 0 ? '+' : ''
       return `${modeLabel}${sign}${val}`
@@ -488,7 +489,8 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
     }
     if (buff.effectType === 'attack_distance_range' && v && typeof v === 'object' && !Array.isArray(v)) {
       const parts = []
-      if (v.distance) parts.push(`距离${v.distance}尺`)
+      if (isFormulaValue(v.distance)) parts.push(`距离${formatFormulaLabelWithEval(v.distance, context)}`)
+      else if (v.distance) parts.push(`距离${v.distance}尺`)
       if (v.area && v.area.size > 0) {
         const kindLabel = { cone: '锥形', cube: '立方', sphere: '球形', line: '线形', radius: '半径' }[v.area.kind] || v.area.kind
         parts.push(`${kindLabel}${v.area.size}尺`)
@@ -497,13 +499,15 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
     }
     if (buff.effectType === 'healing_bonus' && v && typeof v === 'object') {
       const parts = []
-      if (v.perRoll) parts.push(`每治疗+${v.perRoll}`)
+      if (isFormulaValue(v.perRoll)) parts.push(`每治疗${formatFormulaLabelWithEval(v.perRoll, context)}`)
+      else if (v.perRoll) parts.push(`每治疗+${v.perRoll}`)
       if (v.perSlotLevel > 0) parts.push(`每环位+${v.perSlotLevel}`)
       return parts.join('，') || effectLabel
     }
     if (buff.effectType === 'death_save_bonus' && v && typeof v === 'object') {
       const parts = []
-      if (v.bonus) parts.push(`${v.bonus >= 0 ? '+' : ''}${v.bonus}`)
+      if (isFormulaValue(v.bonus)) parts.push(formatFormulaLabelWithEval(v.bonus, context))
+      else if (v.bonus) parts.push(`${v.bonus >= 0 ? '+' : ''}${v.bonus}`)
       if (v.advantage === 'advantage') parts.push('优势')
       if (v.advantage === 'disadvantage') parts.push('劣势')
       return parts.length ? `${effectLabel} ${parts.join(' ')}`.trim() : effectLabel
@@ -945,6 +949,7 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
     }
     if (buff.effectType === 'spell_attack_bonus' && v && typeof v === 'object') {
       const modeLabel = SPELL_POWER_MODE_SHORT[v.mode] ?? SPELL_POWER_MODE_SHORT.both
+      if (isFormulaValue(v.value)) return { label: modeLabel, value: formatFormulaLabelWithEval(v.value, context) }
       const val = v.value || 0
       const sign = val >= 0 ? '+' : ''
       return { label: modeLabel, value: `${sign}${val}` }
@@ -958,7 +963,8 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
     }
     if (buff.effectType === 'attack_distance_range' && v && typeof v === 'object' && !Array.isArray(v)) {
       const parts = []
-      if (v.distance) parts.push(`${v.distance}尺`)
+      if (isFormulaValue(v.distance)) parts.push(formatFormulaLabelWithEval(v.distance, context))
+      else if (v.distance) parts.push(`${v.distance}尺`)
       if (v.area && v.area.size > 0) {
         const kindLabel = { cone: '锥', cube: '立方', sphere: '球', line: '线', radius: '半径' }[v.area.kind] || v.area.kind
         parts.push(`${kindLabel}${v.area.size}尺`)
@@ -967,13 +973,15 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
     }
     if (buff.effectType === 'healing_bonus' && v && typeof v === 'object') {
       const parts = []
-      if (v.perRoll) parts.push(`每掷+${v.perRoll}`)
+      if (isFormulaValue(v.perRoll)) parts.push(`每掷${formatFormulaLabelWithEval(v.perRoll, context)}`)
+      else if (v.perRoll) parts.push(`每掷+${v.perRoll}`)
       if (v.perSlotLevel > 0) parts.push(`每环+${v.perSlotLevel}`)
       return { label: effectLabel, value: parts.length ? parts.join('，') : null }
     }
     if (buff.effectType === 'death_save_bonus' && v && typeof v === 'object') {
       const parts = []
-      if (v.bonus) parts.push(`${v.bonus >= 0 ? '+' : ''}${v.bonus}`)
+      if (isFormulaValue(v.bonus)) parts.push(formatFormulaLabelWithEval(v.bonus, context))
+      else if (v.bonus) parts.push(`${v.bonus >= 0 ? '+' : ''}${v.bonus}`)
       if (v.advantage === 'advantage') parts.push('优势')
       if (v.advantage === 'disadvantage') parts.push('劣势')
       return { label: effectLabel, value: parts.length ? parts.join(' ') : null }

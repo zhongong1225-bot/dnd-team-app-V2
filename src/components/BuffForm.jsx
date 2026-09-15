@@ -267,7 +267,7 @@ function normalizeInitialEffects(initial) {
 }
 
 /** 根据效果类型把 value 转为保存用的最终值 */
-function normalizeValueForSave(module, currentEffect) {
+export function normalizeValueForSave(module, currentEffect) {
   const { value, customText } = module
   if (!currentEffect) return value
   const isBoolean = currentEffect.dataType === 'boolean'
@@ -487,21 +487,21 @@ function normalizeValueForSave(module, currentEffect) {
   if (needsSubSelect === 'spellPower') {
     if (typeof value === 'number') return { mode: 'attack', value }
     if (value && typeof value === 'object' && !Array.isArray(value)) {
-      return { mode: ['both', 'attack', 'dc'].includes(value.mode) ? value.mode : 'both', value: Number(value.value) || 0 }
+      return { mode: ['both', 'attack', 'dc'].includes(value.mode) ? value.mode : 'both', value: isFormulaValue(value.value) ? value.value : (Number(value.value) || 0) }
     }
     return { mode: 'both', value: 0 }
   }
   if (needsSubSelect === 'deathSaveBonus') {
     if (typeof value === 'number') return { bonus: value, advantage: '' }
     if (value && typeof value === 'object' && !Array.isArray(value)) {
-      return { bonus: Number(value.bonus) || 0, advantage: ['', 'advantage', 'disadvantage'].includes(value.advantage) ? value.advantage : '' }
+      return { bonus: isFormulaValue(value.bonus) ? value.bonus : (Number(value.bonus) || 0), advantage: ['', 'advantage', 'disadvantage'].includes(value.advantage) ? value.advantage : '' }
     }
     return { bonus: 0, advantage: '' }
   }
   if (needsSubSelect === 'healingBonus') {
     if (typeof value === 'number') return { perRoll: value, perSlotLevel: 0 }
     if (value && typeof value === 'object' && !Array.isArray(value)) {
-      return { perRoll: Number(value.perRoll) || 0, perSlotLevel: Number(value.perSlotLevel) || 0 }
+      return { perRoll: isFormulaValue(value.perRoll) ? value.perRoll : (Number(value.perRoll) || 0), perSlotLevel: Number(value.perSlotLevel) || 0 }
     }
     return { perRoll: 0, perSlotLevel: 0 }
   }
@@ -516,7 +516,7 @@ function normalizeValueForSave(module, currentEffect) {
   if (needsSubSelect === 'attackDistanceRange') {
     if (typeof value === 'number') return { distance: value, area: null }
     if (value && typeof value === 'object' && !Array.isArray(value)) {
-      const distance = Number(value.distance) || 0
+      const distance = isFormulaValue(value.distance) ? value.distance : (Number(value.distance) || 0)
       const area = value.area && typeof value.area === 'object'
         ? { kind: ['cone', 'cube', 'sphere', 'line', 'radius'].includes(value.area.kind) ? value.area.kind : 'cone', size: Number(value.area.size) || 0 }
         : null
@@ -5699,7 +5699,7 @@ function EffectValueEditor({
               <option value="dc">仅DC</option>
             </select>
             <NumberStepper value={v.value ?? 0} compact narrow className="!h-6" referenceData={activeReferenceData}
-              onChange={(n) => onChange({ ...module, value: { ...v, value: Number(n) || 0 } })} />
+              onChange={(n) => onChange({ ...module, value: { ...v, value: isFormulaValue(n) ? n : (Number(n) || 0) } })} />
           </div>
         )
       })() : needsSubSelect === 'deathSaveBonus' ? (() => {
@@ -5709,7 +5709,7 @@ function EffectValueEditor({
           <div className="rounded-md bg-[#161e2b]/50 p-2.5 flex items-center gap-3 w-full">
             <span className={lblCls}>死亡豁免</span>
             <NumberStepper value={v.bonus ?? 0} compact narrow className="!h-6" referenceData={activeReferenceData}
-              onChange={(n) => onChange({ ...module, value: { ...v, bonus: Number(n) || 0 } })} />
+              onChange={(n) => onChange({ ...module, value: { ...v, bonus: isFormulaValue(n) ? n : (Number(n) || 0) } })} />
             <select value={v.advantage ?? ''}
               onChange={(e) => onChange({ ...module, value: { ...v, advantage: e.target.value } })}
               className={panelInputCls + ' !py-1 text-xs min-w-[5rem]'}>
@@ -5727,7 +5727,7 @@ function EffectValueEditor({
             <div className="flex items-center gap-2">
               <span className={lblCls}>每治疗投掷</span>
               <NumberStepper value={v.perRoll ?? 0} compact narrow className="!h-6" referenceData={activeReferenceData}
-                onChange={(n) => onChange({ ...module, value: { ...v, perRoll: Number(n) || 0 } })} />
+                onChange={(n) => onChange({ ...module, value: { ...v, perRoll: isFormulaValue(n) ? n : (Number(n) || 0) } })} />
             </div>
             <div className="flex items-center gap-2">
               <span className={lblCls}>每环位</span>
@@ -5767,7 +5767,7 @@ function EffectValueEditor({
             <div className="flex items-center gap-2">
               <span className={lblCls}>距离（尺）</span>
               <NumberStepper value={v.distance ?? 0} compact narrow className="!h-6" min={0} step={5} referenceData={activeReferenceData}
-                onChange={(n) => onChange({ ...module, value: { ...v, distance: Number(n) || 0 } })} />
+                onChange={(n) => onChange({ ...module, value: { ...v, distance: isFormulaValue(n) ? n : (Number(n) || 0) } })} />
             </div>
             <div className="flex items-center gap-2">
               <span className={lblCls}>范围类型</span>
