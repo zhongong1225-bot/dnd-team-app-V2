@@ -265,7 +265,7 @@ const LEGACY_FIREARM_IDS = ['gun_blunderbuss', 'gun_musket', 'gun_pistol']
 在文件顶部的 import 中加入：
 
 ```js
-import { getItemList } from '../data/itemDatabase'
+import { getItemList, ITEM_DATABASE } from '../data/itemDatabase'
 import { collectTierMemberIds } from '../lib/weaponProficiency'
 ```
 
@@ -282,10 +282,10 @@ import { collectTierMemberIds } from '../lib/weaponProficiency'
   }, [])
 ```
 
-`:271-272` 两行改为从原型派生（同时提供整组按钮与折叠标签所需）：
+`:271-272` 两行改为从原型派生（同时提供整组按钮与折叠标签所需）。**只取内置 `ITEM_DATABASE`，不要取 `getItemList()`**：整组成员集合必须与旧存档批量写入的那份内置 id 列表一致，否则只要有人往团队共享的自定义物品库里加一把军用武器，所有靠"逐一全选"推定熟练的老角色就会集体失去军用熟练加值。内置按钮不勾选自定义武器是改造前的既有行为，自定义武器仍可在下拉里逐把勾选。
 
 ```js
-  const tierMemberIds = useMemo(() => collectTierMemberIds(getItemList()), [])
+  const tierMemberIds = useMemo(() => collectTierMemberIds(ITEM_DATABASE), [])
   const simpleWeaponIds = tierMemberIds.simple
   const martialWeaponIds = tierMemberIds.martial
 ```
@@ -1048,7 +1048,7 @@ git commit -m "feat: computeLiveGains 渲染期现算战斗手段增益"
 ```js
 import { deriveWieldedWeaponMeans } from './combat/deriveWieldedWeaponMeans'
 import { collectTierMemberIds } from '../lib/weaponProficiency'
-import { getItemList } from '../data/itemDatabase'
+import { getItemList, ITEM_DATABASE } from '../data/itemDatabase'
 import { sanitizeLegacyCombatMeans, computeLiveGains } from './combat/combatMeanUtils'
 ```
 
@@ -1105,7 +1105,7 @@ import { sanitizeLegacyCombatMeans, computeLiveGains } from './combat/combatMean
 必须放在 `combatMeans` 之后：`renderedMeans` 引用了它，放在 `mergedBuffs`（`:498`）与 `buffStats`（`:514`）处会踩到 `const` 的暂时性死区、渲染时直接抛 `Cannot access 'combatMeans' before initialization`。
 
 ```js
-  const tierMemberIds = useMemo(() => collectTierMemberIds(getItemList()), [])
+  const tierMemberIds = useMemo(() => collectTierMemberIds(ITEM_DATABASE), [])
   const profWeaponIds = useMemo(
     () => (Array.isArray(char?.proficiencies?.weapons) ? char.proficiencies.weapons : []),
     [char?.proficiencies?.weapons],
