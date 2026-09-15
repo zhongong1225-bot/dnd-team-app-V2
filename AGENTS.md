@@ -206,7 +206,8 @@ data/*.js（静态字典）
 
 ### 5.1 护盾池 (shield_pool)
 
-- `(current)` 值在 `getFlatEffectEntries` 中作为 `ac_bonus` 注入（值=shieldPoolCurrent）
+- `getFlatEffectEntries` 在 `shield_pool` 条目上挂 `acBase` = max(当前层数, threshold)，阈值即 AC 下限；`computeBuffStats` 用「装备AC − 护甲基准 + acBase」替换基准，保留敏捷/盾牌/魔法加值
+- 不要恢复旧的「注入 `ac_bonus = current − 10` 并强制 baseAC=10」写法，它会抹掉护甲的敏捷与盾牌贡献
 - `shield_pool` 效果物品即使未同调也会生成 BUFF 条目（`getBuffsFromEquipmentAndInventory` 特殊处理）
 - `wornArmorWithShieldPool` 直接读 inventory 无 isAttuned 检查
 - **两处逻辑必须保持一致**
