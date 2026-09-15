@@ -1193,6 +1193,10 @@ function ConfirmStepContent({
   const presetAtk = attackPreset?.getAttack ? attackPreset.getAttack() : null
   const presetPlan = attackPreset?.getDamagePlan ? attackPreset.getDamagePlan() : null
   const presetFlatMod = Number(presetPlan?.flatMod) || 0
+  const presetCritRaw = Number(presetAtk?.critThreatMinNatural)
+  const presetCritMin = Number.isFinite(presetCritRaw) && presetCritRaw >= 1 && presetCritRaw <= 20 ? presetCritRaw : null
+  const presetMultRaw = Number(presetAtk?.critDiceMultiplier)
+  const presetCritMult = Number.isFinite(presetMultRaw) && presetMultRaw >= 1 ? presetMultRaw : 2
   const spellAttackBonus = flowType === 'attack' && !attackPreset ? computeSpellAttack() : null
   const spellDC = flowType === 'save' ? computeSpellDC() : null
   const attackBonusShown = attackPreset ? (Number(presetAtk?.bonus) || 0) : spellAttackBonus
@@ -1208,6 +1212,12 @@ function ConfirmStepContent({
       {flowType === 'attack' && (
         <div className="px-2.5 py-1.5 rounded bg-[#232a3b] border border-gray-700/50 text-[11px] text-gray-300">
           🎯 {attackPreset ? '攻击加值' : '法术攻击加值'}：<span className="text-dnd-gold-light">{attackBonusShown != null ? `${attackBonusShown >= 0 ? '+' : ''}${attackBonusShown}` : '?'}</span>
+          {presetAtk?.advantage === 'advantage' && <span className="text-emerald-300">　优势</span>}
+          {presetAtk?.advantage === 'disadvantage' && <span className="text-red-300">　劣势</span>}
+          {presetCritMin != null && presetCritMin < 20 && (
+            <span className="text-red-300">　重击 {presetCritMin}-20{presetCritMult !== 2 ? `（骰面 ×${presetCritMult}）` : ''}</span>
+          )}
+          {presetCritMin == null && presetCritMult !== 2 && <span className="text-red-300">　重击骰面 ×{presetCritMult}</span>}
           <span className="text-gray-500">（投 d20 后询问 DM 是否命中）</span>
         </div>
       )}
@@ -1487,7 +1497,8 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
       }
       lines.push(`消耗 ${amt} ${resLabel}`)
     } else if (isNone) {
-      lines.push('无资源消耗')
+      // 物理攻击预设天然无资源，写出来反而像异常，只在真有效果/充能流里保留这行
+      if (!attackPreset) lines.push('无资源消耗')
     } else {
       // charges 类型：从物品库存中扣减充能
       const invId = effectiveChargeValue?.itemInventoryId || ''
