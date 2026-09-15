@@ -1,0 +1,124 @@
+<h2>职业特性：怎么一眼扫出"哪些能主动放"？</h2>
+<p class="subtitle">现状：被动特性的名字是纯文字，可释放的名字是一个描边极淡的深色框 —— 框和卡片底色几乎同色，竖着扫下来分不出来。更麻烦的是"战斗风格｜双武器战斗"那种选择结果也是白描边框，看起来像第二个按钮。下面三屏都保持"名字和释放按钮在同一个控件内"，不拆成两行。</p>
+
+<style>
+  .cl { width: 650px; max-width: 100%; font-family: 'Noto Sans SC', sans-serif; }
+  .card { background: linear-gradient(180deg,#161e2b 0%,#141c28 50%,#121a25 100%); border:1px solid rgba(255,255,255,0.06); border-radius:8px; margin-bottom:8px; overflow:hidden; }
+  .row { display:grid; grid-template-columns: 1fr 2fr 8fr 6fr 1fr 1fr; height:52px; align-items:center; }
+  .cell { height:100%; display:flex; align-items:center; border-right:1px solid #2a3a4e; box-sizing:border-box; padding:0 6px; }
+  .c1 { justify-content:center; writing-mode:vertical-rl; font-size:12px; color:#8899aa; letter-spacing:1px; }
+  .c2 { flex-direction:column; align-items:flex-start; justify-content:center; gap:2px; font-size:11px; color:#8899aa; line-height:1.2; }
+  .c3 { justify-content:center; position:relative; }
+  .c4 { font-size:11px; color:#8899aa; line-height:1.3; align-items:center; }
+  .c6 { justify-content:center; border-right:none; color:#667788; }
+  .nm { font-size:14px; font-weight:700; color:#fff; letter-spacing:2px; }
+  .badge { margin-left:8px; font-size:12px; font-weight:600; color:#fff; border:1px solid rgba(255,255,255,0.3); border-radius:4px; padding:2px 8px; letter-spacing:1px; }
+  .gear { font-size:13px; }
+  /* 现行细线微光按钮 */
+  .eb { position:relative; display:flex; align-items:center; width:100%; height:36px; box-sizing:border-box; padding:0 10px; border-radius:6px;
+        border:1px solid rgba(139,163,194,0.18); background:linear-gradient(180deg,#1d2735 0%,#17202d 100%);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.25), 0 1px 3px rgba(0,0,0,0.3); }
+  .eb .n { flex:1; min-width:0; text-align:center; font-size:14px; font-weight:600; color:#fff; letter-spacing:2px; text-shadow:0 1px 3px rgba(0,0,0,.8); }
+  .eb .ci { font-size:11px; font-weight:700; color:#8899aa; margin-left:8px; flex-shrink:0; }
+  .zap { color:#c79a42; font-size:15px; margin-left:6px; flex-shrink:0; line-height:1; }
+  .opt-h { font-size:13px; font-weight:700; color:#c79a42; margin:0 0 6px; }
+  .note { font-size:12px; color:#8fa3bd; margin:6px 0 0; line-height:1.5; }
+</style>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>金竖条 + 闪电挪到名字左边</h3>
+      <p class="opt-h">让"能按"这件事在名字本身旁边发生，而不是在 274px 宽的那格最右端。</p>
+      <div class="cl">
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>1级获得</span><span>火铳手</span></div>
+          <div class="cell c3"><span class="nm">火器专精</span></div><div class="cell c4">火器熟练</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>1级获得</span><span>战士</span></div>
+          <div class="cell c3"><span class="nm">战斗风格</span><span class="badge">双武器战斗</span></div><div class="cell c4"></div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>1级获得</span><span>战士</span></div>
+          <div class="cell c3"><div class="eb" style="border-color:rgba(199,154,66,0.34); padding-left:14px;">
+            <span style="position:absolute;left:0;top:0;bottom:0;width:3px;background:#c79a42;border-radius:6px 0 0 6px;"></span>
+            <span class="zap" style="margin-left:0;">⚡</span><span class="n">回气</span><span class="ci">1</span>
+          </div></div>
+          <div class="cell c4">消耗：回气｜治疗 1d10+战士等级</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>2级获得</span><span>火铳手</span></div>
+          <div class="cell c3"><span class="nm">专注点</span></div><div class="cell c4">floor(火铳手等级/2)</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+      </div>
+      <p class="note">竖排扫描时看到的是"左端一条金线"，不用读名字。选择结果徽章保持白描边，和金竖条区分开。改动最小，只动按钮内部。</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>整张卡最左列打金标</h3>
+      <p class="opt-h">按钮本身完全不动，改的是"这张卡"而不是"这个按钮"。</p>
+      <div class="cl">
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>1级获得</span><span>火铳手</span></div>
+          <div class="cell c3"><span class="nm">火器专精</span></div><div class="cell c4">火器熟练</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>1级获得</span><span>战士</span></div>
+          <div class="cell c3"><span class="nm">战斗风格</span><span class="badge">双武器战斗</span></div><div class="cell c4"></div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+        <div class="card" style="border-left:2px solid #c79a42;"><div class="row">
+          <div class="cell c1" style="background:rgba(199,154,66,0.13); color:#c79a42; font-weight:700;">职业</div>
+          <div class="cell c2"><span>1级获得</span><span>战士</span></div>
+          <div class="cell c3"><div class="eb"><span class="n">回气</span><span class="ci">1</span><span class="zap">⚡</span></div></div>
+          <div class="cell c4">消耗：回气｜治疗 1d10+战士等级</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>2级获得</span><span>火铳手</span></div>
+          <div class="cell c3"><span class="nm">专注点</span></div><div class="cell c4">floor(火铳手等级/2)</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+      </div>
+      <p class="note">扫最左边一列就行，离屏幕边缘最近、视线最先落到的位置。代价：你之前定过"类别标签统一灰蓝、不要颜色区隔"，这里给可释放行的标签上了金 —— 那是按"能不能放"分色，不是按职业/专长分色，但确实破了那条规矩。</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>按钮整体提亮 + 摘要列也打点</h3>
+      <p class="opt-h">不加新颜色元素，靠明度差把可释放的框从卡片底色里拉出来。</p>
+      <div class="cl">
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>1级获得</span><span>火铳手</span></div>
+          <div class="cell c3"><span class="nm">火器专精</span></div><div class="cell c4">火器熟练</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>1级获得</span><span>战士</span></div>
+          <div class="cell c3"><span class="nm">战斗风格</span><span class="badge">双武器战斗</span></div><div class="cell c4"></div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>1级获得</span><span>战士</span></div>
+          <div class="cell c3"><div class="eb" style="border-color:rgba(199,154,66,0.5); background:linear-gradient(180deg,#33455f 0%,#27374d 100%); box-shadow:inset 0 1px 0 rgba(255,255,255,0.14), inset 0 -1px 0 rgba(0,0,0,0.3), 0 0 10px rgba(199,154,66,0.14);">
+            <span class="n">回气</span><span class="ci">1</span>
+            <span class="zap" style="margin-left:8px; display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border-radius:9999px; background:rgba(199,154,66,0.18);">⚡</span>
+          </div></div>
+          <div class="cell c4"><span class="zap" style="margin:0 5px 0 0; font-size:12px;">⚡</span>消耗：回气｜治疗 1d10+战士等级</div>
+          <div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>2级获得</span><span>火铳手</span></div>
+          <div class="cell c3"><span class="nm">专注点</span></div><div class="cell c4">floor(火铳手等级/2)</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+      </div>
+      <p class="note">两处提示（按钮本身 + 摘要列开头），漏看的概率最低。代价：按钮底色明显提亮后，和"细线微光"那种低调质感有偏离，且摘要列多一个小图标会稍显吵。</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:18px">可以在对话里直接说怎么改（比如"A 但不要闪电挪位"）。定了之后我再确认要不要同步到专长卡、种族特性卡 —— 那两处用的是同一个按钮组件。</p>

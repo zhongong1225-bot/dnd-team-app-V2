@@ -69,7 +69,7 @@ export const RACES = [
       {
         id: 'human_versatile',
         name: '多才多艺',
-        description: '你获得一项自选的起源专长。推荐选择熟习（Skilled）专长。',
+        description: '你获得一项自选的起源专长。推荐选择熟习专长。',
         cards: [],
         grantsOriginFeat: true,
       },
@@ -305,8 +305,8 @@ export const RACES = [
         choiceOptions: [
           {
             id: 'drow',
-            label: '卓尔 Drow',
-            description: '黑暗视觉提升至120尺。习得戏法舞光术 Dancing Light。3级习得妖火 Faerie Fire，5级习得黑暗术 Darkness。',
+            label: '卓尔',
+            description: '黑暗视觉提升至120尺。习得戏法舞光术。3级习得妖火，5级习得黑暗术。',
             cards: [
               { effectType: 'darkvision_bonus', value: { bonus: 60 } }, // 基础60 + 额外60 = 120
               { effectType: 'spell_granted', value: { cantrips: ['dancing_lights'], level1: ['faerie_fire'], level2: ['darkness'] } },
@@ -314,16 +314,16 @@ export const RACES = [
           },
           {
             id: 'high_elf',
-            label: '高等精灵 High Elf',
-            description: '知晓戏法魔法伎俩 Prestidigitation。每当你完成长休时，你可以将它替换为法师法术列表中的另一个戏法。3级习得侦测魔法 Detect Magic，5级习得迷踪步 Misty Step。',
+            label: '高等精灵',
+            description: '知晓戏法魔法伎俩。每当你完成长休时，你可以将它替换为法师法术列表中的另一个戏法。3级习得侦测魔法，5级习得迷踪步。',
             cards: [
               { effectType: 'spell_granted', value: { cantrips: ['prestidigitation'], level1: ['detect_magic'], level2: ['misty_step'] } },
             ],
           },
           {
             id: 'wood_elf',
-            label: '木精灵 Wood Elf',
-            description: '速度提升至35尺。知晓戏法德鲁伊伎俩 Druidcraft。3级习得大步奔行 Longstrider，5级习得行动无踪 Pass without Trace。',
+            label: '木精灵',
+            description: '速度提升至35尺。知晓戏法德鲁伊伎俩。3级习得大步奔行，5级习得行动无踪。',
             cards: [
               { effectType: 'speed_bonus', value: { type: 'walk', bonus: 5 } }, // 基础30 + 5 = 35
               { effectType: 'spell_granted', value: { cantrips: ['druidcraft'], level1: ['longstrider'], level2: ['pass_without_trace'] } },
@@ -358,7 +358,7 @@ export const RACES = [
       },
       {
         id: 'elf_trance',
-        name: '出神 Trance',
+        name: '出神',
         description: '你无需睡眠，魔法也无法使你陷入睡眠。利用出神冥想，你可以仅用4小时完成长休，且在这期间保持意识清醒。',
         cards: [],
       },
@@ -369,9 +369,9 @@ export const RACES = [
         name: '精灵血系',
         dice: 'd3',
         rows: [
-          { roll: '1', text: '卓尔 Drow - 黑暗视觉120尺，舞光术，妖火(3级)，黑暗术(5级)' },
-          { roll: '2', text: '高等精灵 High Elf - 魔法伎俩，可替换戏法，侦测魔法(3级)，迷踪步(5级)' },
-          { roll: '3', text: '木精灵 Wood Elf - 速度35尺，德鲁伊伎俩，大步奔行(3级)，行动无踪(5级)' },
+          { roll: '1', text: '卓尔 - 黑暗视觉120尺，舞光术，妖火(3级)，黑暗术(5级)' },
+          { roll: '2', text: '高等精灵 - 魔法伎俩，可替换戏法，侦测魔法(3级)，迷踪步(5级)' },
+          { roll: '3', text: '木精灵 - 速度35尺，德鲁伊伎俩，大步奔行(3级)，行动无踪(5级)' },
         ],
       },
     ],
@@ -391,20 +391,20 @@ export const RACES = [
     traits: [
       {
         id: 'tiefling_darkvision',
-        name: '黑暗视觉 Darkvision',
+        name: '黑暗视觉',
         description: '你拥有60尺黑暗视觉。',
         cards: [],
       },
       {
         id: 'tiefling_fiendish_legacy',
-        name: '邪魔遗赠 Fiendish Legacy',
+        name: '邪魔遗赠',
         description: '你承载着一份给予了你超自然能力的邪魔遗赠。从邪魔遗赠表格中选择其一。你获得该遗赠的1级好处。当你到达3级和5级时，你分别习得一道表格上更高级的法术；你时刻准备着这道习得的法术，且可以不消耗法术位施展此法术一次，当你完成一次长休时，你重获施展该道法术的能力。你也可以用任何你拥有的相应环阶法术位施展该道法术。\n\n选择遗赠时，从智力、感知、魅力中选择一项属性，该属性是你用此特质施展法术时的施法属性。',
         cards: [],
         choiceOptions: [
           {
             id: 'abyssal',
-            label: '深渊 Abyssal',
-            description: '获得对毒素伤害的抗性。习得戏法毒气喷涌 Poison Spray。3级习得致病射线 Ray of Sickness，5级习得定身类人 Hold Person。',
+            label: '深渊',
+            description: '获得对毒素伤害的抗性。习得戏法毒气喷涌。3级习得致病射线，5级习得定身类人。',
             cards: [
               { effectType: 'damage_type_relation', value: { types: ['poison'], relation: 'resist' } },
               { effectType: 'spell_granted', value: { cantrips: ['poison_spray'], level1: ['ray_of_sickness'], level2: ['hold_person'] } },
@@ -412,8 +412,8 @@ export const RACES = [
           },
           {
             id: 'chthonic',
-            label: '幽冥 Chthonic',
-            description: '获得对暗蚀伤害的抗性。习得戏法枯萎之触 Chill Touch。3级习得虚假生命 False Life，5级习得衰弱射线 Ray of Enfeeblement。',
+            label: '幽冥',
+            description: '获得对暗蚀伤害的抗性。习得戏法枯萎之触。3级习得虚假生命，5级习得衰弱射线。',
             cards: [
               { effectType: 'damage_type_relation', value: { types: ['necrotic'], relation: 'resist' } },
               { effectType: 'spell_granted', value: { cantrips: ['chill_touch'], level1: ['false_life'], level2: ['ray_of_enfeeblement'] } },
@@ -421,8 +421,8 @@ export const RACES = [
           },
           {
             id: 'infernal',
-            label: '炼狱 Infernal',
-            description: '获得对火焰伤害的抗性。习得戏法火焰箭 Fire Bolt。3级习得炼狱叱喝 Hellish Rebuke，5级习得黑暗术 Darkness。',
+            label: '炼狱',
+            description: '获得对火焰伤害的抗性。习得戏法火焰箭。3级习得炼狱叱喝，5级习得黑暗术。',
             cards: [
               { effectType: 'damage_type_relation', value: { types: ['fire'], relation: 'resist' } },
               { effectType: 'spell_granted', value: { cantrips: ['fire_bolt'], level1: ['hellish_rebuke'], level2: ['darkness'] } },
@@ -432,8 +432,8 @@ export const RACES = [
       },
       {
         id: 'tiefling_otherworldly_presence',
-        name: '异界存在 Otherworldly Presence',
-        description: '你习得戏法奇术 Thaumaturgy。用此特质施展它时，这道法术使用与你的邪魔遗赠特质使用相同的施法属性。',
+        name: '异界存在',
+        description: '你习得戏法奇术。用此特质施展它时，这道法术使用与你的邪魔遗赠特质使用相同的施法属性。',
         cards: [
           { effectType: 'spell_granted', value: { cantrips: ['thaumaturgy'] } },
         ],
@@ -442,12 +442,12 @@ export const RACES = [
     tables: [
       {
         id: 'fiendish_legacies',
-        name: '邪魔遗赠 Fiendish Legacies',
+        name: '邪魔遗赠',
         dice: 'd3',
         rows: [
-          { roll: '1', text: '深渊 Abyssal - 毒素抗性，毒气喷涌，致病射线(3级)，定身类人(5级)' },
-          { roll: '2', text: '幽冥 Chthonic - 暗蚀抗性，枯萎之触，虚假生命(3级)，衰弱射线(5级)' },
-          { roll: '3', text: '炼狱 Infernal - 火焰抗性，火焰箭，炼狱叱喝(3级)，黑暗术(5级)' },
+          { roll: '1', text: '深渊 - 毒素抗性，毒气喷涌，致病射线(3级)，定身类人(5级)' },
+          { roll: '2', text: '幽冥 - 暗蚀抗性，枯萎之触，虚假生命(3级)，衰弱射线(5级)' },
+          { roll: '3', text: '炼狱 - 火焰抗性，火焰箭，炼狱叱喝(3级)，黑暗术(5级)' },
         ],
       },
     ],
