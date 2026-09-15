@@ -26,6 +26,13 @@ export default function AddWeaponStep({
   addGains, setAddGains, draftWeaponCm, buffStats, mergedBuffs, itemFormulaContext,
   editingCombatMeanId, onBack, onSave,
 }) {
+  // 伤害是否含属性调整值由算法给出（副手会被剥夺，除非有双武器战斗收益），只看熟练会把副手卡说错
+  const abilityInDamage = previewWeaponStats ? previewWeaponStats.canAddAbilityMod : weaponProficient
+  const proficiencyNote = !weaponProficient
+    ? '未熟练（命中不含熟练加值，伤害不含属性调整值）'
+    : abilityInDamage
+      ? '✓ 已熟练（命中含熟练加值，伤害含属性调整值）'
+      : '✓ 已熟练（命中含熟练加值；附赠攻击不加属性调整值，负值仍生效）'
   return (
     <>
       <h3 className="text-dnd-gold-light text-sm font-bold mb-3">{editingCombatMeanId ? '编辑武器' : '武器攻击'}</h3>
@@ -81,7 +88,7 @@ export default function AddWeaponStep({
         </div>
         <div className="flex items-center gap-2 text-xs">
           <span className={weaponProficient ? 'text-dnd-gold-light' : 'text-dnd-text-muted'}>
-            {weaponProficient ? '✓ 已熟练（命中含熟练加值，伤害含属性调整值）' : '未熟练（命中不含熟练加值，伤害不含属性调整值）'}
+            {proficiencyNote}
           </span>
         </div>
         {previewWeaponStats && (

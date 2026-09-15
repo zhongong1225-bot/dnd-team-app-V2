@@ -46,7 +46,7 @@ import {
   DAMAGE_TYPE_OPTIONS, DAMAGE_TYPE_SHORT, HIT_RESOLUTION_LABELS, COMBO_ATTACHMENT_SOURCE_TYPES, COMBO_CLASS_FEATURE_OPTIONS,
   inferDamageDiceFromText, isValidComboAttachment,
   getSpellAbilityForAttackFromBuffs, resolvePhysicalWeaponAbilityKind, isRangedWeaponProto, weaponUsesDex,
-  getDefaultWeaponMode, inferPhysicalWeaponAbilityFromProto, getWeaponModeOptions, getAbilityOptions, getWeaponBaseDamageObjects, stripDiceFlatMod, getWeaponNote, weaponHasTwoHanded, weaponHasThrown, weaponHasVersatile, weaponHasLight, isDualWieldingLightWeapons,
+  getDefaultWeaponMode, inferPhysicalWeaponAbilityFromProto, getAbilityOptions, getWeaponBaseDamageObjects, stripDiceFlatMod, getWeaponNote, weaponHasTwoHanded, weaponHasThrown, weaponHasVersatile, weaponHasLight, isDualWieldingLightWeapons,
   parseWeaponAttack, formatWeaponAttackDiceDisplay, formatSignedModifier, getWeaponAttackStringForParsing,
   getEnabledGains, sumGainAttackBonus, sumGainDamageBonus, sumGainPerDieBonus, getGainExtraDice, getGainAdvantage, hasGainDiceFloor2,
   computePhysicalWeaponStats, buildDefaultGainsFromBuffs,

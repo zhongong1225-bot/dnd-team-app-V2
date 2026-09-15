@@ -7,7 +7,7 @@
 import { getItemById, getItemDisplayName } from '../../data/itemDatabase'
 import { isWeaponProtoProficient } from '../../lib/weaponProficiency'
 import {
-  weaponHasLight, weaponHasTwoHanded, weaponHasVersatile, getDefaultWeaponMode, deriveDisabledAutoGainKeys,
+  weaponHasLight, weaponHasTwoHanded, weaponHasVersatile, getDefaultWeaponMode, getWeaponModeOptions, deriveDisabledAutoGainKeys,
 } from './combatMeanUtils'
 
 const WEAPON_TYPES = new Set(['近战武器', '远程武器', '枪械'])
@@ -86,7 +86,9 @@ export function deriveWieldedWeaponMeans(character, ctx = {}) {
         unavailableReason = offhandBlockReason(mainOpt, opt, ctx)
         available = unavailableReason === ''
       }
-      const modeFromConfig = ['one_hand', 'two_hand', 'ranged', 'bonus_action'].includes(cfg.versatileMode) ? cfg.versatileMode : null
+      // 存档模式必须仍是当前可选值：双持一解除，主手条目里的 bonus_action 就成了孤儿，
+      // 照单采纳会得到「标签 1 动作、伤害却剥属性调整值」的卡，而选择器此刻只读，玩家看不见也改不回
+      const modeFromConfig = getWeaponModeOptions(opt, character).some((o) => o.value === cfg.versatileMode) ? cfg.versatileMode : null
       // 副手卡的 actionLabel 恒为附赠动作，若沿用存档模式会出现「标签附赠动作、伤害却加满属性调整值」
       const weaponVersatileMode = isOffhand ? 'bonus_action' : (modeFromConfig || getDefaultWeaponMode(opt))
       return {

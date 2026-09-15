@@ -141,9 +141,20 @@ describe('deriveWieldedWeaponMeans', () => {
     const twoHand = charWith(['longsword'])
     twoHand.inventory[0].combatMeanConfig = { versatileMode: 'two_hand' }
     expect(deriveWieldedWeaponMeans(twoHand, CTX)[0].weaponVersatileMode).toBe('two_hand')
-    const oneHand = charWith(['greatsword'])
-    oneHand.inventory[0].combatMeanConfig = { versatileMode: 'one_hand' }
-    expect(deriveWieldedWeaponMeans(oneHand, CTX)[0].weaponVersatileMode).toBe('one_hand')
+  })
+
+  it('存档模式已不在可选值里：回退默认模式，不静默改掉伤害算法', () => {
+    const char = charWith(['greatsword'])
+    char.inventory[0].combatMeanConfig = { versatileMode: 'one_hand' }
+    expect(deriveWieldedWeaponMeans(char, CTX)[0].weaponVersatileMode).toBe('two_hand')
+  })
+
+  it('双持解除后：主手条目残留的 bonus_action 不再被采纳', () => {
+    const char = charWith(['dagger', 'dagger'])
+    char.inventory[0].combatMeanConfig = { versatileMode: 'bonus_action' }
+    expect(bySlot(deriveWieldedWeaponMeans(char, CTX))[0].weaponVersatileMode).toBe('bonus_action')
+    const solo = { inventory: char.inventory, equippedHeld: [char.equippedHeld[0]] }
+    expect(deriveWieldedWeaponMeans(solo, CTX)[0].weaponVersatileMode).toBe('one_hand')
   })
 
   it('主手空槽 + 副手轻型：副手灰卡且原因为主手未持武器', () => {
