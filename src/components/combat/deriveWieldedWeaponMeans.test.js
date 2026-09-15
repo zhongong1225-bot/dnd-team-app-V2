@@ -149,11 +149,11 @@ describe('deriveWieldedWeaponMeans', () => {
     expect(deriveWieldedWeaponMeans(char, CTX)[0].weaponVersatileMode).toBe('two_hand')
   })
 
-  it('双持解除后：主手条目残留的 bonus_action 不再被采纳', () => {
-    const char = charWith(['dagger', 'dagger'])
-    char.inventory[0].combatMeanConfig = { versatileMode: 'bonus_action' }
-    expect(bySlot(deriveWieldedWeaponMeans(char, CTX))[0].weaponVersatileMode).toBe('bonus_action')
-    const solo = { inventory: char.inventory, equippedHeld: [char.equippedHeld[0]] }
+  it('主手条目里的 bonus_action 一律不采纳：附赠攻击属于副手槽，不是主手可配的档', () => {
+    const dual = charWith(['dagger', 'dagger'])
+    dual.inventory[0].combatMeanConfig = { versatileMode: 'bonus_action' }
+    expect(bySlot(deriveWieldedWeaponMeans(dual, CTX))[0].weaponVersatileMode).toBe('one_hand')
+    const solo = { inventory: dual.inventory, equippedHeld: [dual.equippedHeld[0]] }
     expect(deriveWieldedWeaponMeans(solo, CTX)[0].weaponVersatileMode).toBe('one_hand')
   })
 
@@ -288,6 +288,12 @@ describe('buildWeaponMeanConfig', () => {
     const cfg = buildWeaponMeanConfig({ slotIndex: 0 }, form)
     cfg.extraDamageDice.push('2d8')
     expect(form.extraDamageDice).toEqual(['1d6 寒冷'])
+  })
+
+  it('属性与词条推断相同就不存档：存了会快照住 DM 之后改词条的效果', () => {
+    const finesse = { slotIndex: 0, weaponOpt: { proto: { 附注: '灵巧，轻型' } } }
+    expect(buildWeaponMeanConfig(finesse, { ...form, ability: 'dex' }).abilityForAttack).toBe('')
+    expect(buildWeaponMeanConfig(finesse, { ...form, ability: 'str' }).abilityForAttack).toBe('str')
   })
 
   it('往返：写进物品条目后重新派生的卡读回同一组值', () => {

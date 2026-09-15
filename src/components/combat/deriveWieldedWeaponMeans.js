@@ -7,7 +7,8 @@
 import { getItemById, getItemDisplayName } from '../../data/itemDatabase'
 import { isWeaponProtoProficient } from '../../lib/weaponProficiency'
 import {
-  weaponHasLight, weaponHasTwoHanded, weaponHasVersatile, getDefaultWeaponMode, getWeaponModeOptions, deriveDisabledAutoGainKeys,
+  weaponHasLight, weaponHasTwoHanded, weaponHasVersatile,
+  getDefaultWeaponMode, getWeaponModeOptions, inferPhysicalWeaponAbilityFromProto, deriveDisabledAutoGainKeys,
 } from './combatMeanUtils'
 
 const WEAPON_TYPES = new Set(['近战武器', '远程武器', '枪械'])
@@ -86,9 +87,9 @@ export function deriveWieldedWeaponMeans(character, ctx = {}) {
         unavailableReason = offhandBlockReason(mainOpt, opt, ctx)
         available = unavailableReason === ''
       }
-      // 存档模式必须仍是当前可选值：双持一解除，主手条目里的 bonus_action 就成了孤儿，
-      // 照单采纳会得到「标签 1 动作、伤害却剥属性调整值」的卡，而选择器此刻只读，玩家看不见也改不回
-      const modeFromConfig = getWeaponModeOptions(opt, character).some((o) => o.value === cfg.versatileMode) ? cfg.versatileMode : null
+      // 存档模式必须仍是当前可选值：旧编辑器留下的 bonus_action、武器被 DM 改过词条，
+      // 都会让照单采纳的结果与 actionLabel 打架（伤害剥了属性调整值却标「1 动作」）
+      const modeFromConfig = getWeaponModeOptions(opt).some((o) => o.value === cfg.versatileMode) ? cfg.versatileMode : null
       // 副手卡的 actionLabel 恒为附赠动作，若沿用存档模式会出现「标签附赠动作、伤害却加满属性调整值」
       const weaponVersatileMode = isOffhand ? 'bonus_action' : (modeFromConfig || getDefaultWeaponMode(opt))
       return {
@@ -121,17 +122,19 @@ export function deriveWieldedWeaponMeans(character, ctx = {}) {
 /**
  * 武器编辑器表单值 → 物品条目的 combatMeanConfig（本文件读侧 cfg 的写侧，七项一一对应）
  *
- * 副手卡不写 versatileMode：上面 :91 对副手恒为 bonus_action，
- * 若把 one_hand / two_hand 存进条目，这把武器回到主手时会静默改掉主手卡的伤害骰。
+ * 副手卡不写 versatileMode：副手槽恒以附赠动作发动，不是玩家可配的档；
+ * 而落盘走 {...prev, ...next} 合并，一旦写下去就会盖掉这把剑在主手时存的伤害骰档。
  */
 export function buildWeaponMeanConfig(mean, form = {}) {
   const str = (v) => (typeof v === 'string' ? v : '')
+  const protoDefaultAbility = inferPhysicalWeaponAbilityFromProto(mean?.weaponOpt?.proto)
   const cfg = {
     nameSuffix: str(form.nameSuffix),
     damageTypeOverride: str(form.damageType),
     extraDamageDice: Array.isArray(form.extraDamageDice) ? [...form.extraDamageDice] : [],
     targetCreatureType: str(form.targetCreatureType),
-    abilityForAttack: str(form.ability),
+    // 与词条推断一致的属性不存档：存了就成了快照，DM 之后给武器加「灵巧」也不会跟着变
+    abilityForAttack: (form.ability && form.ability !== protoDefaultAbility) ? str(form.ability) : '',
     disabledAutoGainKeys: deriveDisabledAutoGainKeys(form.gains),
   }
   if (mean?.slotIndex !== 1) cfg.versatileMode = str(form.versatileMode)

@@ -43,14 +43,12 @@ import AddWeaponStep from './combat/AddWeaponStep'
 import AddComboStep from './combat/AddComboStep'
 import GainEditor from './combat/GainEditor'
 import {
-  DAMAGE_TYPE_OPTIONS, DAMAGE_TYPE_SHORT, HIT_RESOLUTION_LABELS, COMBO_ATTACHMENT_SOURCE_TYPES, COMBO_CLASS_FEATURE_OPTIONS,
-  inferDamageDiceFromText, isValidComboAttachment,
-  getSpellAbilityForAttackFromBuffs, resolvePhysicalWeaponAbilityKind, isRangedWeaponProto, weaponUsesDex,
-  getDefaultWeaponMode, inferPhysicalWeaponAbilityFromProto, getAbilityOptions, getWeaponBaseDamageObjects, stripDiceFlatMod, getWeaponNote, weaponHasTwoHanded, weaponHasThrown, weaponHasVersatile, weaponHasLight, isDualWieldingLightWeapons,
-  parseWeaponAttack, formatWeaponAttackDiceDisplay, formatSignedModifier, getWeaponAttackStringForParsing,
+  getSpellAbilityForAttackFromBuffs, resolvePhysicalWeaponAbilityKind, isRangedWeaponProto,
+  getDefaultWeaponMode, inferPhysicalWeaponAbilityFromProto,
+  parseWeaponAttack, getWeaponAttackStringForParsing,
   getEnabledGains, sumGainAttackBonus, sumGainDamageBonus, sumGainPerDieBonus, getGainExtraDice, getGainAdvantage, hasGainDiceFloor2,
   computePhysicalWeaponStats, buildDefaultGainsFromBuffs,
-  getWeaponEntryDamageExtras, getMergedWeaponExtraDiceStrings, filterExtraDiceAgainstMain,
+  getMergedWeaponExtraDiceStrings, filterExtraDiceAgainstMain,
   parseSpellDamageFromDescription, spellUsesAttack, inferSaveFromSpellDescription, normalizeSpellName,
   applyUpcastToDamageList, getEffectiveCastLevel,
   sanitizeLegacyCombatMeans, computeLiveGains,

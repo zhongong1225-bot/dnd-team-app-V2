@@ -55,7 +55,7 @@ export default function AddWeaponStep({
             {weaponModeReadOnlyLabel ? (
               <div className={inputClass + ' w-full h-8 text-xs flex items-center text-white'} title="副手固定以附赠动作发动，无需配置">{weaponModeReadOnlyLabel}</div>
             ) : (() => {
-              const modeOptions = getWeaponModeOptions(weaponOpt, char)
+              const modeOptions = getWeaponModeOptions(weaponOpt)
               const currentLabel = modeOptions.find((o) => o.value === weaponMode)?.label ?? modeOptions[0]?.label ?? ''
               if (modeOptions.length <= 1) return <div className={inputClass + ' w-full h-8 text-xs flex items-center text-white'}>{currentLabel || '—'}</div>
               return (

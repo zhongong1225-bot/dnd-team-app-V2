@@ -100,22 +100,6 @@ export function weaponHasThrown(weaponOpt) { return /投掷/i.test(getWeaponNote
 export function weaponHasVersatile(weaponOpt) { return /多用/i.test(getWeaponNote(weaponOpt)) }
 export function weaponHasLight(weaponOpt) { return /轻型/i.test(getWeaponNote(weaponOpt)) }
 
-/** 角色是否双持轻型武器 */
-export function isDualWieldingLightWeapons(character) {
-  const held = character?.equippedHeld ?? []
-  const inv = character?.inventory ?? []
-  let lightCount = 0
-  for (const slot of held) {
-    if (!slot?.inventoryId) continue
-    const entry = inv.find((e) => e.id === slot.inventoryId)
-    if (!entry) continue
-    const proto = entry?.itemId ? getItemById(entry.itemId) : null
-    const note = String(proto?.附注 ?? '')
-    if (/轻型/i.test(note)) lightCount++
-  }
-  return lightCount >= 2
-}
-
 /** 根据武器推断默认战斗模式 */
 export function getDefaultWeaponMode(weaponOpt) {
   if (!weaponOpt) return 'one_hand'
@@ -127,33 +111,27 @@ export function getDefaultWeaponMode(weaponOpt) {
   return 'one_hand'
 }
 
-/** 武器可用模式选项 */
-export function getWeaponModeOptions(weaponOpt, character) {
+/**
+ * 武器可用模式选项：只由武器词条决定。
+ * 附赠攻击不是武器属性而是副手槽的属性（副手卡由派生器恒置 bonus_action），
+ * 主手卡的 actionLabel 恒为「1 动作」，若让它选到附赠攻击就会出现标签与算法不符的卡。
+ */
+export function getWeaponModeOptions(weaponOpt) {
   if (!weaponOpt) return WEAPON_MODE_OPTIONS
   if (isRangedWeaponProto(weaponOpt.proto)) return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'ranged')
   const hasTwo = weaponHasTwoHanded(weaponOpt)
   const hasVersatile = weaponHasVersatile(weaponOpt)
   const hasThrown = weaponHasThrown(weaponOpt)
-  let options
   if (hasTwo && !hasVersatile && !hasThrown) {
-    options = WEAPON_MODE_OPTIONS.filter((o) => o.value === 'two_hand')
-  } else if (hasVersatile && hasThrown) {
-    options = WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand' || o.value === 'ranged')
-  } else if (hasVersatile) {
-    options = WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand' || o.value === 'two_hand')
-  } else {
-    options = WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand')
+    return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'two_hand')
   }
-  if (
-    character &&
-    isDualWieldingLightWeapons(character) &&
-    weaponHasLight(weaponOpt) &&
-    !hasTwo &&
-    !isRangedWeaponProto(weaponOpt.proto)
-  ) {
-    options = [...options, { value: 'bonus_action', label: '附赠攻击' }]
+  if (hasVersatile && hasThrown) {
+    return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand' || o.value === 'ranged')
   }
-  return options
+  if (hasVersatile) {
+    return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand' || o.value === 'two_hand')
+  }
+  return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand')
 }
 
 /** 武器可用属性选项 */
@@ -433,7 +411,7 @@ export function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
   const abilityKey = weaponAbilityKind === 'spell' ? spellAbility : weaponAbilityKind
   const abilityMod = abilityModifier(effectiveAbilities?.[abilityKey] ?? 10)
   const physicalAttackBonus = abilityMod + (weaponProficient ? (weaponIsExpert ? prof * 2 : prof) : 0) + buffAttackBonus + gainAttackBonus
-  // weaponVersatileMode === 'bonus_action' 即「用副手发起附赠动作攻击」这一档（旧版模式选择器的语义），故等价于副手攻击
+  // bonus_action 只由副手槽写入派生卡（主手恒为 1 动作），语义即「副手的附赠攻击」
   const isBonusActionOffhand = cm.weaponVersatileMode === 'bonus_action'
   const canAddAbilityMod = weaponProficient && !(isBonusActionOffhand && !buffStats?.twoWeaponFightingBonus)
   // 规则原文「除非为负数」：剥夺只针对正调整值，负惩罚照常生效
