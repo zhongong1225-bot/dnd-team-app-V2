@@ -199,6 +199,13 @@ function parseSpeedBonus(raw, evalVal) {
   return result
 }
 
+/** 布尔型效果取值：兼容 true / 'true' / {value:true} / 1 */
+function truthyEffectValue(raw) {
+  if (raw === true || raw === 1 || raw === 'true') return true
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw.value === true || raw.value === 1
+  return false
+}
+
 /**
  * 纯函数版 BUFF 计算（与 useBuffCalculator 结果一致），供单元测试与效果覆盖校验。
  */
@@ -548,6 +555,8 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
     // 先收集状态免疫（来自 BUFF 效果）
     const conditionImmunities = new Set()
     const weaponExpertiseCategories = new Set()
+    let twoWeaponFightingBonus = false
+    let offhandIgnoresLight = false
     for (const b of entries) {
       if (b.effectType === 'condition_immunity' && Array.isArray(b.value)) {
         for (const c of b.value) conditionImmunities.add(String(c))
@@ -555,6 +564,8 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       if (b.effectType === 'weapon_expertise' && Array.isArray(b.value)) {
         for (const c of b.value) weaponExpertiseCategories.add(String(c))
       }
+      if (b.effectType === 'two_weapon_fighting_bonus') twoWeaponFightingBonus = truthyEffectValue(b.value) || twoWeaponFightingBonus
+      if (b.effectType === 'offhand_ignores_light') offhandIgnoresLight = truthyEffectValue(b.value) || offhandIgnoresLight
     }
     const rawConditions = Array.isArray(character?.conditions) ? character.conditions : []
     const conditions = rawConditions.filter((c) => !conditionImmunities.has(c))
@@ -1106,6 +1117,8 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       deathWard,
       conditionImmunities: [...conditionImmunities],
       weaponExpertiseCategories: [...weaponExpertiseCategories],
+      twoWeaponFightingBonus,
+      offhandIgnoresLight,
       extraAttack,
       extraActionResource,
       // 变身效果相关信息

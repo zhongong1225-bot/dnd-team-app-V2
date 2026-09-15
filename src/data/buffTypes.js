@@ -443,6 +443,10 @@ export const BUFF_TYPES = {
       { key: 'spell_ability_attack', label: '施法属性命中', dataType: 'object', subSelect: 'spellAbilityForAttack' },
       // 额外攻击次数+动作资源（合并）
       { key: 'extra_attacks', label: '额外攻击', dataType: 'object', subSelect: 'extraAttacks' },
+      // 副手附赠攻击可加属性调整值（战斗风格「双武器战斗」的收益）
+      { key: 'two_weapon_fighting_bonus', label: '副手加属性', dataType: 'boolean' },
+      // 副手可持不具有双手词条的单手武器（专长「双持客」的收益）
+      { key: 'offhand_ignores_light', label: '副手免轻型', dataType: 'boolean' },
       // 旧 key 保留供兼容
       { key: 'extra_attack', label: '额外攻击数', dataType: 'number', hidden: true },
       // 额外动作资源（如 action surge 给额外动作）— 已合并到额外攻击数

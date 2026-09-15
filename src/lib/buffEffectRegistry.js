@@ -58,6 +58,9 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   spell_ability_attack: 'metadata',
   extra_attack: 'metadata',
   extra_action_resource: 'metadata',
+  // 副手加属性 / 副手免轻型：computeBuffStats 聚合为 twoWeaponFightingBonus / offhandIgnoresLight
+  two_weapon_fighting_bonus: 'calculator',
+  offhand_ignores_light: 'calculator',
   // defense
   ac_bonus: 'calculator',
   armor_override: 'calculator',

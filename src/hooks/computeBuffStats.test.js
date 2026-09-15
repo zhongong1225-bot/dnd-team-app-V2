@@ -99,3 +99,34 @@ describe('移动速度效果的各种写法', () => {
     expect(stats.climbEqualsWalk).toBe(false)
   })
 })
+
+describe('双武器战斗与双持客效果聚合', () => {
+  const statsWith = (effect) => computeBuffStats(
+    { level: 5, abilities: { str: 16, dex: 12, con: 14, int: 10, wis: 10, cha: 10 } },
+    [{ id: 'b1', name: '测试', enabled: true, effects: [effect] }],
+  )
+  const eff = (effectType, value) => ({ effectType, category: 'offense', scope: 'global', scopeDetail: [], value })
+
+  it('two_weapon_fighting_bonus 聚合为布尔', () => {
+    expect(statsWith(eff('two_weapon_fighting_bonus', true)).twoWeaponFightingBonus).toBe(true)
+  })
+
+  it('offhand_ignores_light 聚合为布尔', () => {
+    expect(statsWith(eff('offhand_ignores_light', true)).offhandIgnoresLight).toBe(true)
+  })
+
+  it('未挂效果时为 falsy', () => {
+    const stats = computeBuffStats({ level: 5, abilities: { str: 16, dex: 12, con: 14, int: 10, wis: 10, cha: 10 } }, [])
+    expect(stats.twoWeaponFightingBonus).toBeFalsy()
+    expect(stats.offhandIgnoresLight).toBeFalsy()
+  })
+
+  it('value 为 false 时不聚合', () => {
+    expect(statsWith(eff('offhand_ignores_light', false)).offhandIgnoresLight).toBeFalsy()
+  })
+
+  it('兼容字符串与对象写法', () => {
+    expect(statsWith(eff('two_weapon_fighting_bonus', 'true')).twoWeaponFightingBonus).toBe(true)
+    expect(statsWith(eff('two_weapon_fighting_bonus', { value: true })).twoWeaponFightingBonus).toBe(true)
+  })
+})
