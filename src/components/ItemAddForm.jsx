@@ -11,7 +11,7 @@ import { Pencil, X } from 'lucide-react'
 import { getItemListGrouped, getItemById, getItemDisplayName, parseWeaponNoteToTraits, buildWeaponNoteFromTraits, WEAPON_TRAIT_OPTIONS, WEAPON_MASTERY_OPTIONS, itemRequiresAttunement, resolveEntryRequiresAttunement, addCustomItem, updateCustomItem, forkItemAsCustom, getCustomItems, getOfficialNonMagicalItemTemplates } from '../data/itemDatabase'
 import { inputClass, inputClassInline, textareaClass } from '../lib/inputStyles'
 import { useModule } from '../contexts/ModuleContext'
-import { BUFF_TYPES, getCategories, normalizeEffectCategory, parseDamageString, formatDamageForAttack, ITEM_STORAGE_DEFAULT_ITEM_IDS } from '../data/buffTypes'
+import { BUFF_TYPES, getCategories, normalizeEffectCategory, parseDamageString, formatDamageForAttack, ITEM_STORAGE_DEFAULT_ITEM_IDS, WEAPON_PROFICIENCY_OPTIONS } from '../data/buffTypes'
 import { DamageDiceInlineRow, NumberStepper } from './BuffForm'
 import BuffForm from './BuffForm'
 import BuffEditorModal from './BuffEditorModal'
@@ -288,6 +288,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
   const [weaponVersatileDamage, setWeaponVersatileDamage] = useState(() => ({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' }))
   const [weaponTraits, setWeaponTraits] = useState(() => [])
   const [weaponRange, setWeaponRange] = useState(() => '')
+  const [weaponTier, setWeaponTier] = useState(() => '')
   const [weaponAmmoCategory, setWeaponAmmoCategory] = useState(() => '')
   const [weaponMastery, setWeaponMastery] = useState(() => '')
   const [explosiveAttackDistance, setExplosiveAttackDistance] = useState(() => '')
@@ -361,6 +362,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     setWeaponVersatileDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
     setWeaponTraits([])
     setWeaponRange('')
+    setWeaponTier('')
     setWeaponAmmoCategory('')
     setWeaponMastery('')
     setExplosiveAttackDistance('')
@@ -400,6 +402,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       const { traits, range, ammoCategory } = parseWeaponNoteToTraits(entry?.附注 ?? proto?.附注 ?? '')
       setWeaponTraits(traits)
       setWeaponRange((entry?.攻击距离 ?? range ?? proto?.攻击距离 ?? '').trim())
+      setWeaponTier((entry?.proficiencyTier ?? proto?.proficiencyTier ?? '').trim())
       setWeaponAmmoCategory(ammoCategory ?? '')
       setWeaponMastery((entry?.精通 != null && entry?.精通 !== '') ? String(entry.精通) : (proto?.精通 ?? ''))
     } else {
@@ -407,6 +410,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       setWeaponVersatileDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
       setWeaponTraits([])
       setWeaponRange('')
+      setWeaponTier('')
       setWeaponAmmoCategory('')
       setWeaponMastery('')
     }
@@ -464,6 +468,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       const { traits, range, ammoCategory } = parseWeaponNoteToTraits(proto.附注 ?? '')
       setWeaponTraits(traits)
       setWeaponRange((proto.攻击距离 ?? range ?? '').trim())
+      setWeaponTier((proto.proficiencyTier ?? '').trim())
       setWeaponAmmoCategory(ammoCategory ?? '')
       setWeaponMastery(proto.精通 ?? '')
     }
@@ -661,6 +666,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
         charge,
         spellDC,
         spellAttackBonus,
+        proficiencyTier: isWeapon ? weaponTier : '',
         攻击距离: 攻击距离 || '',
         爆炸半径: isExplosive ? (Number(explosiveRadius) || 0) : 0,
       }
@@ -698,6 +704,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
         精通: isWeapon && 精通 ? 精通 : '',
         附注: 附注 != null ? String(附注).trim() : '',
         攻击距离: (isWeapon || isExplosive) ? (攻击距离 || '') : '',
+        proficiencyTier: isWeapon ? weaponTier : '',
         爆炸半径: isExplosive ? (Number(explosiveRadius) || 0) : 0,
       }
       const isCustomProto = !!proto && getCustomItems().some((x) => x.id === proto.id)
@@ -1143,6 +1150,18 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                     )
                   })}
                 </div>
+              </div>
+              <div className="flex items-baseline gap-1.5 min-w-0">
+                <span className="shrink-0 text-dnd-text-muted text-xs">熟练档位</span>
+                <select
+                  value={weaponTier}
+                  onChange={(e) => setWeaponTier(e.target.value)}
+                  className={inputClass + ' h-8 min-w-0 flex-1 text-xs'}
+                  title="决定该武器被简易/军用/火器整组熟练按钮与 Buff 起效范围如何归类"
+                >
+                  <option value="">未标注（视为已熟练）</option>
+                  {WEAPON_PROFICIENCY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
               </div>
               {renderEffectCardSection('附魔效果（可多条）', 'w-full pt-1.5 border-t border-gray-600/80')}
             </div>

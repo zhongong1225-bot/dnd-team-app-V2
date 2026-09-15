@@ -4,7 +4,9 @@ import { useRoll } from '../contexts/RollContext'
 import { abilityModifier, proficiencyBonus } from '../lib/characterStore'
 import { SAVE_NAMES, SKILLS, SKILL_PROF_OPTIONS, skillProfFactor } from '../data/dndSkills'
 import { NumberStepper } from './BuffForm'
-import { ITEM_DATABASE } from '../data/itemDatabase'
+import { getItemList, ITEM_DATABASE } from '../data/itemDatabase'
+import { collectTierMemberIds } from '../lib/weaponProficiency'
+import { WEAPON_TIER_GRANTED_IDS } from '../data/buffTypes'
 
 const ABILITY_NAMES_ZH = { str: '力量', dex: '敏捷', con: '体质', int: '智力', wis: '感知', cha: '魅力' }
 const ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha']
@@ -27,23 +29,15 @@ const LANGUAGE_OPTIONS = [
   { name: '木族语', users: '人马、树精', script: '精灵语' },
   { name: '维多肯语', users: '维多肯', script: '维多肯语' },
 ]
-const SIMPLE_WEAPON_IDS = [
-  'club', 'dagger', 'greatclub', 'handaxe', 'javelin', 'light_hammer', 'mace', 'quarterstaff', 'sickle', 'spear',
-  'dart', 'light_crossbow', 'shortbow', 'sling',
-]
-const MARTIAL_WEAPON_IDS = [
-  'battleaxe', 'flail', 'glaive', 'greataxe', 'greatsword', 'halberd', 'lance', 'longsword', 'maul',
-  'morningstar', 'pike', 'rapier', 'scimitar', 'shortsword', 'trident', 'war_pick', 'warhammer', 'whip',
-  'blowgun', 'hand_crossbow', 'heavy_crossbow', 'longbow',
-]
-const FIREARM_WEAPON_IDS = ['gun_blunderbuss', 'gun_musket', 'gun_pistol']
+/** 旧存档可能逐把写入火器 id（当时没有整组伪 id），迁移时按这份历史名单收敛为 'firearms' */
+const LEGACY_FIREARM_IDS = ['gun_blunderbuss', 'gun_musket', 'gun_pistol']
 
 function normalizeProfState(profState) {
   const src = (profState && typeof profState === 'object' && !Array.isArray(profState)) ? profState : {}
   const rawWeapons = Array.isArray(src.weapons) ? src.weapons : []
-  const hasLegacyFirearm = rawWeapons.some((id) => FIREARM_WEAPON_IDS.includes(id))
+  const hasLegacyFirearm = rawWeapons.some((id) => LEGACY_FIREARM_IDS.includes(id))
   const weapons = Array.from(new Set([
-    ...rawWeapons.filter((id) => !FIREARM_WEAPON_IDS.includes(id) && id !== 'smart_weapon'),
+    ...rawWeapons.filter((id) => !LEGACY_FIREARM_IDS.includes(id) && id !== 'smart_weapon'),
     ...(hasLegacyFirearm ? ['firearms'] : []),
   ]))
   return {
@@ -255,26 +249,22 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
     return Array.from(new Set(labels)).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
   }, [])
   const weaponOptions = useMemo(() => {
-    const list = ITEM_DATABASE
-      .filter((it) => (it?.类型 === '近战武器' || it?.类型 === '远程武器') && it?.类别 && it?.id && it.id !== 'smart_weapon')
+    // 内置火器不逐把列出：normalizeProfState 会把它们收敛成整组伪 id 'firearms'，列出来就是永远勾不上的选项
+    const list = getItemList()
+      .filter((it) => (it?.类型 === '近战武器' || it?.类型 === '远程武器' || it?.类型 === '枪械') && it?.类别 && it?.id && it.id !== 'smart_weapon' && !LEGACY_FIREARM_IDS.includes(it.id))
       .map((it) => ({ id: it.id, label: String(it.类别).trim() }))
-      .filter((x) => x.id && x.label)
     const seen = new Set()
-    const base = list.filter((x) => {
-      if (seen.has(x.id)) return false
-      seen.add(x.id)
-      return true
-    })
+    const base = list.filter((x) => { if (seen.has(x.id)) return false; seen.add(x.id); return true })
     return [...base, { id: 'firearms', label: '枪械' }]
   }, [])
-  const weaponOptionIds = useMemo(() => weaponOptions.map((x) => x.id), [weaponOptions])
-  const simpleWeaponIds = useMemo(() => SIMPLE_WEAPON_IDS.filter((id) => weaponOptionIds.includes(id)), [weaponOptionIds])
-  const martialWeaponIds = useMemo(() => MARTIAL_WEAPON_IDS.filter((id) => weaponOptionIds.includes(id)), [weaponOptionIds])
+  const tierMemberIds = useMemo(() => collectTierMemberIds(ITEM_DATABASE), [])
+  const simpleWeaponIds = tierMemberIds.simple
+  const martialWeaponIds = tierMemberIds.martial
   const weaponLabelById = useMemo(() => Object.fromEntries(weaponOptions.map((w) => [w.id, w.label])), [weaponOptions])
   const selectedWeaponLabels = useMemo(() => {
     const selected = new Set(proficiencies.weapons)
-    const simpleAll = simpleWeaponIds.length > 0 && simpleWeaponIds.every((id) => selected.has(id))
-    const martialAll = martialWeaponIds.length > 0 && martialWeaponIds.every((id) => selected.has(id))
+    const simpleAll = selected.has('simple') || (simpleWeaponIds.length > 0 && simpleWeaponIds.every((id) => selected.has(id)))
+    const martialAll = selected.has('martial') || (martialWeaponIds.length > 0 && martialWeaponIds.every((id) => selected.has(id)))
     const labels = []
     if (martialAll) labels.push('军用武器')
     if (simpleAll) labels.push('简易武器')
@@ -289,7 +279,7 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
       })
     }
     if (selected.has('firearms')) labels.push('枪械')
-    const covered = new Set([...simpleWeaponIds, ...martialWeaponIds, 'firearms'])
+    const covered = new Set([...simpleWeaponIds, ...martialWeaponIds, 'simple', 'martial', 'firearms'])
     selected.forEach((id) => {
       if (!covered.has(id) && weaponLabelById[id]) labels.push(weaponLabelById[id])
     })
@@ -358,11 +348,12 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
     saveProficiencies(next)
   }, [proficiencies, saveProficiencies])
 
-  const toggleWeaponGroup = useCallback((groupIds) => {
-    const allSelected = groupIds.length > 0 && groupIds.every((id) => proficiencies.weapons.includes(id))
-    const nextWeapons = allSelected
-      ? proficiencies.weapons.filter((id) => !groupIds.includes(id))
-      : Array.from(new Set([...proficiencies.weapons, ...groupIds]))
+  const toggleWeaponGroup = useCallback((tier, ids) => {
+    const grantedId = WEAPON_TIER_GRANTED_IDS[tier]
+    const allOn = ids.every((id) => proficiencies.weapons.includes(id)) && proficiencies.weapons.includes(grantedId)
+    const nextWeapons = allOn
+      ? proficiencies.weapons.filter((id) => !ids.includes(id) && id !== grantedId)
+      : Array.from(new Set([...proficiencies.weapons, ...ids, grantedId]))
     saveProficiencies({ ...proficiencies, weapons: nextWeapons })
   }, [proficiencies, saveProficiencies])
 
@@ -633,15 +624,15 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => toggleWeaponGroup(simpleWeaponIds)}
-                    className={`px-2 py-1 rounded border text-xs ${simpleWeaponIds.every((id) => proficiencies.weapons.includes(id)) ? 'border-[#C79A42] bg-[#C79A42]/20 text-[#C79A42]' : 'border-gray-600 text-gray-300 hover:bg-gray-700'}`}
+                    onClick={() => toggleWeaponGroup('simple', simpleWeaponIds)}
+                    className={`px-2 py-1 rounded border text-xs ${simpleWeaponIds.every((id) => proficiencies.weapons.includes(id)) && proficiencies.weapons.includes('simple') ? 'border-[#C79A42] bg-[#C79A42]/20 text-[#C79A42]' : 'border-gray-600 text-gray-300 hover:bg-gray-700'}`}
                   >
                     简易武器
                   </button>
                   <button
                     type="button"
-                    onClick={() => toggleWeaponGroup(martialWeaponIds)}
-                    className={`px-2 py-1 rounded border text-xs ${martialWeaponIds.every((id) => proficiencies.weapons.includes(id)) ? 'border-[#C79A42] bg-[#C79A42]/20 text-[#C79A42]' : 'border-gray-600 text-gray-300 hover:bg-gray-700'}`}
+                    onClick={() => toggleWeaponGroup('martial', martialWeaponIds)}
+                    className={`px-2 py-1 rounded border text-xs ${martialWeaponIds.every((id) => proficiencies.weapons.includes(id)) && proficiencies.weapons.includes('martial') ? 'border-[#C79A42] bg-[#C79A42]/20 text-[#C79A42]' : 'border-gray-600 text-gray-300 hover:bg-gray-700'}`}
                   >
                     军用武器
                   </button>
