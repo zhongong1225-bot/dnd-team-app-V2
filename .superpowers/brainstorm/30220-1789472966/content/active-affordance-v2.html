@@ -1,0 +1,152 @@
+<h2>A 方案加强：去掉浅灰，改成金色系</h2>
+<p class="subtitle">你反馈的两点：① 还要更显眼；② 浅灰色不好看。浅灰来自三处——按钮的灰色发丝边框、灰蓝底渐变的深色面板、灰蓝的充能数字。下面三屏都把这三处全部换成金色，只保留强度差别。每一屏都放两张可释放卡和两张被动卡，方便竖着扫一遍看会不会看漏。</p>
+
+<style>
+  .cl { width: 650px; max-width: 100%; font-family: 'Noto Sans SC', sans-serif; }
+  .card { background: linear-gradient(180deg,#161e2b 0%,#141c28 50%,#121a25 100%); border:1px solid rgba(255,255,255,0.06); border-radius:8px; margin-bottom:8px; overflow:hidden; }
+  .row { display:grid; grid-template-columns: 1fr 2fr 8fr 6fr 1fr 1fr; height:52px; align-items:center; }
+  .cell { height:100%; display:flex; align-items:center; border-right:1px solid #2a3a4e; box-sizing:border-box; padding:0 6px; }
+  .c1 { justify-content:center; writing-mode:vertical-rl; font-size:12px; color:#8899aa; letter-spacing:1px; }
+  .c2 { flex-direction:column; align-items:flex-start; justify-content:center; gap:2px; font-size:11px; color:#8899aa; line-height:1.2; }
+  .c3 { justify-content:center; position:relative; }
+  .c4 { font-size:11px; color:#8899aa; line-height:1.3; align-items:center; }
+  .c6 { justify-content:center; border-right:none; color:#667788; }
+  .nm { font-size:14px; font-weight:700; color:#fff; letter-spacing:2px; }
+  .gear { font-size:13px; }
+  .eb { position:relative; display:flex; align-items:center; width:100%; height:36px; box-sizing:border-box; padding:0 10px; border-radius:6px; }
+  .eb .n { flex:1; min-width:0; text-align:center; font-size:14px; font-weight:600; color:#fff; letter-spacing:2px; }
+  .eb .ci { font-size:11px; font-weight:700; margin-left:8px; flex-shrink:0; }
+  .zap { font-size:15px; margin-right:2px; flex-shrink:0; line-height:1; }
+  .bar { position:absolute; left:0; top:0; bottom:0; background:#c79a42; border-radius:6px 0 0 6px; }
+  .opt-h { font-size:13px; font-weight:700; color:#c79a42; margin:0 0 6px; }
+  .note { font-size:12px; color:#8fa3bd; margin:6px 0 0; line-height:1.5; }
+
+  /* A2 金框暖底 */
+  .a2 { border:1px solid rgba(199,154,66,0.5); padding-left:15px;
+        background:linear-gradient(180deg, rgba(199,154,66,0.22) 0%, rgba(199,154,66,0.07) 100%), #16202c;
+        box-shadow: inset 0 1px 0 rgba(240,208,96,0.30), 0 0 12px rgba(199,154,66,0.13); }
+  .a2 .bar { width:3px; }
+  .a2 .ci { color:#f0d060; }
+  .a2 .zap { color:#f0d060; }
+
+  /* A3 金框暖底 + 加宽金条 + 外发光 */
+  .a3 { border:1px solid rgba(199,154,66,0.72); padding-left:19px;
+        background:linear-gradient(180deg, rgba(199,154,66,0.30) 0%, rgba(199,154,66,0.11) 100%), #18212e;
+        box-shadow: inset 0 1px 0 rgba(240,208,96,0.42), 0 0 16px rgba(199,154,66,0.22); }
+  .a3 .bar { width:5px; }
+  .a3 .ci { color:#f0d060; }
+  .a3 .zap { color:#f0d060; font-size:16px; }
+  .a3 .n { color:#fff2d8; text-shadow:0 1px 3px rgba(0,0,0,.7); }
+
+  /* A4 实心金面板 */
+  .a4 { border:1px solid #d9b055; padding-left:15px;
+        background:linear-gradient(180deg, #c79a42 0%, #9b7327 100%);
+        box-shadow: inset 0 1px 0 rgba(255,240,200,0.45), 0 2px 10px rgba(199,154,66,0.28); }
+  .a4 .bar { width:3px; background:#2a2113; opacity:.5; }
+  .a4 .ci { color:#3b2c10; }
+  .a4 .zap { color:#1d1608; }
+  .a4 .n { color:#1b1408; text-shadow:none; }
+</style>
+
+<div class="options">
+
+  <div class="option" data-choice="a2" onclick="toggleSelect(this)">
+    <div class="letter">A2</div>
+    <div class="content">
+      <h3>金框 + 暖底 + 3px 金条</h3>
+      <p class="opt-h">灰色边框、灰蓝底、灰蓝数字全部换掉，改成金色描边 + 金色渐染底。</p>
+      <div class="cl">
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>1级获得</span><span>火铳手</span></div>
+          <div class="cell c3"><span class="nm">火器专精</span></div><div class="cell c4">火器熟练</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>1级获得</span><span>战士</span></div>
+          <div class="cell c3"><div class="eb a2">
+            <span class="bar"></span><span class="zap">⚡</span><span class="n">回气</span><span class="ci">1</span>
+          </div></div>
+          <div class="cell c4">消耗：回气｜治疗 1d10+战士等级</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>2级获得</span><span>火铳手</span></div>
+          <div class="cell c3"><span class="nm">专注点</span></div><div class="cell c4">floor(火铳手等级/2)</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>2级获得</span><span>火铳手</span></div>
+          <div class="cell c3"><div class="eb a2">
+            <span class="bar"></span><span class="zap">⚡</span><span class="n">快速装填</span><span class="ci">1</span>
+          </div></div>
+          <div class="cell c4">装填｜不占动作</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+      </div>
+      <p class="note">强度：中等。名字还是白字，卡片整体不会变吵。发丝灰边彻底消失。</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="a3" onclick="toggleSelect(this)">
+    <div class="letter">A3</div>
+    <div class="content">
+      <h3>更亮金框 + 5px 粗金条 + 外发光 + 名字泛金</h3>
+      <p class="opt-h">在 A2 上再推一格：底色金色占比更高，整圈边框提亮，按钮向外泛一层金光。</p>
+      <div class="cl">
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>1级获得</span><span>火铳手</span></div>
+          <div class="cell c3"><span class="nm">火器专精</span></div><div class="cell c4">火器熟练</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>1级获得</span><span>战士</span></div>
+          <div class="cell c3"><div class="eb a3">
+            <span class="bar"></span><span class="zap">⚡</span><span class="n">回气</span><span class="ci">1</span>
+          </div></div>
+          <div class="cell c4">消耗：回气｜治疗 1d10+战士等级</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>2级获得</span><span>火铳手</span></div>
+          <div class="cell c3"><span class="nm">专注点</span></div><div class="cell c4">floor(火铳手等级/2)</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>2级获得</span><span>火铳手</span></div>
+          <div class="cell c3"><div class="eb a3">
+            <span class="bar"></span><span class="zap">⚡</span><span class="n">快速装填</span><span class="ci">1</span>
+          </div></div>
+          <div class="cell c4">装填｜不占动作</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+      </div>
+      <p class="note">强度：偏强。竖着扫的时候金光会自己跳出来，代价是同一屏有 4~5 个可释放时金色会比较密。</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="a4" onclick="toggleSelect(this)">
+    <div class="letter">A4</div>
+    <div class="content">
+      <h3>实心金面板（最深一档）</h3>
+      <p class="opt-h">按钮直接填成金色块，名字改深色字。和被动卡的对比最大。</p>
+      <div class="cl">
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>1级获得</span><span>火铳手</span></div>
+          <div class="cell c3"><span class="nm">火器专精</span></div><div class="cell c4">火器熟练</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>1级获得</span><span>战士</span></div>
+          <div class="cell c3"><div class="eb a4">
+            <span class="bar"></span><span class="zap">⚡</span><span class="n">回气</span><span class="ci">1</span>
+          </div></div>
+          <div class="cell c4">消耗：回气｜治疗 1d10+战士等级</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>2级获得</span><span>火铳手</span></div>
+          <div class="cell c3"><span class="nm">专注点</span></div><div class="cell c4">floor(火铳手等级/2)</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+        <div class="card"><div class="row">
+          <div class="cell c1">职业</div><div class="cell c2"><span>2级获得</span><span>火铳手</span></div>
+          <div class="cell c3"><div class="eb a4">
+            <span class="bar"></span><span class="zap">⚡</span><span class="n">快速装填</span><span class="ci">1</span>
+          </div></div>
+          <div class="cell c4">装填｜不占动作</div><div class="cell"></div><div class="cell c6"><span class="gear">⚙</span></div>
+        </div></div>
+      </div>
+      <p class="note">强度：最高。缺点是金色在规范里是"标题/高亮"用色，整块填满后一屏会像全是提醒条；名字变深色也和装备卡能量条的白字不一致。</p>
+    </div>
+  </div>
+
+</div>

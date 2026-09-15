@@ -8,7 +8,7 @@ import { formatContainedSpellBrief } from '../lib/containedSpellBrief'
 import { normalizeChargeRecoveryValue } from '../lib/chargeRecovery'
 import { formatChargeItemBrief } from '../lib/chargeItemModel'
 import { formatDurationBrief } from '../lib/durationModel'
-import { isFormulaValue, formatFormulaLabel, evaluateBuffValue } from '../lib/formulas'
+import { isFormulaValue, formatFormulaLabel, evaluateBuffValue, isDiceValue, formatDiceValue } from '../lib/formulas'
 
 // 惰性构建法术ID到中文名称的映射（避免模块加载时的初始化问题）
 let _spellNameMapCache = null
@@ -254,6 +254,11 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
   }
   if (buff.effectType === 'crit_range_reduction' && typeof v === 'number' && !Number.isNaN(v)) {
     return `${effectLabel}-${v}`
+  }
+  if (buff.effectType === 'temp_hp' && isDiceValue(v)) {
+    const expr = formatDiceValue(v)
+    const rolledPart = v.rolled != null ? `（已掷${v.rolled}）` : '（未掷）'
+    return `${effectLabel}${expr}${rolledPart}`
   }
   if (info.effect.dataType === 'number' && (typeof v === 'number' || isFormulaValue(v))) {
     if (isFormulaValue(v)) return `${effectLabel}${formatFormulaLabelWithEval(v, context)}`

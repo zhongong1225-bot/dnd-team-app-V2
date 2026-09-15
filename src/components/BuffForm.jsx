@@ -33,10 +33,10 @@ import {
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { getClassDisplayName, ALL_CLASS_NAMES } from '../data/classDatabase'
 import { getSpellById, getWandScrollSpellPower } from '../data/spellDatabase'
-import { WEAPON_DATABASE } from '../data/weaponDatabase'
+import { WEAPON_DATABASE, rollDice } from '../data/weaponDatabase'
 import { inputClass, inputClassInline, textareaClass } from '../lib/inputStyles'
 import { formatDisplayOneDecimal } from '../lib/encumbrance'
-import { isFormulaValue, formatFormulaLabel } from '../lib/formulas'
+import { isFormulaValue, formatFormulaLabel, isDiceValue, formatDiceValue, diceValueExpression } from '../lib/formulas'
 import {
   normalizeContainedSpellValue,
   createEmptyContainedSpellSub,
@@ -1258,6 +1258,72 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
     <div className="flex items-center gap-2">
       {core}
       <ReferenceValuePicker options={referenceData} onSelect={onChange} compact={compact || pill} />
+    </div>
+  )
+}
+
+/**
+ * 临时生命值编辑器：支持「固定/引用」与「骰子」两种形态。
+ * 骰子形态 = { diceCount, diceSides, diceBonus, rolled }；点掷骰按公式掷出并记结果（rolled），未掷按 0。
+ */
+function TempHpValueEditor({ value, onChange, referenceData }) {
+  const isDice = isDiceValue(value)
+  const dice = isDice ? value : { diceCount: 1, diceSides: 6, diceBonus: 0, rolled: null }
+  const setDice = (patch) => onChange({ ...dice, ...patch })
+  const handleRoll = () => {
+    const expr = diceValueExpression(dice)
+    if (!expr) return
+    const { total, rolls } = rollDice(expr)
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('dnd-external-roll', { detail: { animate: true, formula: expr, diceValues: rolls } }))
+    }
+    onChange({ ...dice, rolled: total })
+  }
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => onChange(isDice ? 0 : value)}
+          className={`h-6 px-2 rounded border text-xs leading-none ${!isDice ? 'border-dnd-gold/60 bg-dnd-gold/15 text-dnd-gold' : 'border-[#3a4a5e] bg-[#2a3a4e] text-gray-300 hover:bg-[#3a4a5e]'}`}
+        >
+          固定/引用
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange(isDice ? value : { diceCount: 1, diceSides: 6, diceBonus: 0, rolled: null })}
+          className={`h-6 px-2 rounded border text-xs leading-none ${isDice ? 'border-dnd-gold/60 bg-dnd-gold/15 text-dnd-gold' : 'border-[#3a4a5e] bg-[#2a3a4e] text-gray-300 hover:bg-[#3a4a5e]'}`}
+        >
+          骰子
+        </button>
+      </div>
+      {!isDice ? (
+        <NumberStepper
+          value={value}
+          onChange={(v) => onChange(isFormulaValue(v) ? v : Math.max(0, v))}
+          min={0}
+          compact
+          referenceData={referenceData}
+        />
+      ) : (
+        <div className="flex items-center gap-1 flex-wrap">
+          <NumberStepper value={dice.diceCount} onChange={(v) => setDice({ diceCount: Math.max(1, Math.min(99, v)) })} min={1} max={99} compact narrow className="!h-6 !w-10" />
+          <span className="text-gray-400 text-xs">d</span>
+          <NumberStepper value={dice.diceSides} onChange={(v) => setDice({ diceSides: Math.max(1, Math.min(100, v)) })} min={1} max={100} compact narrow className="!h-6 !w-10" />
+          <span className="text-gray-400 text-xs">+</span>
+          <NumberStepper value={dice.diceBonus} onChange={(v) => setDice({ diceBonus: Math.max(0, v) })} min={0} max={99} compact narrow className="!h-6 !w-10" />
+          <button
+            type="button"
+            onClick={handleRoll}
+            className="h-6 px-2 rounded border border-dnd-gold/50 bg-dnd-gold/10 text-dnd-gold hover:bg-dnd-gold/20 text-xs leading-none"
+          >
+            掷骰
+          </button>
+          <span className="text-xs text-gray-300">
+            {dice.rolled != null ? `已掷：${dice.rolled}` : '未掷（按0）'}
+          </span>
+        </div>
+      )}
     </div>
   )
 }
@@ -4549,6 +4615,12 @@ function EffectValueEditor({
           />
           <p className="text-xs text-gray-500">写在装备上时：只影响「这一件」武器的战斗快捷投掷，其它已装备武器上的暴击×不会串到本武器。角色 Buff 栏此项不生效。法术重击始终×2。武器加值仍只加一次。</p>
         </div>
+      ) : currentEffect?.key === 'temp_hp' ? (
+        <TempHpValueEditor
+          value={value}
+          onChange={(v) => onChange({ ...module, value: v })}
+          referenceData={activeReferenceData}
+        />
       ) : isNumber ? (
         <div className="flex items-center gap-2">
           <NumberStepper referenceData={activeReferenceData}

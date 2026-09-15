@@ -431,6 +431,36 @@ export function isFormulaValue(value) {
 }
 
 /**
+ * 判断 value 是否为「骰子形态」效果值（形如 { diceCount, diceSides, diceBonus, rolled }）。
+ * 用于临时生命等支持掷骰记结果的效果。与公式对象互斥（无 ref 字段）。
+ */
+export function isDiceValue(value) {
+  return (
+    value != null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    !isFormulaValue(value) &&
+    typeof value.diceCount === 'number' &&
+    typeof value.diceSides === 'number'
+  )
+}
+
+/** 把骰子形态值格式化为「2d6+3」字符串（bonus 为 0 时省略）。 */
+export function formatDiceValue(value) {
+  if (!isDiceValue(value)) return ''
+  const count = Number(value.diceCount) || 0
+  const sides = Number(value.diceSides) || 0
+  const bonus = Number(value.diceBonus) || 0
+  const bonusPart = bonus > 0 ? `+${bonus}` : bonus < 0 ? `${bonus}` : ''
+  return `${count}d${sides}${bonusPart}`
+}
+
+/** 骰子形态值对应的 rollDice 表达式（如「2d6+3」）。 */
+export function diceValueExpression(value) {
+  return formatDiceValue(value)
+}
+
+/**
  * 求值 buff 效果值：支持静态数字或公式对象。
  * 公式对象：{ ref: 'level' | 'proficiency' | 'abilityScore' | 'abilityModifier' | 'spellDc' | 'spellAttack' | 'classLevel', ability?, className?, mult?, add? }
  *

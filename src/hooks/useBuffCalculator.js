@@ -1,5 +1,5 @@
 import { useMemo, useSyncExternalStore } from 'react'
-import { abilityModifier, getAC, proficiencyBonus, evaluateBuffValue, isFormulaValue, calcMaxHP, getHPBuffSum } from '../lib/formulas'
+import { abilityModifier, getAC, proficiencyBonus, evaluateBuffValue, isFormulaValue, isDiceValue, calcMaxHP, getHPBuffSum } from '../lib/formulas'
 import { getPrimarySpellcastingAbility, getCharacterClasses } from '../data/classDatabase'
 import { levelFromXP } from '../lib/xp5e'
 import {
@@ -946,9 +946,18 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
     let regeneration = 0
 
     for (const b of entries) {
+      if (b.effectType === 'temp_hp') {
+        // 骰子形态：使用掷骰记下的结果（未掷按 0）；否则走数值/公式求值
+        if (isDiceValue(b.value)) {
+          tempHp = Math.max(tempHp, Number(b.value.rolled) || 0)
+        } else {
+          const v = evalVal(b.value)
+          if (!Number.isNaN(v)) tempHp = Math.max(tempHp, v)
+        }
+        continue
+      }
       const v = evalVal(b.value)
-      if (b.effectType === 'temp_hp' && !Number.isNaN(v)) tempHp = Math.max(tempHp, v)
-      else if (b.effectType === 'max_hp_bonus') maxHpBonus += v
+      if (b.effectType === 'max_hp_bonus') maxHpBonus += v
       else if (b.effectType === 'regeneration') regeneration += v
     }
     

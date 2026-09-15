@@ -364,8 +364,10 @@ export function AbilityButton({ name, costText, usable, disabledReason, onUse, c
 /* ── EnergyBarButton ──────────────────────────────────────────── */
 
 /**
- * 主动释放按钮 —— 「细线微光」风格。
+ * 主动释放按钮 —— 「实心金胶囊」。
  * 用于职业特性 / 专长 / 种族特性的主动释放按钮。
+ * 形状语言与装备卡主动按钮一致（胶囊 + 2px outline + 左名字右动作小胶囊），
+ * 区别仅在于类别色：装备卡随物品品类取色，这三类卡统一用金色。
  */
 export function EnergyBarButton({
   name,
@@ -377,63 +379,77 @@ export function EnergyBarButton({
 }) {
   const gold = '#c79a42'
   const goldLight = '#f0d060'
+  const baseShadow = 'inset 0 1px 0 rgba(255,240,200,0.5), inset 0 -1px 0 rgba(90,60,10,0.35), 0 2px 8px rgba(0,0,0,0.3)'
+  const hoverShadow = 'inset 0 1px 0 rgba(255,246,220,0.72), inset 0 -1px 0 rgba(90,60,10,0.35), 0 2px 14px rgba(199,154,66,0.45)'
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={(e) => { e.stopPropagation(); if (!disabled) onClick?.(e) }}
-      className={`group relative flex items-center w-full h-9 px-2.5 rounded-md cursor-pointer transition-all active:scale-[0.98] ${disabled ? 'opacity-40 cursor-not-allowed' : ''} ${className}`}
+      className={`group relative flex items-center w-full h-9 rounded-full cursor-pointer transition-[box-shadow,outline-color,filter] duration-150 active:scale-[0.98] ${disabled ? 'opacity-45 saturate-50 cursor-not-allowed' : ''} ${className}`}
       style={{
-        border: '1px solid rgba(139,163,194,0.18)',
-        background: 'linear-gradient(180deg, #1d2735 0%, #17202d 100%)',
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.25), 0 1px 3px rgba(0,0,0,0.3)',
+        outline: `2px solid rgba(217,176,85,0.85)`,
+        outlineOffset: '-2px',
+        background: 'linear-gradient(90deg, #8a6720 0%, #c79a42 55%, #e0b862 100%)',
+        boxShadow: baseShadow,
       }}
       title={disabled ? disabledReason || '' : `点击使用${name}`}
       onMouseEnter={(e) => {
         if (!disabled) {
-          e.currentTarget.style.borderColor = 'rgba(199,154,66,0.5)'
-          e.currentTarget.style.boxShadow = `inset 0 1px 0 rgba(255,255,255,0.09), inset 0 -1px 0 rgba(0,0,0,0.25), inset 0 0 12px ${gold}22, 0 1px 3px rgba(0,0,0,0.3)`
+          e.currentTarget.style.outlineColor = '#f5d68a'
+          e.currentTarget.style.boxShadow = hoverShadow
         }
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = 'rgba(139,163,194,0.18)'
-        e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.25), 0 1px 3px rgba(0,0,0,0.3)'
+        e.currentTarget.style.outlineColor = 'rgba(217,176,85,0.85)'
+        e.currentTarget.style.boxShadow = baseShadow
       }}
     >
       {/* 顶部高光线：两端淡出 */}
       <div
-        className="absolute top-0 left-2 right-2 h-[1px] pointer-events-none"
-        style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.14) 30%, rgba(255,255,255,0.14) 70%, transparent)' }}
+        className="absolute top-[2px] left-0 right-0 h-[1px] pointer-events-none"
+        style={{ background: 'linear-gradient(90deg, transparent, rgba(255,244,214,0.7) 15%, rgba(255,244,214,0.7) 85%, transparent)' }}
       />
-      {/* 名字 */}
-      <span
-        className="text-[14px] font-semibold text-white whitespace-nowrap overflow-hidden text-ellipsis flex-1 min-w-0 text-center"
-        style={{ letterSpacing: '2px', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}
-      >
-        {name}
-      </span>
-      {/* 右端：充能/消耗信息 + 金色闪电 */}
-      <div className="flex items-center gap-1.5 shrink-0 ml-2">
-        {chargeInfo && (
-          <span className="text-[11px] font-bold" style={{ color: '#8899aa' }}>
-            {chargeInfo}
-          </span>
-        )}
-        <span className="relative flex items-center justify-center w-4 h-4">
-          <Zap
-            className="w-4 h-4 absolute inset-0"
-            style={{ color: gold }}
-            strokeWidth={2.2}
-          />
-          {!disabled && (
+      <span className="relative grid items-center w-full pl-3 pr-1.5" style={{ gridTemplateColumns: '1fr auto', columnGap: '8px' }}>
+        {/* 左列：名字 */}
+        <span
+          className="text-[14px] font-semibold whitespace-nowrap overflow-hidden text-ellipsis min-w-0"
+          style={{ letterSpacing: '2px', color: '#1b1408' }}
+        >
+          {name}
+        </span>
+        {/* 右列：动作小胶囊 —— 闪电 + 充能/消耗信息 */}
+        <span
+          className="flex items-center gap-1.5 shrink-0 rounded-full"
+          style={{
+            height: '24px',
+            padding: '0 8px',
+            background: 'rgba(28,20,6,0.72)',
+            border: '1px solid rgba(40,28,8,0.45)',
+            boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)',
+          }}
+        >
+          <span className="relative flex items-center justify-center w-4 h-4">
             <Zap
-              className="w-4 h-4 absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity"
-              style={{ color: goldLight, filter: `drop-shadow(0 0 5px ${goldLight}aa)` }}
+              className="w-4 h-4 absolute inset-0"
+              style={{ color: gold }}
               strokeWidth={2.2}
             />
+            {!disabled && (
+              <Zap
+                className="w-4 h-4 absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                style={{ color: goldLight, filter: `drop-shadow(0 0 5px ${goldLight}aa)` }}
+                strokeWidth={2.2}
+              />
+            )}
+          </span>
+          {chargeInfo && (
+            <span className="text-[11px] font-bold tabular-nums" style={{ color: goldLight, lineHeight: '16px' }}>
+              {chargeInfo}
+            </span>
           )}
         </span>
-      </div>
+      </span>
     </button>
   )
 }

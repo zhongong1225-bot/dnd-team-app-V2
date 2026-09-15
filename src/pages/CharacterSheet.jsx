@@ -2418,7 +2418,7 @@ function FocusAbilitiesBlock({ char, onSave }) {
                     </span>
                   )}
                 </div>
-                <div className="shrink-0 w-24">
+                <div className="shrink-0 w-32">
                   <EnergyBarButton
                     name="释放"
                     chargeInfo={`×${cost}`}

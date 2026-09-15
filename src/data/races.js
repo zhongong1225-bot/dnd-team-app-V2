@@ -559,9 +559,20 @@ export function getAllRaces() {
   const custom = getCustomRaces()
   const builtInIds = new Set(RACES.map(r => r.id))
   
-  // 自定义种族优先：如果自定义种族与内置种族ID相同，使用自定义版本
+  // 自定义种族优先：如果自定义种族与内置种族ID相同，使用自定义版本但覆盖中文名称
   const customMap = new Map(custom.map(r => [r.id, r]))
-  const mergedBuiltIn = RACES.map(r => customMap.get(r.id) || r)
+  const mergedBuiltIn = RACES.map(r => {
+    const customVersion = customMap.get(r.id)
+    if (!customVersion) return r
+    
+    // 自定义种族覆盖了内置种族：保留自定义内容，但强制使用内置的中文名称和特性定义
+    return {
+      ...customVersion,
+      name: r.name, // 强制使用内置中文名称
+      traits: r.traits, // 强制使用内置特性定义（含纯中文名称）
+      tables: r.tables, // 强制使用内置表格（含纯中文文本）
+    }
+  })
   
   // 添加不与内置冲突的纯自定义种族
   const pureCustom = custom.filter(r => !builtInIds.has(r.id))
