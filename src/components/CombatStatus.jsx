@@ -693,7 +693,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [explosiveUsePending, setExplosiveUsePending] = useState(null) // { inventoryIndex, name, diceExpr, damageType }
   const [focusUsePending, setFocusUsePending] = useState(null) // { inventoryIndex, name, spellSub } 法器投掷待确认
   const [executeAbilityModal, setExecuteAbilityModal] = useState(null) // { ability, context }
-  const [damageRollConfirm, setDamageRollConfirm] = useState(null) // { attackResult, spellName, damageList, isSpellAttack, critThreatMin, nwSpellAtk, slotLevel, spellData }
   const [attackPresetKey, setAttackPresetKey] = useState(null)
   /** 实时攻击计划：id -> { name, getAttack, getDamagePlan, onCommitted? }，由各卡片每次渲染覆写 */
   const weaponPlans = useRef({})
@@ -1168,7 +1167,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       )
     }
   }
-  const useFocusCharge = (inventoryIndex, displayName, spellSub) => {
+  const spendFocusCharge = (inventoryIndex, displayName, spellSub, { skipDamageRoll = false } = {}) => {
     const inv = [...(char?.inventory ?? [])]
     const entry = inv[inventoryIndex]
     if (!entry) {
@@ -1183,6 +1182,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     inv[inventoryIndex] = { ...entry, charge: nextCharge }
     onSave({ inventory: inv })
     setFocusUsePending(null)
+    if (skipDamageRoll) return
     const dCount = Math.max(0, Number(sub?.damageDiceCount) ?? 0)
     const dSides = Math.max(1, Number(sub?.damageDiceSides) ?? 6)
     if (dCount > 0) {
@@ -1211,8 +1211,12 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       )
     }
   }
+  /** 道具卡走五步流：伤害已在弹窗里投过，结算后只扣充能 */
+  const consumeFocusCharge = (inventoryIndex, displayName, spellSub) => (
+    spendFocusCharge(inventoryIndex, displayName, spellSub, { skipDamageRoll: true })
+  )
   /** 使用卷轴：扣 1 数量，数量为 1 时从背包移除 */
-  const useScroll = (inventoryIndex) => {
+  const spendScroll = (inventoryIndex) => {
     const inv = [...(char?.inventory ?? [])]
     const entry = inv[inventoryIndex]
     if (!entry) return
@@ -1329,47 +1333,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         ? { animate: true, formula: animParts.join(','), diceValues: animValues }
         : {}
     setLastDamageRoll({ byType, ...animBundle })
-  }
-
-  // 变身法术攻击检定后的确认回调（由弹窗调用）
-  const handleCreatureSpellAttackResult = (attackResult, targetDC, isCrit) => {
-    if (!damageRollConfirm) return
-    const { spellName, damageList, nwSpellAtk, slotLevel, spellData } = damageRollConfirm
-    
-    const dcNum = Number(targetDC)
-    if (!dcNum || isNaN(dcNum)) {
-      // 用户未输入有效DC，不投伤害
-      setDamageRollConfirm(null)
-      return
-    }
-    
-    const hit = attackResult >= dcNum
-    if (!hit) {
-      alert(`攻击未命中！（${attackResult} < ${dcNum}）`)
-      setDamageRollConfirm(null)
-      return
-    }
-    
-    // 确定是否重击
-    const isCritChoice = isCrit === true || isCrit === false ? isCrit : false
-    
-    // 计算升环后的伤害（含增强施法者等级：自动升环，消耗环位不变）
-    const effectiveCastLevel = getEffectiveCastLevel(slotLevel, spellData?.level, buffStats?.casterLevelBonus)
-    const spellBaseLevel = Number(spellData?.level) || 0
-    const levelDiff = Math.max(0, effectiveCastLevel - spellBaseLevel)
-    const finalDamageList = (levelDiff > 0 && spellData?.description)
-      ? applyUpcastToDamageList(parseSpellDamageFromDescription(spellData.description), spellData.description, levelDiff)
-      : [...damageList]
-    
-    // 投掷伤害
-    if (finalDamageList.length > 0) {
-      const firstDice = finalDamageList[0].dice
-      const firstType = getDamageTypeLabel(finalDamageList[0].type) || finalDamageList[0].type || ''
-      const label = `${spellName} ${firstType}`
-      rollDamageDice(firstDice, label, 'creature-spell-confirm', 0, isCritChoice, firstType)
-    }
-    
-    setDamageRollConfirm(null)
   }
 
   // 豁免型法术直接投伤害
@@ -1555,6 +1518,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   // 取值器读注册表而非闭包：弹窗在"命中→伤害"之间停留期间新挂的 BUFF 也要进这次伤害
   const attackPreset = useMemo(() => (attackPresetKey ? {
     get name() { return weaponPlans.current[attackPresetKey]?.name || '武器攻击' },
+    get resourceLabel() { return weaponPlans.current[attackPresetKey]?.resourceLabel || '' },
     getAttack: () => weaponPlans.current[attackPresetKey]?.getAttack() || { bonus: 0 },
     getDamagePlan: () => weaponPlans.current[attackPresetKey]?.getDamagePlan() || { diceList: [], flatMod: 0 },
   } : null), [attackPresetKey])
@@ -3029,8 +2993,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               consumeSpellSlotForMean, renderAutoGainBadges,
               registerWeaponPlan, openWeaponAttackFlow,
               // 状态设置
-              setExplosiveUsePending, useScroll, setFocusUsePending, setFocusSpellMap,
-              setDamageRollConfirm, handleCreatureSpellAttackResult,
+              setExplosiveUsePending, spendScroll, setFocusUsePending, setFocusSpellMap,
+              consumeFocusCharge,
               // 数据源
               getMergedSpells,
               // 角色数据（道具卡需要）
@@ -3428,7 +3392,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   <button type="button" onClick={() => {
                     const cm = combatMeans.find((m) => m.id === focusUsePending?.combatMeanId)
                     if (cm && !consumeSpellSlotForMean(cm, focusUsePending.name || '法器')) return
-                    useFocusCharge(focusUsePending.inventoryIndex, focusUsePending.name, focusUsePending.spellSub)
+                    spendFocusCharge(focusUsePending.inventoryIndex, focusUsePending.name, focusUsePending.spellSub)
                   }} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white text-sm">使用</button>
                 </div>
               </div>
@@ -3572,279 +3536,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           onClose={() => setAttackPresetKey(null)}
         />
       )}
-      
-      {/* 战斗确认面板 - 攻击型 */}
-      {damageRollConfirm && damageRollConfirm.isAttackType && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60" onClick={() => setDamageRollConfirm(null)}>
-          <div 
-            className="rounded-lg border border-gray-600 bg-gray-800 shadow-xl max-w-lg w-full mx-4 z-[75] max-h-[90vh] overflow-y-auto" 
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* 标题栏 */}
-            <div className="px-5 py-3 border-b border-gray-700">
-              <h3 className="text-dnd-gold-light text-base font-bold">战斗手段——{damageRollConfirm.spellName}</h3>
-            </div>
-            
-            <div className="p-5 space-y-4">
-              {/* 基础加值 */}
-              <div className="flex items-center justify-between">
-                <span className="text-gray-400 text-sm">基础加值：</span>
-                <span className="text-white font-mono text-lg">{damageRollConfirm.nwSpellAtk >= 0 ? '+' : ''}{damageRollConfirm.nwSpellAtk}</span>
-              </div>
-              
-              {/* BUFF加值列表（可勾选） */}
-              {damageRollConfirm.buffBonuses && damageRollConfirm.buffBonuses.length > 0 && (
-                <div className="border-t border-gray-700 pt-3">
-                  <p className="text-xs text-gray-400 mb-2">BUFF加值（可勾选）：</p>
-                  <div className="space-y-1.5">
-                    {damageRollConfirm.buffBonuses.map((bonus, idx) => (
-                      <label key={idx} className="flex items-center gap-2 cursor-pointer hover:bg-gray-700/30 rounded px-2 py-1 transition-colors">
-                        <input
-                          type="checkbox"
-                          defaultChecked={true}
-                          data-bonus-idx={idx}
-                          className="w-4 h-4 rounded border-gray-600 bg-gray-900 text-dnd-gold focus:ring-dnd-gold"
-                        />
-                        <span className="text-sm text-gray-300">{bonus.label}</span>
-                        <span className="text-sm text-dnd-gold-light font-mono ml-auto">{bonus.value >= 0 ? '+' : ''}{bonus.value}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              {/* 伤害骰显示 */}
-              <div className="border-t border-gray-700 pt-3">
-                <p className="text-xs text-gray-400 mb-2">伤害骰：</p>
-                <div className="bg-gray-900/50 rounded px-3 py-2 text-white font-mono text-base">
-                  {(damageRollConfirm.damageList || []).map((d, i) => (
-                    <span key={i}>
-                      {i > 0 && ' + '}
-                      {d.dice} {d.type}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              
-              {/* 额外伤害（可勾选） */}
-              {damageRollConfirm.extraDamageDice && damageRollConfirm.extraDamageDice.length > 0 && (
-                <div className="border-t border-gray-700 pt-3">
-                  <p className="text-xs text-gray-400 mb-2">额外伤害骰（可勾选）：</p>
-                  <div className="space-y-1.5">
-                    {damageRollConfirm.extraDamageDice.map((extra, idx) => (
-                      <label key={idx} className="flex items-center gap-2 cursor-pointer hover:bg-gray-700/30 rounded px-2 py-1 transition-colors">
-                        <input
-                          type="checkbox"
-                          defaultChecked={true}
-                          data-extra-idx={idx}
-                          className="w-4 h-4 rounded border-gray-600 bg-gray-900 text-dnd-gold focus:ring-dnd-gold"
-                        />
-                        <span className="text-sm text-gray-300">+{extra.label}</span>
-                        <span className="text-sm text-dnd-gold-light font-mono ml-auto">{extra.dice}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              {/* 命中结果空白层 */}
-              <div className="border-t border-gray-700 pt-3">
-                <p className="text-xs text-gray-400 mb-2">命中结果：</p>
-                <div 
-                  id="attack-result-display"
-                  className="bg-gray-900/50 rounded px-3 py-4 min-h-[3rem] flex items-center justify-center text-lg font-mono"
-                >
-                  {damageRollConfirm.attackRollResult ? (
-                    <span className="text-dnd-gold-light text-2xl font-bold">{damageRollConfirm.attackRollResult}</span>
-                  ) : (
-                    <span className="text-gray-600 text-sm">点击下方按钮投掷</span>
-                  )}
-                </div>
-              </div>
-              
-              {/* 重击选择（仅在已投攻击且在重击威胁范围内时显示） */}
-              {damageRollConfirm.attackRollResult && damageRollConfirm.critThreatMinNatural && (() => {
-                const rawD20 = damageRollConfirm.rawD20Result || (Number(damageRollConfirm.attackRollResult) - (damageRollConfirm.nwSpellAtk || 0))
-                const isCritThreat = rawD20 >= damageRollConfirm.critThreatMinNatural
-                if (!isCritThreat) return null
-                
-                return (
-                  <div className="border-t border-gray-700 pt-3">
-                    <div className="bg-red-900/20 border border-red-700/50 rounded px-3 py-2">
-                      <p className="text-xs text-red-300 mb-2">⚠ 重击威胁！自然骰 {rawD20} ≥ {damageRollConfirm.critThreatMinNatural}</p>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          id="combat-confirm-crit-checkbox"
-                          defaultChecked={true}
-                          className="w-4 h-4 rounded border-red-600 bg-gray-900 text-red-500 focus:ring-red-500"
-                        />
-                        <span className="text-sm text-red-300">确认为重击（伤害骰翻倍）</span>
-                      </label>
-                    </div>
-                  </div>
-                )
-              })()}
-              
-              {/* 伤害结果空白层 */}
-              <div className="border-t border-gray-700 pt-3">
-                <p className="text-xs text-gray-400 mb-2">伤害结果：</p>
-                <div 
-                  id="damage-result-display"
-                  className="bg-gray-900/50 rounded px-3 py-4 min-h-[3rem] flex items-center justify-center"
-                >
-                  <span className="text-gray-600 text-sm">点击下方按钮投掷</span>
-                </div>
-              </div>
-              
-              {/* 操作按钮 */}
-              <div className="flex gap-3 pt-2">
-                <button 
-                  type="button" 
-                  onClick={() => {
-                    // 命中投掷 - 触发3D骰子动画
-                    const attackBonus = damageRollConfirm.nwSpellAtk || 0
-                    openForCheck(damageRollConfirm.spellName + ' 攻击', attackBonus, { 
-                      quickRoll: true,
-                      critThreatMinNatural: damageRollConfirm.critThreatMinNatural,
-                      onResult: (total, rawD20) => {
-                        // 更新命中结果显示
-                        const display = document.getElementById('attack-result-display')
-                        if (display) {
-                          display.innerHTML = `<span class="text-dnd-gold-light text-2xl font-bold">${total}</span>`
-                        }
-                        // 更新弹窗数据中的攻击结果和原始骰值
-                        setDamageRollConfirm(prev => prev ? {...prev, attackRollResult: total, rawD20Result: rawD20} : null)
-                      },
-                    })
-                  }} 
-                  className="flex-1 py-3 rounded bg-blue-900/50 border border-blue-700 text-blue-300 font-medium hover:bg-blue-900/70 transition-colors"
-                >
-                  命中投掷
-                </button>
-                <button 
-                  type="button" 
-                  onClick={() => {
-                    // 检查是否已投攻击
-                    if (!damageRollConfirm.attackRollResult) {
-                      alert('请先点击"命中投掷"按钮进行攻击检定')
-                      return
-                    }
-                    
-                    // 检查重击
-                    const critCheckbox = document.getElementById('combat-confirm-crit-checkbox')
-                    const isCrit = critCheckbox ? critCheckbox.checked : false
-                    
-                    // 收集选中的BUFF加值
-                    const selectedBonuses = Array.from(document.querySelectorAll('[data-bonus-idx]'))
-                      .filter(cb => cb.checked)
-                      .map(cb => {
-                        const idx = Number(cb.dataset.bonusIdx)
-                        return damageRollConfirm.buffBonuses?.[idx]?.value || 0
-                      })
-                      .reduce((a, b) => a + b, 0)
-                    
-                    // 收集选中的额外伤害骰
-                    const selectedExtras = Array.from(document.querySelectorAll('[data-extra-idx]'))
-                      .filter(cb => cb.checked)
-                      .map(cb => {
-                        const idx = Number(cb.dataset.extraIdx)
-                        return damageRollConfirm.extraDamageDice?.[idx]?.dice || ''
-                      })
-                      .filter(Boolean)
-                    
-                    // 构建完整伤害表达式
-                    const baseDice = (damageRollConfirm.damageList || []).map(d => d.dice).join('+')
-                    const allDice = [baseDice, ...selectedExtras].filter(Boolean).join('+')
-                    const totalMod = selectedBonuses
-                    
-                    // 触发伤害投掷（支持重击）
-                    rollDamageDice(allDice, damageRollConfirm.spellName, 'combat-confirm', totalMod, isCrit, '', {
-                      onResult: (result) => {
-                        // 更新伤害结果显示
-                        const display = document.getElementById('damage-result-display')
-                        if (display) {
-                          const critLabel = isCrit ? ' (重击!)' : ''
-                          display.innerHTML = `<span class="text-red-400 text-2xl font-bold">${result.total}${critLabel}</span>`
-                        }
-                      },
-                    })
-                  }} 
-                  className="flex-1 py-3 rounded bg-red-900/50 border border-red-700 text-red-300 font-medium hover:bg-red-900/70 transition-colors"
-                >
-                  伤害投掷
-                </button>
-              </div>
-              
-              {/* 关闭按钮 */}
-              <button 
-                type="button" 
-                onClick={() => setDamageRollConfirm(null)} 
-                className="w-full py-2 rounded border border-gray-600 text-gray-400 text-sm hover:bg-gray-700 transition-colors"
-              >
-                关闭
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* 豁免型法术直接显示伤害 */}
-      {damageRollConfirm && !damageRollConfirm.isAttackType && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60" onClick={() => setDamageRollConfirm(null)}>
-          <div className="rounded-lg border border-gray-600 bg-gray-800 p-5 shadow-xl max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-dnd-gold-light text-base font-bold mb-3">豁免检定</h3>
-            
-            <div className="space-y-3 mb-4">
-              <div className="flex items-center justify-between">
-                <span className="text-gray-400 text-sm">技能名称：</span>
-                <span className="text-white font-medium">{damageRollConfirm.spellName}</span>
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <span className="text-gray-400 text-sm">豁免DC：</span>
-                <span className="text-white font-mono">{damageRollConfirm.saveDC || '—'}</span>
-              </div>
-              
-              <div className="border-t border-gray-700 pt-3">
-                <p className="text-xs text-gray-400 mb-2">伤害骰：</p>
-                <div className="bg-gray-900 rounded px-3 py-2 text-white font-mono text-sm">
-                  {(damageRollConfirm.damageList || []).map((d, i) => (
-                    <span key={i}>
-                      {i > 0 && ' + '}
-                      {d.dice} {d.type}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex gap-2">
-              <button 
-                type="button" 
-                onClick={() => setDamageRollConfirm(null)} 
-                className="flex-1 py-2 rounded border border-gray-500 text-gray-400 text-sm hover:bg-gray-700 transition-colors"
-              >
-                取消
-              </button>
-              <button 
-                type="button" 
-                onClick={() => {
-                  // 直接投伤害
-                  if (damageRollConfirm.onRollDamage) {
-                    damageRollConfirm.onRollDamage()
-                  }
-                  setDamageRollConfirm(null)
-                }} 
-                className="flex-1 py-2 rounded bg-dnd-gold hover:bg-dnd-gold-hover text-black font-medium text-sm transition-colors"
-              >
-                投掷伤害
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      
+
       {/* 召唤物管理面板 */}
       <SummonedCreaturesPanel
         char={char}

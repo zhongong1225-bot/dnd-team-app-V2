@@ -53,9 +53,9 @@ export default function SpellAttackCard({ displayMean, comboSuffix = '', ctx }) 
     gainPerDieBonus, gainExtraDice, gainDiceFloor2,
     itemFormulaContext,
     openEditSpellAttack, openEditComboMean, removeCombatMean,
-    openForCheck, rollDamageDice, consumeSpellSlotForMean,
+    rollDamageDice, consumeSpellSlotForMean,
     renderAutoGainBadges, getMergedSpells, char,
-    setDamageRollConfirm, handleCreatureSpellAttackResult,
+    registerWeaponPlan, openWeaponAttackFlow,
   } = ctx
 
   /* ─ 查找法术 ── */
@@ -118,18 +118,6 @@ export default function SpellAttackCard({ displayMean, comboSuffix = '', ctx }) 
     }
   })
 
-  // 构建BUFF加值列表（从spellDamageExtras提取）
-  const buffBonuses = []
-  if (gainDamageBonus !== 0) buffBonuses.push({ label: '增益伤害加值', value: gainDamageBonus })
-  if (gainPerDieBonus !== 0 && spellDiceCount > 0) buffBonuses.push({ label: '每骰加成', value: gainPerDieBonus * spellDiceCount })
-  if (spellDamageExtras.flatBonus !== 0) buffBonuses.push({ label: '法术伤害加值', value: spellDamageExtras.flatBonus })
-  
-  // 构建额外伤害列表
-  const extraDamageDice = allSpellExtraDice.map((dice, idx) => ({
-    label: `额外伤害${idx + 1}`,
-    dice,
-  }))
-
   // 法术环位消耗显示（增强施法者等级会提升有效环位）
   const baseRing = Number(displayMean.slotLevel) || Number(matchedSpell?.level) || 0
   const showsRingUpcast = casterLevelBonus > 0 && baseRing > 0 && effectiveCastLevel > baseRing
@@ -140,8 +128,16 @@ export default function SpellAttackCard({ displayMean, comboSuffix = '', ctx }) 
   const onEdit = isCombo ? () => openEditComboMean(displayMean) : () => openEditSpellAttack(displayMean)
   const editBadgeClick = () => (isCombo ? openEditComboMean(displayMean) : openEditSpellAttack(displayMean))
 
-  // 名称列是否可点击：有伤害且有释放回调
-  const nameColumnClickable = hasDamage && !!setDamageRollConfirm && !!openForCheck
+  // 每次渲染覆写：投骰瞬间读到的就是当前 BUFF 与升环下的数值
+  registerWeaponPlan?.(displayMean.id, {
+    name: fullName,
+    getAttack: () => ({ bonus: spellAttackForMean, advantage: null, critThreatMinNatural: buffStats?.critThreatMinNatural, critDiceMultiplier: 2 }),
+    getDamagePlan: () => ({ diceList: damageList, flatMod: spellDamageMod }),
+  })
+
+  // 攻击型算不出法术攻击加值（如非施法者）时不可点：点击会先扣法术位再无事发生
+  const canResolve = hitRes === 'spell_attack' ? spellAttackForMean != null : hitValue != null
+  const nameColumnClickable = hasDamage && canResolve && !!openWeaponAttackFlow
   
   return (
     <div className={`rounded-lg border border-gray-600 bg-gray-800/80 p-2 ${COMBAT_LIST_ROW_SHADOW}`}>
@@ -151,46 +147,19 @@ export default function SpellAttackCard({ displayMean, comboSuffix = '', ctx }) 
           className={`flex items-center gap-1 min-w-0 pr-2 ${nameColumnClickable ? 'cursor-pointer hover:bg-gray-700/30 transition-colors rounded px-1 -ml-1' : ''}`}
           onClick={nameColumnClickable ? () => {
             if (!consumeSpellSlotForMean(displayMean, displayMean.spellName || '法术')) return
-            
-            if (hitRes === 'spell_attack' && spellAttackForMean != null) {
-              // 攻击型：打开攻击检定弹窗（带回调）
-              openForCheck(fullName + ' 法术攻击', spellAttackForMean, { 
-                quickRoll: true,
-                onResult: (total, rawD20) => {
-                  setDamageRollConfirm({
-                    spellName: fullName,
-                    damageList,
-                    nwSpellAtk: spellAttackForMean,
-                    slotLevel: displayMean.slotLevel,
-                    spellData: matchedSpell,
-                    isAttackType: true,
-                    attackRollResult: total,
-                    rawD20Result: rawD20,
-                    critThreatMinNatural: buffStats?.critThreatMinNatural,
-                    buffBonuses,
-                    extraDamageDice,
-                  })
-                },
-              })
-            } else if (hitRes !== 'spell_attack' && hitValue != null) {
-              // 豁免型：直接显示伤害确认弹窗
-              setDamageRollConfirm({
-                spellName: fullName,
-                damageList,
-                saveDC: hitValue,
-                isAttackType: false,
-                onRollDamage: () => {
-                  rollDamageDice(
-                    effectivePrimaryDice, 
-                    (displayMean.spellName || '法术') + ' ' + (getDamageTypeLabel(displayMean.damageTypeSpell) || ''), 
-                    'spell_attack-' + displayMean.id, 
-                    spellDamageMod, 
-                    false, 
-                    getDamageTypeLabel(displayMean.damageTypeSpell) || '', 
-                    { extraDice: allSpellExtraDice, floor2: spellDamageFloor2 }
-                  )
-                },
-              })
+            if (hitRes === 'spell_attack') {
+              openWeaponAttackFlow(displayMean.id)
+            } else {
+              // 豁免型由 DM 裁决，直接投伤害
+              rollDamageDice(
+                effectivePrimaryDice, 
+                (displayMean.spellName || '法术') + ' ' + (getDamageTypeLabel(displayMean.damageTypeSpell) || ''), 
+                'spell_attack-' + displayMean.id, 
+                spellDamageMod, 
+                false, 
+                getDamageTypeLabel(displayMean.damageTypeSpell) || '', 
+                { extraDice: allSpellExtraDice, floor2: spellDamageFloor2 }
+              )
             }
           } : undefined}
           title={nameColumnClickable ? '点击释放' : undefined}

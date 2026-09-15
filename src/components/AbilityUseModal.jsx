@@ -1186,7 +1186,7 @@ function ConfirmStepContent({
   let resourceSummary
   if (isSpellSlot) resourceSummary = `${amt} 个${norm.slotLevel || 1}环法术位`
   else if (isFreeSlot) resourceSummary = `1 个${amt}环及以上法术位（效果 ×${amt}）`
-  else if (isNone) resourceSummary = '无资源消耗'
+  else if (isNone) resourceSummary = attackPreset?.resourceLabel || '无资源消耗'
   else if (isClassResource) resourceSummary = `${amt} 点${resLabel}`
   else resourceSummary = `${amt} 点充能`
 
@@ -1273,7 +1273,7 @@ function ConfirmStepContent({
 
       {/* 不可撤回警告 */}
       <div className="text-[10px] text-gray-500 leading-relaxed">
-        点击"{executeLabel}"后将立即消耗资源{flowType === 'attack' ? '并投出攻击骰' : '并执行效果'}，无法撤回。
+        点击{'"'}{executeLabel}{'"'}后将立即消耗资源{flowType === 'attack' ? '并投出攻击骰' : '并执行效果'}，无法撤回。
       </div>
     </div>
   )
@@ -1497,8 +1497,9 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
       }
       lines.push(`消耗 ${amt} ${resLabel}`)
     } else if (isNone) {
-      // 物理攻击预设天然无资源，写出来反而像异常，只在真有效果/充能流里保留这行
-      if (!attackPreset) lines.push('无资源消耗')
+      // 预设的资源消耗由卡片侧报文案（如道具充能）；没文案的武器攻击写"无资源消耗"反而像异常
+      if (attackPreset?.resourceLabel) lines.push(`消耗 ${attackPreset.resourceLabel}`)
+      else if (!attackPreset) lines.push('无资源消耗')
     } else {
       // charges 类型：从物品库存中扣减充能
       const invId = effectiveChargeValue?.itemInventoryId || ''
@@ -1529,7 +1530,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
     }
 
     return { patch, lines }
-  }, [char, norm, amt, isSpellSlot, isFreeSlot, isClassResource, isNone, effectiveChargeValue, resLabel, consumeFreeSpellSlot, hasWildShapeTransform])
+  }, [char, norm, amt, isSpellSlot, isFreeSlot, isClassResource, isNone, effectiveChargeValue, resLabel, consumeFreeSpellSlot, hasWildShapeTransform, attackPreset])
 
   /* ── 不可撤回提示（2 秒后淡出） ── */
   const flashIrreversible = useCallback(() => {

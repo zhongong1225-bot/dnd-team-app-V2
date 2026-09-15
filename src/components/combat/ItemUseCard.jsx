@@ -124,7 +124,7 @@ function ExplosiveItemCard({ itemMeanOpt, currentQty, damageText, rangeDisplay, 
 /* ══════════════════════════════════════════════════
    卷子组件
    ══════════════════════════════════════════════════ */
-function ScrollItemCard({ currentQty, canEdit, useScroll, itemIndex, removeCombatMean, meanId }) {
+function ScrollItemCard({ currentQty, canEdit, spendScroll, itemIndex, removeCombatMean, meanId }) {
   return (
     <>
       <div className="col-span-[16] pl-2 border-l border-gray-600 min-h-7 min-w-0" aria-hidden />
@@ -134,7 +134,7 @@ function ScrollItemCard({ currentQty, canEdit, useScroll, itemIndex, removeComba
       </div>
       <div className="col-span-1 pl-1 border-l border-gray-600 flex items-center justify-end gap-0.5 shrink-0 min-w-0">
         {currentQty > 0 && (
-          <button type="button" onClick={() => useScroll(itemIndex)} className={CM_BTN_RED} title={quickRollTitle('使用卷轴（消耗 1 张）')} aria-label={quickRollTitle('使用卷轴（消耗 1 张）')}>
+          <button type="button" onClick={() => spendScroll(itemIndex)} className={CM_BTN_RED} title={quickRollTitle('使用卷轴（消耗 1 张）')} aria-label={quickRollTitle('使用卷轴（消耗 1 张）')}>
             <QuickRollIcon />
           </button>
         )}
@@ -173,11 +173,8 @@ function buildSubSpellDamageList(selectedSub) {
 /* ══════════════════════════════════════════════════
    法器/魔杖子组件
    ═════════════════════════════════════════════════ */
-function FocusItemCard({ itemMeanOpt, currentCharge, chargeMax, spellRange, hitText, damageText, hasSpells, spells, selectedIdx, canCast, canEdit, focusSpellMap, setFocusSpellMap, setFocusUsePending, removeCombatMean, meanId, openEditItemMean, cm, gains, renderAutoGainBadges, selectedSub, ctx, hideButton = false }) {
+function FocusItemCard({ itemMeanOpt, currentCharge, chargeMax, spellRange, hitText, damageText, hasSpells, spells, selectedIdx, canCast, canEdit, focusSpellMap, setFocusSpellMap, removeCombatMean, meanId, openEditItemMean, cm, gains, renderAutoGainBadges, selectedSub }) {
   const cell = 'pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden'
-  const { openForCheck, handleCreatureSpellAttackResult, setDamageRollConfirm } = ctx
-
-  const damageList = buildSubSpellDamageList(selectedSub)
 
   return (
     <>
@@ -222,52 +219,6 @@ function FocusItemCard({ itemMeanOpt, currentCharge, chargeMax, spellRange, hitT
         {renderAutoGainBadges(gains, () => openEditItemMean(cm))}
         <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>充能</span>
         <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums`}>{currentCharge}/{chargeMax}</span>
-        {/* 单一金色骰子按钮：攻击型触发多步流程，豁免型直接投伤害 */}
-        {!hideButton && canCast && selectedSub && (
-          <button 
-            type="button" 
-            onClick={() => {
-              const hitRes = selectedSub.hitResolution && HIT_RESOLUTION_LABELS[selectedSub.hitResolution] ? selectedSub.hitResolution : 'dex_save'
-              const isAttack = hitRes === 'spell_attack'
-              
-              if (isAttack) {
-                // 攻击型：设置待确认状态并触发攻击检定
-                setDamageRollConfirm({
-                  spellName: selectedSub.spellName || itemMeanOpt.name,
-                  damageList,
-                  nwSpellAtk: selectedSub._atkValue || 0,
-                  slotLevel: selectedSub.level || 0,
-                  spellData: null,
-                  isAttackType: true,
-                  buffBonuses: focusBuffBonuses,
-                  extraDamageDice: focusExtraDamageDice,
-                })
-                openForCheck(selectedSub.spellName + ' 法器法术攻击', selectedSub._atkValue || 0, { 
-                  quickRoll: true,
-                  onResult: (total, rawD20) => {
-                    setDamageRollConfirm(prev => prev ? {...prev, attackRollResult: total, rawD20Result: rawD20, critThreatMinNatural: buffStats?.critThreatMinNatural} : null)
-                  },
-                })
-              } else {
-                // 豁免型：直接投伤害（跳过攻击检定）
-                setFocusUsePending({ 
-                  inventoryIndex: itemMeanOpt.index, 
-                  name: itemMeanOpt.name, 
-                  combatMeanId: meanId, 
-                  spellSub: selectedSub, 
-                  gains, 
-                  spellDamageExtras: selectedSub?._damageExtras || { flatBonus: 0, extraDice: [] }, 
-                  damageFloor2: selectedSub?._diceFloor2 || false 
-                })
-              }
-            }} 
-            className={CM_BTN_GOLD} 
-            title={quickRollTitle('释放')} 
-            aria-label={quickRollTitle('释放')}
-          >
-            <QuickRollIcon />
-          </button>
-        )}
       </div>
       <div className="col-span-1 pl-1 border-l border-gray-600 flex items-center justify-end gap-0.5 shrink-0 min-w-0">
         {canEdit && (
@@ -292,9 +243,10 @@ export default function ItemUseCard({ displayMean, itemMeanOpt, ctx }) {
     spellAttackBonus, spellDC, buffStats, effectiveAbilities, prof,
     itemFormulaContext, focusSpellMap,
     openEditItemMean, removeCombatMean,
-    setExplosiveUsePending, useScroll, setFocusUsePending, setFocusSpellMap,
+    setExplosiveUsePending, spendScroll, setFocusUsePending, setFocusSpellMap,
+    consumeSpellSlotForMean, consumeFocusCharge,
     renderAutoGainBadges,
-    openForCheck, handleCreatureSpellAttackResult, setDamageRollConfirm,
+    registerWeaponPlan, openWeaponAttackFlow,
   } = ctx
 
   const cm = displayMean
@@ -356,7 +308,7 @@ export default function ItemUseCard({ displayMean, itemMeanOpt, ctx }) {
           <ScrollItemCard
             currentQty={currentQty}
             canEdit={canEdit}
-            useScroll={useScroll}
+            spendScroll={spendScroll}
             itemIndex={itemMeanOpt.index}
             removeCombatMean={removeCombatMean}
             meanId={cm.id}
@@ -446,17 +398,16 @@ export default function ItemUseCard({ displayMean, itemMeanOpt, ctx }) {
     _atkValue: hitRes === 'spell_attack' ? focusSpellAttackForMean : null,
   } : null
 
-  // 构建BUFF加值列表（从focusSpellDamageExtras提取）
-  const focusBuffBonuses = []
-  if (gainDamageBonus !== 0) focusBuffBonuses.push({ label: '增益伤害加值', value: gainDamageBonus })
-  if (gainPerDieBonus !== 0 && dCount > 0) focusBuffBonuses.push({ label: '每骰加成', value: gainPerDieBonus * dCount })
-  if (focusSpellDamageExtras.flatBonus !== 0) focusBuffBonuses.push({ label: '法术伤害加值', value: focusSpellDamageExtras.flatBonus })
-  
-  // 构建额外伤害列表
-  const focusExtraDamageDice = focusAllExtraDice.map((dice, idx) => ({
-    label: `额外伤害${idx + 1}`,
-    dice,
-  }))
+  // 每次渲染覆写：投骰瞬间读到的是当前子法术与增益下的数值；key 带子法术序号，切换下拉不会互相覆盖
+  const focusPlanKey = `item_${itemMeanOpt.index}_sub_${selectedIdx}`
+  registerWeaponPlan?.(focusPlanKey, {
+    name: selectedSub?.spellName?.trim() || itemMeanOpt.name,
+    resourceLabel: `${Math.max(1, Number(selectedSub?.cost) || 1)} 点充能`,
+    getAttack: () => ({ bonus: focusSpellAttackForMean ?? 0, advantage: null, critThreatMinNatural: buffStats?.critThreatMinNatural, critDiceMultiplier: 2 }),
+    getDamagePlan: () => ({ diceList: buildSubSpellDamageList(selectedSubWithExtras), flatMod: focusDamageMod }),
+    // 五步流已经投过伤害，这里只扣充能；走"是否使用"面板会让伤害投第二次
+    onCommitted: () => consumeFocusCharge(itemMeanOpt.index, itemMeanOpt.name, selectedSubWithExtras),
+  })
 
   return (
     <div className={`rounded-lg border border-gray-600 bg-gray-800/80 p-2 ${COMBAT_LIST_ROW_SHADOW}`}>
@@ -465,45 +416,19 @@ export default function ItemUseCard({ displayMean, itemMeanOpt, ctx }) {
         <div 
           className={`flex items-center gap-1 min-w-0 pr-2 ${canCast && selectedSub ? 'cursor-pointer hover:bg-gray-700/30 transition-colors rounded px-1 -ml-1' : ''}`}
           onClick={canCast && selectedSub ? () => {
-            const hitRes = selectedSub.hitResolution && HIT_RESOLUTION_LABELS[selectedSub.hitResolution] ? selectedSub.hitResolution : 'dex_save'
-            const isAttack = hitRes === 'spell_attack'
-            
-            if (isAttack) {
-              // 攻击型：打开攻击检定弹窗（带回调）
-              openForCheck(selectedSub.spellName + ' 法器法术攻击', selectedSub._atkValue || 0, { 
-                quickRoll: true,
-                onResult: (total, rawD20) => {
-                  setDamageRollConfirm({
-                    spellName: selectedSub.spellName || itemMeanOpt.name,
-                    damageList: buildSubSpellDamageList(selectedSub),
-                    nwSpellAtk: selectedSub._atkValue || 0,
-                    slotLevel: selectedSub.level || 0,
-                    spellData: null,
-                    isAttackType: true,
-                    attackRollResult: total,
-                    rawD20Result: rawD20,
-                    critThreatMinNatural: buffStats?.critThreatMinNatural,
-                  })
-                },
-              })
+            if (hitRes === 'spell_attack') {
+              if (!consumeSpellSlotForMean(cm, itemMeanOpt.name)) return
+              openWeaponAttackFlow(focusPlanKey)
             } else {
-              // 豁免型：直接显示伤害确认弹窗
-              setDamageRollConfirm({
-                spellName: selectedSub.spellName || itemMeanOpt.name,
-                damageList: buildSubSpellDamageList(selectedSub),
-                saveDC: selectedSub._atkValue || 0,
-                isAttackType: false,
-                onRollDamage: () => {
-                  setFocusUsePending({ 
-                    inventoryIndex: itemMeanOpt.index, 
-                    name: itemMeanOpt.name, 
-                    combatMeanId: cm.id, 
-                    spellSub: selectedSub, 
-                    gains, 
-                    spellDamageExtras: selectedSub?._damageExtras || { flatBonus: 0, extraDice: [] }, 
-                    damageFloor2: selectedSub?._diceFloor2 || false 
-                  })
-                },
+              // 豁免型由 DM 裁决：直接进"是否使用"面板，那里扣充能并投伤害
+              setFocusUsePending({ 
+                inventoryIndex: itemMeanOpt.index, 
+                name: itemMeanOpt.name, 
+                combatMeanId: cm.id, 
+                spellSub: selectedSubWithExtras, 
+                gains, 
+                spellDamageExtras: focusSpellDamageExtras, 
+                damageFloor2: gainDiceFloor2,
               })
             }
           } : undefined}
@@ -531,7 +456,6 @@ export default function ItemUseCard({ displayMean, itemMeanOpt, ctx }) {
           canEdit={canEdit}
           focusSpellMap={focusSpellMap}
           setFocusSpellMap={setFocusSpellMap}
-          setFocusUsePending={setFocusUsePending}
           removeCombatMean={removeCombatMean}
           meanId={cm.id}
           openEditItemMean={openEditItemMean}
@@ -539,8 +463,6 @@ export default function ItemUseCard({ displayMean, itemMeanOpt, ctx }) {
           gains={gains}
           renderAutoGainBadges={renderAutoGainBadges}
           selectedSub={selectedSubWithExtras}
-          ctx={ctx}
-          hideButton={true}
         />
       </div>
     </div>
