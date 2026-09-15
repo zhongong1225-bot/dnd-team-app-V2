@@ -1638,6 +1638,8 @@ git commit -m "feat: AbilityUseModal 支持物理攻击预设（优势/重击范
 - Modify: `src/components/CombatStatus.jsx:686`（新增 state/ref）`,:1590` 附近（注册表与打开器）`,:3055-3079`（cardCtx）`,:3236-3311`（天生武器卡）`,:3405-3450`（生物法术卡）`,:3660-3670`（模态框挂载点）
 - Modify: `src/components/combat/WeaponAttackCard.jsx:70-78,133-171,177-204,244`
 
+> **统一范围（2026-09-15 用户裁定）**：武器卡（含派生）、法术攻击卡、道具卡、组合技卡**四类全部**走 `AbilityUseModal` 同一个弹窗、同一步骤序；卡片内部自建的"投攻击→投伤害"分步界面都在删除范围内，不得新增第三条释放路径。铅笔打开的配置编辑器不在此列。
+>
 > **本 Task 不删旧面板。** `SpellAttackCard` / `ItemUseCard` 仍在用它（核实：`SpellAttackCard.jsx:160,177`、`ItemUseCard.jsx:232,245,478,493`），删除动作放在 Task 14。
 >
 > 执行前已核实的三条事实，直接决定本 Task 的写法：
@@ -1916,7 +1918,9 @@ git commit -m "feat: 武器与变身卡释放改走五步流，数值投骰瞬�
 
 `:156` 的解构删 `setDamageRollConfirm`、`handleCreatureSpellAttackResult`，加 `registerWeaponPlan, openWeaponAttackFlow`。
 
-攻击型分支改为：先 `registerWeaponPlan(key, { name: selectedSub.spellName || itemMeanOpt.name, getAttack: () => ({ bonus: selectedSub._atkValue || 0, advantage: null, critThreatMinNatural: buffStats?.critThreatMinNatural, critDiceMultiplier: 2 }), getDamagePlan: () => ({ diceList: damageList, flatMod: focusSpellDamageExtras.flatBonus || 0 }), onCommitted: () => setFocusUsePending({ inventoryIndex: itemMeanOpt.index, name: itemMeanOpt.name, combatMeanId: meanId, spellSub: selectedSub, gains: getEnabledGainsFromMean(cm), spellDamageExtras: selectedSub?._damageExtras || { flatBonus: 0, extraDice: [] }, damageFloor2: selectedSub?._diceFloor2 || false }) })`，再 `openWeaponAttackFlow(key)`。
+攻击型分支改为：先 `registerWeaponPlan(key, { name: selectedSub.spellName || itemMeanOpt.name, getAttack: () => ({ bonus: selectedSub._atkValue || 0, advantage: null, critThreatMinNatural: buffStats?.critThreatMinNatural, critDiceMultiplier: 2 }), getDamagePlan: () => ({ diceList: damageList, flatMod: focusSpellDamageExtras.flatBonus || 0 }), onCommitted: () => setFocusUsePending({ inventoryIndex: itemMeanOpt.index, name: itemMeanOpt.name, combatMeanId: meanId, spellSub: selectedSub, gains, spellDamageExtras: selectedSub?._damageExtras || { flatBonus: 0, extraDice: [] }, damageFloor2: selectedSub?._diceFloor2 || false }) })`，再 `openWeaponAttackFlow(key)`。
+
+> `gains` 用 ctx 里那份**现算**结果，不要用 `getEnabledGainsFromMean(cm)`。后者读 `cm.gains` 快照，而 Task 9 已删除"BUFF 变化自动回写快照"的 effect，快照从此冻结——卡面显示新 BUFF 的加值、投出去却是旧值（或反之）。本 Task 需把 `:108`（爆炸品快捷骰）、`:255`（法器快捷骰）、`:504`（主行名称列）三处 `getEnabledGainsFromMean(cm)` 一并换成 `gains`，三处都已在作用域内（`:84`/`:154`/`:292` 的解构里都有 `gains`），换完删除 `getEnabledGainsFromMean`（`:281`）本体。
 
 `onCommitted` 是必需的：道具的充能与法术位消耗发生在 `useFocusCharge`（`:1221-1235`）内部，五步流本身 resourceType 为 none，不接这一步就会**永远不扣充能**。它在命中与未命中两条路径都会被调用一次（`AbilityUseModal` 的 `handleMiss` 同样调 `onConfirm`），与现状"投完攻击才进消耗面板"相比只是把扣费时机挪到结算之后，方向是变保守不变松。
 
