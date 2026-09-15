@@ -1,0 +1,84 @@
+<h2>魔能祈唤改成"多选卡"：卡片摆在哪、长什么样？</h2>
+<p class="subtitle">下面三种都保持"点按钮开多选弹窗"的交互，区别只在角色页上的卡片形态与位置。点选你想要的那一种。</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>独立一张卡（和职业特性卡同族）</h3>
+      <p>在特性区末尾放一张独立卡片：头部是"魔能祈唤 3/6"加右侧多选按钮，卡内常驻已选祈唤标签行。</p>
+      <div class="mockup">
+        <div class="mockup-header">角色页 · 特性区末尾</div>
+        <div class="mockup-body" style="background:#141b27;padding:10px;border-radius:8px">
+          <div style="border:1px solid #2b3a52;border-radius:8px;background:#1a2333;padding:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;background:#20293a;border:1px solid #3a4a63;border-radius:6px;padding:6px 8px">
+              <span style="color:#c79a42;font-size:12px;letter-spacing:2px">魔能祈唤 3/6</span>
+              <span style="color:#8fa3bf;font-size:11px;border:1px solid #3a4a63;border-radius:4px;padding:2px 6px">＋ 多选</span>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+              <span style="font-size:11px;color:#dbe4f0;background:#243147;border:1px solid #35455e;border-radius:4px;padding:2px 6px">魔能斩</span>
+              <span style="font-size:11px;color:#dbe4f0;background:#243147;border:1px solid #35455e;border-radius:4px;padding:2px 6px">饥渴魔刃</span>
+              <span style="font-size:11px;color:#dbe4f0;background:#243147;border:1px solid #35455e;border-radius:4px;padding:2px 6px">灭世魔刃</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>挂进魔契师特性卡里（和战斗风格完全同构）</h3>
+      <p>战斗风格是挂在"战斗风格"这条特性卡里的；祈唤同样挂进魔契师的"魔能祈唤"特性卡，随特性列表出现，非魔契师不显示。</p>
+      <div class="mockup">
+        <div class="mockup-header">角色页 · 职业特性列表中的一行</div>
+        <div class="mockup-body" style="background:#141b27;padding:10px;border-radius:8px">
+          <div style="border:1px solid #2b3a52;border-radius:8px;background:#1a2333;padding:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;background:#20293a;border:1px solid #3a4a63;border-radius:6px;padding:6px 8px">
+              <span style="color:#e6edf6;font-size:12px;letter-spacing:2px">魔能祈唤</span>
+              <span style="color:#8fa3bf;font-size:11px">＋</span>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;padding-left:2px">
+              <span style="font-size:11px;color:#dbe4f0;background:#243147;border:1px solid #35455e;border-radius:4px;padding:2px 6px">魔能斩</span>
+              <span style="font-size:11px;color:#dbe4f0;background:#243147;border:1px solid #35455e;border-radius:4px;padding:2px 6px">饥渴魔刃</span>
+            </div>
+          </div>
+          <div style="border:1px solid #2b3a52;border-radius:8px;background:#1a2333;padding:8px;margin-top:6px;opacity:.75">
+            <div style="display:flex;justify-content:space-between;align-items:center;background:#20293a;border:1px solid #3a4a63;border-radius:6px;padding:6px 8px">
+              <span style="color:#e6edf6;font-size:12px;letter-spacing:2px">战斗风格</span>
+              <span style="color:#8fa3bf;font-size:11px">＋</span>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;padding-left:2px">
+              <span style="font-size:11px;color:#dbe4f0;background:#243147;border:1px solid #35455e;border-radius:4px;padding:2px 6px">防御</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>每个祈唤一张小卡 + 末尾"添加"卡</h3>
+      <p>已选的每个祈唤各自成卡（名字＋效果摘要＋移除），末尾一张"＋添加"卡开多选弹窗。信息最全但占地方。</p>
+      <div class="mockup">
+        <div class="mockup-header">角色页 · 祈唤区</div>
+        <div class="mockup-body" style="background:#141b27;padding:10px;border-radius:8px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+            <div style="border:1px solid #2b3a52;border-radius:8px;background:#1a2333;padding:6px 8px">
+              <div style="color:#e6edf6;font-size:12px;letter-spacing:2px">魔能斩</div>
+              <div style="color:#8fa3bf;font-size:10px;margin-top:2px">力场额外伤害…</div>
+            </div>
+            <div style="border:1px solid #2b3a52;border-radius:8px;background:#1a2333;padding:6px 8px">
+              <div style="color:#e6edf6;font-size:12px;letter-spacing:2px">饥渴魔刃</div>
+              <div style="color:#8fa3bf;font-size:10px;margin-top:2px">额外攻击…</div>
+            </div>
+            <div style="border:1px dashed #3a4a63;border-radius:8px;padding:6px 8px;color:#8fa3bf;font-size:12px;text-align:center">＋ 添加</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

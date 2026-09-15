@@ -1,0 +1,67 @@
+<h2>战斗风格独立卡：多个"风格槽"怎么摆？</h2>
+<p class="subtitle">祈唤卡已定（独立一张、头部计数＋多选按钮、卡内标签行）。战斗风格的不同点在于：风格槽可能来自多个来源（战士·战斗风格、圣武士·战斗风格、额外战斗风格专长……），每个槽各选 1 个。下面两种摆法二选一。</p>
+
+<div class="options">
+  <div class="option" data-choice="a1" onclick="toggleSelect(this)">
+    <div class="letter">A1</div>
+    <div class="content">
+      <h3>一张"战斗风格"卡，卡内按来源分行</h3>
+      <p>卡片头部是"战斗风格 2/2"，卡内每个来源一行：来源标签＋已选标签＋加号。卡片数最少，来源多时卡内变长。</p>
+      <div class="mockup">
+        <div class="mockup-header">角色页 · 特性区</div>
+        <div class="mockup-body" style="background:#141b27;padding:10px;border-radius:8px">
+          <div style="border:1px solid #2b3a52;border-radius:8px;background:#1a2333;padding:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;background:#20293a;border:1px solid #3a4a63;border-radius:6px;padding:6px 8px">
+              <span style="color:#c79a42;font-size:12px;letter-spacing:2px">战斗风格 2/2</span>
+            </div>
+            <div style="margin-top:6px;display:flex;flex-direction:column;gap:6px">
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="color:#8fa3bf;font-size:10px;min-width:88px">战士·战斗风格</span>
+                <span style="font-size:11px;color:#dbe4f0;background:#243147;border:1px solid #35455e;border-radius:4px;padding:2px 6px">防御</span>
+                <span style="color:#8fa3bf;font-size:11px;margin-left:auto">＋</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="color:#8fa3bf;font-size:10px;min-width:88px">专长·额外风格</span>
+                <span style="font-size:11px;color:#dbe4f0;background:#243147;border:1px solid #35455e;border-radius:4px;padding:2px 6px">双武器战斗</span>
+                <span style="color:#8fa3bf;font-size:11px;margin-left:auto">＋</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="a2" onclick="toggleSelect(this)">
+    <div class="letter">A2</div>
+    <div class="content">
+      <h3>每个来源一张独立卡</h3>
+      <p>每个风格槽各自一张卡（头部"战士·战斗风格"＋加号，卡内已选标签）。和祈唤卡完全同构、来源一目了然，但来源多时卡片堆得多。</p>
+      <div class="mockup">
+        <div class="mockup-header">角色页 · 特性区</div>
+        <div class="mockup-body" style="background:#141b27;padding:10px;border-radius:8px">
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="border:1px solid #2b3a52;border-radius:8px;background:#1a2333;padding:8px">
+              <div style="display:flex;justify-content:space-between;align-items:center;background:#20293a;border:1px solid #3a4a63;border-radius:6px;padding:6px 8px">
+                <span style="color:#c79a42;font-size:12px;letter-spacing:2px">战士·战斗风格</span>
+                <span style="color:#8fa3bf;font-size:11px">＋</span>
+              </div>
+              <div style="margin-top:6px;padding-left:2px">
+                <span style="font-size:11px;color:#dbe4f0;background:#243147;border:1px solid #35455e;border-radius:4px;padding:2px 6px">防御</span>
+              </div>
+            </div>
+            <div style="border:1px solid #2b3a52;border-radius:8px;background:#1a2333;padding:8px">
+              <div style="display:flex;justify-content:space-between;align-items:center;background:#20293a;border:1px solid #3a4a63;border-radius:6px;padding:6px 8px">
+                <span style="color:#c79a42;font-size:12px;letter-spacing:2px">专长·额外风格</span>
+                <span style="color:#8fa3bf;font-size:11px">＋</span>
+              </div>
+              <div style="margin-top:6px;padding-left:2px">
+                <span style="font-size:11px;color:#dbe4f0;background:#243147;border:1px solid #35455e;border-radius:4px;padding:2px 6px">双武器战斗</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

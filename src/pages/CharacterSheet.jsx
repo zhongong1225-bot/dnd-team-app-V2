@@ -4693,7 +4693,7 @@ export default function CharacterSheet() {
                     {editingSection === 'basic' ? (
                       <>
                         <AppearanceGrid char={char} canEdit={canEdit} onSave={persist} noBorder compact />
-                        <RaceBackgroundInline char={char} canEdit={canEdit} onSave={persist} parts="basics" />
+                        <RaceBackgroundInline char={char} canEdit={canEdit} onSave={persist} parts="basics" formulaContext={buffFormulaContext} />
                       </>
                     ) : (
                       <AppearanceReadGrid char={char} raceInfo={raceInfo} />

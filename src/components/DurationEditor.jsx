@@ -21,9 +21,12 @@ export default function DurationEditor({ value, onChange, compact = false, showP
     onChange(next)
   }
 
-  const handlePresetClick = (presetValue) => {
-    // 解析预设值如 "3_rounds" → { type: 'rounds', value: 3 }
-    const parts = presetValue.split('_')
+  const handlePresetClick = (preset) => {
+    if (preset.type) {
+      onChange({ type: preset.type, value: preset.num })
+      return
+    }
+    const parts = String(preset.value ?? '').split('_')
     const num = parseInt(parts[0], 10)
     const unit = parts.slice(1).join('_')
     onChange({ type: unit, value: num })
@@ -78,7 +81,7 @@ export default function DurationEditor({ value, onChange, compact = false, showP
               <button
                 key={preset.value}
                 type="button"
-                onClick={() => handlePresetClick(preset.value)}
+                onClick={() => handlePresetClick(preset)}
                 className="px-1.5 py-0.5 rounded border border-cyan-600/50 bg-cyan-900/20 text-cyan-300 hover:bg-cyan-800/40 text-[9px] font-medium transition-colors"
               >
                 {preset.label}
@@ -137,7 +140,7 @@ export default function DurationEditor({ value, onChange, compact = false, showP
               <button
                 key={preset.value}
                 type="button"
-                onClick={() => handlePresetClick(preset.value)}
+                onClick={() => handlePresetClick(preset)}
                 className="px-2 py-0.5 rounded border border-cyan-600/50 bg-cyan-900/20 text-cyan-300 hover:bg-cyan-800/40 text-[10px] font-medium transition-colors"
               >
                 {preset.label}

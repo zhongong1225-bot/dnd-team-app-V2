@@ -10,19 +10,22 @@ import { formatChargeItemBrief } from '../lib/chargeItemModel'
 import { formatDurationBrief } from '../lib/durationModel'
 import { isFormulaValue, formatFormulaLabel, evaluateBuffValue } from '../lib/formulas'
 
-// 构建法术ID到中文名称的映射
-const SPELL_NAME_MAP = (() => {
-  const map = {}
-  try {
-    const spells = getMergedSpells()
-    spells.forEach(s => {
-      if (s.id && s.name) map[s.id] = s.name
-    })
-  } catch (e) {
-    // 忽略错误，使用空映射
+// 惰性构建法术ID到中文名称的映射（避免模块加载时的初始化问题）
+let _spellNameMapCache = null
+function getSpellNameMap() {
+  if (!_spellNameMapCache) {
+    _spellNameMapCache = {}
+    try {
+      const spells = getMergedSpells()
+      spells.forEach(s => {
+        if (s.id && s.name) _spellNameMapCache[s.id] = s.name
+      })
+    } catch (e) {
+      // 忽略错误，使用空映射
+    }
   }
-  return map
-})()
+  return _spellNameMapCache
+}
 
 /** 公式标签 + 求值后数字，例如「等级×2（+4）」、「感知调整值（+3）」 */
 function formatFormulaLabelWithEval(value, context = {}) {
@@ -166,18 +169,19 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
 
   // spell_granted: 显示授予的法术列表
   if (buff.effectType === 'spell_granted' && v && typeof v === 'object' && !Array.isArray(v)) {
+    const spellMap = getSpellNameMap()
     const spells = []
     if (Array.isArray(v.cantrips) && v.cantrips.length > 0) {
-      spells.push(...v.cantrips.map(s => SPELL_NAME_MAP[s] || s))
+      spells.push(...v.cantrips.map(s => spellMap[s] || s))
     }
     if (Array.isArray(v.level1) && v.level1.length > 0) {
-      spells.push(...v.level1.map(s => `${SPELL_NAME_MAP[s] || s}(1环)`))
+      spells.push(...v.level1.map(s => `${spellMap[s] || s}(1环)`))
     }
     if (Array.isArray(v.level2) && v.level2.length > 0) {
-      spells.push(...v.level2.map(s => `${SPELL_NAME_MAP[s] || s}(2环)`))
+      spells.push(...v.level2.map(s => `${spellMap[s] || s}(2环)`))
     }
     if (Array.isArray(v.level3) && v.level3.length > 0) {
-      spells.push(...v.level3.map(s => `${SPELL_NAME_MAP[s] || s}(3环)`))
+      spells.push(...v.level3.map(s => `${spellMap[s] || s}(3环)`))
     }
     return spells.length > 0 ? `习得：${spells.join('、')}` : effectLabel
   }
