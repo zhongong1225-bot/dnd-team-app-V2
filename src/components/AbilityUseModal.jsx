@@ -1176,7 +1176,7 @@ function PrepareStepContent({
 function ConfirmStepContent({
   norm, featureName, flowType, amt, executeLabel,
   isSpellSlot, isFreeSlot, isNone, isClassResource, resLabel,
-  computeSpellDC, computeSpellAttack, selectedCreatureId,
+  computeSpellDC, computeSpellAttack, selectedCreatureId, attackPreset,
 }) {
   const previewLines = useMemo(() => generatePreviewLines(norm.effects, featureName), [norm.effects, featureName])
   const damageFormulas = useMemo(() => extractDamageFormulas(norm.effects, amt, isFreeSlot), [norm.effects, amt, isFreeSlot])
@@ -1190,8 +1190,12 @@ function ConfirmStepContent({
   else if (isClassResource) resourceSummary = `${amt} 点${resLabel}`
   else resourceSummary = `${amt} 点充能`
 
-  const spellAttackBonus = flowType === 'attack' ? computeSpellAttack() : null
+  const presetAtk = attackPreset?.getAttack ? attackPreset.getAttack() : null
+  const presetPlan = attackPreset?.getDamagePlan ? attackPreset.getDamagePlan() : null
+  const presetFlatMod = Number(presetPlan?.flatMod) || 0
+  const spellAttackBonus = flowType === 'attack' && !attackPreset ? computeSpellAttack() : null
   const spellDC = flowType === 'save' ? computeSpellDC() : null
+  const attackBonusShown = attackPreset ? (Number(presetAtk?.bonus) || 0) : spellAttackBonus
 
   return (
     <div className="space-y-2.5">
@@ -1203,7 +1207,7 @@ function ConfirmStepContent({
       {/* 攻击型：攻击加值 + 问 DM 提示 */}
       {flowType === 'attack' && (
         <div className="px-2.5 py-1.5 rounded bg-[#232a3b] border border-gray-700/50 text-[11px] text-gray-300">
-          🎯 法术攻击加值：<span className="text-dnd-gold-light">{spellAttackBonus != null ? `${spellAttackBonus >= 0 ? '+' : ''}${spellAttackBonus}` : '?'}</span>
+          🎯 {attackPreset ? '攻击加值' : '法术攻击加值'}：<span className="text-dnd-gold-light">{attackBonusShown != null ? `${attackBonusShown >= 0 ? '+' : ''}${attackBonusShown}` : '?'}</span>
           <span className="text-gray-500">（投 d20 后询问 DM 是否命中）</span>
         </div>
       )}
@@ -1215,13 +1219,22 @@ function ConfirmStepContent({
         </div>
       )}
 
-      {/* 效果预览 */}
+      {/* 效果预览（物理预设改显伤害构成：预设不走效果管线，norm.effects 恒空） */}
       <div>
-        <div className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">效果预览</div>
+        <div className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">{attackPreset ? '伤害构成' : '效果预览'}</div>
         <div className="space-y-1 text-xs text-gray-300">
-          {previewLines.length > 0
-            ? previewLines.map((line, i) => <div key={i}>{line}</div>)
-            : <div className="text-gray-500">(未配置效果)</div>}
+          {attackPreset ? (
+            <>
+              {(presetPlan?.diceList || []).length > 0
+                ? presetPlan.diceList.map((d, i) => <div key={i}>{d?.dice} {String(d?.type || '').trim() || '—'}</div>)
+                : <div className="text-gray-500">(无伤害骰)</div>}
+              {presetFlatMod !== 0 && <div>固定加值 {presetFlatMod >= 0 ? '+' : ''}{presetFlatMod}</div>}
+            </>
+          ) : (
+            previewLines.length > 0
+              ? previewLines.map((line, i) => <div key={i}>{line}</div>)
+              : <div className="text-gray-500">(未配置效果)</div>
+          )}
         </div>
       </div>
 
@@ -1813,7 +1826,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
                 isSpellSlot={isSpellSlot} isFreeSlot={isFreeSlot} isNone={isNone}
                 isClassResource={isClassResource} resLabel={resLabel}
                 computeSpellDC={computeSpellDC} computeSpellAttack={computeSpellAttack}
-                selectedCreatureId={selectedCreatureId}
+                selectedCreatureId={selectedCreatureId} attackPreset={attackPreset}
               />
             )}
           </div>

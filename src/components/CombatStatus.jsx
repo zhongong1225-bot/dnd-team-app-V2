@@ -694,6 +694,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [focusUsePending, setFocusUsePending] = useState(null) // { inventoryIndex, name, spellSub } 法器投掷待确认
   const [executeAbilityModal, setExecuteAbilityModal] = useState(null) // { ability, context }
   const [damageRollConfirm, setDamageRollConfirm] = useState(null) // { attackResult, spellName, damageList, isSpellAttack, critThreatMin, nwSpellAtk, slotLevel, spellData }
+  const [attackPresetKey, setAttackPresetKey] = useState(null)
+  /** 实时攻击计划：id -> { name, getAttack, getDamagePlan, onCommitted? }，由各卡片每次渲染覆写 */
+  const weaponPlans = useRef({})
   const [recoverySummary, setRecoverySummary] = useState(null) // { eventType, summary }
   const [focusSpellMap, setFocusSpellMap] = useState({}) // { [inventoryIndex]: spellSub } 法器当前选中的内含法术
 
@@ -1534,6 +1537,28 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       itemFormulaContext,
     })
   }, [addMeanStep, draftWeaponCm, addGains, effectiveAbilities, prof, spellAbility, buffStats, flatBuffEffects, itemFormulaContext])
+
+  /** 卡片渲染期登记"怎么算"；每次渲染覆写，注册表里永远是当前 BUFF 下的算法 */
+  const registerWeaponPlan = useCallback((id, plan) => {
+    if (id && plan) weaponPlans.current[id] = plan
+  }, [])
+
+  const openWeaponAttackFlow = useCallback((id) => {
+    if (weaponPlans.current[id]) setAttackPresetKey(id)
+  }, [])
+
+  /** 计划登记项可选携带 onCommitted：道具/法术卡用它落地充能与法术位消耗 */
+  const commitWeaponPlan = useCallback((id) => {
+    weaponPlans.current[id]?.onCommitted?.()
+  }, [])
+
+  // 取值器读注册表而非闭包：弹窗在"命中→伤害"之间停留期间新挂的 BUFF 也要进这次伤害
+  const attackPreset = useMemo(() => (attackPresetKey ? {
+    get name() { return weaponPlans.current[attackPresetKey]?.name || '武器攻击' },
+    getAttack: () => weaponPlans.current[attackPresetKey]?.getAttack() || { bonus: 0 },
+    getDamagePlan: () => weaponPlans.current[attackPresetKey]?.getDamagePlan() || { diceList: [], flatMod: 0 },
+  } : null), [attackPresetKey])
+
   const draftSpellCm = useMemo(() => ({ type: 'spell_attack', targetCreatureType: addTargetCreatureType || '' }), [addTargetCreatureType])
   const draftItemCm = useMemo(() => ({ type: 'item', itemInventoryIndex: addItemIndex ?? null, targetCreatureType: addTargetCreatureType || '' }), [addItemIndex, addTargetCreatureType])
   const spellcastingLevel = getSpellcastingLevel(char)
@@ -3002,6 +3027,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               openEditWeaponMean, openEditSpellAttack, openEditItemMean, openEditComboMean,
               removeCombatMean, openForCheck, rollAllWeaponDamage, rollDamageDice,
               consumeSpellSlotForMean, renderAutoGainBadges,
+              registerWeaponPlan, openWeaponAttackFlow,
               // 状态设置
               setExplosiveUsePending, useScroll, setFocusUsePending, setFocusSpellMap,
               setDamageRollConfirm, handleCreatureSpellAttackResult,
@@ -3176,40 +3202,22 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             
             // 从 BUFF 管线提取物理伤害加值（变身生物的天生武器视为近战攻击）
             const physMeleeDmgBonus = buffStats?.meleeDamageBonus || 0
-            const weaponBuffBonuses = []
-            if (physMeleeDmgBonus !== 0) {
-              weaponBuffBonuses.push({ label: '物理伤害加值', value: physMeleeDmgBonus })
-            }
-            
-            // 构建额外伤害列表
-            const weaponExtraDamageDice = []
-            
+
+            // 显示与投骰共用同一加值：天生武器此前只显示生物自带加值，投骰也不含 BUFF 近战加值，口径与其它卡不一致
+            const nwTotalAttackBonus = nwAttackBonus + (buffStats?.meleeAttackBonus || 0)
+            registerWeaponPlan(`nw_${idx}`, {
+              name: weapon.name,
+              getAttack: () => ({ bonus: nwTotalAttackBonus, advantage: null, critThreatMinNatural: null, critDiceMultiplier: 2 }),
+              getDamagePlan: () => ({ diceList: dmgDice ? [{ dice: dmgDice, type: dmgTypeLabel }] : [], flatMod: physMeleeDmgBonus }),
+            })
+
             return (
               <div key={`nw_${idx}`} className={`rounded-lg border border-gray-600 bg-gray-800/80 p-2 ${COMBAT_LIST_ROW_SHADOW}`}>
                 <div className={COMBAT_MEAN_ROW_GRID}>
                   {/* 名称列 - 可点击触发释放 */}
                   <div 
                     className={`flex items-center gap-1 min-w-0 pr-2 cursor-pointer hover:bg-gray-700/30 transition-colors rounded px-1 -ml-1`}
-                    onClick={() => {
-                      // 攻击型：打开攻击检定弹窗（带回调）
-                      openForCheck(weapon.name + ' 攻击', nwAttackBonus, { 
-                        quickRoll: true,
-                        onResult: (total, rawD20) => {
-                          setDamageRollConfirm({
-                            spellName: weapon.name,
-                            damageList: dmgDice ? [{ dice: dmgDice, type: dmgTypeLabel }] : [],
-                            nwSpellAtk: nwAttackBonus,
-                            slotLevel: 0,
-                            spellData: null,
-                            isAttackType: true,
-                            attackRollResult: total,
-                            rawD20Result: rawD20,
-                            buffBonuses: weaponBuffBonuses,
-                            extraDamageDice: weaponExtraDamageDice,
-                          })
-                        },
-                      })
-                    }}
+                    onClick={() => openWeaponAttackFlow(`nw_${idx}`)}
                     title="点击释放"
                   >
                     <ActionLabelBadge source="1 动作" />
@@ -3226,7 +3234,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   {/* 攻击列 - 只显示数值 */}
                   <div className="pl-2 border-l border-gray-600 flex items-center gap-x-1.5 min-w-0 overflow-hidden">
                     <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>攻击</span>
-                    <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums truncate`}>{nwAttackBonus >= 0 ? '+' : ''}{nwAttackBonus}</span>
+                    <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums truncate`}>{nwTotalAttackBonus >= 0 ? '+' : ''}{nwTotalAttackBonus}</span>
                   </div>
 
                   {/* 伤害列 - 只显示伤害文本 */}
@@ -3284,22 +3292,13 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             }
             
             const hasSpellDamage = spellDamageList.length > 0
-            
-            // 构建BUFF加值列表（从buffStats提取）
-            const creatureSpellBuffBonuses = []
-            if (buffStats?.spellDamageBonuses?.length) {
-              const totalFlatBonus = buffStats.spellDamageBonuses.reduce((sum, b) => sum + (Number(b.flatBonus) || 0), 0)
-              if (totalFlatBonus !== 0) creatureSpellBuffBonuses.push({ label: '法术伤害加值', value: totalFlatBonus })
-            }
-            
-            // 构建额外伤害列表
-            const creatureSpellExtraDice = (buffStats?.spellDamageBonuses || [])
-              .filter(b => b.extraDice)
-              .map((b, eidx) => ({
-                label: `额外伤害${eidx + 1}`,
-                dice: b.extraDice,
-              }))
-            
+
+            registerWeaponPlan(`cs_${idx}`, {
+              name: spell.name,
+              getAttack: () => ({ bonus: nwSpellAtk, advantage: null, critThreatMinNatural: buffStats?.critThreatMinNatural, critDiceMultiplier: 2 }),
+              getDamagePlan: () => ({ diceList: spellDamageList, flatMod: 0 }),
+            })
+
             // 构建攻击/豁免显示文本（仅数值，标签由列标题提供）
             let attackValue = '—'
             let showRollButton = false
@@ -3342,38 +3341,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   <div 
                     className={`flex items-center gap-1 min-w-0 pr-2 ${(showRollButton && hasSpellDamage) ? 'cursor-pointer hover:bg-gray-700/30 transition-colors rounded px-1 -ml-1' : ''}`}
                     onClick={(showRollButton && hasSpellDamage) ? () => {
-                      if (rollButtonType === 'attack') {
-                        // 攻击型：打开攻击检定弹窗（带回调）
-                        openForCheck(spell.name + ' 法术攻击', nwSpellAtk, { 
-                          quickRoll: true,
-                          onResult: (total, rawD20) => {
-                            setDamageRollConfirm({
-                              spellName: spell.name,
-                              damageList: spellDamageList,
-                              nwSpellAtk,
-                              slotLevel: spell.slotLevel,
-                              spellData,
-                              isAttackType: true,
-                              attackRollResult: total,
-                              rawD20Result: rawD20,
-                              critThreatMinNatural: buffStats?.critThreatMinNatural,
-                              buffBonuses: creatureSpellBuffBonuses,
-                              extraDamageDice: creatureSpellExtraDice,
-                            })
-                          },
-                        })
-                      } else if (rollButtonType === 'save') {
-                        // 豁免型：直接显示伤害确认弹窗
-                        setDamageRollConfirm({
-                          spellName: spell.name,
-                          damageList: spellDamageList,
-                          saveDC: nwSpellDC,
-                          isAttackType: false,
-                          onRollDamage: () => {
-                            handleCreatureSpellSaveDamage(spell.name, spellDamageList, spell.slotLevel, spellData)
-                          },
-                        })
-                      }
+                      if (rollButtonType === 'attack') openWeaponAttackFlow(`cs_${idx}`)
+                      else handleCreatureSpellSaveDamage(spell.name, spellDamageList, spell.slotLevel, spellData)
                     } : undefined}
                     title={(showRollButton && hasSpellDamage) ? '点击释放' : undefined}
                   >
@@ -3589,6 +3558,18 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             if (patch && Object.keys(patch).length > 0) onSave(patch)
           }}
           onClose={() => setExecuteAbilityModal(null)}
+        />
+      )}
+
+      {attackPreset && (
+        <AbilityUseModal
+          char={char}
+          attackPreset={attackPreset}
+          onConfirm={(patch) => {
+            if (patch && Object.keys(patch).length > 0) onSave(patch)
+            commitWeaponPlan(attackPresetKey)
+          }}
+          onClose={() => setAttackPresetKey(null)}
         />
       )}
       

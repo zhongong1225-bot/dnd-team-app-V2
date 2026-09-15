@@ -71,11 +71,30 @@ function filterExtraDiceAgainstMain(attackParsed, rawDamageType, lines) {
 export default function WeaponAttackCard({ displayMean, weaponOpt, ctx, comboSuffix = '' }) {
   if (!weaponOpt) return null
 
+  // 派生卡不可用（如双手武器占用副手）：灰化但永不隐藏，原因显示在伤害列
+  if (displayMean.derived && displayMean.available === false) {
+    return (
+      <div className="rounded-lg border border-dashed border-gray-600/70 bg-gray-800/40 p-2">
+        <div className={COMBAT_MEAN_ROW_GRID}>
+          <div className="flex items-center gap-1 min-w-0 pr-2">
+            <span className="shrink-0 text-[10px] leading-none px-1 py-[1px] rounded border bg-gray-700/60 text-gray-500 border-gray-600/70">{displayMean.actionLabel}</span>
+            <span className="text-gray-500 font-medium text-sm truncate min-w-0">{weaponOpt?.name}{displayMean.weaponNameSuffix || ''}</span>
+            <span className="shrink-0 text-[10px] text-gray-500">不可用</span>
+          </div>
+          <div className={`pl-2 border-l border-gray-600 text-gray-500 ${CM_MEAN_LABEL} truncate`}>{displayMean.slotLabel}</div>
+          <div className={`pl-2 border-l border-gray-600 text-gray-500 ${CM_MEAN_LABEL}`} />
+          <div className="pl-2 border-l border-gray-600 text-gray-500 text-xs truncate min-w-0" title={displayMean.unavailableReason}>{displayMean.unavailableReason || '不可用'}</div>
+          <div className="pl-1 border-l border-gray-600" />
+        </div>
+      </div>
+    )
+  }
+
   const {
     canEdit, isCombo, gains,
     openEditWeaponMean, openEditComboMean, removeCombatMean,
-    openForCheck, rollAllWeaponDamage, renderAutoGainBadges,
-    setDamageRollConfirm, handleCreatureSpellAttackResult,
+    renderAutoGainBadges,
+    registerWeaponPlan, openWeaponAttackFlow,
   } = ctx
 
   /* ── 计算 ─ */
@@ -159,19 +178,19 @@ export default function WeaponAttackCard({ displayMean, weaponOpt, ctx, comboSuf
 
   const onEdit = isCombo ? () => openEditComboMean(displayMean) : () => openEditWeaponMean(displayMean)
 
-  // 构建BUFF加值列表（从physStats提取）
-  const buffBonuses = []
-  if (buffDamageBonus !== 0) buffBonuses.push({ label: 'BUFF伤害加值', value: buffDamageBonus })
-  if (gainDamageBonus !== 0) buffBonuses.push({ label: '增益伤害加值', value: gainDamageBonus })
-  if (weaponPerDieMod !== 0) buffBonuses.push({ label: '每骰加成', value: weaponPerDieMod })
-  
-  // 构建额外伤害列表
-  const extraDamageDice = extraFiltered.map((dice, idx) => ({
-    label: `额外伤害${idx + 1}`,
-    dice,
-  }))
+  // 每次渲染覆写：投骰瞬间读到的就是当前 BUFF 下的数值，弹窗不持有快照
+  registerWeaponPlan?.(displayMean.id, {
+    name: fullName,
+    getAttack: () => ({
+      bonus: physicalAttackBonus,
+      advantage: gainAdvantage,
+      critThreatMinNatural: weaponCritThreatMin,
+      critDiceMultiplier: weaponCritDiceMult,
+    }),
+    getDamagePlan: () => ({ diceList: damageList, flatMod: totalDamageMod }),
+  })
 
-  const nameColumnClickable = !!(setDamageRollConfirm && openForCheck && hasDamage)
+  const nameColumnClickable = !!(openWeaponAttackFlow && hasDamage)
   
   return (
     <div className={`rounded-lg border border-gray-600 bg-gray-800/80 p-2 ${COMBAT_LIST_ROW_SHADOW}`}>
@@ -179,32 +198,11 @@ export default function WeaponAttackCard({ displayMean, weaponOpt, ctx, comboSuf
         {/* 名称列 - 可点击触发释放 */}
         <div 
           className={`flex items-center gap-1 min-w-0 pr-2 ${nameColumnClickable ? 'cursor-pointer hover:bg-gray-700/30 transition-colors rounded px-1 -ml-1' : ''}`}
-          onClick={nameColumnClickable ? () => {
-            // 攻击型：打开攻击检定弹窗（带回调）
-            openForCheck(fullName + ' 攻击', physicalAttackBonus, { 
-              quickRoll: true,
-              critThreatMinNatural: weaponCritThreatMin,
-              advantage: gainAdvantage,
-              onResult: (total, rawD20) => {
-                setDamageRollConfirm({
-                  spellName: fullName,
-                  damageList,
-                  nwSpellAtk: physicalAttackBonus,
-                  slotLevel: 0,
-                  spellData: null,
-                  isAttackType: true,
-                  attackRollResult: total,
-                  rawD20Result: rawD20,
-                  critThreatMinNatural: weaponCritThreatMin,
-                  buffBonuses,
-                  extraDamageDice,
-                })
-              },
-            })
-          } : undefined}
+          onClick={nameColumnClickable ? () => openWeaponAttackFlow(displayMean.id) : undefined}
           title={nameColumnClickable ? '点击释放' : undefined}
         >
-          <ActionLabelBadge source="1 动作" />
+          <ActionLabelBadge source={displayMean.actionLabel || '1 动作'} />
+          {displayMean.slotLabel && <span className="shrink-0 text-[10px] text-gray-500">{displayMean.slotLabel}</span>}
           <span className={`text-white font-medium ${CM_MEAN_HI} truncate min-w-0`}>{fullName}</span>
           {canEdit && (
             <button type="button" onClick={(e) => { e.stopPropagation(); onEdit() }} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-dnd-gold-light shrink-0" title={isCombo ? '编辑组合技' : '编辑武器'}>
@@ -244,7 +242,7 @@ export default function WeaponAttackCard({ displayMean, weaponOpt, ctx, comboSuf
 
         {/* 删除列 */}
         <div className="flex min-w-0 items-center justify-end gap-0.5 pl-1 border-l border-gray-600 shrink-0">
-          {canEdit && (
+          {canEdit && !displayMean.derived && (
             <button type="button" onClick={() => removeCombatMean(displayMean.id)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red shrink-0" title="移除">
               <Trash2 size={12} />
             </button>
