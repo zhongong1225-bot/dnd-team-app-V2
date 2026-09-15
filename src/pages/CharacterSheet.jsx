@@ -181,7 +181,7 @@ function findActiveAbilityFromCard(sourceKey, cards, slotKind = null) {
 const findActiveAbilityForFeat = (featId, cards) => findActiveAbilityFromCard(featId, cards, 'feat')
 
 
-import { inputClass } from '../lib/inputStyles'
+import { inputClassToolbarH8Inline } from '../lib/inputStyles'
 
 const RAW_AVATAR_FILE_MAX = 12 * 1024 * 1024 // 裁剪前原图上限，裁剪后会压到约 800KB 内
 
@@ -1670,15 +1670,15 @@ function ExperienceLevelSection({ char, level, canEdit, onSave }) {
             value={xpInput}
             onChange={(e) => setXpInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') addXP(e.target.value) }}
-            className="panel-input h-8 max-w-[9rem] font-mono shrink-0"
+            className={inputClassToolbarH8Inline + ' w-[9rem] font-mono shrink-0'}
           />
-          <button type="button" onClick={() => addXP(xpInput)} className="btn-panel-add shrink-0">
+          <button type="button" onClick={() => addXP(xpInput)} className="btn-panel-add btn-panel-h32 shrink-0">
             加入
           </button>
           <button
             type="button"
             onClick={() => { if (window.confirm('是否确定清空总经验？')) onSave({ xp: 0 }) }}
-            className="btn-panel-clear shrink-0"
+            className="btn-panel-danger btn-panel-h32 shrink-0"
           >
             清空
           </button>
@@ -1695,11 +1695,11 @@ function ExperienceLevelSection({ char, level, canEdit, onSave }) {
                 onSave({ storyLevel: v })
               }}
               placeholder="可选"
-              className={inputClass + ' h-8 w-20 px-2 font-mono text-center'}
+              className={inputClassToolbarH8Inline + ' w-20 shrink-0 px-2 font-mono text-center'}
             />
           </div>
           <div className="inline-flex h-8 shrink-0 items-center border-l border-[var(--card-border)] pl-2 text-right min-w-[4.5rem]">
-            <p className="panel-value font-mono text-2xl sm:text-3xl font-bold leading-tight tabular-nums tracking-tight">lv.{displayLevel}</p>
+            <p className="panel-value font-mono tabular-nums">lv.{displayLevel}</p>
           </div>
         </div>
       )}
@@ -1713,7 +1713,7 @@ function ExperienceLevelSection({ char, level, canEdit, onSave }) {
             )}
           </div>
           <div className="flex shrink-0 flex-col items-end justify-center border-l border-[var(--card-border)] pl-2 text-right min-w-[4.5rem]">
-            <p className="panel-value font-mono text-2xl sm:text-3xl font-bold leading-tight tabular-nums tracking-tight">lv.{displayLevel}</p>
+            <p className="panel-value font-mono tabular-nums">lv.{displayLevel}</p>
           </div>
         </div>
       )}
@@ -3832,7 +3832,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId, referenceData, b
     persistClass({ prestige: next })
   }
 
-  const selectClass = 'panel-select panel-class-control-h-compact min-w-[7rem]'
+  const selectClass = 'panel-select panel-class-control-h-compact min-w-[5rem]'
   return (
     <div className="space-y-1">
       <div className="grid grid-cols-3 gap-1">
@@ -3851,7 +3851,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId, referenceData, b
                     setSubclass(keepSub)
                     persistClass({ 'class': nextClass, subclass: keepSub })
                   }}
-                  className={selectClass + ' min-w-0 flex-[1.15] basis-0'}
+                  className={selectClass + ' flex-[1.15] basis-0'}
                 >
                   <option value="">—</option>
                   {ALL_CLASS_NAMES.map((c) => (
@@ -3871,7 +3871,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId, referenceData, b
                 <select
                   value={subclass}
                   onChange={(e) => { setSubclass(e.target.value); persistClass({ subclass: e.target.value }) }}
-                  className={selectClass + ' min-w-0 flex-1 basis-0'}
+                  className={selectClass + ' flex-1 basis-0'}
                   aria-label="子职（选填）"
                 >
                   <option value="">—</option>
@@ -3883,7 +3883,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId, referenceData, b
                   <button
                     type="button"
                     onClick={() => setSubclassFeatureEditor({ className: classVal, subclassName: subclass })}
-                    className="shrink-0 w-6 h-6 flex items-center justify-center text-[#667788] hover:text-dnd-gold hover:bg-white/[0.06] transition-colors"
+                    className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-[#667788] hover:text-dnd-gold hover:bg-white/[0.06] transition-all active:scale-95"
                     title="编辑子职特性 BUFF"
                   >
                     <Settings className="w-3.5 h-3.5" />
@@ -3904,7 +3904,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId, referenceData, b
               <button
                 type="button"
                 onClick={addMulticlassRow}
-                className="text-[11px] font-medium text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                className="inline-flex h-6 shrink-0 items-center rounded-md border border-[var(--btn-secondary-border)] bg-[var(--btn-secondary)] px-1.5 text-[11px] font-medium text-[var(--text-muted)] transition-all hover:border-[var(--input-focus)] hover:text-[var(--text-main)] active:scale-95"
               >
                 + 添加兼职
               </button>
@@ -3918,7 +3918,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId, referenceData, b
                 return (
                   <div key={i} className="border border-[var(--card-border)] rounded-lg p-0.5 bg-[rgba(30,38,50,0.4)]">
                     <div className="flex gap-1 items-center flex-nowrap">
-                      <select value={m['class']} onChange={(e) => setMulticlassRow(i, 'class', e.target.value)} className={selectClass + ' min-w-0 flex-[1.05] basis-0'}>
+                      <select value={m['class']} onChange={(e) => setMulticlassRow(i, 'class', e.target.value)} className={selectClass + ' flex-[1.05] basis-0'}>
                         <option value="">—</option>
                         {ALL_CLASS_NAMES.filter((c) => c !== classVal).map((c) => (
                           <option key={c} value={c}>{c}</option>
@@ -3930,7 +3930,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId, referenceData, b
                       <select
                         value={m.subclass ?? ''}
                         onChange={(e) => setMulticlassRow(i, 'subclass', e.target.value)}
-                        className={selectClass + ' min-w-0 flex-1 basis-0'}
+                        className={selectClass + ' flex-1 basis-0'}
                         aria-label="兼职子职（选填）"
                         disabled={!m['class']}
                       >
@@ -3942,7 +3942,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId, referenceData, b
                       <button
                         type="button"
                         onClick={() => removeMulticlassRow(i)}
-                        className="shrink-0 flex items-center justify-center text-gray-500 hover:text-red-400 transition-colors"
+                        className="shrink-0 flex w-6 h-6 items-center justify-center rounded-md text-gray-500 transition-all hover:bg-dnd-red/10 hover:text-red-400 active:scale-95"
                         title="移除"
                       >
                         <Trash2 className={CS_ICON_16} />
@@ -3965,7 +3965,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId, referenceData, b
               <button
                 type="button"
                 onClick={addPrestigeRow}
-                className="text-[11px] font-medium text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                className="inline-flex h-6 shrink-0 items-center rounded-md border border-[var(--btn-secondary-border)] bg-[var(--btn-secondary)] px-1.5 text-[11px] font-medium text-[var(--text-muted)] transition-all hover:border-[var(--input-focus)] hover:text-[var(--text-main)] active:scale-95"
               >
                 + 添加进阶
               </button>
@@ -3979,19 +3979,19 @@ function ClassSection({ char, level, canEdit, onSave, moduleId, referenceData, b
                 return (
                   <div key={i} className="border border-[var(--card-border)] rounded-lg p-0.5 bg-[rgba(30,38,50,0.4)]">
                     <div className="flex gap-1 items-center flex-nowrap">
-                      <select value={p['class']} onChange={(e) => setPrestigeRow(i, 'class', e.target.value)} className={selectClass}>
+                      <select value={p['class']} onChange={(e) => setPrestigeRow(i, 'class', e.target.value)} className={selectClass + ' flex-1 basis-0'}>
                         <option value="">— 选择 —</option>
                         {FANXING_PRESTIGE_CLASSES.map((c) => (
                           <option key={c} value={c}>{c}</option>
                         ))}
                       </select>
-                      <div className="min-w-0 flex-1">
+                      <div className="w-[4.5rem] shrink-0">
                         <LevelStepper value={p.level} onChange={(n) => setPrestigeRow(i, 'level', n)} min={0} max={rowMax} disabled={!p['class']} compact />
                       </div>
                       <button
                         type="button"
                         onClick={() => removePrestigeRow(i)}
-                        className="shrink-0 flex items-center justify-center text-gray-500 hover:text-red-400 transition-colors"
+                        className="shrink-0 flex w-6 h-6 items-center justify-center rounded-md text-gray-500 transition-all hover:bg-dnd-red/10 hover:text-red-400 active:scale-95"
                         title="移除"
                       >
                         <Trash2 className={CS_ICON_16} />
@@ -4046,7 +4046,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId, referenceData, b
                         <button
                           type="button"
                           onClick={() => setSubclassBuffEditor({ feature: f, className: scClassName, subclassName })}
-                          className="shrink-0 w-6 h-6 flex items-center justify-center text-[#667788] hover:text-dnd-gold hover:bg-white/[0.06] transition-colors"
+                          className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-[#667788] hover:text-dnd-gold hover:bg-white/[0.06] transition-all active:scale-95"
                           title="配置 BUFF"
                         >
                           <Settings className="w-3.5 h-3.5" />
@@ -4891,7 +4891,7 @@ export default function CharacterSheet() {
               <h3 className="section-title">经验与职业等级</h3>
               <div className="module-panel p-3">
                 <ExperienceLevelSection char={char} level={level} canEdit={canEdit} onSave={persist} />
-                <div id="sheet-class" className="mt-2 border-t border-white/10 pt-2">
+                <div id="sheet-class" className="mt-2 border-t border-[var(--card-border)] pt-2">
                   <ClassSection char={char} level={level} canEdit={canEdit} onSave={persist} moduleId={sheetModuleId} referenceData={referenceData} baseReferenceData={baseReferenceData} formulaContext={buffFormulaContext} />
                 </div>
               </div>

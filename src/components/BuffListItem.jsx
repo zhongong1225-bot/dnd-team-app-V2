@@ -3,6 +3,7 @@ import { getBuffSourceKindLabel, getBuffSourceKindTitle } from '../lib/buffSourc
 import { getCreatureById } from '../data/creatureLibrary'
 import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue, formatDamageForAttack, formatScopeBrief, normalizeScope, formatSpellDamageBonusValue, ARMOR_PROFICIENCY_OPTIONS, WEAPON_PROFICIENCY_OPTIONS, VEHICLE_PROFICIENCY_OPTIONS, INSTRUMENT_PROFICIENCY_OPTIONS, TOOL_PROFICIENCY_OPTIONS, LANGUAGE_PROFICIENCY_OPTIONS, WEAPON_MASTERY_OPTIONS, SPECIAL_SENSES_OPTIONS, VISUAL_EFFECT_OPTIONS } from '../data/buffTypes'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
+import { SPELL_NAMES_ZH } from '../data/spellDatabase'
 import { formatContainedSpellBrief } from '../lib/containedSpellBrief'
 import { normalizeChargeRecoveryValue } from '../lib/chargeRecovery'
 import { formatChargeItemBrief } from '../lib/chargeItemModel'
@@ -123,6 +124,24 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
   const scopePrefix = getScopePrefix(buff.scope, buff.scopeDetail)
   const effectLabel = `${scopePrefix}${rawLabel}`
   const v = buff.value
+
+  // spell_granted: 显示授予的法术列表
+  if (buff.effectType === 'spell_granted' && v && typeof v === 'object' && !Array.isArray(v)) {
+    const spells = []
+    if (Array.isArray(v.cantrips) && v.cantrips.length > 0) {
+      spells.push(...v.cantrips.map(s => SPELL_NAMES_ZH[s] || s))
+    }
+    if (Array.isArray(v.level1) && v.level1.length > 0) {
+      spells.push(...v.level1.map(s => `${SPELL_NAMES_ZH[s] || s}(1环)`))
+    }
+    if (Array.isArray(v.level2) && v.level2.length > 0) {
+      spells.push(...v.level2.map(s => `${SPELL_NAMES_ZH[s] || s}(2环)`))
+    }
+    if (Array.isArray(v.level3) && v.level3.length > 0) {
+      spells.push(...v.level3.map(s => `${SPELL_NAMES_ZH[s] || s}(3环)`))
+    }
+    return spells.length > 0 ? `习得：${spells.join('、')}` : effectLabel
+  }
 
   if (info.effect.dataType === 'boolean') return buff.value ? effectLabel : ''
   if (buff.effectType === 'item_storage' && typeof v === 'number') {

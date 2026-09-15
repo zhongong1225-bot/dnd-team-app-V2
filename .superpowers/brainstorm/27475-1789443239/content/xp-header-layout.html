@@ -1,0 +1,109 @@
+<h2>经验区：顶部三行怎么排？</h2>
+<p class="subtitle">现状问题 —— 右上角"经验等级 15"和右下角"lv.15"是同一件事说了两遍；第一行整条左半边空着；面板里出现了 13px / 20px / 30px 三种字号，规范只允许前两档。下面三个方案都已统一为 32px 控件高 + 两档字号。</p>
+
+<style>
+  .pnl { background:#1a2332; border:1px solid #34455f; border-radius:8px; padding:12px; font-family:'Noto Sans SC',sans-serif; }
+  .rw { display:flex; align-items:center; gap:8px; }
+  .lbl { font-size:13px; font-weight:500; color:#9ca3af; }
+  .val { font-size:20px; font-weight:700; color:#fff; font-variant-numeric:tabular-nums; }
+  .gold { color:#c79a42; }
+  .ctl { height:32px; box-sizing:border-box; border-radius:8px; background:#1b2738; border:1px solid #3a4e69; color:#fff; font-size:13px; display:inline-flex; align-items:center; padding:0 10px; }
+  .btn { height:32px; box-sizing:border-box; border-radius:8px; font-size:13px; font-weight:600; display:inline-flex; align-items:center; padding:0 14px; border:1px solid transparent; }
+  .btn-red { background:#e63946; border-color:#f05a66; color:#fff; box-shadow:inset 0 1px 0 rgba(255,255,255,.14); }
+  .btn-dgr { background:transparent; border-color:rgba(224,28,47,.45); color:#e88; }
+  .btn-gh  { background:#252a33; border-color:#2d323e; color:#e5e7eb; }
+  .bar { height:6px; border-radius:9999px; background:#1b2738; border:1px solid #34455f; overflow:hidden; }
+  .bar > i { display:block; height:100%; width:78%; background:linear-gradient(90deg,#c79a42,#c79a42); border-radius:9999px; }
+  .gap { flex:1; }
+  .vsep { width:1px; height:16px; background:#34455f; }
+  .opt-t { font-size:12px; color:#8fa3bd; margin:2px 0 8px; }
+</style>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>等级归左、经验归右（推荐）</h3>
+      <p class="opt-t">头部行左右各一个 20px 主数值：左边等级、右边经验。"lv.15" 从右下搬上来，全面板只出现一次。工具行只剩操作，不再有数值。</p>
+      <div class="pnl">
+        <div class="rw">
+          <span class="val gold">lv.15</span>
+          <span class="vsep"></span>
+          <span class="lbl">经验等级 15 · 剧情未设</span>
+          <span class="gap"></span>
+          <span class="val">178,650</span>
+          <span class="lbl">距 16 级 21,350</span>
+        </div>
+        <div class="bar" style="margin:8px 0"></div>
+        <div class="rw">
+          <span class="ctl" style="width:130px; color:#6b7280">经验值（可负）</span>
+          <span class="btn btn-red">加入</span>
+          <span class="btn btn-dgr">清空</span>
+          <span class="gap"></span>
+          <span class="lbl">剧情等级</span>
+          <span class="ctl" style="width:56px; justify-content:center">15</span>
+        </div>
+      </div>
+      <p class="opt-t" style="margin-top:8px">进度条下方补了"距下一级"，这是唯一新增的信息，让条子有了读数对象。</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>两行紧凑</h3>
+      <p class="opt-t">数值和加经验工具挤在同一行，面板少一行高度。</p>
+      <div class="pnl">
+        <div class="rw">
+          <span class="val gold">lv.15</span>
+          <span class="vsep"></span>
+          <span class="val">178,650</span>
+          <span class="gap"></span>
+          <span class="ctl" style="width:120px; color:#6b7280">经验值</span>
+          <span class="btn btn-red">加入</span>
+          <span class="btn btn-dgr">清空</span>
+        </div>
+        <div class="rw" style="margin-top:8px">
+          <div class="bar" style="flex:1"></div>
+          <span class="lbl">剧情</span>
+          <span class="ctl" style="width:48px; justify-content:center">15</span>
+        </div>
+      </div>
+      <p class="opt-t" style="margin-top:8px">代价：一行里既有读数又有三个操作，宽度紧张时"清空"会被挤到进度条下面。移动端更明显。</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>保持现有三行，只去重复</h3>
+      <p class="opt-t">结构完全不动。第一行改为左对齐填满，把"距下一级"补到右端；"lv.15" 留在原位但降回 20px。</p>
+      <div class="pnl">
+        <div class="rw">
+          <span class="lbl">经验等级</span>
+          <span class="val" style="font-size:20px">15</span>
+          <span class="vsep"></span>
+          <span class="val">178,650</span>
+          <span class="gap"></span>
+          <span class="lbl">距 16 级 21,350</span>
+        </div>
+        <div class="bar" style="margin:8px 0"></div>
+        <div class="rw">
+          <span class="ctl" style="width:130px; color:#6b7280">经验值（可负）</span>
+          <span class="btn btn-red">加入</span>
+          <span class="btn btn-dgr">清空</span>
+          <span class="gap"></span>
+          <span class="lbl">剧情等级</span>
+          <span class="ctl" style="width:56px; justify-content:center">15</span>
+          <span class="vsep"></span>
+          <span class="val gold">lv.15</span>
+        </div>
+      </div>
+      <p class="opt-t" style="margin-top:8px">代价：等级仍在两处出现（左上的 15 和右下的 lv.15），只是字号统一了。改动最小。</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:18px">看完在对话里回一句就行（"A"、"A 但进度条不要文字"…）。下一屏是职业三栏的排法。</p>
