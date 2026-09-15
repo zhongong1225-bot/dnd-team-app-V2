@@ -3514,7 +3514,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       setAddMeanStep('spell_attack')
                     }}
                     onPickCombo={() => {
-                      const primary = renderedMeans[0] || null
+                      const primary = nonComboCombatMeans[0] || null
                       setAddComboPrimaryId(primary ? primary.id : null)
                       setAddComboAttachments([])
                       setAddGains(buildDefaultGainsFromBuffs(primary || {}, buffStats, mergedBuffs, char))

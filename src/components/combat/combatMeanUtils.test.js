@@ -293,8 +293,8 @@ describe('getCombatMeanLabel 对派生武器卡', () => {
     const derived = { id: 'wielded_0_inv_9', type: 'physical', derived: true, weaponOpt: { name: '长剑' }, weaponNameSuffix: '（+1）' }
     expect(getCombatMeanLabel(derived, {})).toBe('长剑 （+1）')
   })
-  it('派生卡不依赖 weaponInventoryIndex 查表', () => {
-    const derived = { id: 'wielded_1_inv_9', type: 'physical', derived: true, weaponOpt: { name: '匕首' } }
+  it('派生卡即使带 weaponInventoryIndex 也优先用 weaponOpt.name', () => {
+    const derived = { id: 'wielded_1_inv_9', type: 'physical', derived: true, weaponInventoryIndex: 0, weaponOpt: { name: '匕首' } }
     expect(getCombatMeanLabel(derived, { weaponsFromInv: [{ index: 0, name: '别的武器' }] })).toBe('匕首')
   })
   it('旧式按背包下标的条目仍能解析（回归保护）', () => {
