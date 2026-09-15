@@ -958,6 +958,16 @@ git add src/components/combat/combatMeanUtils.js src/components/combat/combatMea
 git commit -m "feat: 战斗手段存量物理条目清理并解绑引用它的组合技"
 ```
 
+- [ ] **Step 6（实现后回填的交接要点，供 Task 9/10/16 参考）**
+
+物理判定是**反向白名单**，不是 `type === 'physical'`。`NON_PHYSICAL_MEAN_TYPES = {spell_attack, spell, item, combo}`（`combatMeanUtils.js:729`），其余（含缺 `type`、拼错）一律按物理清掉。这与 `CombatStatus.jsx:633-636` 的 `normalizeCombatMeanType` 已逐值核对等价——**本 Step 上方原文里 `m?.type === 'physical'` 的写法已废弃**，照抄会漏清老存档里没写 `type` 的武器卡，Task 9 接线后与派生卡重复出现两张同名武器卡。`spell` 是 `spell_attack` 的历史别名，必须留在白名单内，误杀会让法术卡消失。
+
+解绑 `primaryMeanId` 与"卡片是否显示"**无关**：`CombatStatus.jsx:2975` 取主卡、`:3050` `if (isCombo && !comboPrimary) return null`，悬空 id 与 `null` 两种情况组合技卡都不渲染。解绑的真实价值只在持久层与编辑回填——`:1128` 打开组合技编辑器时 `setAddComboPrimaryId(cm.primaryMeanId ?? null)`，留着悬空 id 会回填一个下拉里选不中的主手段，置 `null` 才表达"待重选"。卡面文案与"未选主手段"占位由 Task 10 负责。
+
+返回引用契约（已用测试锁死）：数组且无需清理 → **同一引用**；有清理 → 新数组且**未受影响元素仍是原对象**（只有被解绑的 combo 新建）；非数组 → 每次新空数组。Task 9 的持久化守卫必须用 `sanitized !== raw` 引用比较，调用处**不得再包 `[...]` / `.slice()`**，否则引用恒不等 → 每次 effect 都 `saveCombatMeans` → 写循环。
+
+**Task 9 待收**：把 `normalizeCombatMeanType` 上收进 `combatMeanUtils.js` 导出、组件反向 import，并让 `NON_PHYSICAL_MEAN_TYPES` 由它派生，消除现在这份"两处注释互指"的双份口径（`utils:728` 已指名组件函数，组件侧的互指那半句还没补）。本轮不上收是因为它会改 `CombatStatus.jsx`，与本任务「只加纯函数不接线」的范围冲突。
+
 ---
 
 ### Task 8: 自动增益改为渲染期现算
@@ -1095,18 +1105,20 @@ import { sanitizeLegacyCombatMeans, computeLiveGains } from './combat/combatMean
 
 （`saveCombatMeans`（`:935-961`）的写回对象里也加同一行。）
 
-紧接同步 effect 之后，加一次性持久化（只在真的存在待清理条目时写一次，条件保证不循环）：
+紧接同步 effect 之后，加一次性持久化。**不要**自己写 `raw.some((m) => m?.type === 'physical')` 当守卫（那是第三种口径：`sanitizeLegacyCombatMeans` 认"缺 type / 未知 type 也算物理"，字面量比较会漏判老存档，结果是只清内存、永不落盘）。守卫直接复用清理函数的引用契约——返回同一引用就代表无需写回：
 
 ```js
   const legacyPurgeRef = useRef(false)
   useEffect(() => {
     if (legacyPurgeRef.current) return
-    const raw = Array.isArray(char?.combatMeans) ? char.combatMeans : []
-    if (!raw.some((m) => m?.type === 'physical')) { legacyPurgeRef.current = true; return }
     legacyPurgeRef.current = true
-    saveCombatMeans(sanitizeLegacyCombatMeans(combatMeansRef.current))
+    const raw = Array.isArray(char?.combatMeans) ? char.combatMeans : []
+    const purged = sanitizeLegacyCombatMeans(raw)
+    if (purged !== raw) saveCombatMeans(purged)
   }, [char?.id, char?.combatMeans])
 ```
+
+`purged !== raw` 是唯一正确的判定条件：**任何**在调用处再包一层 `[...]` / `.slice()` 的写法都会让引用恒不等，每次 `char.combatMeans` 变化都触发一次写回，与 `saveCombatMeans` 的整条 upsert 撞成写循环（见「一次用户动作只写一次」约束）。同理 `purged` 可能正是 `char.combatMeans` 本体，必须按不可变对待，禁止 `push` / `splice`。
 
 - [ ] **Step 3: 删除快照同步 effect**
 
