@@ -114,7 +114,32 @@ function formatArmorOverrideSummary(v, context, hideBase = false) {
 /** 单条效果的简化文案（用于外层一行展示），如 "心灵抗性"、"智力-2，感知+2"、"生命上限+26" */
 export function getEffectSummaryShort(buff, context = {}, baseContext = context) {
   const info = getEffectInfo(buff.effectType)
-  if (!info) return buff.value != null ? String(buff.value) : ''
+  if (!info) {
+    // 未知效果类型：尝试智能解析 value
+    if (buff.value == null) return ''
+    if (typeof buff.value === 'string') return buff.value
+    if (typeof buff.value === 'number') return String(buff.value)
+    if (typeof buff.value === 'boolean') return buff.value ? '是' : '否'
+    if (typeof buff.value === 'object' && !Array.isArray(buff.value)) {
+      // 对象值：尝试提取有意义的字段
+      const keys = Object.keys(buff.value)
+      if (keys.length === 0) return ''
+      // 如果有 label/name/text 字段，优先使用
+      for (const key of ['label', 'name', 'text', 'description']) {
+        if (buff.value[key] && typeof buff.value[key] === 'string') {
+          return buff.value[key]
+        }
+      }
+      // 否则返回键值对摘要
+      const pairs = keys.slice(0, 3).map(k => {
+        const v = buff.value[k]
+        if (typeof v === 'object') return `${k}: [对象]`
+        return `${k}: ${v}`
+      })
+      return `[${buff.effectType}] ${pairs.join(', ')}`
+    }
+    return String(buff.value)
+  }
   // 自由填写：优先 value（与保存一致），兼容 customText；空时显示占位便于记录”仅描述”类效果
   if (buff.effectType.startsWith('custom_')) {
     const text = (typeof buff.value === 'string' && buff.value !== '' ? buff.value : '') || (typeof buff.customText === 'string' && buff.customText !== '' ? buff.customText : '')

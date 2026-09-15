@@ -36,7 +36,7 @@ import { shouldAutoClearOnRest } from '../lib/durationModel'
 import WeaponAttackCard from './combat/WeaponAttackCard'
 import SpellAttackCard from './combat/SpellAttackCard'
 import ItemUseCard from './combat/ItemUseCard'
-import AddMeanTypeStep, { initWeaponPick, initComboPick } from './combat/AddMeanTypeStep'
+import AddMeanTypeStep from './combat/AddMeanTypeStep'
 import AddSpellStep from './combat/AddSpellStep'
 import AddItemStep from './combat/AddItemStep'
 import AddWeaponStep from './combat/AddWeaponStep'
@@ -967,16 +967,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const openAddCombatMeanModal = () => {
     setEditingCombatMeanId(null)
     setAddMeanStep('type')
-    const first = weaponsFromInv[0]
-    if (first) {
-      setAddWeaponIndex(first.index)
-      setAddAbility(inferPhysicalWeaponAbilityFromProto(first.proto))
-      setAddWeaponMode(getDefaultWeaponMode(first))
-    } else {
-      setAddWeaponIndex(null)
-      setAddAbility('str')
-      setAddWeaponMode('one_hand')
-    }
+    setAddWeaponIndex(null)
+    setAddAbility('str')
+    setAddWeaponMode('one_hand')
     setAddDamageType('')
     setAddWeaponNameSuffix('')
     setAddWeaponExtraDice([])
@@ -1504,45 +1497,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       ...animBundle,
       ...typeExtra,
     })
-  }
-
-  /** 组合技：把附件伤害骰合并到主手段后，复用对应投掷逻辑 */
-  const getComboAttachmentDice = (cm) => {
-    return (cm.attachments || [])
-      .filter((a) => a.name && /^\d+d\d+/i.test(a.damageDice || ''))
-      .map((a) => `${a.damageDice} ${a.damageType || ''}`.trim())
-  }
-  const buildComboEffectiveMean = (cm, primary) => {
-    if (!primary) return null
-    return {
-      ...primary,
-      id: cm.id,
-      gains: cm.gains,
-      extraDamageDice: [...(primary.extraDamageDice || []), ...getComboAttachmentDice(cm)],
-    }
-  }
-  const rollComboDamage = (cm, isCrit) => {
-    const primary = combatMeans.find((m) => m.id === cm.primaryMeanId)
-    if (!primary) return
-    if (primary.type === 'physical') {
-      const weaponOpt = primary.weaponInventoryIndex != null ? weaponsFromInv.find((w) => w.index === primary.weaponInventoryIndex) : null
-      if (!weaponOpt) return
-      const effectiveMean = buildComboEffectiveMean(cm, primary)
-      const comboPhysStats = computePhysicalWeaponStats(effectiveMean, weaponOpt, { effectiveAbilities, prof, spellAbility, buffStats, flatBuffEffects, itemFormulaContext })
-      rollAllWeaponDamage(effectiveMean, weaponOpt, comboPhysStats.attackParsed, comboPhysStats.totalDamageMod, comboPhysStats.displayDamageType, isCrit)
-    } else if (primary.type === 'spell_attack' || primary.type === 'spell') {
-      const gains = getEnabledGains(cm)
-      const gainDamageBonus = sumGainDamageBonus(gains)
-      const gainPerDieBonus = sumGainPerDieBonus(gains)
-      const gainExtraDice = getGainExtraDice(gains)
-      const spellDamageExtras = getSpellDamageBonusExtras(primary.damageTypeSpell, buffStats?.spellDamageBonuses, itemFormulaContext)
-      const spellDiceCount = (() => { const p = parseCombatDiceExpression((primary.damageDice || '').trim()); return p ? p.count : 0 })()
-      const spellDamageMod = gainDamageBonus + gainPerDieBonus * spellDiceCount + spellDamageExtras.flatBonus
-      const allSpellExtraDice = [...gainExtraDice, ...spellDamageExtras.extraDice, ...getComboAttachmentDice(cm)]
-      const attachmentNames = cm.attachments?.map((a) => a.name).filter(Boolean)
-      const labelSuffix = attachmentNames?.length ? `+${attachmentNames.join('/')}` : ''
-      rollDamageDice((primary.damageDice || '').trim(), `${primary.spellName || '法术'}${labelSuffix} ${getDamageTypeLabel(primary.damageTypeSpell) || ''}`.trim(), 'combo-' + cm.id, spellDamageMod, isCrit, getDamageTypeLabel(primary.damageTypeSpell) || '', { extraDice: allSpellExtraDice, floor2: hasGainDiceFloor2(gains) })
-    }
   }
 
   const weaponsFromInv = useMemo(() => getWeaponsFromInventory(char?.inventory ?? []), [char?.inventory])
@@ -2975,14 +2929,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-2 w-full min-w-0">
         <h3 className={`text-dnd-gold-light ${CM_MEAN_LABEL} font-semibold uppercase tracking-wider mb-1`}>战斗手段</h3>
         <div className="space-y-2">
-          {combatMeans.map((cm) => {
+          {renderedMeans.map((cm) => {
             const isCombo = cm.type === 'combo'
-            const comboPrimary = isCombo ? combatMeans.find((m) => m.id === cm.primaryMeanId) : null
+            const comboPrimary = isCombo ? renderedMeans.find((m) => m.id === cm.primaryMeanId) : null
             const displayMean = isCombo && comboPrimary
               ? {
                   ...comboPrimary,
                   id: cm.id,
                   gains: cm.gains,
+                  disabledAutoGainKeys: Array.isArray(cm.disabledAutoGainKeys) ? cm.disabledAutoGainKeys : [],
                   extraDamageDice: [
                     ...(comboPrimary.extraDamageDice || []),
                     ...(cm.attachments || [])
@@ -2996,9 +2951,13 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             const isPhysical = displayMean.type === 'physical'
             const isItem = displayMean.type === 'item'
             const itemMeanOpt = isItem && displayMean.itemInventoryIndex != null ? itemMeansFromInv.find((x) => x.index === displayMean.itemInventoryIndex) : null
-            const weaponOpt = isPhysical && displayMean.weaponInventoryIndex != null ? weaponsFromInv.find((w) => w.index === displayMean.weaponInventoryIndex) : null
+            const weaponOpt = isPhysical ? (displayMean.weaponOpt || null) : null
+            const liveGains = computeLiveGains(displayMean, {
+              buffStats, mergedBuffs, character: char, formulaContext: itemFormulaContext,
+              primaryForGains: isCombo ? comboPrimary : null,
+            })
             const physStats = isPhysical && weaponOpt
-              ? computePhysicalWeaponStats(displayMean, weaponOpt, {
+              ? computePhysicalWeaponStats({ ...displayMean, gains: liveGains }, weaponOpt, {
                   effectiveAbilities,
                   prof,
                   spellAbility,
@@ -3026,7 +2985,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             const buffAttackBonus = physStats?.buffAttackBonus ?? ((isRangedWeapon ? (buffStats?.rangedAttackBonus ?? 0) : (buffStats?.meleeAttackBonus ?? 0)) + weaponCategoryAttackFlat)
             const buffDamageBonus = physStats?.buffDamageBonus ?? ((isRangedWeapon ? (buffStats?.rangedDamageBonus ?? 0) : (buffStats?.meleeDamageBonus ?? 0)) + weaponCategoryAttackFlat)
             const weaponProficient = physStats?.weaponProficient ?? (displayMean.weaponProficient !== false)
-            const gains = physStats?.gains ?? getEnabledGains(displayMean)
+            const gains = physStats?.gains ?? liveGains.filter((g) => g.enabled !== false)
             const gainAttackBonus = physStats?.gainAttackBonus ?? sumGainAttackBonus(gains)
             const gainDamageBonus = physStats?.gainDamageBonus ?? sumGainDamageBonus(gains)
             const gainPerDieBonus = physStats?.gainPerDieBonus ?? sumGainPerDieBonus(gains)
@@ -3052,7 +3011,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             /* 无效项（仅会显示 — 的模块）不渲染，避免出现空白卡片 */
             if (isItem && !itemMeanOpt) return null
             if (isPhysical && !weaponOpt) return null
-            if (isCombo && !comboPrimary) return null
+            if (isCombo && !comboPrimary) return (
+              <div key={cm.id} className={`rounded-lg border border-dashed border-gray-600/70 bg-gray-800/40 p-2 ${COMBAT_LIST_ROW_SHADOW}`}>
+                <div className="flex items-center gap-1 text-[11px] text-gray-500">
+                  <span>组合技</span>
+                  <span className="text-white/70">{cm.name || cm.id}</span>
+                  <span>未选择主手段，请点铅笔重新选择</span>
+                </div>
+              </div>
+            )
             if (!isPhysical && !isItem && !isSpellAttack && !isCombo && !spellOpt) return null
 
 
@@ -3542,21 +3509,11 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               <div className="rounded-lg border border-gray-600 bg-gray-800 p-4 shadow-xl max-w-sm w-full mx-2" onClick={(e) => e.stopPropagation()}>
                 {addMeanStep === 'type' && (
                   <AddMeanTypeStep
-                    weaponsFromInv={weaponsFromInv}
                     itemMeansFromInv={itemMeansFromInv}
                     combatMeans={combatMeans}
                     buffStats={buffStats}
                     mergedBuffs={mergedBuffs}
                     char={char}
-                    onPickWeapon={() => {
-                      const w0 = weaponsFromInv[0]
-                      setAddWeaponIndex(w0 ? w0.index : null)
-                      setAddAbility(w0 ? inferPhysicalWeaponAbilityFromProto(w0.proto) : 'str')
-                      setAddDamageType('')
-                      setAddWeaponMode(w0 ? getDefaultWeaponMode(w0) : 'one_hand')
-                      setShowWeaponExtraDiceEditor(false)
-                      setAddMeanStep('weapon')
-                    }}
                     onPickItem={() => {
                       const first = itemMeansFromInv[0]
                       setAddItemIndex(first ? first.index : null)
