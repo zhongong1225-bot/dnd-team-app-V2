@@ -660,6 +660,7 @@ export function getFlatEffectEntries(buffs, char) {
     let shieldPoolAboveThreshold = false
     let shieldPoolBonusEffects = []
     let shieldPoolCurrent = 0
+    let shieldPoolAcBase = null
     if (shieldPoolEffect && shieldPoolEffect.value && typeof shieldPoolEffect.value === 'object') {
       const spValue = shieldPoolEffect.value
       const max = Number(spValue.max) || 10
@@ -695,6 +696,8 @@ export function getFlatEffectEntries(buffs, char) {
       shieldPoolDepleted = current <= threshold
       shieldPoolAboveThreshold = current > threshold
       shieldPoolBonusEffects = Array.isArray(spValue.bonusEffects) ? spValue.bonusEffects : []
+      // 护盾池接管的 AC 基准：层数与阈值取高者，阈值即下限
+      shieldPoolAcBase = Math.max(shieldPoolCurrent, threshold)
     }
     
     for (const e of effects) {
@@ -727,17 +730,6 @@ export function getFlatEffectEntries(buffs, char) {
         if (!hasWildShapeBuff) {
           continue // 没有荒野变形状态，跳过此效果
         }
-      }
-
-      // 护盾池 AC 加值：current 替换基础AC 10，所以注入 (current - 10)
-      if (e.effectType === 'shield_pool' && shieldPoolEffect && shieldPoolCurrent > 0) {
-        out.push({
-          effectType: 'ac_bonus',
-          value: shieldPoolCurrent - 10, // 替换基础10，不是额外叠加
-          scope: 'global',
-          scopeDetail: [],
-          itemInventoryId: b?.itemInventoryId,
-        })
       }
 
       // 护盾池高于阈值：注入增益效果
@@ -898,6 +890,7 @@ export function getFlatEffectEntries(buffs, char) {
         scopeDetail: e.scopeDetail,
         itemInventoryId: e.itemInventoryId ?? b?.itemInventoryId,
         break20: e.break20,
+        ...(e.effectType === 'shield_pool' && shieldPoolAcBase != null ? { acBase: shieldPoolAcBase } : {}),
       })
     }
   }

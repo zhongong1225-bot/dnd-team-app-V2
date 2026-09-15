@@ -628,8 +628,11 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       }
     }
 
-    // 检测是否有护盾池效果：护盾池current值替换基础AC 10，不叠加护甲AC
-    const hasShieldPool = entries.some(e => e.effectType === 'shield_pool')
+    // 护盾池接管的 AC 基准：effectMapping 已解析为「层数与阈值取高者」，多池取最高
+    const shieldPoolAcBases = entries
+      .filter(e => e.effectType === 'shield_pool' && Number.isFinite(Number(e.acBase)))
+      .map(e => Number(e.acBase))
+    const shieldPoolAcBase = shieldPoolAcBases.length ? Math.max(...shieldPoolAcBases) : null
 
     // 计算基础AC：变身效果 → armor_override → 护盾池 → 默认 getAC
     let baseAC
@@ -675,9 +678,10 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       }
       baseAC = armorOverrideBase + acFromDex + armorOverrideExtra
       acBaseSource = 'armor_override'
-    } else if (hasShieldPool) {
-      // 护盾池效果：基础AC = 10（护盾池current通过ac_bonus注入，替换护甲AC）
-      baseAC = 10
+    } else if (shieldPoolAcBase != null) {
+      // 护盾池只替换护甲的基准数字，敏捷 / 盾牌 / 魔法加值照常保留
+      const equipAC = getAC(charWithBuffedAbilities)
+      baseAC = (equipAC?.total ?? 10) - (equipAC?.base ?? 10) + shieldPoolAcBase
       acBaseSource = 'shield_pool'
     } else {
       baseAC = getAC(charWithBuffedAbilities)
