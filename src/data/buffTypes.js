@@ -780,7 +780,7 @@ export const WEAPON_PROPERTY_OPTIONS = [
   { value: 'special', label: '特殊' },
 ]
 
-/** 武器熟练档位的整组授予伪 id（写进 char.proficiencies.weapons） */
+/** 武器熟练档位的整组授予伪 id（写进 char.proficiencies.weapons）。firearm 刻意用复数 'firearms' 而非 WEAPON_PROFICIENCY_OPTIONS 的单数 'firearm'：老存档写入的就是复数形式，「统一」掉会让这些角色丢失火器熟练 */
 export const WEAPON_TIER_GRANTED_IDS = { simple: 'simple', martial: 'martial', firearm: 'firearms' }
 
 /** 武器原型的熟练档位：'simple' | 'martial' | 'firearm' | null（null = 未标注） */

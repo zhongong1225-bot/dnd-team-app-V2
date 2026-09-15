@@ -22,9 +22,21 @@ describe('isWeaponProtoProficient', () => {
     expect(isWeaponProtoProficient({ id: 'gun_pistol', proficiencyTier: 'firearm' }, ['gun_pistol'], TIER_IDS)).toBe(true)
     expect(isWeaponProtoProficient({ id: 'gun_pistol', proficiencyTier: 'firearm' }, ['longsword'], TIER_IDS)).toBe(false)
   })
+  it('未标档位时按 类型=枪械 推定火器档', () => {
+    expect(isWeaponProtoProficient({ id: 'gun_pistol', 类型: '枪械' }, ['firearms'], TIER_IDS)).toBe(true)
+    expect(isWeaponProtoProficient({ id: 'gun_pistol', 类型: '枪械' }, ['longsword'], TIER_IDS)).toBe(false)
+  })
+  it('未标档位时按 isMartial 遗留标记推定军用档', () => {
+    expect(isWeaponProtoProficient({ id: 'legacy_blade', isMartial: true }, ['martial'], TIER_IDS)).toBe(true)
+    expect(isWeaponProtoProficient({ id: 'legacy_blade', isMartial: true }, ['longsword'], TIER_IDS)).toBe(false)
+  })
   it('档位不明按熟练处理（宁滥勿缺）', () => {
     expect(isWeaponProtoProficient({ id: 'smart_weapon' }, [], TIER_IDS)).toBe(true)
     expect(isWeaponProtoProficient(null, [], TIER_IDS)).toBe(true)
+  })
+  it('熟练数组缺失时不整组放行', () => {
+    expect(isWeaponProtoProficient({ id: 'longsword', proficiencyTier: 'martial' }, undefined, TIER_IDS)).toBe(false)
+    expect(isWeaponProtoProficient({ id: 'longsword', proficiencyTier: 'martial' }, null, TIER_IDS)).toBe(false)
   })
 })
 
