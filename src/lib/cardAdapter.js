@@ -484,7 +484,8 @@ export function buildCardsFromCharacter(character, moduleId) {
 
     // 如果有被动效果，创建种族被动卡
     if (allPassiveEffects.length > 0) {
-      const raceName = raceCard.customName || (resolvedRaceId === 'custom' ? 'custom-race' : resolvedRaceId)
+      const raceDef = resolvedRaceId && resolvedRaceId !== 'custom' ? getRaceById(resolvedRaceId) : null
+      const raceName = raceCard.customName || raceDef?.name || (resolvedRaceId === 'custom' ? 'custom-race' : resolvedRaceId)
       cards.push(normalizeCard(createCard(SLOT_KIND.race, {
         id: `race-${resolvedRaceId || 'custom'}`,
         name: raceName,
