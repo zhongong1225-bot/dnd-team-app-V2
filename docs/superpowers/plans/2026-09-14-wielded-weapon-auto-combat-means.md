@@ -2028,3 +2028,5 @@ git commit -m "docs: 同步手持武器派生实现与设计文档的四处偏�
 4. **AbilityUseModal 的法术攻击加值不吃 BUFF**：`computeSpellAttack`（`AbilityUseModal.jsx:1360`）只算 `熟练 + 属性调整值`。主动技能释放路径的既有缺口，与本次战斗手段改造独立。
 5. **豁免型变身生物法术只投第一条伤害**：`handleCreatureSpellSaveDamage`（`CombatStatus.jsx:1400-1415`）取 `finalDamageList[0]` 后 `return`，多段伤害（如"8d6 寒冷 + 2d6 寒冷"分两条）会静默丢掉后面的条目。Task 13 让该分支直接调它，行为与现状一致（今天也是同一条路径），未在本计划内修。
 6. **攻击型法器法术完全不扣资源**：`ItemUseCard.jsx:230-247`（展开行）与 `:473-490`（主行）的攻击型分支只弹确认面板，从不进入 `useFocusCharge`，因此既不扣充能也不扣法术位；豁免型分支才走 `setFocusUsePending`。Task 14 Step 2 用 `onCommitted` 把它接回消耗路径，属**顺带修复**，实测第 3 条要专门核对扣费次数。
+7. **副手合法性只查副手自己的轻型，不查主手**（Task 5 已实现，规则版本待裁定）：设计核准的模型是"副手武器需轻型，主手双手则副手被占用"，与 2024 双持客一致；而项目既有的 `isDualWieldingLightWeapons`（`combatMeanUtils.js:104-117`）要求**两把都轻型**才给出 `bonus_action` 模式，是 2014 口径。同一角色（主手长剑 + 副手匕首）在派生卡里"可用"、在该 helper 里"不算双持"。Task 6/9 需要决定：是删掉这个 helper 改读派生卡的 `available`，还是收紧派生卡的规则。两种做法数值结果不同，需用户拍板。
+8. **派生卡 id 含槽位序号，换槽即换 id**（Task 10 需处理）：`makeWieldedMeanId(slotIndex, inventoryId)` 形如 `wielded_1_inv_42`。把同一把武器从副手挪到主手（`applySlotChange`）后 id 改变，按 id 引用的组合技步骤会静默解绑。Task 10 落组合技引用时应以 `weaponInventoryId` 为身份、`slotIndex` 只做展示，或在换槽时改写组合技里的 id。
