@@ -433,8 +433,10 @@ export function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
   const abilityKey = weaponAbilityKind === 'spell' ? spellAbility : weaponAbilityKind
   const abilityMod = abilityModifier(effectiveAbilities?.[abilityKey] ?? 10)
   const physicalAttackBonus = abilityMod + (weaponProficient ? (weaponIsExpert ? prof * 2 : prof) : 0) + buffAttackBonus + gainAttackBonus
+  // weaponVersatileMode === 'bonus_action' 即「用副手发起附赠动作攻击」这一档（旧版模式选择器的语义），故等价于副手攻击
   const isBonusActionOffhand = cm.weaponVersatileMode === 'bonus_action'
   const canAddAbilityMod = weaponProficient && !(isBonusActionOffhand && !buffStats?.twoWeaponFightingBonus)
+  // 规则原文「除非为负数」：剥夺只针对正调整值，负惩罚照常生效
   const damageMod = canAddAbilityMod ? abilityMod : Math.min(0, abilityMod)
   const weaponExtraDiceStrings = [...getMergedWeaponExtraDiceStrings(cm, weaponOpt), ...gainExtraDice, ...newEffectExtraDice]
   const allWeaponDiceCount = (attackParsed.diceList || []).reduce((s, d) => s + (parseCombatDiceExpression(d)?.count || 0), 0) +
@@ -446,9 +448,8 @@ export function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
     weaponAbilityKind, abilityKey, abilityMod, isRangedWeapon, weaponCategoryAttackFlat,
     buffAttackBonus, buffDamageBonus, weaponProficient, weaponIsExpert, gains, gainAttackBonus, gainDamageBonus,
     gainPerDieBonus, gainExtraDice, gainAdvantage, gainDiceFloor2, attackParsed, rawDamageType,
-    physicalAttackBonus, damageMod, weaponExtraDiceStrings, allWeaponDiceCount,
+    physicalAttackBonus, damageMod, canAddAbilityMod, isBonusActionOffhand, weaponExtraDiceStrings, allWeaponDiceCount,
     weaponPerDieMod, totalDamageMod, displayDamageType, newEffectHitBonusAdvantage,
-    canAddAbilityMod, isBonusActionOffhand,
   }
 }
 

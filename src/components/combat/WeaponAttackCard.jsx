@@ -121,12 +121,17 @@ export default function WeaponAttackCard({ displayMean, weaponOpt, ctx, comboSuf
   const physicalAttackBonus = physStats?.physicalAttackBonus ?? 0
   const gainAdvantage = physStats?.gainAdvantage ?? null
   const weaponExtraDiceStrings = physStats?.weaponExtraDiceStrings ?? []
+  // 明细须与卡面总加值对得上：damageMod 是剥夺属性调整值后实际生效的加值
+  const damageMod = physStats?.damageMod ?? abilityMod
+  const abilityModNote = physStats?.canAddAbilityMod === false && abilityMod > 0
+    ? (physStats.weaponProficient === false ? '（不熟练不加）' : '（副手不加）')
+    : ''
 
   const weaponName = weaponOpt?.name ?? '—'
   const suffix = displayMean.weaponNameSuffix ? String(displayMean.weaponNameSuffix).trim() : ''
   const fullName = weaponName + suffix + comboSuffix
 
-  const damageTooltip = `伤害加值明细：属性调整值 ${abilityMod >= 0 ? '+' : ''}${abilityMod}，Buff 伤害加值 ${buffDamageBonus >= 0 ? '+' : ''}${buffDamageBonus}，增益伤害加值 ${gainDamageBonus >= 0 ? '+' : ''}${gainDamageBonus}${weaponPerDieMod !== 0 ? `，每骰加成 ${weaponPerDieMod >= 0 ? '+' : ''}${weaponPerDieMod}` : ''}`
+  const damageTooltip = `伤害加值明细：属性调整值 ${damageMod >= 0 ? '+' : ''}${damageMod}${abilityModNote}，Buff 伤害加值 ${buffDamageBonus >= 0 ? '+' : ''}${buffDamageBonus}，增益伤害加值 ${gainDamageBonus >= 0 ? '+' : ''}${gainDamageBonus}${weaponPerDieMod !== 0 ? `，每骰加成 ${weaponPerDieMod >= 0 ? '+' : ''}${weaponPerDieMod}` : ''}`
   const extraFiltered = filterExtraDiceAgainstMain(attackParsed, rawDamageType, weaponExtraDiceStrings)
   const hasDamage = ((attackParsed.diceList?.length || attackParsed.dice) || extraFiltered.length > 0)
 
