@@ -13,7 +13,7 @@ import {
 
 export default function AddComboStep({
   primaryId, setPrimaryId, attachments, setAttachments,
-  nonComboCombatMeans, weaponsFromInv, itemMeansFromInv, combatMeans,
+  nonComboCombatMeans, itemMeansFromInv, combatMeans,
   addGains, setAddGains, buffStats, mergedBuffs, char, itemFormulaContext,
   editingCombatMeanId, onBack, onSave,
 }) {
@@ -30,10 +30,9 @@ export default function AddComboStep({
       const mean = nonComboCombatMeans.find((m) => m.id === nextId)
       if (mean) {
         if (mean.type === 'physical') {
-          const w = weaponsFromInv.find((x) => x.index === mean.weaponInventoryIndex)
           const suffix = mean.weaponNameSuffix ? String(mean.weaponNameSuffix).trim() : ''
-          const parsed = w ? parseWeaponAttack(getWeaponAttackStringForParsing(w, mean.weaponVersatileMode)) : null
-          base.name = (w ? w.name : '武器') + (suffix ? ` ${suffix}` : '')
+          const parsed = mean.weaponOpt ? parseWeaponAttack(getWeaponAttackStringForParsing(mean.weaponOpt, mean.weaponVersatileMode)) : null
+          base.name = (mean.weaponOpt?.name || '武器') + (suffix ? ` ${suffix}` : '')
           base.damageDice = parsed?.dice || ''
           base.damageType = mean.damageType || parsed?.type || ''
         } else if (mean.type === 'spell_attack') {
@@ -68,7 +67,7 @@ export default function AddComboStep({
           <label className="block text-dnd-text-muted text-xs mb-0.5">主手段</label>
           <select value={primaryId ?? ''} onChange={(e) => setPrimaryId(e.target.value === '' ? null : e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
             <option value="">—</option>
-            {nonComboCombatMeans.map((m) => <option key={m.id} value={m.id}>{getCombatMeanLabel(m, { weaponsFromInv, itemMeansFromInv })}</option>)}
+            {nonComboCombatMeans.map((m) => <option key={m.id} value={m.id}>{getCombatMeanLabel(m, { itemMeansFromInv })}</option>)}
           </select>
         </div>
         <div>
@@ -100,7 +99,7 @@ export default function AddComboStep({
                         className={inputClass + ' flex-1 min-w-0 h-7 text-xs'}
                       >
                         <option value="">—</option>
-                        {nonComboCombatMeans.filter((m) => m.id !== editingCombatMeanId).map((m) => <option key={m.id} value={m.id}>{getCombatMeanLabel(m, { weaponsFromInv, itemMeansFromInv })}</option>)}
+                        {nonComboCombatMeans.filter((m) => m.id !== editingCombatMeanId).map((m) => <option key={m.id} value={m.id}>{getCombatMeanLabel(m, { itemMeansFromInv })}</option>)}
                       </select>
                     )}
                     {sourceType === 'martialTechnique' && (

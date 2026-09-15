@@ -558,8 +558,9 @@ export function isValidComboAttachment(a) {
 export function getCombatMeanLabel(mean, { weaponsFromInv = [], itemMeansFromInv = [] } = {}) {
   if (!mean) return '—'
   if (mean.type === 'physical') {
-    const w = weaponsFromInv.find((w) => w.index === mean.weaponInventoryIndex)
     const suffix = mean.weaponNameSuffix ? String(mean.weaponNameSuffix).trim() : ''
+    if (mean.weaponOpt?.name) return mean.weaponOpt.name + (suffix ? ` ${suffix}` : '')
+    const w = weaponsFromInv.find((x) => x.index === mean.weaponInventoryIndex)
     if (w) return w.name + (suffix ? ` ${suffix}` : '')
     return '武器' + (suffix ? ` (${suffix})` : '') + (mean.weaponInventoryIndex != null ? ` #${mean.weaponInventoryIndex}` : '')
   }

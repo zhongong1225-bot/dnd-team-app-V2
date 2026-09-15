@@ -1069,7 +1069,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setAddSpellAttackSpellLevel('')
   }
   const confirmAddComboMean = () => {
-    const primary = combatMeans.find((m) => m.id === addComboPrimaryId)
+    const primary = renderedMeans.find((m) => m.id === addComboPrimaryId)
     if (!primary) {
       alert('请先选择主手段。')
       return
@@ -1119,7 +1119,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           }))
         : []
     )
-    const primary = combatMeans.find((m) => m.id === cm.primaryMeanId)
+    const primary = renderedMeans.find((m) => m.id === cm.primaryMeanId)
     setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(primary || cm, buffStats, mergedBuffs, char))
     setAddMeanStep('combo')
     setShowAddCombatMeanModal(true)
@@ -1523,7 +1523,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const sc = (scrollsFromInv || []).map((s) => ({ ...s, kind: 'scroll', label: `${s.name}（卷轴）` }))
     return [...ex, ...fo, ...sc]
   }, [explosivesFromInv, focusFromInv, scrollsFromInv])
-  const nonComboCombatMeans = useMemo(() => combatMeans.filter((m) => m.type !== 'combo'), [combatMeans])
+  const nonComboCombatMeans = useMemo(() => renderedMeans.filter((m) => m.type !== 'combo'), [renderedMeans])
   const preparedSpellsList = useMemo(() => {
     const raw = char?.spells ?? []
     return raw
@@ -3496,7 +3496,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                 {addMeanStep === 'type' && (
                   <AddMeanTypeStep
                     itemMeansFromInv={itemMeansFromInv}
-                    combatMeans={combatMeans}
+                    combatMeans={renderedMeans}
                     buffStats={buffStats}
                     mergedBuffs={mergedBuffs}
                     char={char}
@@ -3514,7 +3514,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       setAddMeanStep('spell_attack')
                     }}
                     onPickCombo={() => {
-                      const primary = combatMeans[0] || null
+                      const primary = renderedMeans[0] || null
                       setAddComboPrimaryId(primary ? primary.id : null)
                       setAddComboAttachments([])
                       setAddGains(buildDefaultGainsFromBuffs(primary || {}, buffStats, mergedBuffs, char))
@@ -3555,7 +3555,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                     primaryId={addComboPrimaryId} setPrimaryId={setAddComboPrimaryId}
                     attachments={addComboAttachments} setAttachments={setAddComboAttachments}
                     nonComboCombatMeans={nonComboCombatMeans}
-                    weaponsFromInv={weaponsFromInv} itemMeansFromInv={itemMeansFromInv} combatMeans={combatMeans}
+                    itemMeansFromInv={itemMeansFromInv} combatMeans={renderedMeans}
                     addGains={addGains} setAddGains={setAddGains}
                     buffStats={buffStats} mergedBuffs={mergedBuffs} char={char} itemFormulaContext={itemFormulaContext}
                     editingCombatMeanId={editingCombatMeanId}
