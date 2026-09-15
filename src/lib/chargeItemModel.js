@@ -36,7 +36,7 @@
 import { createEmptyContainedSpellSub } from './containedSpellModel'
 import { getDamageTypeLabel, getDamageTypeValue } from '../data/buffTypes'
 import { getCharacterClasses } from '../data/classDatabase'
-import { getWeaponById } from '../data/weaponDatabase'
+import { getItemById } from '../data/itemDatabase'
 import { isFormulaValue, formatFormulaLabel, evaluateBuffValue, proficiencyBonus } from './formulas'
 
 /* ── 随机库（random_table）常量 ── */
@@ -1090,20 +1090,11 @@ export function resolveChargeItemCharges(value, char) {
 export function getMainHandWeaponDamageType(char) {
   if (!char) return ''
   const held = Array.isArray(char.equippedHeld) ? char.equippedHeld : []
-  const mainHand = held.find(s => s?.slotId === 'mainHand') || held[0]
-  if (!mainHand) return ''
-
-  // 标准武器数据库
-  if (mainHand.weaponId) {
-    const weapon = getWeaponById(mainHand.weaponId)
-    if (weapon?.damageType) return getDamageTypeValue(weapon.damageType)
-  }
-
-  // 自定义物品：从 inventory 查找
-  if (mainHand.inventoryId && Array.isArray(char.inventory)) {
-    const invEntry = char.inventory.find(i => i?.inventoryId === mainHand.inventoryId || i?.id === mainHand.inventoryId)
-    if (invEntry?.damageType) return getDamageTypeValue(invEntry.damageType)
-  }
-
-  return ''
+  const main = held.find((s) => s?.id === 'main') || held[0]
+  if (!main?.inventoryId) return ''
+  const invEntry = (Array.isArray(char.inventory) ? char.inventory : [])
+    .find((i) => i?.id === main.inventoryId || i?.inventoryId === main.inventoryId)
+  if (!invEntry) return ''
+  const proto = invEntry.itemId ? getItemById(invEntry.itemId) : null
+  return getDamageTypeValue(invEntry.伤害 || invEntry.damageType || proto?.伤害 || '') || ''
 }
