@@ -780,38 +780,28 @@ export const WEAPON_PROPERTY_OPTIONS = [
   { value: 'special', label: '特殊' },
 ]
 
-/** 已知简易武器类别（2014 规则常用；可扩展） */
-const SIMPLE_WEAPON_CATEGORIES = new Set([
-  '短棒', '匕首', '巨棒', '手斧', '标枪', '轻锤', '硬头锤', '长棍', '镰刀',
-  '轻弩', '短弓', '投石索', '吹箭筒',
-])
+/** 武器熟练档位的整组授予伪 id（写进 char.proficiencies.weapons） */
+export const WEAPON_TIER_GRANTED_IDS = { simple: 'simple', martial: 'martial', firearm: 'firearms' }
 
-/** 已知军用武器类别（2014 规则常用；可扩展） */
-const MARTIAL_WEAPON_CATEGORIES = new Set([
-  '战斧', '链枷', '巨斧', '巨剑', '弯刀', '长剑', '刺剑', '短剑', '三叉戟', '战锤', '战镰',
-  '晨星', '矛', '戟', '钐镰', '长矛', '网', '轻剑', '重弩', '长弓', '手弩',
-])
+/** 武器原型的熟练档位：'simple' | 'martial' | 'firearm' | null（null = 未标注） */
+export function getWeaponProficiencyTier(proto) {
+  if (!proto) return null
+  const t = String(proto.proficiencyTier ?? '').trim()
+  if (t === 'simple' || t === 'martial' || t === 'firearm') return t
+  if (proto.isMartial === true) return 'martial'
+  if (proto.isSimple === true) return 'simple'
+  if (String(proto.类型 ?? '').trim() === '枪械') return 'firearm'
+  return null
+}
 
 /** 武器是否属于简易武器 */
-function isSimpleWeaponProto(proto) {
-  if (!proto) return false
-  if (proto.isSimple === true) return true
-  if (proto.isMartial === true) return false
-  const cat = String(proto.类别 ?? '').trim()
-  if (SIMPLE_WEAPON_CATEGORIES.has(cat)) return true
-  if (MARTIAL_WEAPON_CATEGORIES.has(cat)) return false
-  return false
+export function isSimpleWeaponProto(proto) {
+  return getWeaponProficiencyTier(proto) === 'simple'
 }
 
 /** 武器是否属于军用武器 */
-function isMartialWeaponProto(proto) {
-  if (!proto) return false
-  if (proto.isMartial === true) return true
-  if (proto.isSimple === true) return false
-  const cat = String(proto.类别 ?? '').trim()
-  if (MARTIAL_WEAPON_CATEGORIES.has(cat)) return true
-  if (SIMPLE_WEAPON_CATEGORIES.has(cat)) return false
-  return false
+export function isMartialWeaponProto(proto) {
+  return getWeaponProficiencyTier(proto) === 'martial'
 }
 
 /** 武器是否远程武器 */
@@ -847,7 +837,7 @@ function isNaturalWeaponProto(proto) {
   const text = `${name} ${cat} ${note}`
   if (NATURAL_WEAPON_KEYWORDS.some((k) => text.includes(k))) {
     // 命中关键词后，再排除已知的普通武器（避免「爪钩」等误伤）
-    if (SIMPLE_WEAPON_CATEGORIES.has(cat) || MARTIAL_WEAPON_CATEGORIES.has(cat)) return false
+    if (getWeaponProficiencyTier(proto) || type === '近战武器' || type === '远程武器' || type === '枪械') return false
     return true
   }
   return false
