@@ -295,6 +295,35 @@ export function mergeInvocationBuffPatchesFromMergedList(character, buffsList) {
 }
 
 /**
+ * 纯函数：把某个祈唤的角色自身配置（invocationBuffPatch）写回 selectedInvocations。
+ * patch 为空（无效果、无时长、启用）时移除该字段，保持数据整洁。
+ * @param {Array} selectedInvocations
+ * @param {string} invocationId
+ * @param {{ effects?: Array, duration?: any, enabled?: boolean }} patch
+ * @returns {Array} 新的 selectedInvocations
+ */
+export function withInvocationBuffPatch(selectedInvocations, invocationId, patch) {
+  const raw = Array.isArray(selectedInvocations) ? selectedInvocations : []
+  const eff = Array.isArray(patch?.effects) ? patch.effects.map((e) => ({ ...e })) : []
+  const durRaw = cloneDurationRaw(patch?.duration)
+  const en = patch?.enabled !== false
+  const isEmpty = eff.length === 0 && !durRaw && en
+  return raw.map((x) => {
+    const id = typeof x === 'string' ? x : (x?.invocationId ?? x?.id ?? '')
+    if (id !== invocationId) return x
+    const base = typeof x === 'string' ? { invocationId: id } : { ...x }
+    if (isEmpty) {
+      const { invocationBuffPatch: _drop, ...rest } = base
+      return rest
+    }
+    const nextPatch = { effects: eff }
+    if (durRaw) nextPatch.duration = durRaw
+    if (!en) nextPatch.enabled = false
+    return { ...base, invocationBuffPatch: nextPatch }
+  })
+}
+
+/**
  * 从角色已选魔能祈唤生成虚拟 BUFF（类似专长，数值由用户在编辑中填写，存于 invocationBuffPatch）
  * @param {Object} character
  * @returns {Array<{ id: string, source: string, effects: Array, enabled: boolean, fromInvocation: true, invocationId: string }>}

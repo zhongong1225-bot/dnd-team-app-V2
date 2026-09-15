@@ -51,6 +51,7 @@ import {
   mergeInvocationBuffPatchesFromMergedList,
   mergeFightingStyleBuffPatchesFromMergedList,
   resolveFeatPatch,
+  withInvocationBuffPatch,
 } from '../lib/effects/effectMapping'
 import { HARDCODED_CLASS_FEATURE_BUFFS } from '../data/classFeatureDefaultBuffs'
 import { cloneBuffTemplateToManual } from '../lib/buffStash'
@@ -72,7 +73,7 @@ import FeatPickerModal from '../components/FeatPickerModal'
 import BuffForm from '../components/BuffForm'
 import { getEffectSummaryShort } from '../components/BuffListItem'
 import BuffEditorModal from '../components/BuffEditorModal'
-import { loadDefaultBuffPatch, saveDefaultBuffPatch, clearDefaultBuffPatch, buildClassFeatureBuffKey, DEFAULT_BUFF_PATCHES_EVENT } from '../lib/defaultBuffPatchStore'
+import { loadDefaultBuffPatch, saveDefaultBuffPatch, clearDefaultBuffPatch, buildClassFeatureBuffKey, DEFAULT_BUFF_PATCHES_EVENT, mergeWithDefaultPatch } from '../lib/defaultBuffPatchStore'
 import { CLASS_FEATURE_CHOICE_REGISTRY, CHOICE_ID_ALIASES } from '../data/classFeatureChoiceRegistry'
 import { executeAbility, canUseAbility } from '../lib/activeAbilityEngine'
 import { buildCardsFromCharacter, findActiveAbilityInCards, findAllActiveAbilitiesInCards } from '../lib/cardAdapter'
@@ -2040,12 +2041,17 @@ function getMaxInvocationsByWarlockLevel(level) {
 }
 
 /** 魔能祈唤：在「魔能祈唤」特性卡片内提供选择器与已选列表 */
-function EldritchInvocationsBlock({ char, canEdit, onSave, moduleId }) {
+function EldritchInvocationsBlock({ char, canEdit, onSave, moduleId, referenceData, baseReferenceData, formulaContext }) {
   const [modalOpen, setModalOpen] = useState(false)
+  const [buffEditorId, setBuffEditorId] = useState(null)
   const selected = char?.selectedInvocations ?? []
   const byId = useMemo(() => new Map(ELDRITCH_INVOCATIONS.map((x) => [x.id, x])), [])
   const selectedIds = selected.map((x) =>
     typeof x === 'string' ? x : (x?.invocationId ?? x?.id ?? ''),
+  )
+  const charClasses = useMemo(
+    () => getCharacterClasses(char).map((c) => ({ className: c.name, level: c.level })),
+    [char],
   )
 
   const warlockLevel = useMemo(() => {
@@ -2058,6 +2064,18 @@ function EldritchInvocationsBlock({ char, canEdit, onSave, moduleId }) {
   const handleConfirm = (ids) => {
     const next = mergeSelectedInvocations(char?.selectedInvocations, ids)
     onSave({ selectedInvocations: next })
+  }
+
+  const getRow = (id) =>
+    selected.find((x) => (typeof x === 'string' ? x : (x?.invocationId ?? x?.id ?? '')) === id)
+  /** 是否已有本角色自身配置（用于金色小点标识） */
+  const hasOwnConfig = (id) => {
+    const row = getRow(id)
+    const p = row && typeof row === 'object' ? row.invocationBuffPatch : null
+    if (!p) return false
+    const hasEff = Array.isArray(p.effects) && p.effects.length > 0
+    const hasDur = p.duration != null && String(p.duration).trim() !== ''
+    return hasEff || hasDur || p.enabled === false
   }
 
   return (
@@ -2080,13 +2098,27 @@ function EldritchInvocationsBlock({ char, canEdit, onSave, moduleId }) {
           {selected.map((x, i) => {
             const id = typeof x === 'string' ? x : (x?.invocationId ?? x?.id ?? '')
             const inv = byId.get(id)
-            return (
-              <span
-                key={`${id}-${i}`}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-white/10 bg-[#243147]/60 text-xs text-gray-200"
-                title={inv?.description ?? ''}
-              >
+            const configured = hasOwnConfig(id)
+            const inner = (
+              <>
+                {configured && <span className="w-1.5 h-1.5 rounded-full bg-dnd-gold shrink-0" aria-hidden />}
                 {inv?.name ?? id}
+              </>
+            )
+            const cls = `inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-white/10 bg-[#243147]/60 text-xs text-gray-200`
+            return canEdit ? (
+              <button
+                key={`${id}-${i}`}
+                type="button"
+                onClick={() => setBuffEditorId(id)}
+                className={`${cls} hover:border-dnd-gold/50 hover:bg-[#2c3b55] transition-colors cursor-pointer`}
+                title={`点击编辑「${inv?.name ?? id}」对本角色的效果${inv?.description ? '｜' + inv.description : ''}`}
+              >
+                {inner}
+              </button>
+            ) : (
+              <span key={`${id}-${i}`} className={cls} title={inv?.description ?? ''}>
+                {inner}
               </span>
             )
           })}
@@ -2104,6 +2136,44 @@ function EldritchInvocationsBlock({ char, canEdit, onSave, moduleId }) {
         selectedCount={selectedCount}
         moduleId={moduleId}
       />
+      {buffEditorId && (() => {
+        const inv = byId.get(buffEditorId)
+        const row = getRow(buffEditorId)
+        const charPatch = row && typeof row === 'object' ? row.invocationBuffPatch : null
+        const defaultPatch = moduleId ? loadDefaultBuffPatch(moduleId, 'invocation', buffEditorId) : null
+        const merged = mergeWithDefaultPatch(charPatch, defaultPatch)
+        return (
+          <BuffEditorModal
+            open
+            onClose={() => setBuffEditorId(null)}
+            title={`编辑魔能祈唤效果：${inv?.name ?? buffEditorId}`}
+            description="自定义该祈唤对本角色的 BUFF 效果，保存后立即生效。"
+            buffFormProps={{
+              key: `invocation-buff-${buffEditorId}`,
+              compact: true,
+              charResources: char?.classResources,
+              spellSlots: char?.spellSlots,
+              charClasses,
+              referenceData, baseReferenceData, formulaContext,
+              initial: {
+                source: inv?.name ?? buffEditorId,
+                effects: Array.isArray(merged?.effects) ? merged.effects : [],
+                duration: merged?.duration,
+                enabled: merged?.enabled !== false,
+              },
+              onSave: (buff) => {
+                const next = withInvocationBuffPatch(char?.selectedInvocations, buffEditorId, {
+                  effects: buff.effects,
+                  duration: buff.duration,
+                  enabled: buff.enabled,
+                })
+                onSave({ selectedInvocations: next })
+                setBuffEditorId(null)
+              },
+            }}
+          />
+        )
+      })()}
     </div>
   )
 }
@@ -2760,7 +2830,7 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
                   )
                 })()}
                 {f.id === 'eldritch_invocations' && (
-                  <EldritchInvocationsBlock char={char} canEdit={canEdit} onSave={onSave} moduleId={moduleId} />
+                  <EldritchInvocationsBlock char={char} canEdit={canEdit} onSave={onSave} moduleId={moduleId} referenceData={referenceData} baseReferenceData={baseReferenceData} formulaContext={formulaContext} />
                 )}
                 {FIGHTING_STYLE_FEATURE_IDS.has(f.id) && (
                   <FightingStylesBlock char={char} feature={f} canEdit={canEdit} onSave={onSave} moduleId={moduleId} />

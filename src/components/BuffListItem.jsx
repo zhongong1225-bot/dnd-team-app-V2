@@ -149,7 +149,7 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
   // skill_proficiency: 显示技能熟练
   if (buff.effectType === 'skill_proficiency' && v && typeof v === 'object' && !Array.isArray(v)) {
     const skill = v.skill
-    const skillLabel = SKILLS.find(s => s.id === skill)?.label || skill || '技能'
+    const skillLabel = SKILLS.find(s => s.id === skill)?.name || skill || '技能'
     return `${skillLabel}熟练`
   }
 
