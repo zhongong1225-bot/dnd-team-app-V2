@@ -18,6 +18,7 @@ import { getChoiceEffects, CLASS_FEATURE_CHOICE_REGISTRY, CHOICE_ID_ALIASES } fr
 import { findShieldSlot } from '../equipmentLayers'
 import { getMergedBuffsViaCards } from '../cardAdapter'
 import { isFormulaValue } from '../formulas'
+import { cloneDurationRaw } from '../durationModel'
 
 const FEAT_BY_ID = new Map(FEATS.map((x) => [x.id, x]))
 const INVOCATION_BY_ID = new Map(ELDRITCH_INVOCATIONS.map((x) => [x.id, x]))
@@ -111,9 +112,7 @@ function normalizeSelectedFeatsForBuffs(character) {
           patch && typeof patch === 'object'
             ? {
                 effects: Array.isArray(patch.effects) ? patch.effects : [],
-                ...(patch.duration != null && String(patch.duration).trim() !== ''
-                  ? { duration: String(patch.duration).trim() }
-                  : {}),
+                ...(cloneDurationRaw(patch.duration) ? { duration: cloneDurationRaw(patch.duration) } : {}),
                 ...(patch.enabled === false ? { enabled: false } : {}),
               }
             : undefined,
@@ -248,9 +247,7 @@ function normalizeSelectedInvocationsForBuffs(character) {
           patch && typeof patch === 'object'
             ? {
                 effects: Array.isArray(patch.effects) ? patch.effects : [],
-                ...(patch.duration != null && String(patch.duration).trim() !== ''
-                  ? { duration: String(patch.duration).trim() }
-                  : {}),
+                ...(cloneDurationRaw(patch.duration) ? { duration: cloneDurationRaw(patch.duration) } : {}),
                 ...(patch.enabled === false ? { enabled: false } : {}),
               }
             : undefined,
@@ -336,9 +333,7 @@ function normalizeSelectedFightingStylesForBuffs(character) {
           patch && typeof patch === 'object'
             ? {
                 effects: Array.isArray(patch.effects) ? patch.effects : [],
-                ...(patch.duration != null && String(patch.duration).trim() !== ''
-                  ? { duration: String(patch.duration).trim() }
-                  : {}),
+                ...(cloneDurationRaw(patch.duration) ? { duration: cloneDurationRaw(patch.duration) } : {}),
                 ...(patch.enabled === false ? { enabled: false } : {}),
               }
             : undefined,

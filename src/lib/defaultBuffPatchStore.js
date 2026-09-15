@@ -9,6 +9,7 @@
 
 import { isSupabaseEnabled } from './supabase'
 import * as teamData from './teamDataSupabase'
+import { cloneDurationRaw } from './durationModel'
 
 const STORAGE_PREFIX = 'dnd-default-buff-patches-v1-'
 const MODULE_LIB_PREFIX = 'dnd_module_library_v1_'
@@ -171,11 +172,10 @@ export function loadDefaultBuffPatch(moduleId, kind, id) {
     const idx = findFeatTemplate(library, id)
     if (idx === -1) return null
     const t = library.buffTemplates[idx]
+    const duration = cloneDurationRaw(t.duration)
     return {
       effects: Array.isArray(t.effects) ? t.effects : [],
-      ...(t.duration != null && String(t.duration).trim() !== ''
-        ? { duration: String(t.duration).trim() }
-        : {}),
+      ...(duration ? { duration } : {}),
       ...(t.enabled === false ? { enabled: false } : {}),
     }
   }
@@ -183,12 +183,11 @@ export function loadDefaultBuffPatch(moduleId, kind, id) {
   const map = loadRaw(moduleId)
   const patch = map[buildDefaultBuffPatchKey(kind, id)]
   if (!patch || typeof patch !== 'object') return null
+  const duration = cloneDurationRaw(patch.duration)
   return {
     effects: Array.isArray(patch.effects) ? patch.effects : [],
     ...(patch.tombstone ? { tombstone: true } : {}),
-    ...(patch.duration != null && String(patch.duration).trim() !== ''
-      ? { duration: String(patch.duration).trim() }
-      : {}),
+    ...(duration ? { duration } : {}),
     ...(patch.enabled === false ? { enabled: false } : {}),
     ...(patch.cardScope && typeof patch.cardScope === 'object' ? { cardScope: patch.cardScope } : {}),
     ...(patch.cardName ? { cardName: patch.cardName } : {}),
@@ -212,7 +211,7 @@ export function saveDefaultBuffPatch(moduleId, kind, id, patch) {
     const library = loadLib(moduleId)
     const idx = findFeatTemplate(library, id)
     const effects = patch && Array.isArray(patch.effects) ? patch.effects : []
-    const duration = patch?.duration != null ? String(patch.duration).trim() : ''
+    const duration = cloneDurationRaw(patch?.duration)
     const enabled = patch?.enabled !== false
     const sourceName = patch?.sourceName || id
 
@@ -242,7 +241,7 @@ export function saveDefaultBuffPatch(moduleId, kind, id, patch) {
   const map = { ...loadRaw(moduleId) }
   const key = buildDefaultBuffPatchKey(kind, id)
   const effects = patch && Array.isArray(patch.effects) ? patch.effects : []
-  const duration = patch?.duration != null ? String(patch.duration).trim() : ''
+  const duration = cloneDurationRaw(patch?.duration)
   const enabled = patch?.enabled !== false
   if (effects.length === 0 && !duration && enabled && !patch?.cardName && !patch?.cardDescription
     && !(patch?.cardScope && typeof patch.cardScope === 'object' && patch.cardScope.type && patch.cardScope.type !== 'global')) {
@@ -292,9 +291,8 @@ export function mergeWithDefaultPatch(personalPatch, defaultPatch) {
     ...personalEffects.filter((e) => !e.effectType || !defaultTypes.has(e.effectType)),
   ]
 
-  const duration = defaultPatch.duration != null && String(defaultPatch.duration).trim() !== ''
-    ? defaultPatch.duration
-    : personalPatch.duration
+  const defaultDuration = cloneDurationRaw(defaultPatch.duration)
+  const duration = defaultDuration !== undefined ? defaultDuration : cloneDurationRaw(personalPatch.duration)
   const enabled = defaultPatch.enabled !== undefined ? defaultPatch.enabled : personalPatch.enabled
 
   return {
@@ -324,7 +322,7 @@ export function migrateFeatBuffsToModuleLibrary(moduleId) {
     const exists = findFeatTemplate(library, featId)
     if (exists !== -1) continue
     const effects = Array.isArray(patch.effects) ? patch.effects : []
-    const duration = patch.duration != null ? String(patch.duration).trim() : ''
+    const duration = cloneDurationRaw(patch.duration)
     if (effects.length === 0 && !duration) continue
     library.buffTemplates.push({
       id: generateId('bufftpl'),
