@@ -5,6 +5,7 @@ import {
   applyUpcastToDamageList,
   getEffectiveCastLevel,
   computePhysicalWeaponStats,
+  sanitizeLegacyCombatMeans,
 } from './combatMeanUtils'
 import { getItemById } from '../../data/itemDatabase'
 
@@ -141,5 +142,57 @@ describe('computePhysicalWeaponStats 属性调整值门控', () => {
     const s = computePhysicalWeaponStats(cm({ weaponVersatileMode: 'bonus_action' }), optFor('handaxe'), CTX)
     expect(s.abilityMod).toBe(-2)
     expect(s.damageMod).toBe(-2)
+  })
+})
+
+describe('sanitizeLegacyCombatMeans', () => {
+  it('清掉物理条目并把引用它的组合技解绑', () => {
+    const raw = [
+      { id: 'cm_0_physical', type: 'physical', weaponInventoryIndex: 2 },
+      { id: 'cm_1_spell', type: 'spell_attack', spellName: '火焰箭' },
+      { id: 'cm_2_combo', type: 'combo', primaryMeanId: 'cm_0_physical', attachments: [{ name: '至圣斩' }] },
+      { id: 'cm_3_combo', type: 'combo', primaryMeanId: 'cm_1_spell', attachments: [] },
+    ]
+    const out = sanitizeLegacyCombatMeans(raw)
+    expect(out.map((m) => m.id)).toEqual(['cm_1_spell', 'cm_2_combo', 'cm_3_combo'])
+    expect(out[1].primaryMeanId).toBe(null)
+    expect(out[2].primaryMeanId).toBe('cm_1_spell')
+  })
+
+  it('无物理条目时返回同一引用（避免无谓重渲染）', () => {
+    const raw = [{ id: 'a', type: 'spell_attack' }]
+    expect(sanitizeLegacyCombatMeans(raw)).toBe(raw)
+  })
+
+  it('非物理条目原样保留字段', () => {
+    const raw = [{ id: 'i', type: 'item', itemInventoryIndex: 0 }]
+    expect(sanitizeLegacyCombatMeans(raw)).toEqual(raw)
+  })
+
+  it('老存档没写 type 的武器条目也要清掉，并解绑引用它的组合技', () => {
+    const raw = [
+      { id: 'legacy_0', weaponInventoryIndex: 1 },
+      { id: 'c', type: 'combo', primaryMeanId: 'legacy_0', attachments: [] },
+    ]
+    const out = sanitizeLegacyCombatMeans(raw)
+    expect(out.map((m) => m.id)).toEqual(['c'])
+    expect(out[0].primaryMeanId).toBe(null)
+  })
+
+  it('type 拼错/未知值按物理处理（与 normalizeCombatMeanType 同口径）', () => {
+    const raw = [
+      { id: 'x', type: 'melee' },
+      { id: 's', type: 'spell' },
+      { id: 'c', type: 'combo', primaryMeanId: 'x', attachments: [] },
+    ]
+    const out = sanitizeLegacyCombatMeans(raw)
+    expect(out.map((m) => m.id)).toEqual(['s', 'c'])
+    expect(out[1].primaryMeanId).toBe(null)
+  })
+
+  it('传入非数组时返回空数组', () => {
+    expect(sanitizeLegacyCombatMeans(undefined)).toEqual([])
+    expect(sanitizeLegacyCombatMeans(null)).toEqual([])
+    expect(sanitizeLegacyCombatMeans([])).toEqual([])
   })
 })

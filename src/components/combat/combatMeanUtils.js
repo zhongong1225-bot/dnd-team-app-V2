@@ -722,3 +722,22 @@ export function gainsContentEqual(a, b) {
   }
   return true
 }
+
+/* ═══════════════════ 存量清理 ═══════════════════ */
+
+// 物理判定必须与 CombatStatus 的 normalizeCombatMeanType 同口径（反向白名单），否则老存档缺 type / type 拼错的武器卡会漏清，与手持槽派生卡重复出现
+const NON_PHYSICAL_MEAN_TYPES = new Set(['spell_attack', 'spell', 'item', 'combo'])
+const isLegacyPhysicalMean = (m) => !NON_PHYSICAL_MEAN_TYPES.has(m?.type)
+
+/**
+ * 存量清理：物理武器卡改由手持槽派生，combatMeans 中的物理条目一律丢弃，
+ * 并解绑引用了被丢弃条目的组合技（否则组合技卡会在渲染层静默消失）。
+ */
+export function sanitizeLegacyCombatMeans(means) {
+  const arr = Array.isArray(means) ? means : []
+  if (!arr.some(isLegacyPhysicalMean)) return arr
+  const droppedIds = new Set(arr.filter(isLegacyPhysicalMean).map((m) => m?.id))
+  return arr
+    .filter((m) => !isLegacyPhysicalMean(m))
+    .map((m) => (m?.type === 'combo' && droppedIds.has(m.primaryMeanId) ? { ...m, primaryMeanId: null } : m))
+}
