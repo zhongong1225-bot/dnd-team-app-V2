@@ -9,7 +9,7 @@ import { getSpellById, getSpellsByClass, searchSpells } from '../data/spellDatab
 import { getCharacterClasses, getMaxSpellSlotsByRing } from '../data/classDatabase'
 import { useModule } from '../contexts/ModuleContext'
 import { useBuffCalculator } from '../hooks/useBuffCalculator'
-import { getMergedBuffsForCalculator } from '../lib/effects/effectMapping'
+import { getMergedBuffsForCalculator, getFlatEffectEntries } from '../lib/effects/effectMapping'
 import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
 import { levelFromXP } from '../lib/xp5e'
 import { ABILITY_NAMES_ZH } from '../data/buffTypes'
@@ -123,13 +123,56 @@ export default function CharacterSpells({
 
   const spellSlotsCurrent = optimisticSpellSlots
 
+  /** 从BUFF效果中提取种族/专长等授予的天生法术 */
+  const innateSpells = useMemo(() => {
+    if (!char) return []
+    const buffs = getMergedBuffsForCalculator(char)
+    const effects = getFlatEffectEntries(buffs, char)
+    const innate = []
+    
+    effects.forEach(e => {
+      if (e.effectType === 'spell_granted' && e.value && typeof e.value === 'object') {
+        const v = e.value
+        // cantrips
+        if (Array.isArray(v.cantrips)) {
+          v.cantrips.forEach(spellId => {
+            const spell = getSpellById(spellId)
+            if (spell) innate.push({ spellId: spell.id, spell, isInnate: true })
+          })
+        }
+        // level1-9
+        for (let level = 1; level <= 9; level++) {
+          const key = `level${level}`
+          if (Array.isArray(v[key])) {
+            v[key].forEach(spellId => {
+              const spell = getSpellById(spellId)
+              if (spell) innate.push({ spellId: spell.id, spell, isClass: false, isPrepared: true, isInnate: true })
+            })
+          }
+        }
+      }
+    })
+    
+    // 去重（同一法术可能被多个来源授予）
+    const seen = new Set()
+    return innate.filter(item => {
+      if (seen.has(item.spellId)) return false
+      seen.add(item.spellId)
+      return true
+    })
+  }, [char])
+
   /** 按环阶分组（0→9），同环内按名称排序 */
   const spellsByLevel = useMemo(() => {
     const grouped = {}
     for (let i = 0; i <= 9; i++) grouped[i] = []
-    ;[...spells]
+    
+    // 合并普通法术和天生法术
+    const allSpells = [...spells.map(item => ({ ...item, isInnate: false })), ...innateSpells]
+    
+    allSpells
       .map((item) => {
-        const spell = getSpellById(item.spellId)
+        const spell = item.spell || getSpellById(item.spellId)
         return spell ? { ...item, spell } : null
       })
       .filter(Boolean)
@@ -139,7 +182,7 @@ export default function CharacterSpells({
         if (grouped[lv]) grouped[lv].push(item)
       })
     return grouped
-  }, [spells])
+  }, [spells, innateSpells])
 
   /** 目录：第一层级环位、第二层级该环下的法术名（顺序与右侧卡片一致） */
   const spellTocGroups = useMemo(() => {
@@ -886,15 +929,20 @@ export default function CharacterSpells({
                             </div>
                           )}
                         </div>
-                        {spell.school && (
-                          <div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {item.isInnate && (
+                            <span className="inline-flex rounded border border-dnd-gold/40 bg-dnd-gold/15 px-1.5 py-px text-[10px] font-medium leading-tight text-dnd-gold-light">
+                              天生法术
+                            </span>
+                          )}
+                          {spell.school && (
                             <span
                               className={`inline-flex rounded border px-1.5 py-px text-[10px] font-medium leading-tight ${getSchoolTagStyle(spell.school)}`}
                             >
                               {spell.school}
                             </span>
-                          </div>
-                        )}
+                          )}
+                        </div>
                         {metaItems.length > 0 && (
                           <div className="space-y-0 text-[11px] leading-tight">
                             {metaItems.map(({ label, value }) => (
@@ -983,7 +1031,7 @@ export default function CharacterSpells({
                 role="group"
                 aria-label={`${g.levelLabel} · 点击名称跳转至法术卡`}
               >
-                {g.spells.map(({ spellId, spell }) => (
+                {g.spells.map(({ spellId, spell, isInnate }) => (
                   <li key={spellId} className="min-w-0">
                     <button
                       type="button"
@@ -997,6 +1045,9 @@ export default function CharacterSpells({
                       className="w-full min-w-0 rounded-sm px-px py-0.5 text-center text-[9px] leading-tight text-[var(--text-muted)] transition-colors hover:bg-white/[0.06] hover:text-[var(--text-main)]"
                     >
                       <span className="line-clamp-2 break-words">{spell?.name ?? spellId}</span>
+                      {isInnate && (
+                        <span className="ml-0.5 inline-block text-[8px] font-medium text-dnd-gold-light/70" title="天生法术">天</span>
+                      )}
                     </button>
                   </li>
                 ))}

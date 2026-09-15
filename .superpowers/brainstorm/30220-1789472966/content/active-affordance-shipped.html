@@ -1,5 +1,5 @@
 <h2>已实施效果：实心金胶囊（可直接鼠标悬停试）</h2>
-<p class="subtitle">下面这块是从组件里逐条抄出来的真实样式（36px 高、胶囊形、2px 金描边、左名字右深色小胶囊、顶部高光线、悬停提亮加外发光、资源不足时降透明去饱和）。第一屏是职业特性列表的样子，第二屏把装备卡放进来做同屏对照。</p>
+<p class="subtitle">已从组件里同步的最新样式（36px 高、胶囊形、2px 金描边、金色填充改为上下方向的薄渐变以去掉任何进度感、左名字右深色小胶囊、悬停提亮加外发光、资源不足时降透明去饱和）。</p>
 
 <style>
   .pv { width: 650px; max-width: 100%; font-family: 'Noto Sans SC', sans-serif; }
@@ -19,7 +19,7 @@
   /* ==== 组件真实样式 ==== */
   .ebtn { position:relative; display:flex; align-items:center; width:100%; height:36px; box-sizing:border-box; border-radius:9999px; cursor:pointer;
           outline:2px solid rgba(217,176,85,0.85); outline-offset:-2px;
-          background:linear-gradient(90deg,#8a6720 0%,#c79a42 55%,#e0b862 100%);
+          background:linear-gradient(180deg,#d8ad52 0%,#c79a42 55%,#a97f2e 100%);
           box-shadow: inset 0 1px 0 rgba(255,240,200,0.5), inset 0 -1px 0 rgba(90,60,10,0.35), 0 2px 8px rgba(0,0,0,0.3);
           transition: box-shadow .15s, outline-color .15s, filter .15s; }
   .ebtn .hl { position:absolute; top:2px; left:0; right:0; height:1px; pointer-events:none;

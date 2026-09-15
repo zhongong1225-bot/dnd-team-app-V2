@@ -390,7 +390,7 @@ export function EnergyBarButton({
       style={{
         outline: `2px solid rgba(217,176,85,0.85)`,
         outlineOffset: '-2px',
-        background: 'linear-gradient(90deg, #8a6720 0%, #c79a42 55%, #e0b862 100%)',
+        background: 'linear-gradient(180deg, #d8ad52 0%, #c79a42 55%, #a97f2e 100%)',
         boxShadow: baseShadow,
       }}
       title={disabled ? disabledReason || '' : `点击使用${name}`}
