@@ -604,6 +604,7 @@ export function buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellMe
   const gains = []
   const isPhysical = cm?.type === 'physical'
   const isSpellAttack = cm?.type === 'spell_attack' || cm?.type === 'spell'
+  // id 按 type 固定只为渲染期稳定，不代表已合并：damage/attack/perDie 跨 BUFF 求和，extraDice/advantage/diceFloor2 取首个来源后其余静默丢弃
   const pushOnce = (type, payload) => {
     const id = 'auto_' + type
     gains.push({ id, type, enabled: true, auto: true, ...payload })
@@ -700,7 +701,7 @@ export function buildDefaultGainsFromBuffs(cm, buffStats, mergedBuffs, isSpellMe
   return gains
 }
 
-/** 保留手动增益，替换旧 auto 增益 */
+/** 保留手动增益，替换旧 auto 增益 —— 属于「把增益写进存档」的旧快照路径，现算路径接上后连同调用点一并删除 */
 export function mergeAutoGains(currentGains, autoGains) {
   const manual = (currentGains || []).filter((g) => !g.auto)
   return [...autoGains, ...manual]
@@ -709,8 +710,9 @@ export function mergeAutoGains(currentGains, autoGains) {
 /**
  * 渲染期现算该卡当前应得的增益：自动部分由 BUFF 集合反推，手动部分留在卡上。
  * 不写盘 —— 这是"卡上不得有数值快照"不变量的落点。
+ * 返回值每次为新数组（勿用作 useMemo/effect 依赖，否则重渲染或写循环）；手动项与 cm.gains 共享对象引用，改写须走 {...g, ...patch}。
  * @param {object} cm
- * @param {{buffStats:object, mergedBuffs:array, character:object, formulaContext:object, primaryForGains?:object}} opts
+ * @param {{buffStats?:object, mergedBuffs?:array, character?:object, formulaContext?:object, primaryForGains?:object}} opts
  */
 export function computeLiveGains(cm, opts = {}) {
   const { buffStats, mergedBuffs, character, formulaContext, primaryForGains } = opts
@@ -719,7 +721,7 @@ export function computeLiveGains(cm, opts = {}) {
   const auto = buildDefaultGainsFromBuffs(source, buffStats, mergedBuffs, isSpellMean, character || null, formulaContext || {})
   const disabled = new Set(Array.isArray(cm?.disabledAutoGainKeys) ? cm.disabledAutoGainKeys : [])
   const keptAuto = disabled.size ? auto.filter((g) => !disabled.has(g.type)) : auto
-  // 历史上自动增益会被误存成手动条目，不过滤则源 BUFF 消失后残值仍在
+  // 丢弃存档快照里带 auto 标记的条目，一律换成上面现算的结果，否则源 BUFF 消失后残值仍在
   const manual = (Array.isArray(cm?.gains) ? cm.gains : []).filter((g) => g && !g.auto)
   return [...keptAuto, ...manual]
 }

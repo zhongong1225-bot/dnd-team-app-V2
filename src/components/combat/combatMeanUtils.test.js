@@ -244,12 +244,33 @@ describe('computeLiveGains', () => {
     expect(live.some((g) => g.type === 'damageBonus' && g.value === 1 && !g.auto)).toBe(true)
   })
 
-  it('按 disabledAutoGainKeys 过滤掉指定类型', () => {
-    const live = computeLiveGains({ ...mean, disabledAutoGainKeys: ['extraDice'] }, {
+  it('按 disabledAutoGainKeys 只关掉现算的自动增益，不动玩家手建的同类', () => {
+    const card = {
+      ...mean,
+      gains: [...mean.gains, { id: 'g1', type: 'extraDice', dice: '1d6 钝击', enabled: true }],
+      disabledAutoGainKeys: ['extraDice'],
+    }
+    const live = computeLiveGains(card, {
       buffStats: {},
       mergedBuffs: buffsFrom([{ effectType: 'extra_damage_dice', scope: 'global', scopeDetail: [], value: '2d6 火焰' }]),
     })
-    expect(live.some((g) => g.type === 'extraDice')).toBe(false)
+    expect(live.filter((g) => g.type === 'extraDice').map((g) => g.id)).toEqual(['g1'])
+  })
+
+  it('存档快照里残留的 auto 条目被丢弃，不参与现算结果', () => {
+    const card = { ...mean, gains: [...mean.gains, { id: 'auto_damageBonus', type: 'damageBonus', value: 9, enabled: true, auto: true }] }
+    const live = computeLiveGains(card, { buffStats: {}, mergedBuffs: [] })
+    expect(live.some((g) => g.value === 9)).toBe(false)
+  })
+
+  it('传 primaryForGains 时自动部分按主卡反推（组合技取其主武器卡的加成）', () => {
+    const primary = { type: 'physical', weaponInventoryIndex: 0, gains: [] }
+    const character = { inventory: [{ id: 'inv_0', itemId: 'longsword' }] }
+    // physical_attack 范围只匹配物理来源：组合技自身不算，只有主卡算，故可据此判别取数源
+    const opts = { buffStats: {}, mergedBuffs: buffsFrom([{ effectType: 'damage_bonus', scope: 'physical_attack', scopeDetail: [], value: 2 }]), character }
+    const combo = { type: 'combo', gains: [], primaryMeanId: 'wielded_0_inv_0' }
+    expect(computeLiveGains(combo, opts).some((g) => g.type === 'damageBonus')).toBe(false)
+    expect(computeLiveGains(combo, { ...opts, primaryForGains: primary }).some((g) => g.type === 'damageBonus')).toBe(true)
   })
 
   it('源 BUFF 消失后不留残值', () => {
