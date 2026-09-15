@@ -4,7 +4,7 @@
  * 输出对象刻意保持与旧 combatMeans 条目同形（type/weaponNameSuffix/…/gains），
  * 这样 computePhysicalWeaponStats 与 WeaponAttackCard 无需第二套算法。
  */
-import { getItemById } from '../../data/itemDatabase'
+import { getItemById, getItemDisplayName } from '../../data/itemDatabase'
 import { isWeaponProtoProficient } from '../../lib/weaponProficiency'
 import {
   weaponHasLight, weaponHasTwoHanded, weaponHasVersatile, getDefaultWeaponMode,
@@ -14,6 +14,7 @@ const WEAPON_TYPES = new Set(['近战武器', '远程武器', '枪械'])
 
 export const WIELDED_UNAVAILABLE_MAIN_TWO_HANDED = '主手为双手武器，副手被占用'
 export const WIELDED_UNAVAILABLE_NO_LIGHT = '缺少轻型词条，且未获得双持客'
+export const WIELDED_UNAVAILABLE_NO_MAIN = '主手未持武器，副手无法发动附赠攻击'
 
 /** 派生卡 id：必须由槽位序号 + 物品编号确定性拼出（组合技要稳定引用它） */
 export function makeWieldedMeanId(slotIndex, inventoryId) {
@@ -31,14 +32,19 @@ function weaponOptFor(entry) {
   if (!proto) return null
   const 攻击 = entry.攻击 ?? proto.攻击 ?? '—'
   const 伤害 = entry.伤害 ?? proto.伤害 ?? '—'
-  const name = (entry.name && String(entry.name).trim()) || proto.类别 || proto.name || '—'
+  const 类别 = String(proto.类别 ?? '').trim()
+  // 自建物品的 类别 默认是占位值「自定义」，此时显示名要取原型自身的 名称
+  const name = (entry.name && String(entry.name).trim())
+    || (类别 && 类别 !== '自定义' ? 类别 : getItemDisplayName(proto))
+    || '—'
   return { entry, proto, name, 攻击, 伤害 }
 }
 
 /** 副手合法性：返回 '' 表示合法 */
 function offhandBlockReason(mainOpt, offOpt, ctx) {
+  if (!mainOpt) return WIELDED_UNAVAILABLE_NO_MAIN
   // 多用武器可单手持有，不会占用副手
-  if (mainOpt && weaponHasTwoHanded(mainOpt) && !weaponHasVersatile(mainOpt)) return WIELDED_UNAVAILABLE_MAIN_TWO_HANDED
+  if (weaponHasTwoHanded(mainOpt) && !weaponHasVersatile(mainOpt)) return WIELDED_UNAVAILABLE_MAIN_TWO_HANDED
   if (weaponHasLight(offOpt)) return ''
   if (ctx.offhandIgnoresLight && !weaponHasTwoHanded(offOpt)) return ''
   return WIELDED_UNAVAILABLE_NO_LIGHT
@@ -56,7 +62,6 @@ export function deriveWieldedWeaponMeans(character, ctx = {}) {
   if (ctx.isTransformed) return []
   const heldSlots = Array.isArray(character?.equippedHeld) ? character.equippedHeld : []
   const inventory = Array.isArray(character?.inventory) ? character.inventory : []
-  if (heldSlots.length === 0) return []
 
   const resolved = heldSlots.map((slot, i) => {
     const inventoryId = slot?.inventoryId
@@ -82,7 +87,8 @@ export function deriveWieldedWeaponMeans(character, ctx = {}) {
         available = unavailableReason === ''
       }
       const modeFromConfig = ['one_hand', 'two_hand', 'ranged', 'bonus_action'].includes(cfg.versatileMode) ? cfg.versatileMode : null
-      const weaponVersatileMode = modeFromConfig || (isOffhand ? 'bonus_action' : getDefaultWeaponMode(opt))
+      // 副手卡的 actionLabel 恒为附赠动作，若沿用存档模式会出现「标签附赠动作、伤害却加满属性调整值」
+      const weaponVersatileMode = isOffhand ? 'bonus_action' : (modeFromConfig || getDefaultWeaponMode(opt))
       return {
         id: makeWieldedMeanId(i, opt.inventoryId),
         type: 'physical',

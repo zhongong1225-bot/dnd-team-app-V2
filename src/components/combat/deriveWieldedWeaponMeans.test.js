@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest'
-import { deriveWieldedWeaponMeans, makeWieldedMeanId } from './deriveWieldedWeaponMeans'
+import { describe, it, expect, vi } from 'vitest'
+import { deriveWieldedWeaponMeans, makeWieldedMeanId, WIELDED_UNAVAILABLE_NO_MAIN } from './deriveWieldedWeaponMeans'
 
 let seq = 0
 /** 造一份角色：held 传原型 id 数组（null = 空槽） */
@@ -128,5 +128,108 @@ describe('deriveWieldedWeaponMeans', () => {
     }
     const cards = bySlot(deriveWieldedWeaponMeans(char, CTX))
     expect(cards[1]).toMatchObject({ available: true, unavailableReason: '' })
+  })
+
+  it('副手卡无视存档攻击模式，恒为 bonus_action', () => {
+    const char = charWith(['dagger', 'dagger'])
+    char.inventory[1].combatMeanConfig = { versatileMode: 'one_hand' }
+    const cards = bySlot(deriveWieldedWeaponMeans(char, CTX))
+    expect(cards[1]).toMatchObject({ actionLabel: '附赠动作', weaponVersatileMode: 'bonus_action' })
+  })
+
+  it('主手卡尊重存档攻击模式（修复不外溢）', () => {
+    const twoHand = charWith(['longsword'])
+    twoHand.inventory[0].combatMeanConfig = { versatileMode: 'two_hand' }
+    expect(deriveWieldedWeaponMeans(twoHand, CTX)[0].weaponVersatileMode).toBe('two_hand')
+    const oneHand = charWith(['greatsword'])
+    oneHand.inventory[0].combatMeanConfig = { versatileMode: 'one_hand' }
+    expect(deriveWieldedWeaponMeans(oneHand, CTX)[0].weaponVersatileMode).toBe('one_hand')
+  })
+
+  it('主手空槽 + 副手轻型：副手灰卡且原因为主手未持武器', () => {
+    const cards = bySlot(deriveWieldedWeaponMeans(charWith([null, 'dagger']), CTX))
+    expect(Object.keys(cards)).toEqual(['1'])
+    expect(cards[1]).toMatchObject({
+      slotLabel: '副手',
+      available: false,
+      unavailableReason: WIELDED_UNAVAILABLE_NO_MAIN,
+    })
+    expect(WIELDED_UNAVAILABLE_NO_MAIN).toBe('主手未持武器，副手无法发动附赠攻击')
+  })
+
+  it('主手是非武器（盾牌）+ 副手轻型：同样按主手未持武器灰卡', () => {
+    const cards = bySlot(deriveWieldedWeaponMeans(charWith(['shield', 'dagger']), CTX))
+    expect(Object.keys(cards)).toEqual(['1'])
+    expect(cards[1]).toMatchObject({ available: false, unavailableReason: WIELDED_UNAVAILABLE_NO_MAIN })
+  })
+
+  it('武器名优先条目自定义名，其次原型类别', () => {
+    const named = charWith(['longsword'])
+    named.inventory[0].name = ' 破晓 '
+    expect(deriveWieldedWeaponMeans(named, CTX)[0].weaponOpt.name).toBe('破晓')
+    const plain = charWith(['longsword'])
+    expect(deriveWieldedWeaponMeans(plain, CTX)[0].weaponOpt.name).toBe('长剑')
+  })
+
+  it('自定义武器原型（类别=自定义）回退到原型显示名', async () => {
+    // 自定义物品只存在于 getItemById 的自定义分支：需临时关掉 Supabase 分支才会读 localStorage
+    vi.stubEnv('VITE_SUPABASE_URL', '')
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', '')
+    vi.resetModules()
+    localStorage.setItem('dnd_custom_items', JSON.stringify([
+      { id: 'custom_moonblade', 类型: '近战武器', 子类型: '近战', 类别: '自定义', 名称: '月刃', 攻击: '1d4 挥砍', 附注: '轻型', 伤害: '挥砍' },
+    ]))
+    try {
+      const { deriveWieldedWeaponMeans: deriveFresh } = await import('./deriveWieldedWeaponMeans')
+      const cards = deriveFresh(charWith(['custom_moonblade']), CTX)
+      expect(cards).toHaveLength(1)
+      expect(cards[0].weaponOpt.proto.类别).toBe('自定义')
+      expect(cards[0].weaponOpt.name).toBe('月刃')
+    } finally {
+      localStorage.removeItem('dnd_custom_items')
+      vi.unstubAllEnvs()
+      vi.resetModules()
+    }
+  })
+
+  it('combatMeanConfig 透传为卡字段，且数组是浅拷贝不回写源数据', () => {
+    const char = charWith(['longsword'])
+    char.inventory[0].combatMeanConfig = {
+      nameSuffix: ' +1',
+      damageTypeOverride: 'force',
+      extraDamageDice: ['1d6'],
+      disabledAutoGainKeys: ['x'],
+    }
+    const card = deriveWieldedWeaponMeans(char, CTX)[0]
+    expect(card).toMatchObject({
+      weaponNameSuffix: ' +1',
+      damageType: 'force',
+      extraDamageDice: ['1d6'],
+      disabledAutoGainKeys: ['x'],
+    })
+    card.extraDamageDice.push('2d8')
+    card.disabledAutoGainKeys.push('y')
+    expect(char.inventory[0].combatMeanConfig.extraDamageDice).toEqual(['1d6'])
+    expect(char.inventory[0].combatMeanConfig.disabledAutoGainKeys).toEqual(['x'])
+  })
+
+  it('库存条目缺少 itemId：不出卡也不抛错', () => {
+    const char = {
+      inventory: [{ id: 'inv_bare', 名称: '自制武器' }],
+      equippedHeld: [{ id: 'main', inventoryId: 'inv_bare' }],
+    }
+    expect(deriveWieldedWeaponMeans(char, CTX)).toEqual([])
+  })
+
+  it('副手轻型远程武器（手弩）可用且仍走附赠攻击模式', () => {
+    const cards = bySlot(deriveWieldedWeaponMeans(charWith(['dagger', 'hand_crossbow']), CTX))
+    expect(cards[1]).toMatchObject({ available: true, weaponVersatileMode: 'bonus_action' })
+  })
+
+  it('副手双手远程武器（轻弩）不可用，双持客也不解锁', () => {
+    const plain = bySlot(deriveWieldedWeaponMeans(charWith(['dagger', 'light_crossbow']), CTX))
+    expect(plain[1]).toMatchObject({ available: false, unavailableReason: '缺少轻型词条，且未获得双持客' })
+    const dual = bySlot(deriveWieldedWeaponMeans(charWith(['dagger', 'light_crossbow']), { ...CTX, offhandIgnoresLight: true }))
+    expect(dual[1]).toMatchObject({ available: false, unavailableReason: '缺少轻型词条，且未获得双持客' })
   })
 })
