@@ -7,7 +7,7 @@ import GainEditor from './GainEditor'
 
 export default function AddItemStep({
   itemIndex, setItemIndex, itemMeansFromInv,
-  addGains, setAddGains, draftItemCm, draftItemIsSpell,
+  addGains, setAddGains, draftItemCm,
   buffStats, mergedBuffs, char, itemFormulaContext,
   editingCombatMeanId, onBack, onSave,
 }) {
@@ -22,7 +22,7 @@ export default function AddItemStep({
           {itemMeansFromInv.map((it) => <option key={it.index} value={it.index}>{it.label}</option>)}
         </select>
       </div>
-      <GainEditor gains={addGains} onChange={setAddGains} cm={draftItemCm} buffStats={buffStats} mergedBuffs={mergedBuffs} character={char} formulaContext={itemFormulaContext} isSpellMean={draftItemIsSpell} />
+      <GainEditor gains={addGains} onChange={setAddGains} cm={draftItemCm} buffStats={buffStats} mergedBuffs={mergedBuffs} character={char} formulaContext={itemFormulaContext} />
       <div className="flex gap-2 mt-3">
         <button type="button" onClick={onBack} className="flex-1 py-1.5 rounded border border-gray-500 text-gray-400 text-xs">上一步</button>
         <button type="button" onClick={onSave} disabled={itemIndex == null} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 text-white text-xs">{editingCombatMeanId ? '保存' : '确认'}</button>

@@ -87,7 +87,7 @@ export default function AddSpellStep({
           </select>
         </div>
       </div>
-      <GainEditor gains={addGains} onChange={setAddGains} cm={draftSpellCm} buffStats={buffStats} mergedBuffs={mergedBuffs} character={char} formulaContext={itemFormulaContext} isSpellMean />
+      <GainEditor gains={addGains} onChange={setAddGains} cm={draftSpellCm} buffStats={buffStats} mergedBuffs={mergedBuffs} character={char} formulaContext={itemFormulaContext} />
       <div className="flex gap-2 mt-3">
         <button type="button" onClick={onBack} className="flex-1 py-1.5 rounded border border-gray-500 text-gray-400 text-xs">上一步</button>
         <button type="button" onClick={onSave} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white text-xs">保存</button>

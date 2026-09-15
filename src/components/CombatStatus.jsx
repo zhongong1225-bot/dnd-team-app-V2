@@ -1560,10 +1560,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   }, [addMeanStep, addWeaponIndex, addAbility, addDamageType, addWeaponMode, addWeaponProficient, addTargetCreatureType, addWeaponExtraDice, addGains, weaponsFromInv, effectiveAbilities, prof, spellAbility, buffStats, flatBuffEffects, itemFormulaContext])
   const draftSpellCm = useMemo(() => ({ type: 'spell_attack', targetCreatureType: addTargetCreatureType || '' }), [addTargetCreatureType])
   const draftItemCm = useMemo(() => ({ type: 'item', itemInventoryIndex: addItemIndex ?? null, targetCreatureType: addTargetCreatureType || '' }), [addItemIndex, addTargetCreatureType])
-  const draftItemIsSpell = useMemo(() => {
-    const itemOpt = addItemIndex != null ? itemMeansFromInv.find((x) => x.index === addItemIndex) : null
-    return !!(itemOpt && (itemOpt.kind === 'focus' || itemOpt.kind === 'scroll'))
-  }, [addItemIndex, itemMeansFromInv])
   const draftWeaponCm = useMemo(() => ({ type: 'physical', weaponInventoryIndex: addWeaponIndex ?? null, damageType: addDamageType || null, targetCreatureType: addTargetCreatureType || '' }), [addWeaponIndex, addDamageType, addTargetCreatureType])
   const spellcastingLevel = getSpellcastingLevel(char)
   const maxSlotsByRing = useMemo(() => getMaxSpellSlotsByRing(char), [char])
@@ -3547,7 +3543,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                     itemIndex={addItemIndex} setItemIndex={setAddItemIndex}
                     itemMeansFromInv={itemMeansFromInv}
                     addGains={addGains} setAddGains={setAddGains}
-                    draftItemCm={draftItemCm} draftItemIsSpell={draftItemIsSpell}
+                    draftItemCm={draftItemCm}
                     buffStats={buffStats} mergedBuffs={mergedBuffs} char={char} itemFormulaContext={itemFormulaContext}
                     editingCombatMeanId={editingCombatMeanId}
                     onBack={() => setAddMeanStep('type')}
