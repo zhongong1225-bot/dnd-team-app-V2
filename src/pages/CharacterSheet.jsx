@@ -79,6 +79,7 @@ import { buildCardsFromCharacter, findActiveAbilityInCards, findAllActiveAbiliti
 import { isVirtualBuffEntry } from '../lib/buffSourceKind'
 import { getShieldPoolCurrent, setShieldPoolCurrent, decrementShieldPool, resetShieldPool } from '../lib/shieldPoolUtils'
 import { formatRecoveryBrief, resolveChargeItemCharges, RESOURCE_TYPE_OPTIONS } from '../lib/chargeItemModel'
+import { deriveCooldownFromRecovery } from '../lib/recoveryCooldown'
 import AbilityUseModal from '../components/AbilityUseModal'
 import { SCOPE_TYPE_OPTIONS } from '../lib/cardModel'
 import InfoTooltip from '../components/InfoTooltip'
@@ -164,9 +165,7 @@ function findActiveAbilityFromCard(sourceKey, cards, slotKind = null) {
     cost: chargeValue.resourceType === 'none'
       ? { type: 'none' }
       : { type: 'class_resource', resourceKey: chargeValue.resourceType || 'charges', amount: chargeValue.charges || 1 },
-    cooldown: chargeValue.recovery?.method === 'long_rest' ? 'long_rest'
-              : chargeValue.recovery?.method === 'short_rest' ? 'short_rest'
-              : 'none',
+    cooldown: deriveCooldownFromRecovery(chargeValue.recovery),
     description: card.description || '',
     needsInteraction: 'confirm',
     isStance: !!chargeValue.isStance,

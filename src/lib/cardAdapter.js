@@ -21,6 +21,7 @@ import { createCard, normalizeCard, SLOT_KIND } from './cardModel'
 import { getRaceById, getAllRaces } from '../data/races'
 import { normalizeAbilityScoreBonuses, inferAsiAssignmentsFromLegacy } from '../data/raceModel'
 import { loadDefaultBuffPatch } from './defaultBuffPatchStore'
+import { deriveCooldownFromRecovery } from './recoveryCooldown'
 
 /* ── BUFF 条目 → Card 映射 ───────────────────────────────────────── */
 
@@ -119,9 +120,7 @@ function buffEntryToCard(buffEntry) {
                 maxSlotLevel: chargeValue.maxSlotLevel || 1,
               }
             : { type: 'class_resource', resourceKey: chargeValue.resourceType || 'charges', amount: chargeValue.charges || 1 },
-        cooldown: chargeValue.recovery?.method === 'long_rest' ? 'long_rest'
-                  : chargeValue.recovery?.method === 'short_rest' ? 'short_rest'
-                  : 'none',
+        cooldown: deriveCooldownFromRecovery(chargeValue.recovery),
         description: '',
         needsInteraction: 'confirm',
         effects: allEffects.map((eff) => ({
@@ -464,9 +463,7 @@ export function buildCardsFromCharacter(character, moduleId) {
                     maxSlotLevel: chargeValue.maxSlotLevel || 1,
                   }
                 : { type: 'class_resource', resourceKey: chargeValue.resourceType || 'charges', amount: chargeValue.charges || 1 },
-            cooldown: chargeValue.recovery?.method === 'long_rest' ? 'long_rest'
-                      : chargeValue.recovery?.method === 'short_rest' ? 'short_rest'
-                      : 'none',
+            cooldown: deriveCooldownFromRecovery(chargeValue.recovery),
             description: '',
             needsInteraction: 'confirm',
             effects: subEffects ? subEffects.map((eff) => ({

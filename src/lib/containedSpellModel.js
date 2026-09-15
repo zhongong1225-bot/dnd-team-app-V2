@@ -22,6 +22,7 @@
  */
 
 import { getSpellById, SPELLS } from '../data/spellDatabase'
+import { deriveCooldownFromRecovery } from './recoveryCooldown'
 
 export const DEFAULT_CONTAINED_SPELL_SUB = {
   spellId: '',
@@ -216,9 +217,7 @@ export function buildActiveAbilityFromEntry(entry) {
     cost: cv.resourceType === 'none'
       ? { type: 'none' }
       : { type: 'class_resource', resourceKey: cv.resourceType || 'charges', amount: cv.charges || 1 },
-    cooldown: cv.recovery?.method === 'long_rest' ? 'long_rest'
-              : cv.recovery?.method === 'short_rest' ? 'short_rest'
-              : 'none',
+    cooldown: deriveCooldownFromRecovery(cv.recovery),
     description: '',
     needsInteraction: 'confirm',
     isStance: !!cv.isStance,

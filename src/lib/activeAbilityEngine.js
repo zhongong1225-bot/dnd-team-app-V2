@@ -13,6 +13,7 @@ import { getBuffsFromClassFeatures, getBuffsFromSelectedFeats } from './effects/
 import { getCharacterClasses, getMaxSpellSlotsByRing } from '../data/classDatabase.js'
 import { buildCardsFromCharacter } from './cardAdapter.js'
 import { normalizeChargeItemValue, resolveLevelScaling, getMainHandWeaponDamageType } from './chargeItemModel.js'
+import { deriveCooldownFromRecovery } from './recoveryCooldown.js'
 
 /* ─────────────────────────────────────────────────────────
  * 查询
@@ -115,9 +116,7 @@ function buildAbilityFromCard(card) {
     name: card.name || '主动技能',
     actionType: chargeValue.actionCost || 'action',
     cost,
-    cooldown: chargeValue.recovery?.method === 'long_rest' ? 'long_rest'
-              : chargeValue.recovery?.method === 'short_rest' ? 'short_rest'
-              : 'none',
+    cooldown: deriveCooldownFromRecovery(chargeValue.recovery),
     description: card.description || '',
     needsInteraction: 'confirm',
     isStance: !!chargeValue.isStance,
@@ -417,9 +416,7 @@ export function resetAbilityCooldowns(char, restType, moduleId) {
       : null
     if (!chargeEffect) continue
     const cv = chargeEffect.value
-    const cooldown = cv.recovery?.method === 'long_rest' ? 'long_rest'
-                 : cv.recovery?.method === 'short_rest' ? 'short_rest'
-                 : 'none'
+    const cooldown = deriveCooldownFromRecovery(cv.recovery)
     abilityCooldownMap[`${card.sourceKey}_active`] = cooldown
   }
 
