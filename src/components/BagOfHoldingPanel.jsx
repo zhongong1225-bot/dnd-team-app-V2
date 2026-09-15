@@ -21,6 +21,7 @@ import { NumberStepper } from './BuffForm'
 import { inputClassInline } from '../lib/inputStyles'
 import { hasContainedSpellEffect, buildActiveAbilityFromEntry, extractContainedSpellValueFromEntry } from '../lib/containedSpellModel'
 import { getShieldPoolCurrent, setShieldPoolCurrent } from '../lib/shieldPoolUtils'
+import { resolveChargeItemCharges } from '../lib/chargeItemModel'
 import {
   inventoryItemActionsCellClass,
   inventoryItemCardShellClass,
@@ -673,7 +674,7 @@ export function BagModuleSection({
                   const chargeEffect = Array.isArray(entry?.effects)
                     ? entry.effects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
                     : null
-                  const maxChargeFromEffect = chargeEffect ? (Number(chargeEffect.value?.charges) || 0) : 0
+                  const maxChargeFromEffect = chargeEffect ? resolveChargeItemCharges(chargeEffect.value, character) : 0
                   const hasSpell = hasContainedSpellEffect(entry)
                   const csValue = !chargeEffect && hasSpell ? extractContainedSpellValueFromEntry(entry) : null
                   const maxChargeFromContainedSpell = csValue ? (Number(csValue.totalCharges) || 0) : 0

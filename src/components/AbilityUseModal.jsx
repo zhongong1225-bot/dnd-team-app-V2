@@ -396,7 +396,7 @@ function processAllEffects(ctx) {
               const invIdx = (char.inventory || []).findIndex(e => e.id === invId)
               if (invIdx >= 0) {
                 const entry = char.inventory[invIdx]
-                const chargeMax = getEntryChargeMax(entry) ?? 0
+                const chargeMax = getEntryChargeMax(entry, char) ?? 0
                 const curCharge = Math.max(0, Number(entry.charge) || 0)
                 const newCharge = chargeMax > 0 ? Math.min(chargeMax, curCharge + restoreAmt) : curCharge + restoreAmt
                 const baseInv = Array.isArray(patch.inventory) ? patch.inventory : (char.inventory || [])
@@ -624,7 +624,7 @@ function processAllEffects(ctx) {
         const invIdx = invId ? (char.inventory || []).findIndex(e => e.id === invId) : -1
         if (invIdx >= 0) {
           const entry = char.inventory[invIdx]
-          const chargeMax = getEntryChargeMax(entry) ?? 0
+          const chargeMax = getEntryChargeMax(entry, char) ?? 0
           const curCharge = Math.max(0, Number(entry.charge) || 0)
           const newCharge = chargeMax > 0 ? Math.min(chargeMax, curCharge + restoreAmount) : curCharge + restoreAmount
           const baseInv = Array.isArray(patch.inventory) ? patch.inventory : (char.inventory || [])
@@ -763,6 +763,20 @@ function processAllEffects(ctx) {
           lines.push(`✨ ${desc}`)
         }
       }
+
+    /* ── add_roll_dice：增加投掷数（额外骰加到目标掷骰上） ── */
+    } else if (eff.type === 'add_roll_dice') {
+      const diceCount = ev.diceCount || 1
+      const diceSides = ev.diceSides || 10
+      const diceBonus = ev.diceBonus || 0
+      const diceExpr = `${diceCount}d${diceSides}`
+      const { total, rolls } = rollDice(diceExpr)
+      const totalWithBonus = total + diceBonus
+      const bonusStr = diceBonus > 0 ? `+${diceBonus}` : (diceBonus < 0 ? `${diceBonus}` : '')
+      const note = ev.note ? `（${ev.note}）` : ''
+      lines.push(`🎲 增加投掷数${note}: ${rolls.join('+')}${bonusStr} = ${totalWithBonus}（加到目标掷骰上）`)
+      animParts.push(diceBonus !== 0 ? `${diceExpr}${diceBonus > 0 ? '+' : ''}${diceBonus}` : diceExpr)
+      animValues.push(...rolls.map(Number))
 
     /* ── damage：直接伤害 ── */
     } else if (eff.type === 'damage') {
@@ -973,7 +987,7 @@ function mergeSubEffectPatch(patch, sp, char) {
       if (!subItem) return item
       const delta = (Number(subItem.charge) || 0) - (Number(charInv[i]?.charge) || 0)
       if (delta === 0) return item
-      const cap = getEntryChargeMax(item) ?? 0
+      const cap = getEntryChargeMax(item, char) ?? 0
       const val = (Number(item.charge) || 0) + delta
       return { ...item, charge: cap > 0 ? Math.max(0, Math.min(cap, val)) : Math.max(0, val) }
     })
@@ -1035,7 +1049,7 @@ function mergePatches(resourcePatch, effectPatch, char) {
       if (!effItem) return item
       const delta = (Number(effItem.charge) || 0) - (Number(charInv[i]?.charge) || 0)
       if (delta === 0) return item
-      const cap = getEntryChargeMax(item) ?? 0
+      const cap = getEntryChargeMax(item, char) ?? 0
       const val = (Number(item.charge) || 0) + delta
       return { ...item, charge: cap > 0 ? Math.max(0, Math.min(cap, val)) : Math.max(0, val) }
     })
@@ -1461,7 +1475,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
         const currentCharge = Math.max(0, Number(entry.charge) || 0)
         const newCharge = Math.max(0, currentCharge - amt)
         patch.inventory = (char.inventory || []).map((e, i) => (i === invIdx ? { ...e, charge: newCharge } : e))
-        lines.push(`消耗 ${amt} 充能（剩余 ${newCharge}/${getEntryChargeMax(entry) ?? norm.charges}）`)
+        lines.push(`消耗 ${amt} 充能（剩余 ${newCharge}/${getEntryChargeMax(entry, char) ?? norm.charges}）`)
       } else {
         lines.push(`消耗 ${amt} 充能（共 ${norm.charges}）`)
       }

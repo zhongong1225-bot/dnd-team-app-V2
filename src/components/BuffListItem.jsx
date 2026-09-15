@@ -355,7 +355,7 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       return spellLine || effectLabel
     }
     if (buff.effectType === 'charge_item' && v && typeof v === 'object' && !Array.isArray(v)) {
-      const brief = formatChargeItemBrief(v)
+      const brief = formatChargeItemBrief(v, context)
       return brief || effectLabel
     }
     if (buff.effectType === 'shield_pool' && v && typeof v === 'object' && !Array.isArray(v)) {
@@ -838,7 +838,7 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
       return { label: effectLabel, value: spellLine || null }
     }
     if (buff.effectType === 'charge_item' && v && typeof v === 'object' && !Array.isArray(v)) {
-      const brief = formatChargeItemBrief(v)
+      const brief = formatChargeItemBrief(v, context)
       return { label: effectLabel, value: brief || null }
     }
     if (buff.effectType === 'shield_pool' && v && typeof v === 'object' && !Array.isArray(v)) {

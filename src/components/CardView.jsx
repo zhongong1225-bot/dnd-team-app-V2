@@ -25,6 +25,7 @@ function CardView({
   headerRight,
   footer,
   children,
+  alwaysContent,
   className = '',
   expanded = false,
   onToggleExpand,
@@ -228,6 +229,13 @@ function CardView({
             {headerRight !== undefined ? headerRight : defaultRight}
           </div>
         </div>
+
+        {/* 常驻内容（始终可见，不随展开隐藏） */}
+        {alwaysContent && (
+          <div style={{ padding: '8px 12px', borderTop: '1px solid #2a3a4e' }}>
+            {alwaysContent}
+          </div>
+        )}
 
         {/* 展开后的内容（网格下方，全宽） */}
         {expanded && hasDescription && (

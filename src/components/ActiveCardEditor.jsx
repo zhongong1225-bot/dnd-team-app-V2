@@ -6,14 +6,16 @@
  */
 
 import { inputClass } from '../lib/inputStyles'
-import { NumberStepper } from './BuffForm'
+import { NumberStepper, LevelScalingEditor } from './BuffForm'
 import {
   normalizeChargeItemValue,
   RECOVERY_METHODS,
   RESOURCE_TYPE_OPTIONS,
   ACTION_COST_OPTIONS,
-  recoverySupportsAmount,
-  recoveryIsDiceOnly,
+  recoveryMethodSupportsAmount,
+  recoveryMethodIsDiceOnly,
+  getRecoveryAmount,
+  normalizeRecoveryAmount,
 } from '../lib/chargeItemModel'
 import DurationEditor from './DurationEditor'
 
@@ -72,10 +74,42 @@ export default function ActiveCardEditor({
   renderEffects,
   charResources,
   spellSlots,
+  charClasses = [],
 }) {
   const chargeData = normalizeChargeItemValue(data)
   const patch = (patchObj) => onChange({ ...chargeData, ...patchObj })
-  const patchRecovery = (recPatch) => patch({ recovery: { ...chargeData.recovery, ...recPatch } })
+  const recoveryMethods = Array.isArray(chargeData.recovery?.method)
+    ? chargeData.recovery.method
+    : (chargeData.recovery?.method ? [chargeData.recovery.method] : ['long_rest'])
+  const recoveryAmounts = chargeData.recovery?.amounts && typeof chargeData.recovery.amounts === 'object' && !Array.isArray(chargeData.recovery.amounts)
+    ? chargeData.recovery.amounts
+    : {}
+  /** 顶层 kind/fixed/dice* 跟随首个启用方式，兼容仍读旧字段的代码 */
+  const withRecoveryAmounts = (methods, amounts) => ({
+    ...chargeData.recovery,
+    method: methods,
+    amounts,
+    ...(amounts[methods[0]] || {}),
+  })
+  const patchRecoveryAmount = (method, amountPatch) => {
+    patch({
+      recovery: withRecoveryAmounts(recoveryMethods, {
+        ...recoveryAmounts,
+        [method]: { ...getRecoveryAmount(chargeData.recovery, method), ...amountPatch },
+      }),
+    })
+  }
+  const toggleRecoveryMethod = (m) => {
+    const next = recoveryMethods.includes(m) ? recoveryMethods.filter((x) => x !== m) : [...recoveryMethods, m]
+    if (!next.length) next.push('long_rest')
+    const amounts = {}
+    for (const mm of next) {
+      amounts[mm] = recoveryAmounts[mm]
+        ? normalizeRecoveryAmount(recoveryAmounts[mm], mm)
+        : getRecoveryAmount(chargeData.recovery, mm)
+    }
+    patch({ recovery: withRecoveryAmounts(next, amounts) })
+  }
 
   // 动态资源选项
   const resourceOptions = buildResourceOptions(charResources, spellSlots)
@@ -146,72 +180,70 @@ export default function ActiveCardEditor({
                 min={0} max={999} compact narrow className="!h-7"
               />
               <span className="text-green-400 text-[10px] font-bold uppercase tracking-wider shrink-0 ml-1">恢复</span>
-              <div className="flex items-center gap-1 flex-wrap">
+              <div className="flex items-center gap-x-2 gap-y-1 flex-wrap">
                 {RECOVERY_METHODS.map((m) => {
-                  const methods = Array.isArray(chargeData.recovery?.method) ? chargeData.recovery.method : [chargeData.recovery?.method || 'long_rest']
+                  const enabled = recoveryMethods.includes(m.value)
+                  const supportsAmount = recoveryMethodSupportsAmount(m.value)
+                  const diceOnly = recoveryMethodIsDiceOnly(m.value)
+                  const amount = getRecoveryAmount(chargeData.recovery, m.value)
                   return (
-                    <label key={m.value} className="flex items-center gap-0.5 cursor-pointer text-[10px] text-gray-300">
-                      <input
-                        type="checkbox"
-                        checked={methods.includes(m.value)}
-                        onChange={() => {
-                          const next = methods.includes(m.value) ? methods.filter((x) => x !== m.value) : [...methods, m.value]
-                          if (!next.length) next.push('long_rest')
-                          const rec = { ...chargeData.recovery, method: next }
-                          if (!recoverySupportsAmount(next)) rec.kind = 'full'
-                          else if (recoveryIsDiceOnly(next)) rec.kind = 'dice'
-                          patch({ recovery: rec })
-                        }}
-                        className="accent-amber-500 w-3 h-3"
-                      />
-                      {m.label}
-                    </label>
+                    <div key={m.value} className="flex items-center gap-1">
+                      <label className="flex items-center gap-0.5 cursor-pointer text-[10px] text-gray-300">
+                        <input
+                          type="checkbox"
+                          checked={enabled}
+                          onChange={() => toggleRecoveryMethod(m.value)}
+                          className="accent-amber-500 w-3 h-3"
+                        />
+                        {m.label}
+                      </label>
+                      {enabled && supportsAmount && (
+                        <>
+                          {!diceOnly && (
+                            <select
+                              value={amount.kind}
+                              onChange={(e) => patchRecoveryAmount(m.value, { kind: e.target.value })}
+                              className={compactInput + ' w-[3.5rem] shrink-0 cursor-pointer'}
+                            >
+                              <option value="full">回满</option>
+                              <option value="fixed">固定</option>
+                              <option value="dice">掷骰</option>
+                            </select>
+                          )}
+                          {amount.kind === 'fixed' && (
+                            <NumberStepper
+                              value={amount.fixed}
+                              onChange={(v) => patchRecoveryAmount(m.value, { fixed: Math.max(0, v) })}
+                              min={0} max={999} compact narrow className="!h-7 !w-12"
+                            />
+                          )}
+                          {amount.kind === 'dice' && (
+                            <div className="flex items-center gap-0.5">
+                              <NumberStepper
+                                value={amount.diceCount}
+                                onChange={(v) => patchRecoveryAmount(m.value, { diceCount: Math.max(1, v) })}
+                                min={1} max={99} compact narrow className="!h-7 !w-10"
+                              />
+                              <span className="text-gray-400 text-xs">d</span>
+                              <NumberStepper
+                                value={amount.diceSides}
+                                onChange={(v) => patchRecoveryAmount(m.value, { diceSides: Math.max(1, v) })}
+                                min={1} max={100} compact narrow className="!h-7 !w-10"
+                              />
+                              <span className="text-gray-400 text-xs">+</span>
+                              <NumberStepper
+                                value={amount.diceBonus}
+                                onChange={(v) => patchRecoveryAmount(m.value, { diceBonus: Math.max(0, v) })}
+                                min={0} max={99} compact narrow className="!h-7 !w-10"
+                              />
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
                   )
                 })}
               </div>
-              {recoverySupportsAmount(chargeData.recovery?.method) && (
-                <>
-                  {!recoveryIsDiceOnly(chargeData.recovery?.method) && (
-                    <select
-                      value={chargeData.recovery?.kind || 'full'}
-                      onChange={(e) => patchRecovery({ kind: e.target.value })}
-                      className={compactInput + ' w-[3.5rem] shrink-0 cursor-pointer'}
-                    >
-                      <option value="full">回满</option>
-                      <option value="fixed">固定</option>
-                      <option value="dice">掷骰</option>
-                    </select>
-                  )}
-                  {chargeData.recovery?.kind === 'fixed' && (
-                    <NumberStepper
-                      value={chargeData.recovery?.fixed || 0}
-                      onChange={(v) => patchRecovery({ fixed: Math.max(0, v) })}
-                      min={0} max={999} compact narrow className="!h-7"
-                    />
-                  )}
-                  {(chargeData.recovery?.kind === 'dice' || recoveryIsDiceOnly(chargeData.recovery?.method)) && (
-                    <div className="flex items-center gap-0.5">
-                      <NumberStepper
-                        value={chargeData.recovery?.diceCount || 1}
-                        onChange={(v) => patchRecovery({ diceCount: Math.max(1, v) })}
-                        min={1} max={99} compact narrow className="!h-7 !w-10"
-                      />
-                      <span className="text-gray-400 text-xs">d</span>
-                      <NumberStepper
-                        value={chargeData.recovery?.diceSides || 6}
-                        onChange={(v) => patchRecovery({ diceSides: Math.max(1, v) })}
-                        min={1} max={100} compact narrow className="!h-7 !w-10"
-                      />
-                      <span className="text-gray-400 text-xs">+</span>
-                      <NumberStepper
-                        value={chargeData.recovery?.diceBonus || 0}
-                        onChange={(v) => patchRecovery({ diceBonus: Math.max(0, v) })}
-                        min={0} max={99} compact narrow className="!h-7 !w-10"
-                      />
-                    </div>
-                  )}
-                </>
-              )}
             </>
           )}
           {!isCharges && !isNone && chargeData.resourceType !== 'spell_slot' && (
@@ -221,6 +253,15 @@ export default function ActiveCardEditor({
             <span className="text-gray-500 text-[10px]">无资源消耗</span>
           )}
         </div>
+        {isCharges && (
+          <LevelScalingEditor
+            entries={chargeData.levelScaling}
+            onChange={(v) => patch({ levelScaling: v })}
+            charClasses={charClasses}
+            fields="charges"
+            compact
+          />
+        )}
       </div>
 
       {/* ── 3. 动作消耗 ── */}

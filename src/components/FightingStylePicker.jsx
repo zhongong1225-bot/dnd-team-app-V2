@@ -19,14 +19,14 @@ export default function FightingStylePicker({
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(new Set(selectedIds))
   const [previewId, setPreviewId] = useState(null)
-  const [editingDefaultBuff, setEditingDefaultBuff] = useState(false)
+  const [editingStyle, setEditingStyle] = useState(null) // 正在配置默认 BUFF 的战斗风格对象
 
   useEffect(() => {
     if (!isOpen) return
     setQuery('')
     setSelected(new Set(selectedIds))
     setPreviewId(null)
-    setEditingDefaultBuff(false)
+    setEditingStyle(null)
   }, [isOpen, selectedIds])
 
   const preview = useMemo(() => {
@@ -144,6 +144,16 @@ export default function FightingStylePicker({
                     <div className="flex-1 min-w-0">
                       <span className="text-sm text-white font-medium truncate">{style.name}</span>
                     </div>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setEditingStyle(style) }}
+                        className="shrink-0 p-1 rounded text-[#667788] hover:text-dnd-gold hover:bg-white/[0.06] transition-colors"
+                        title={`配置 ${style.name} 默认 BUFF`}
+                      >
+                        <Settings className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 )
               })}
@@ -173,7 +183,7 @@ export default function FightingStylePicker({
                     <div className="border-t border-white/10 pt-3 mt-3">
                       <button
                         type="button"
-                        onClick={() => setEditingDefaultBuff(true)}
+                        onClick={() => setEditingStyle(preview)}
                         className="inline-flex items-center gap-1.5 text-xs text-[#8899aa] hover:text-dnd-gold transition-colors"
                       >
                         <Settings className="w-3.5 h-3.5" />
@@ -204,14 +214,14 @@ export default function FightingStylePicker({
       </div>
 
       {/* DM 默认 BUFF 编辑器 */}
-      {editingDefaultBuff && preview && (
+      {editingStyle && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-3 bg-black/75">
           <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-xl border border-white/15 bg-[#1b2738] shadow-xl p-4">
             <div className="flex items-center justify-between gap-2 mb-3">
-              <h3 className="text-sm font-semibold text-dnd-gold-light/95">配置「{preview.name}」默认 BUFF</h3>
+              <h3 className="text-sm font-semibold text-dnd-gold-light/95">配置「{editingStyle.name}」默认 BUFF</h3>
               <button
                 type="button"
-                onClick={() => setEditingDefaultBuff(false)}
+                onClick={() => setEditingStyle(null)}
                 className="p-1.5 rounded-lg text-gray-400 hover:bg-white/10 hover:text-white"
               >
                 <X className="w-4 h-4" />
@@ -219,20 +229,20 @@ export default function FightingStylePicker({
             </div>
             <BuffForm
               initial={{
-                source: preview.name,
-                effects: loadDefaultBuffPatch(moduleId, 'fightingStyle', preview.id)?.effects ?? [],
-                duration: loadDefaultBuffPatch(moduleId, 'fightingStyle', preview.id)?.duration ?? '',
-                enabled: loadDefaultBuffPatch(moduleId, 'fightingStyle', preview.id)?.enabled !== false,
+                source: editingStyle.name,
+                effects: loadDefaultBuffPatch(moduleId, 'fightingStyle', editingStyle.id)?.effects ?? [],
+                duration: loadDefaultBuffPatch(moduleId, 'fightingStyle', editingStyle.id)?.duration ?? '',
+                enabled: loadDefaultBuffPatch(moduleId, 'fightingStyle', editingStyle.id)?.enabled !== false,
               }}
               onSave={(buff) => {
-                saveDefaultBuffPatch(moduleId, 'fightingStyle', preview.id, {
+                saveDefaultBuffPatch(moduleId, 'fightingStyle', editingStyle.id, {
                   effects: buff.effects,
                   duration: buff.duration,
                   enabled: buff.enabled,
                 })
-                setEditingDefaultBuff(false)
+                setEditingStyle(null)
               }}
-              onCancel={() => setEditingDefaultBuff(false)}
+              onCancel={() => setEditingStyle(null)}
             />
           </div>
         </div>

@@ -76,8 +76,8 @@ import {
   createInitialBagModule,
 } from '../lib/bagOfHoldingModules'
 import { mergeWalletWithBagWallet, walletPartForCommittedTotal } from '../lib/currencyInventoryRows'
-import { getEntryChargeMax } from '../lib/chargeRecovery'
-import { rollDice } from '../data/weaponDatabase'
+import { getEntryChargeMax, computeRecoveryForMethod } from '../lib/chargeRecovery'
+import { resolveChargeItemCharges } from '../lib/chargeItemModel'
 import {
   normalizeBackpackLayoutOrder,
   resolveInvIndexFromItemToken,
@@ -1199,7 +1199,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   const setCharge = (index, value) => {
     if (inv[index]?.bagModuleAnchorId) return
     const n = Math.max(0, parseInt(value, 10) || 0)
-    const chargeMax = getEntryChargeMax(inv[index])
+    const chargeMax = getEntryChargeMax(inv[index], character)
     const clamped = chargeMax != null ? Math.min(n, chargeMax) : n
     const next = inv.map((e, i) => (i === index ? { ...e, charge: clamped } : e))
     onSave({ inventory: next })
@@ -1215,23 +1215,12 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     const chargeItemEffect = effects.find(e => e?.effectType === 'charge_item' && e.value && typeof e.value === 'object')
     const rec = chargeItemEffect?.value?.recovery
     const current = Number(entry.charge) || 0
-    const chargeMax = getEntryChargeMax(entry)
+    const chargeMax = getEntryChargeMax(entry, character)
 
-    let recovered = 0
-    let expression = ''
-    if (rec?.kind === 'dice') {
-      const diceExpr = `${Math.max(1, Number(rec.diceCount) || 1)}d${Math.max(1, Number(rec.diceSides) || 6)}`
-      const { total } = rollDice(diceExpr)
-      const bonus = Math.max(0, Number(rec.diceBonus) || 0)
-      recovered = total + bonus
-      expression = bonus > 0 ? `${diceExpr}+${bonus}=${recovered}` : `${diceExpr}=${recovered}`
-    } else if (rec?.kind === 'full') {
-      recovered = (chargeMax != null ? chargeMax : current) - current
-      expression = '回满'
-    } else {
-      recovered = Math.max(0, Number(rec?.fixed) || 0)
-      expression = String(recovered)
-    }
+    const methods = Array.isArray(rec?.method) ? rec.method : (rec?.method ? [rec.method] : [])
+    const absorbMethod = methods.includes('absorb_energy') ? 'absorb_energy' : (methods.includes('reaction_absorb') ? 'reaction_absorb' : 'absorb_energy')
+    const { amount: recovered, expression: expr } = computeRecoveryForMethod(rec, absorbMethod, chargeMax, current)
+    const expression = expr === '回满' ? '回满' : `${expr}=${recovered}`
 
     const nextCharge = chargeMax != null ? Math.min(current + recovered, chargeMax) : current + recovered
     const next = inv.map((e, i) => (i === index ? { ...e, charge: nextCharge } : e))
@@ -1513,7 +1502,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                 const chargeEffect = Array.isArray(entry?.effects)
                   ? entry.effects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
                   : null
-                const maxChargeFromEffect = chargeEffect ? (Number(chargeEffect.value?.charges) || 0) : 0
+                const maxChargeFromEffect = chargeEffect ? resolveChargeItemCharges(chargeEffect.value, character) : 0
                 const hasSpell = hasContainedSpellEffect(entry)
                 const containedSpellValue = !chargeEffect && hasSpell ? extractContainedSpellValueFromEntry(entry) : null
                 const maxChargeFromContainedSpell = containedSpellValue ? (Number(containedSpellValue.totalCharges) || 0) : 0
@@ -1776,7 +1765,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                   const chargeEffect = Array.isArray(entry?.effects)
                     ? entry.effects.find(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
                     : null
-                  const maxChargeFromEffect = chargeEffect ? (Number(chargeEffect.value?.charges) || 0) : 0
+                  const maxChargeFromEffect = chargeEffect ? resolveChargeItemCharges(chargeEffect.value, character) : 0
                   const _bpContainedSpellValue = !chargeEffect && hasContainedSpellEffect(entry) ? extractContainedSpellValueFromEntry(entry) : null
                   const maxChargeFromContainedSpell = _bpContainedSpellValue ? (Number(_bpContainedSpellValue.totalCharges) || 0) : 0
                   const spEffect = Array.isArray(entry?.effects)

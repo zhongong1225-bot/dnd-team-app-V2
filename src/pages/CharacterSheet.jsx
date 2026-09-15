@@ -78,7 +78,7 @@ import { executeAbility, canUseAbility } from '../lib/activeAbilityEngine'
 import { buildCardsFromCharacter, findActiveAbilityInCards, findAllActiveAbilitiesInCards } from '../lib/cardAdapter'
 import { isVirtualBuffEntry } from '../lib/buffSourceKind'
 import { getShieldPoolCurrent, setShieldPoolCurrent, decrementShieldPool, resetShieldPool } from '../lib/shieldPoolUtils'
-import { formatRecoveryBrief, RESOURCE_TYPE_OPTIONS } from '../lib/chargeItemModel'
+import { formatRecoveryBrief, resolveChargeItemCharges, RESOURCE_TYPE_OPTIONS } from '../lib/chargeItemModel'
 import AbilityUseModal from '../components/AbilityUseModal'
 import { SCOPE_TYPE_OPTIONS } from '../lib/cardModel'
 import InfoTooltip from '../components/InfoTooltip'
@@ -2225,7 +2225,7 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
     <>
       {chargeEffects.map((chargeEff, idx) => {
         const cv = chargeEff.value
-        const charges = cv.charges ?? 0
+        const charges = resolveChargeItemCharges(cv, char)
         const recovery = cv.recovery
         const recoveryLabel = recovery ? formatRecoveryBrief(recovery) : ''
         const resourceType = cv.resourceType || 'charges'
@@ -2284,6 +2284,8 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
 function FocusAbilitiesBlock({ char, onSave }) {
   const [lastResult, setLastResult] = useState(null)
   const [useChargeValue, setUseChargeValue] = useState(null)
+  const [openIds, setOpenIds] = useState({})
+  const toggleOpen = (id) => setOpenIds((prev) => ({ ...prev, [id]: !prev[id] }))
 
   const focusAbilities = getClassData('火铳手')?.focusAbilities || []
   const cls = getCharacterClasses(char).find((c) => c.name === '火铳手')
@@ -2323,13 +2325,22 @@ function FocusAbilitiesBlock({ char, onSave }) {
         {visible.map((a) => {
           const cost = a.cost || 1
           const insufficient = focusCurrent < cost
+          const open = !!openIds[a.id]
           return (
             <div
               key={a.id}
-              className="flex items-start gap-2 rounded-md border border-[#2a3a4e] bg-[#1a2535] px-2 py-1.5"
+              className="rounded-md border border-[#2a3a4e] bg-[#1a2535] px-2 py-1.5"
             >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => toggleOpen(a.id)}
+                  className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-[#667788] hover:text-dnd-gold hover:bg-white/[0.06] transition-colors"
+                  title={open ? '收起效果说明' : '展开效果说明'}
+                >
+                  {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
+                <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
                   <span className="text-[13px] font-semibold text-white">{a.name}</span>
                   <span className="shrink-0 text-[11px] font-bold text-[#c79a42]">专注点 ×{cost}</span>
                   {a.exclusiveSubclass && (
@@ -2338,17 +2349,19 @@ function FocusAbilitiesBlock({ char, onSave }) {
                     </span>
                   )}
                 </div>
-                <div className="text-[11px] text-[#8899aa] leading-snug mt-0.5">{a.effect}</div>
+                <div className="shrink-0 w-24">
+                  <EnergyBarButton
+                    name="释放"
+                    chargeInfo={`×${cost}`}
+                    disabled={insufficient}
+                    disabledReason={insufficient ? `专注点不足（需要 ${cost}，剩余 ${focusCurrent}）` : ''}
+                    onClick={() => setUseChargeValue(buildChargeValue(a))}
+                  />
+                </div>
               </div>
-              <div className="shrink-0 w-24">
-                <EnergyBarButton
-                  name="释放"
-                  chargeInfo={`×${cost}`}
-                  disabled={insufficient}
-                  disabledReason={insufficient ? `专注点不足（需要 ${cost}，剩余 ${focusCurrent}）` : ''}
-                  onClick={() => setUseChargeValue(buildChargeValue(a))}
-                />
-              </div>
+              {open && (
+                <div className="text-[11px] text-[#8899aa] leading-snug mt-1 pl-7">{a.effect}</div>
+              )}
             </div>
           )
         })}
@@ -2618,8 +2631,33 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
           const cfEffectSummaries = cfEffectsSource.map(e =>
                 getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText, scope: e.scope, scopeDetail: e.scopeDetail }, formulaContext)
               ).filter(Boolean)
-          const cfBuffTags = cfEffectSummaries.length > 0
-            ? cfEffectSummaries.slice(0, 3)
+          // 战斗风格特性：已选风格名内联显示，其默认 BUFF 效果摘要并入标签列
+          const isFightingStyleFeature = FIGHTING_STYLE_FEATURE_IDS.has(f.id)
+          const selectedStyleObjs = isFightingStyleFeature
+            ? (char?.selectedFightingStyles ?? [])
+                .filter((x) => x?.sourceFeatureId === f.id)
+                .map((x) => getFightingStyleById(x?.styleId ?? x?.id))
+                .filter(Boolean)
+            : []
+          // 子职业选择特性：把角色已选子职名内联显示在卡名旁
+          const isSubclassFeature = /_(subclass|archetype)$/.test(f.id)
+          const chosenSubclassName = isSubclassFeature
+            ? (getCharacterClasses(char).find((c) => c.name === f.sourceClass)?.subclass || '')
+            : ''
+          const selectedStyleEffectSummaries = isFightingStyleFeature
+            ? selectedStyleObjs
+                .flatMap((s) => {
+                  const patch = loadDefaultBuffPatch(moduleId, 'fightingStyle', s.id)
+                  const effs = Array.isArray(patch?.effects) ? patch.effects : []
+                  return effs.map(e =>
+                    getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText, scope: e.scope, scopeDetail: e.scopeDetail }, formulaContext)
+                  )
+                })
+                .filter(Boolean)
+            : []
+          const allCfSummaries = [...cfEffectSummaries, ...selectedStyleEffectSummaries]
+          const cfBuffTags = allCfSummaries.length > 0
+            ? allCfSummaries.slice(0, 3)
             : (cfScopeLabel ? [cfScopeLabel] : [])
           // 护盾池检测（统一从 card.buffEffects 查找，包含所有来源的效果）
           const cfShieldPoolEffect = cfCard && Array.isArray(cfCard.buffEffects)
@@ -2649,15 +2687,22 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
                     triggerClassName="block"
                   >
                     <span className="text-[14px] font-bold text-white hover:text-gray-100 transition-colors truncate inline-flex items-center gap-2">
+                      {name}
                       {isChoiceType && chosenOption ? (
-                        <>
-                          {name}
-                          <span className="shrink-0 inline-flex items-center px-3 py-0.5 rounded border border-white/30 bg-transparent text-white text-sm font-medium">
-                            {chosenOption.label}
-                          </span>
-                        </>
+                        <span className="shrink-0 inline-flex items-center px-3 py-0.5 rounded border border-white/30 bg-transparent text-white text-sm font-medium">
+                          {chosenOption.label}
+                        </span>
                       ) : (
-                        name
+                        selectedStyleObjs.map((s, i) => (
+                          <span key={`${s.id}-${i}`} className="shrink-0 inline-flex items-center px-3 py-0.5 rounded border border-white/30 bg-transparent text-white text-sm font-medium">
+                            {s.name}
+                          </span>
+                        ))
+                      )}
+                      {chosenSubclassName && (
+                        <span className="shrink-0 inline-flex items-center px-3 py-0.5 rounded border border-white/30 bg-transparent text-white text-sm font-medium">
+                          {chosenSubclassName}
+                        </span>
                       )}
                     </span>
                   </InfoTooltip>
@@ -2690,6 +2735,11 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
                   </button>
                 }
                 footer={<ClassFeatureActions feature={f} moduleId={moduleId} char={char} onSave={onSave} />}
+                alwaysContent={
+                  f.id === 'focus_points' && f.sourceClass === '火铳手'
+                    ? <FocusAbilitiesBlock char={char} onSave={onSave} />
+                    : undefined
+                }
               >
                 {cfShieldPoolEffect && (() => {
                   const spVal = cfShieldPoolEffect.value
@@ -2712,9 +2762,6 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
                 })()}
                 {f.id === 'eldritch_invocations' && (
                   <EldritchInvocationsBlock char={char} canEdit={canEdit} onSave={onSave} moduleId={moduleId} />
-                )}
-                {f.id === 'focus_points' && f.sourceClass === '火铳手' && (
-                  <FocusAbilitiesBlock char={char} onSave={onSave} />
                 )}
                 {FIGHTING_STYLE_FEATURE_IDS.has(f.id) && (
                   <FightingStylesBlock char={char} feature={f} canEdit={canEdit} onSave={onSave} moduleId={moduleId} />

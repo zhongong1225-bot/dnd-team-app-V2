@@ -6,15 +6,18 @@
  * value: {
  *   resourceType: 'charges' | 'lucky_points' | ...  // 消耗资源类型
  *   charges: number,               // 充能数（仅当 resourceType === 'charges' 时有效）
+ *   levelScaling: [                // 充能数随等级提高（空数组=不缩放）
+ *     { className: string, level: number, charges: number },
+ *   ],
  *   actionCost: 'action' | 'bonus' | 'reaction' | 'none' | 'movement',
  *   movementFeet: number,          // 移动距离消耗（仅当 actionCost === 'movement' 时有效）
  *   recovery: {                    // 回能配置
- *     method: 'short_rest' | 'long_rest' | 'dawn' | 'none' | 'absorb_energy' | 'reaction_absorb',
- *     kind: 'full' | 'fixed' | 'dice',
- *     fixed: number,
- *     diceCount: number,
- *     diceSides: number,
- *     diceBonus: number,
+ *     method: ['short_rest' | 'long_rest' | 'dawn' | 'none' | 'absorb_energy' | 'reaction_absorb'],
+ *     amounts: {                   // 每种方式各自一份恢复量
+ *       [method]: { kind: 'full'|'fixed'|'dice', fixed, diceCount, diceSides, diceBonus },
+ *     },
+ *     // 以下顶层字段为旧读取方兼容，等于首个启用方式的恢复量
+ *     kind, fixed, diceCount, diceSides, diceBonus,
  *   },
  *   effects: [                     // 子效果数组，支持多种类型同时生效
  *     { id: string, type: 'spell',      value: containedSpellSub },
@@ -191,6 +194,55 @@ const NO_AMOUNT_METHODS = new Set(['none'])
 /** 仅支持掷的方式 */
 const DICE_ONLY_METHODS = new Set(['absorb_energy', 'reaction_absorb'])
 
+const RECOVERY_KINDS = ['full', 'fixed', 'dice']
+
+/** 某恢复方式的默认恢复量：吸能类只能掷骰，其余默认回满 */
+function defaultRecoveryAmount(method) {
+  return {
+    kind: DICE_ONLY_METHODS.has(method) ? 'dice' : 'full',
+    fixed: 1,
+    diceCount: 1,
+    diceSides: 6,
+    diceBonus: 0,
+  }
+}
+
+/** 把任意原始恢复量归一化为完整结构，缺省值取自该方式的默认量 */
+export function normalizeRecoveryAmount(raw, method) {
+  const def = defaultRecoveryAmount(method)
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return def
+  let kind = RECOVERY_KINDS.includes(raw.kind) ? raw.kind : def.kind
+  if (DICE_ONLY_METHODS.has(method)) kind = 'dice'
+  if (NO_AMOUNT_METHODS.has(method)) kind = 'full'
+  return {
+    kind,
+    fixed: Math.max(0, Number(raw.fixed ?? def.fixed) || 0),
+    diceCount: Math.max(1, Number(raw.diceCount ?? def.diceCount) || 1),
+    diceSides: Math.max(1, Number(raw.diceSides ?? def.diceSides) || 6),
+    diceBonus: Math.max(0, Number(raw.diceBonus ?? def.diceBonus) || 0),
+  }
+}
+
+/** 取某恢复方式的恢复量：优先 amounts[method]，否则回退到旧版顶层共享字段 */
+export function getRecoveryAmount(recovery, method) {
+  if (!recovery || typeof recovery !== 'object') return defaultRecoveryAmount(method)
+  const amounts = recovery.amounts && typeof recovery.amounts === 'object' && !Array.isArray(recovery.amounts)
+    ? recovery.amounts
+    : null
+  if (amounts?.[method]) return normalizeRecoveryAmount(amounts[method], method)
+  return normalizeRecoveryAmount(recovery, method)
+}
+
+/** 单个恢复方式是否可配置回能数量 */
+export function recoveryMethodSupportsAmount(method) {
+  return !NO_AMOUNT_METHODS.has(method)
+}
+
+/** 单个恢复方式是否只能掷骰 */
+export function recoveryMethodIsDiceOnly(method) {
+  return DICE_ONLY_METHODS.has(method)
+}
+
 export function createEmptyChargeItemValue(overrides = {}) {
   return {
     resourceType: 'charges',
@@ -198,9 +250,14 @@ export function createEmptyChargeItemValue(overrides = {}) {
     slotLevel: 1, // 固定消耗模式下消耗的环位 (1-9)
     maxSlotLevel: 1, // 自由消耗模式下的最大环位 (1-9)
     charges: 1,
+    levelScaling: [],
     actionCost: 'action',
     movementFeet: 0,
-    recovery: { method: ['long_rest'], kind: 'full', fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0 },
+    recovery: {
+      method: ['long_rest'],
+      amounts: { long_rest: { kind: 'full', fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0 } },
+      kind: 'full', fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0,
+    },
     effects: [],
     isStance: false,
     ...overrides,
@@ -240,6 +297,9 @@ export function createChargeEffectEntry(type, overrides = {}) {
   }
   if (type === 'consume_spell_slot_to_restore_charges') {
     return { id, type, applyMultiplier: false, value: { slotLevel: 2, restoreAmount: 1 }, ...overrides }
+  }
+  if (type === 'add_roll_dice') {
+    return { id, type, applyMultiplier: true, value: { diceCount: 1, diceSides: 10, diceBonus: 0, note: '' }, ...overrides }
   }
   if (type === 'damage') {
     return { id, type, applyMultiplier: true, value: { diceCount: 1, diceSides: 6, diceBonus: 0, damageType: 'fire', addWeaponDamage: false, syncWithWeapon: false, levelScaling: [] }, ...overrides }
@@ -293,19 +353,22 @@ export function normalizeChargeItemValue(value) {
   const rawMethods = Array.isArray(rec.method) ? rec.method : (rec.method ? [rec.method] : ['long_rest'])
   const methods = rawMethods.filter((m) => validMethods.includes(m))
   if (!methods.length) methods.push('long_rest')
-  const validKinds = ['full', 'fixed', 'dice']
-  const kind = validKinds.includes(rec.kind) ? rec.kind : 'full'
-  const hasDiceOnly = methods.some((m) => DICE_ONLY_METHODS.has(m))
-  const allNoAmount = methods.every((m) => NO_AMOUNT_METHODS.has(m))
-  const resolvedKind = allNoAmount ? 'full' : (hasDiceOnly ? 'dice' : kind)
-  const recovery = {
-    method: methods,
-    kind: resolvedKind,
-    fixed: Math.max(0, Number(rec.fixed) || 0),
-    diceCount: Math.max(1, Number(rec.diceCount) || 1),
-    diceSides: Math.max(1, Number(rec.diceSides) || 6),
-    diceBonus: Math.max(0, Number(rec.diceBonus) || 0),
+  const rawAmounts = rec.amounts && typeof rec.amounts === 'object' && !Array.isArray(rec.amounts) ? rec.amounts : null
+  const amounts = {}
+  for (const m of methods) {
+    amounts[m] = normalizeRecoveryAmount(rawAmounts?.[m] ?? rec, m)
   }
+  const primary = amounts[methods[0]]
+  const recovery = { method: methods, amounts, ...primary }
+  // 充能数随等级缩放
+  const rawScaling = Array.isArray(value.levelScaling) ? value.levelScaling : []
+  const levelScaling = rawScaling
+    .filter((e) => e && typeof e === 'object')
+    .map((e) => ({
+      className: typeof e.className === 'string' ? e.className : '',
+      level: Math.max(1, Math.min(20, Number(e.level) || 5)),
+      charges: Math.max(0, Number(e.charges) || 0),
+    }))
   // effects
   const rawEffects = Array.isArray(value.effects) ? value.effects : []
   const effects = rawEffects.map((e) => {
@@ -490,7 +553,7 @@ export function normalizeChargeItemValue(value) {
     }
     return { id, type, applyMultiplier: e.applyMultiplier !== false, value: {} }
   })
-  return { resourceType, consumptionMode, slotLevel, maxSlotLevel, charges, actionCost, movementFeet, recovery, effects, isStance: !!value.isStance }
+  return { resourceType, consumptionMode, slotLevel, maxSlotLevel, charges, levelScaling, actionCost, movementFeet, recovery, effects, isStance: !!value.isStance }
 }
 
 /** 回能方式是否支持自定义回能数量 */
@@ -525,36 +588,47 @@ function recoveryVerb(methods) {
   return methods.some((m) => m === 'dawn' || m === 'absorb_energy' || m === 'reaction_absorb') ? '恢复' : '回'
 }
 
-/** 格式化回能描述（紧凑简称）：长休回满 / 长休回3 / 黎明恢复3 / 反应恢复2d6 / 不恢复 */
+/** 单种方式的恢复量文案：满 / 3 / 2d6+1 */
+function recoveryAmountText(amount, verb) {
+  if (amount.kind === 'full') return `${verb}满`
+  if (amount.kind === 'dice') {
+    const bonus = Number(amount.diceBonus) || 0
+    const diceText = `${amount.diceCount}d${amount.diceSides}`
+    return `${verb}${bonus > 0 ? diceText + '+' + bonus : diceText}`
+  }
+  return `${verb}${Number(amount.fixed) || 0}`
+}
+
+/** 格式化回能描述（紧凑简称）：长休回满 / 短休回1，长休回满 / 反应恢复2d6 / 不恢复 */
 export function formatRecoveryBrief(recovery) {
   if (!recovery || typeof recovery !== 'object') return ''
-  const methods = Array.isArray(recovery.method) ? recovery.method : (recovery.method ? [recovery.method] : [])
-  if (methods.length === 1 && methods[0] === 'none') return '不恢复'
-  const methodLabel = methods
-    .map((m) => RECOVERY_METHOD_SHORT[m] ?? (RECOVERY_METHODS.find((r) => r.value === m)?.label ?? m))
-    .filter(Boolean)
-    .join('、')
-  if (!methodLabel) return ''
-  const verb = recoveryVerb(methods)
-  if (recovery.kind === 'full') return `${methodLabel}${verb}满`
-  if (recovery.kind === 'dice') {
-    const bonus = Number(recovery.diceBonus) || 0
-    const diceText = `${recovery.diceCount}d${recovery.diceSides}`
-    return `${methodLabel}${verb}${bonus > 0 ? diceText + '+' + bonus : diceText}`
+  const rawMethods = Array.isArray(recovery.method) ? recovery.method : (recovery.method ? [recovery.method] : [])
+  const methods = rawMethods.filter((m) => m !== 'none')
+  if (!methods.length) return '不恢复'
+
+  const segments = methods.map((m) => {
+    const label = RECOVERY_METHOD_SHORT[m] ?? (RECOVERY_METHODS.find((r) => r.value === m)?.label ?? m)
+    const verb = recoveryVerb([m])
+    return { label, tail: recoveryAmountText(getRecoveryAmount(recovery, m), verb) }
+  }).filter((s) => s.label)
+  if (!segments.length) return ''
+
+  // 各方式恢复量一致时合并标签，保持紧凑
+  if (segments.every((s) => s.tail === segments[0].tail)) {
+    return `${segments.map((s) => s.label).join('、')}${segments[0].tail}`
   }
-  if (recovery.fixed != null) return `${methodLabel}${verb}${recovery.fixed}`
-  return `${methodLabel}${verb}满`
+  return segments.map((s) => `${s.label}${s.tail}`).join('，')
 }
 
 /** 格式化充能物品整体摘要 */
-export function formatChargeItemBrief(value) {
+export function formatChargeItemBrief(value, char = null) {
   const norm = normalizeChargeItemValue(value)
   const parts = []
   if (norm.isStance) parts.push('【架势】')
   if (norm.resourceType === 'none') {
     // 无消耗，不显示充能信息
   } else if (norm.resourceType === 'charges') {
-    parts.push(`${norm.charges}`)
+    parts.push(`${char ? resolveChargeItemCharges(value, char) : norm.charges}`)
     parts.push(formatRecoveryBrief(norm.recovery))
   } else {
     const resLabel = RESOURCE_TYPE_OPTIONS.find((o) => o.value === norm.resourceType)?.label ?? norm.resourceType
@@ -911,6 +985,15 @@ export function scaleStanceModules(modules, factor) {
  */
 export function getClassLevelMap(char) {
   if (!char) return {}
+  // 公式上下文形态：{ level, abilities, prof, classLevels: { 职业名: 等级 } }
+  if (char.classLevels && typeof char.classLevels === 'object' && !Array.isArray(char.classLevels)) {
+    const ctxMap = {}
+    for (const [name, lv] of Object.entries(char.classLevels)) {
+      const level = Number(lv) || 0
+      if (name && level > 0) ctxMap[name] = Math.max(ctxMap[name] || 0, level)
+    }
+    if (Object.keys(ctxMap).length) return ctxMap
+  }
   const classes = getCharacterClasses(char)
   const map = {}
   for (const c of classes) {
@@ -946,6 +1029,18 @@ export function resolveLevelScaling(baseValue, levelScaling, char, numericKeys) 
     }
   }
   return result
+}
+
+/**
+ * 按角色等级解析 charge_item 的有效充能总数
+ * @param {object} value - charge_item 的 value（可为未归一化的原始数据）
+ * @param {object} char - 角色数据
+ * @returns {number} 当前等级下的充能总数
+ */
+export function resolveChargeItemCharges(value, char) {
+  const norm = normalizeChargeItemValue(value)
+  const resolved = resolveLevelScaling({ charges: norm.charges }, norm.levelScaling, char, ['charges'])
+  return Math.max(0, Number(resolved.charges) || 0)
 }
 
 /**

@@ -1887,7 +1887,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const inv = char?.inventory ?? []
     if (inv.length > 0) {
       try {
-        const { inventory: nextInv, logs } = restoreChargesForEvent(inv, 'short_rest')
+        const { inventory: nextInv, logs } = restoreChargesForEvent(inv, 'short_rest', char)
         if (logs.length > 0) {
           onSave({ inventory: nextInv })
           summary.inventory.push(...logs)
@@ -1986,7 +1986,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const inv = char?.inventory ?? []
     if (inv.length > 0) {
       try {
-        const { inventory: nextInv, logs } = restoreChargesForEvent(inv, 'long_rest')
+        const { inventory: nextInv, logs } = restoreChargesForEvent(inv, 'long_rest', char)
         if (logs.length > 0) {
           onSave({ inventory: nextInv })
           summary.inventory.push(...logs)
@@ -2050,7 +2050,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const inv = char?.inventory ?? []
     if (inv.length > 0) {
       try {
-        const { inventory: nextInv, logs } = restoreChargesForEvent(inv, 'dawn')
+        const { inventory: nextInv, logs } = restoreChargesForEvent(inv, 'dawn', char)
         if (logs.length > 0) {
           onSave({ inventory: nextInv })
           summary.inventory.push(...logs)

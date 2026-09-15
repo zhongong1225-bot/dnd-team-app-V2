@@ -48,8 +48,10 @@ import {
   RECOVERY_METHODS,
   RESOURCE_TYPE_OPTIONS,
   ACTION_COST_OPTIONS,
-  recoverySupportsAmount,
-  recoveryIsDiceOnly,
+  recoveryMethodSupportsAmount,
+  recoveryMethodIsDiceOnly,
+  getRecoveryAmount,
+  normalizeRecoveryAmount,
   ALL_MOD_OPTIONS,
   RESULT_TYPE_OPTIONS,
   DICE_TYPE_OPTIONS,
@@ -1252,7 +1254,7 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
 }
 
 /** 等级缩放编辑器：多条目，每条 = 职业 + 等级阈值 + 替换数值 */
-function LevelScalingEditor({ entries, onChange, charClasses = [], fields, compact }) {
+export function LevelScalingEditor({ entries, onChange, charClasses = [], fields, compact }) {
   const selectCls = EDT_SELECT
   const classList = useMemo(() => {
     if (!charClasses.length) return ALL_CLASS_NAMES
@@ -1266,6 +1268,7 @@ function LevelScalingEditor({ entries, onChange, charClasses = [], fields, compa
     const base = { className: classList[0] || '', level: 5 }
     if (fields === 'dice') Object.assign(base, { diceCount: 1, diceSides: 6, diceBonus: 0 })
     else if (fields === 'amount') Object.assign(base, { amount: 1 })
+    else if (fields === 'charges') Object.assign(base, { charges: 1 })
     else if (fields === 'attack_buff') Object.assign(base, { hitBonusPerUnit: 0, damageBonusPerUnit: 0, extraDicePerUnit: 0, diceSides: 10 })
     else if (fields === 'speed') Object.assign(base, { walk: 0, fly: 0, swim: 0, climb: 0 })
     onChange([...items, base])
@@ -1323,6 +1326,11 @@ function LevelScalingEditor({ entries, onChange, charClasses = [], fields, compa
 
           {fields === 'amount' && (<>
             <NumberStepper value={entry.amount ?? 1} onChange={(v) => updateEntry(i, { amount: Math.max(0, v) })} min={0} max={999} compact narrow className={`${compact ? '!h-5 !w-10' : '!h-6 !w-12'}`} />
+          </>)}
+
+          {fields === 'charges' && (<>
+            <span className={`${compact ? 'text-[9px]' : 'text-[10px]'} text-gray-500`}>充能</span>
+            <NumberStepper value={entry.charges ?? 1} onChange={(v) => updateEntry(i, { charges: Math.max(0, v) })} min={0} max={999} compact narrow className={`${compact ? '!h-5 !w-10' : '!h-6 !w-12'}`} />
           </>)}
 
           {fields === 'attack_buff' && (<>
@@ -1515,18 +1523,29 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
 
   // ── recovery helpers ──
   const rec = data.recovery
-  const updateRecovery = (patch) => patchData({ recovery: { ...rec, ...patch } })
+  const recoveryMethods = Array.isArray(rec.method) ? rec.method : (rec.method ? [rec.method] : ['long_rest'])
+  const recoveryAmounts = rec.amounts && typeof rec.amounts === 'object' && !Array.isArray(rec.amounts) ? rec.amounts : {}
+  /** 顶层 kind/fixed/dice* 跟随首个启用方式，兼容仍读旧字段的代码 */
+  const withRecoveryAmounts = (methods, amounts) => ({
+    ...rec,
+    method: methods,
+    amounts,
+    ...(amounts[methods[0]] || {}),
+  })
+  const updateRecoveryAmount = (method, patch) => {
+    const nextAmounts = { ...recoveryAmounts, [method]: { ...getRecoveryAmount(rec, method), ...patch } }
+    patchData({ recovery: withRecoveryAmounts(recoveryMethods, nextAmounts) })
+  }
   const setRecoveryMethod = (m) => {
-    const methods = Array.isArray(rec.method) ? rec.method : [rec.method || 'long_rest']
-    const next = methods.includes(m) ? methods.filter((x) => x !== m) : [...methods, m]
+    const next = recoveryMethods.includes(m) ? recoveryMethods.filter((x) => x !== m) : [...recoveryMethods, m]
     if (!next.length) next.push('long_rest')
-    const patch = { ...rec, method: next }
-    if (!recoverySupportsAmount(next)) {
-      patch.kind = 'full'
-    } else if (recoveryIsDiceOnly(next)) {
-      patch.kind = 'dice'
+    const nextAmounts = {}
+    for (const mm of next) {
+      nextAmounts[mm] = recoveryAmounts[mm]
+        ? normalizeRecoveryAmount(recoveryAmounts[mm], mm)
+        : getRecoveryAmount(rec, mm)
     }
-    updateRecovery(patch)
+    patchData({ recovery: withRecoveryAmounts(next, nextAmounts) })
   }
 
   // ── effects helpers ──
@@ -1702,85 +1721,103 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
         </label>
       </div>
 
-      {/* ── 回能方式（仅充能数模式） ── */}
+      {/* ── 充能总数随等级提高（仅充能数模式） ── */}
       {isChargesMode && (
-        <div className="flex items-center gap-x-2 flex-wrap">
+        <LevelScalingEditor
+          entries={data.levelScaling}
+          onChange={(v) => patchData({ levelScaling: v })}
+          charClasses={charClasses}
+          fields="charges"
+        />
+      )}
+
+      {/* ── 回能方式（仅充能数模式）：每种方式各自一份恢复量 ── */}
+      {isChargesMode && (
+        <div className="flex items-start gap-x-2 flex-wrap">
           <span className={labelCls}>回能方式</span>
-          <div className="flex items-center gap-x-1.5 flex-wrap">
-            {RECOVERY_METHODS.map((m) => (
-              <label key={m.value} className="flex items-center gap-0.5 cursor-pointer text-[10px] text-gray-300">
-                <input
-                  type="checkbox"
-                  checked={Array.isArray(rec.method) ? rec.method.includes(m.value) : rec.method === m.value}
-                  onChange={() => setRecoveryMethod(m.value)}
-                  className="accent-amber-500 w-3 h-3"
-                />
-                {m.label}
-              </label>
-            ))}
-          </div>
-          {recoverySupportsAmount(rec.method) && (
-            <div className="flex items-center gap-x-2 min-w-[10rem]">
-              {!recoveryIsDiceOnly(rec.method) && (
-                <select
-                  value={rec.kind}
-                  onChange={(e) => updateRecovery({ kind: e.target.value })}
-                  className={selectCls + ' !w-[3.5rem] shrink-0'}
-                >
-                  <option value="full">回满</option>
-                  <option value="fixed">固定</option>
-                  <option value="dice">掷骰</option>
-                </select>
-              )}
-              {rec.kind === 'fixed' && (
-                <NumberStepper
-                  value={rec.fixed}
-                  onChange={(v) => updateRecovery({ fixed: Math.max(0, v) })}
-                  min={0}
-                  max={999}
-                  compact
-                  narrow
-                  className="!h-6"
-                  referenceData={referenceData}
-                />
-              )}
-              {(rec.kind === 'dice' || recoveryIsDiceOnly(rec.method)) && (
-                <div className="flex items-center gap-x-2">
-                  <NumberStepper
-                    value={rec.diceCount}
-                    onChange={(v) => updateRecovery({ diceCount: Math.max(1, v) })}
-                    min={1}
-                    max={99}
-                    compact
-                    narrow
-                    className="!h-6 !w-10"
-                    referenceData={referenceData}
-                  />
-                  <span className="text-gray-300 text-xs font-medium">d</span>
-                  <NumberStepper
-                    value={rec.diceSides}
-                    onChange={(v) => updateRecovery({ diceSides: Math.max(1, v) })}
-                    min={1}
-                    max={100}
-                    compact
-                    narrow
-                    className="!h-6 !w-10"
-                  />
-                  <span className="text-gray-300 text-xs font-medium">+</span>
-                  <NumberStepper
-                    value={rec.diceBonus || 0}
-                    onChange={(v) => updateRecovery({ diceBonus: Math.max(0, v) })}
-                    min={0}
-                    max={99}
-                    compact
-                    narrow
-                    className="!h-6 !w-10"
-                    referenceData={referenceData}
-                  />
+          <div className="flex items-center gap-x-2 gap-y-1 flex-wrap">
+            {RECOVERY_METHODS.map((m) => {
+              const enabled = recoveryMethods.includes(m.value)
+              const supportsAmount = recoveryMethodSupportsAmount(m.value)
+              const diceOnly = recoveryMethodIsDiceOnly(m.value)
+              const amount = getRecoveryAmount(rec, m.value)
+              return (
+                <div key={m.value} className="flex items-center gap-x-1">
+                  <label className="flex items-center gap-0.5 cursor-pointer text-[10px] text-gray-300">
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      onChange={() => setRecoveryMethod(m.value)}
+                      className="accent-amber-500 w-3 h-3"
+                    />
+                    {m.label}
+                  </label>
+                  {enabled && supportsAmount && (
+                    <>
+                      {!diceOnly && (
+                        <select
+                          value={amount.kind}
+                          onChange={(e) => updateRecoveryAmount(m.value, { kind: e.target.value })}
+                          className={selectCls + ' !w-[3.5rem] !h-6 shrink-0'}
+                        >
+                          <option value="full">回满</option>
+                          <option value="fixed">固定</option>
+                          <option value="dice">掷骰</option>
+                        </select>
+                      )}
+                      {amount.kind === 'fixed' && (
+                        <NumberStepper
+                          value={amount.fixed}
+                          onChange={(v) => updateRecoveryAmount(m.value, { fixed: Math.max(0, v) })}
+                          min={0}
+                          max={999}
+                          compact
+                          narrow
+                          className="!h-6 !w-12"
+                          referenceData={referenceData}
+                        />
+                      )}
+                      {amount.kind === 'dice' && (
+                        <div className="flex items-center gap-x-1">
+                          <NumberStepper
+                            value={amount.diceCount}
+                            onChange={(v) => updateRecoveryAmount(m.value, { diceCount: Math.max(1, v) })}
+                            min={1}
+                            max={99}
+                            compact
+                            narrow
+                            className="!h-6 !w-10"
+                            referenceData={referenceData}
+                          />
+                          <span className="text-gray-300 text-xs font-medium">d</span>
+                          <NumberStepper
+                            value={amount.diceSides}
+                            onChange={(v) => updateRecoveryAmount(m.value, { diceSides: Math.max(1, v) })}
+                            min={1}
+                            max={100}
+                            compact
+                            narrow
+                            className="!h-6 !w-10"
+                          />
+                          <span className="text-gray-300 text-xs font-medium">+</span>
+                          <NumberStepper
+                            value={amount.diceBonus}
+                            onChange={(v) => updateRecoveryAmount(m.value, { diceBonus: Math.max(0, v) })}
+                            min={0}
+                            max={99}
+                            compact
+                            narrow
+                            className="!h-6 !w-10"
+                            referenceData={referenceData}
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
-              )}
-            </div>
-          )}
+              )
+            })}
+          </div>
         </div>
       )}
 
@@ -1848,6 +1885,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
             <button type="button" onClick={() => addEffect('restore_spell_slots')} className="px-1.5 py-0.5 rounded border border-sky-600/70 bg-sky-900/20 text-sky-300 hover:bg-sky-800/40 hover:border-sky-500/80 text-xs font-medium transition-colors" title="添加法术位恢复">+ 法术位恢复</button>
             <button type="button" onClick={() => addEffect('summon')} className="px-1.5 py-0.5 rounded border border-indigo-600/70 bg-indigo-900/20 text-indigo-300 hover:bg-indigo-800/40 hover:border-indigo-500/80 text-xs font-medium transition-colors" title="添加召唤效果">+ 召唤</button>
             <button type="button" onClick={() => addEffect('random_table')} className="px-1.5 py-0.5 rounded border border-amber-600/70 bg-amber-900/20 text-amber-300 hover:bg-amber-800/40 hover:border-amber-500/80 text-xs font-medium transition-colors" title="添加随机库">+ 随机库</button>
+            <button type="button" onClick={() => addEffect('add_roll_dice')} className="px-1.5 py-0.5 rounded border border-sky-600/70 bg-sky-900/20 text-sky-300 hover:bg-sky-800/40 hover:border-sky-500/80 text-xs font-medium transition-colors" title="添加增加投掷数">+ 增加投掷数</button>
           </div>
         </div>
 
@@ -2163,6 +2201,38 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                   )}
                 </div>
                 <LevelScalingEditor entries={dv.levelScaling} onChange={(v) => updateEffect(idx, { value: { ...dv, levelScaling: v } })} charClasses={charClasses} fields="dice" />
+              </div>
+            )
+          }
+
+          /* ── 增加投掷数 ── */
+          if (eff.type === 'add_roll_dice') {
+            const rv = eff.value || {}
+            return (
+              <div key={eff.id}>
+                <div className="rounded-md border border-sky-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                  <div className="flex items-center gap-x-2 flex-wrap">
+                    <span className="text-sky-400 text-xs shrink-0 font-medium">增加投掷数</span>
+                    <div className="flex items-center gap-x-2">
+                      <NumberStepper value={rv.diceCount ?? 1} onChange={(v) => updateEffect(idx, { value: { ...rv, diceCount: Math.max(1, v) } })} min={1} max={99} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+                      <span className="text-xs text-gray-500">d</span>
+                      <select value={rv.diceSides ?? 10} onChange={(e) => updateEffect(idx, { value: { ...rv, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
+                        {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                      <span className="text-xs text-gray-500">+</span>
+                      <NumberStepper value={rv.diceBonus ?? 0} onChange={(v) => updateEffect(idx, { value: { ...rv, diceBonus: v } })} min={-99} max={999} compact narrow className="!h-7 !w-12" referenceData={referenceData} />
+                    </div>
+                    <input
+                      value={rv.note ?? ''}
+                      onChange={(e) => updateEffect(idx, { value: { ...rv, note: e.target.value } })}
+                      placeholder="加到哪种掷骰（如：属性检定）"
+                      className={inputCls + ' flex-1 min-w-[8rem]'}
+                    />
+                    <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
               </div>
             )
           }
@@ -6550,6 +6620,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
                           onDurationChange={setDuration}
                           charResources={charResources}
                           spellSlots={spellSlots}
+                          charClasses={charClasses}
                           renderEffects={() => {
                             const addChargeEffect = (type) => updateModule(mod.id, { value: normalizeChargeItemValue({ ...chargeData, effects: [...(chargeData.effects || []), createChargeEffectEntry(type)] }) })
                             return (

@@ -620,7 +620,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
 
   const setCharge = (index, value) => {
     const n = Math.max(0, parseInt(value, 10) || 0)
-    const chargeMax = getEntryChargeMax(inv[index])
+    const chargeMax = getEntryChargeMax(inv[index], character)
     const clamped = chargeMax != null ? Math.min(n, chargeMax) : n
     const next = inv.map((e, i) => (i === index ? { ...e, charge: clamped } : e))
     onSave({ inventory: next })
@@ -628,7 +628,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
 
   const handleRestoreCharges = (eventType) => {
     const label = eventType === 'dawn' ? '黎明' : '长休'
-    const { inventory: next, logs } = restoreChargesForEvent(inv, eventType)
+    const { inventory: next, logs } = restoreChargesForEvent(inv, eventType, character)
     if (!logs.length) {
       window.alert(`没有物品需要${label}恢复充能。`)
       return

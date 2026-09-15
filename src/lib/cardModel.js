@@ -9,6 +9,8 @@
  *   被动卡 — 效果 + 起效范围
  */
 
+import { getRecoveryAmount } from './chargeItemModel'
+
 /* ── 卡槽类型 ─────────────────────────────────────────────────────── */
 
 export const SLOT_KIND = {
@@ -168,8 +170,9 @@ export function createActiveCard(overrides = {}) {
 
     // ── 恢复 ──
     recovery: {
-      method: 'long_rest',    // short_rest / long_rest / dawn / none / absorb_energy
-      kind: 'full',           // full / fixed / dice
+      method: ['long_rest'],  // short_rest / long_rest / dawn / none / absorb_energy / reaction_absorb
+      amounts: { long_rest: { kind: 'full', fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0 } },
+      kind: 'full',           // full / fixed / dice（首个启用方式的量，兼容旧读取方）
       fixed: 1,
       diceCount: 1,
       diceSides: 6,
@@ -197,7 +200,7 @@ export function createActiveCard(overrides = {}) {
   if (overrides) {
     // 深度合并 cost / recovery / duration
     if (overrides.cost) base.cost = { ...base.cost, ...overrides.cost }
-    if (overrides.recovery) base.recovery = { ...base.recovery, ...overrides.recovery }
+    if (overrides.recovery) base.recovery = normalizeRecovery({ ...base.recovery, ...overrides.recovery })
     if (overrides.duration) base.duration = { ...base.duration, ...overrides.duration }
     // 其余字段直接覆盖
     const { cost: _c, recovery: _r, duration: _d, ...rest } = overrides
@@ -338,17 +341,13 @@ function normalizeCost(cost) {
 }
 
 function normalizeRecovery(rec) {
-  if (!rec || typeof rec !== 'object') return { method: ['long_rest'], kind: 'full', fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0 }
-  const rawMethod = rec.method
-  const method = Array.isArray(rawMethod) ? rawMethod : (rawMethod ? [rawMethod] : ['long_rest'])
-  return {
-    method: method.length ? method : ['long_rest'],
-    kind: rec.kind || 'full',
-    fixed: Math.max(0, Number(rec.fixed) || 0),
-    diceCount: Math.max(1, Number(rec.diceCount) || 1),
-    diceSides: Math.max(1, Number(rec.diceSides) || 6),
-    diceBonus: Math.max(0, Number(rec.diceBonus) || 0),
-  }
+  const raw = rec && typeof rec === 'object' && !Array.isArray(rec) ? rec : {}
+  const rawMethod = raw.method
+  const rawMethods = Array.isArray(rawMethod) ? rawMethod : (rawMethod ? [rawMethod] : ['long_rest'])
+  const method = rawMethods.length ? rawMethods : ['long_rest']
+  const amounts = {}
+  for (const m of method) amounts[m] = getRecoveryAmount(raw, m)
+  return { method, amounts, ...amounts[method[0]] }
 }
 
 function normalizeActionType(at) {
@@ -489,16 +488,7 @@ function _migrateChargeItemToActiveCard(buffEntry, chargeEffect) {
   const actionType = cv.actionCost || 'action'
 
   // 提取恢复信息
-  const rawRecMethod = cv.recovery?.method
-  const recMethod = Array.isArray(rawRecMethod) ? rawRecMethod : (rawRecMethod ? [rawRecMethod] : ['long_rest'])
-  const recovery = cv.recovery ? {
-    method: recMethod.length ? recMethod : ['long_rest'],
-    kind: cv.recovery.kind || 'full',
-    fixed: Math.max(0, Number(cv.recovery.fixed) || 0),
-    diceCount: Math.max(1, Number(cv.recovery.diceCount) || 1),
-    diceSides: Math.max(1, Number(cv.recovery.diceSides) || 6),
-    diceBonus: Math.max(0, Number(cv.recovery.diceBonus) || 0),
-  } : { method: ['long_rest'], kind: 'full', fixed: 1, diceCount: 1, diceSides: 6, diceBonus: 0 }
+  const recovery = normalizeRecovery(cv.recovery)
 
   // 提取子效果（spell / ability / shield / temp_buff 等）
   const subEffects = Array.isArray(cv.effects) ? cv.effects : []

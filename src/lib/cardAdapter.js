@@ -79,7 +79,8 @@ function buffEntryToCard(buffEntry) {
   const CHARGE_ITEM_SUB_EFFECT_TYPES = [
     'spell', 'ability', 'shield', 'temp_buff', 'creature_transform',
     'restore_spell_slots', 'summon', 'custom_logic', 'damage', 'heal',
-    'random_table', 'attack_buff', 'consume_spell_slot_to_restore_charges'
+    'random_table', 'attack_buff', 'consume_spell_slot_to_restore_charges',
+    'add_roll_dice'
   ]
   
   // 原始 effects 数组（用于提取 charge_item/contained_spell）
