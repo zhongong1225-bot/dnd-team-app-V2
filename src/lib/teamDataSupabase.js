@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { enqueueCloudWrite } from './cloudWriteQueue'
 
 function supabaseErr(e) {
   if (!e) return '未知错误'
@@ -150,12 +151,17 @@ export async function fetchModuleLibrary(moduleId) {
 }
 
 export async function saveModuleLibrary(moduleId, libraryData) {
-  const mod = moduleId ?? 'default'
-  const { error } = await supabase.from('custom_library').upsert(
-    { lib_key: `module_library_${mod}`, data: [libraryData], updated_at: new Date().toISOString() },
-    { onConflict: 'lib_key' }
-  )
-  if (error) throw error
+  const mod = moduleId && String(moduleId).trim() ? String(moduleId).trim() : 'default'
+  const libKey = `module_library_${mod}`
+  // 整记录 upsert 串行化：模组库有两个独立写入方（模板同步与专长补丁），并发写会在服务端
+  // 乱序落地使旧快照覆盖新快照，按 lib_key 排队保证最后一次（最完整）写入最后落地
+  return enqueueCloudWrite(libKey, async () => {
+    const { error } = await supabase.from('custom_library').upsert(
+      { lib_key: libKey, data: [libraryData], updated_at: new Date().toISOString() },
+      { onConflict: 'lib_key' }
+    )
+    if (error) throw error
+  })
 }
 
 export async function fetchDefaultBuffPatches(moduleId) {
