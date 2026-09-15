@@ -386,10 +386,10 @@ export const HARDCODED_FEAT_BUFFS = {
       },
       {
         category: 'offense',
-        effectType: 'two_weapon_fighting_bonus',
+        effectType: 'offhand_ignores_light',
         scope: 'global',
         scopeDetail: [],
-        value: { addAbilityMod: true },
+        value: true,
       },
     ],
   },
