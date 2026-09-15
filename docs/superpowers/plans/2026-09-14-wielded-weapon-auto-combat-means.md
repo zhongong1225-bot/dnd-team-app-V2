@@ -2010,25 +2010,36 @@ git commit -m "fix: getMainHandWeaponDamageType 按真实手持槽形状解析"
 
 ### Task 16: 全量验证 + 文档回写
 
-- [ ] **Step 1: 全量单测**
+- [x] **Step 1: 全量单测**
 
 Run: `npx vitest run`
 Expected: 全绿。重点核对本次改动直接覆盖的四份：`src/lib/weaponProficiency.test.js`、`src/components/combat/deriveWieldedWeaponMeans.test.js`、`src/components/combat/combatMeanUtils.test.js`、`src/hooks/computeBuffStats.test.js`，以及回归面 `src/hooks/useBuffCalculator.test.js`、`src/lib/buffEffectCoverage.test.js`
 
-- [ ] **Step 2: 跑设计文档第十三节的浏览器实测清单（1–8 条）**
+> 结果：六份重点文件 149/149 通过。全量只剩 `src/lib/cardAdapter.test.js` 的 5 条基线失败（种族属性加值域，属另一窗口的在改范围，非本次回归）。
+
+- [x] **Step 2: 跑设计文档第十三节的浏览器实测清单（1–8 条）**
 
 重点复核最易出错的三条：
 - 第 2 条：背包增删条目后卡不消失不错位（旧 bug 的复现路径）——在背包里删除派生卡所引用武器**前面**的一项，确认卡仍指向同一把武器。
 - 第 5 条：新开一个临时 BUFF 上身，卡上命中/伤害同帧变化，不需要重开弹窗。
 - 第 8 条：在"双武器战斗 → 配置默认 BUFF"挂上"副手加属性"并保存 → 副手卡伤害立刻出现属性调整值；停用该战斗风格后立刻消失。
 
-- [ ] **Step 3: 确认无回归的三处**
+> 结果：1、2、5、6 通过，4 只跑了前半（灰卡带原因），9（组合技下拉选到派生卡并正常释放）额外跑通。
+> **3 未跑**——测试角色是战士，没有荒野变形；`nw_` / `cs_` 两条变身分支只有代码审读 + 构建 + `no-undef` 探针保障。
+> **7 未跑**——但 `CombatStatus.jsx:3089-3100` 兜底分支与 `combatMeanUtils.js:800` 置空迁移都在，构造上成立。
+> **8 被权限挡住**——当前账号 `isAdmin` 为假，"配置默认 BUFF"入口只读（`CharacterSheet.jsx:3107-3109`）；玩家自建临时 BUFF 的绕行方案没走通。引擎侧改由单测覆盖。
+> 详见设计文档第十三节「实测执行记录」，含顺带查出的"双武器战斗无默认效果"内容缺口。
+
+- [x] **Step 3: 确认无回归的三处**
 
 - BUFF 状态栏其余卡片（法术攻击 / 道具 / 组合技）仍能释放。
 - 主动技能释放（QuickBar / ActionPanel / 装备主动技能）弹窗未被 `attackPreset` 分支影响。
 - 角色页"熟练项设置"折叠标签与实际勾选一致。
 
-- [ ] **Step 4: 回写设计文档的四处偏离**
+> 结果：组合技卡实测能释放（走同一套准备/确认/攻击/结果）。主动技能实测「回气」弹窗仍是原四步流（准备/确认/掷骰/结果）+ 消耗数量步进器，未被 `attackPreset` 分支污染。熟练项折叠标签显示「武器熟练 无 / 护甲熟练 无」，面板内 93 个勾选框全空，两者一致。
+> 法术攻击卡与道具卡**未实测释放**：测试角色非施法者，两张法术卡因 Task 14 新增的 `canResolve` 守卫正确地不可点（这本身是守卫的正向验证，但施法者可点的那一半没跑到）；角色没有已同调的攻击型法器。两者改由 `no-undef` 探针 + 单测保障——八个改动文件全部干净。
+
+- [x] **Step 4: 回写设计文档的四处偏离**
 
 编辑 `docs/superpowers/specs/2026-09-14-wielded-weapon-auto-combat-means-design.md`：
 - 第六节"六项"改"七项"并补 `abilityForAttack`。
@@ -2038,7 +2049,9 @@ Expected: 全绿。重点核对本次改动直接覆盖的四份：`src/lib/weap
 - 第十节末段"顺带清理"的行号 `chargeItemModel.js:956-975` 更正为 `:1051-1070`，并把根因从"条件永不成立"改准为"`slotId` / `weaponId` / `damageType` 三个字段在真实数据里都不存在，`|| held[0]` 兜底后仍取不到伤害类型"。
 - 第十三节实测清单补两条：组合技下拉能选到派生武器卡并正常释放；释放流程中途新挂的 BUFF 会进入本次伤害结算（注册表实时取值）。
 
-- [ ] **Step 5: 提交**
+> 结果：六处全部回写，另加两处实现期查出的事实修正——第七节第三份清单实名是 `LEGACY_FIREARM_IDS`（不是 `FIREARM_WEAPON_IDS`，且它是迁移用历史名单、刻意保留）；第十二节补 `src/lib/weaponProficiency.js` 及其单测两行（Task 1 的新增文件，原表漏记）。提交 `55d024a`。
+
+- [x] **Step 5: 提交**
 
 ```bash
 git add docs/superpowers/specs/2026-09-14-wielded-weapon-auto-combat-means-design.md
@@ -2056,13 +2069,14 @@ git commit -m "docs: 同步手持武器派生实现与设计文档的四处偏�
 3. **`weaponDatabase.js` 是另一套简化武器库**（20 条、英文字段、`getWeaponById` 不查 itemDatabase），与本次的档位体系无关；内部 `rapier` 名称"细剑"与主库"刺剑"不一致。
 4. **AbilityUseModal 的法术攻击加值不吃 BUFF**：`computeSpellAttack`（`AbilityUseModal.jsx:1360`）只算 `熟练 + 属性调整值`。主动技能释放路径的既有缺口，与本次战斗手段改造独立。
 5. **豁免型变身生物法术只投第一条伤害**：`handleCreatureSpellSaveDamage`（`CombatStatus.jsx:1400-1415`）取 `finalDamageList[0]` 后 `return`，多段伤害（如"8d6 寒冷 + 2d6 寒冷"分两条）会静默丢掉后面的条目。Task 13 让该分支直接调它，行为与现状一致（今天也是同一条路径），未在本计划内修。
-6. **攻击型法器法术完全不扣资源**：`ItemUseCard.jsx:230-247`（展开行）与 `:473-490`（主行）的攻击型分支只弹确认面板，从不进入 `useFocusCharge`，因此既不扣充能也不扣法术位；豁免型分支才走 `setFocusUsePending`。Task 14 Step 2 用 `onCommitted` 把它接回消耗路径，属**顺带修复**，实测第 3 条要专门核对扣费次数。
+6. ~~**攻击型法器法术完全不扣资源**~~（**Task 14 已闭合**）：`ItemUseCard.jsx` 的攻击型分支原先只弹确认面板，从不进入充能消耗，因此既不扣充能也不扣法术位。Task 14 删掉卡内自建面板、改注册实时计划，并在计划上挂 `onCommitted: () => consumeFocusCharge(...)`——`consumeFocusCharge` 是 `spendFocusCharge` 带 `{ skipDamageRoll: true }` 的包装，伤害已在五步流里投过，结算后只扣充能，不会二次投骰。同时该分支原有的三处跨组件未定义引用（见第 11 条）随重写一并消失。
 7. ~~**副手合法性只查副手自己的轻型，不查主手**~~（**Task 11 已闭合，无需裁定**）：设计核准的模型是"副手武器需轻型，主手双手则副手被占用"；既有 `isDualWieldingLightWeapons` 要求**两把都轻型**（2014 口径），与派生卡对同一角色判"可用"相矛盾。`9ff8b93` 把"附赠攻击"从武器模式选项里删除（它是副手槽的属性，不是武器属性），该 helper 的唯一调用点随之消失并被删除，两套口径的分歧不再影响任何逻辑。副手合法性现在只由派生器的 `offhandBlockReason` 决定。
-8. **派生卡 id 含槽位序号，换槽即换 id**（Task 10 需处理）：`makeWieldedMeanId(slotIndex, inventoryId)` 形如 `wielded_1_inv_42`。把同一把武器从副手挪到主手（`applySlotChange`）后 id 改变，按 id 引用的组合技步骤会静默解绑。Task 10 落组合技引用时应以 `weaponInventoryId` 为身份、`slotIndex` 只做展示，或在换槽时改写组合技里的 id。
-9. **"玩家关掉的自动增益"谓词写了三遍**（Task 11 审查建议 4，未在本批展开）：`GainEditor` 的回填、`deriveDisabledAutoGainKeys`、`CombatStatus` 的 `manualGainsDisabled` 判定各自用 `g.auto && g.enabled === false` 表达同一件事。改一处容易漏改另两处，Task 13 若再碰增益链路应抽成单一谓词。
-10. **法术/道具/组合技卡关掉的自动增益刷新即复活**（Task 11 审查建议 5，武器卡路径正确）：只有派生武器卡把禁用类型落盘为 `disabledAutoGainKeys`；这四类卡的保存路径只写 `gains` 不写该键，而 `computeLiveGains` 会丢弃存档里 `auto: true` 的条目并换成现算结果——现算结果不受 `cm.gains` 里的 `enabled: false` 约束。派生器的 `GainEditor` 回填对这三类卡是死工。属既有缺口（本计划前也不持久化），Task 13/14 迁移保存路径时一并裁决。
-11. **三处"用到却没在作用域里定义"的引用现在就活在 HEAD 里**（Task 11 审查建议 6，已用独立 `no-undef` 探针核实，非误报）：同文件内有多个组件，符号定义在**另一个组件**的作用域里，编译与 `build` 都不报错，只有真正走到那条渲染分支才 ReferenceError 白屏。
-    - `ItemUseCard.jsx:242/243/248`：`FocusItemCard`（`:176` 起）的**攻击型**分支引用了默认导出 `ItemUseCard`（`:286` 起）里的 `focusBuffBonuses` / `focusExtraDamageDice` 与 `buffStats` prop → 法器的攻击型内含法术一点骰子就崩。**Task 14 会重写这块**（Step 2 把攻击型接回消耗路径、并删除伤害确认面板），属顺带修复，实测第 6 条时一并核对。
-    - `CharacterInventory.jsx:1218`：`editingProto` 声明在 `:1019` 的另一层作用域，编辑弹窗里"法器充能上限"那一行一点开就崩。本计划不碰该文件，**交用户裁定**。
-    - `CharacterSheet.jsx:979`（HEAD 行号）：`setRaceFeatPickerOpen` 声明在 `:4482` 的主组件里，`RaceBackgroundInline`（`:751` 起）种族特性行上的"选择"按钮一点就崩。本计划不碰该文件，**交用户裁定**。
-12. **要不要把 `no-undef` 开进仓库 lint 配置**（Task 11 审查建议，本计划未采纳）：`eslint.config.js` 目前不开 `no-undef`，Vite/esbuild 只转译不解析标识符，所以"用到未导入/未声明"永远过编译——这正是第 11 条能长期存活的土壤。全仓探下来只有 3 处真错（见上），开启的噪声极低。未采纳的原因：这是共享工作树，改全局 lint 配置会波及他人在改的文件的提交门禁。**复现命令**（临时配置，不改仓库）：造一份只含 `languageOptions.globals = { browser, es2022 }` + `rules: { 'no-undef': 'error' }` 的 flat config，`npx eslint --no-config-lookup --no-ignore --config <该文件> src`。注意 `src/**/*.test.js` 里的 `process` / `global` 需补 node globals 才不会误报。
+8. **派生卡 id 含槽位序号，换槽即换 id**（Task 16 核实：**未改 id，但失效方式已降级为可见**）：`makeWieldedMeanId(slotIndex, inventoryId)` 形如 `wielded_1_inv_42`，组合技存的仍是这个含槽位的 id（`CombatStatus.jsx:1083` `primaryMeanId: primary.id`）。把同一把武器从副手挪到主手后 id 改变，组合技确实解绑——但不再"静默"：`CombatStatus.jsx:3089-3100` 会渲染灰色"组合技：未选择主手段，需重新选择"卡并给铅笔入口，`combatMeanUtils.js:800` 也在主手段被丢弃时把 `primaryMeanId` 置空。玩家看得到、点一下就能重选。**要不要改成以 `weaponInventoryId` 为身份、`slotIndex` 只做展示，仍交用户裁定**——改了能让换槽保住组合技配置，代价是派生卡 id 不再自带槽位信息，卡上"主手/副手"标签得另找来源。
+9. **"玩家关掉的自动增益"谓词写了两遍**（Task 16 核实：**仍未抽象**）：`combatMeanUtils.js:759` `deriveDisabledAutoGainKeys` 与 `GainEditor.jsx:23` 的回填各自写 `g?.auto && g.enabled === false`。原记的第三处（`CombatStatus` 的 `manualGainsDisabled`）经核实是 buff 级的 `b.enabled === false`（`:279,292`），与增益谓词不是一回事，已剔除。改一处容易漏改另一处，下次碰增益链路时抽成单一谓词。
+10. **法术/道具/组合技卡关掉的自动增益刷新即复活**（Task 16 核实：**仍未修**）：`disabledAutoGainKeys` 的写侧只有 `deriveWieldedWeaponMeans.js:138` `buildWeaponMeanConfig` 一条，即只有派生武器卡会把玩家关掉的增益落盘。法术卡/道具卡/组合技卡的保存路径只写 `gains`，而 `computeLiveGains` 会丢弃存档里 `auto: true` 的条目换成现算结果，现算不受 `cm.gains` 里的 `enabled: false` 约束——这三类卡上关掉的自动增益刷新即复活，`GainEditor` 的回填对它们是死工。属既有缺口（本计划前也不持久化），**交用户裁定**：要么让这三类卡也落 `disabledAutoGainKeys`，要么在它们的增益编辑器里隐藏自动增益的开关。
+11. **三处"用到却没在作用域里定义"的引用活在 HEAD 里**（Task 11 审查建议 6，已用独立 `no-undef` 探针核实，非误报）：同文件内有多个组件，符号定义在**另一个组件**的作用域里，编译与 `build` 都不报错，只有真正走到那条渲染分支才 ReferenceError 白屏。Task 16 收尾时逐条复核：
+    - ~~`ItemUseCard.jsx:242/243/248`~~（**已消失**）：`FocusItemCard` 的攻击型分支引用了默认导出 `ItemUseCard` 里的 `focusBuffBonuses` / `focusExtraDamageDice` 与 `buffStats` prop → 法器的攻击型内含法术一点骰子就崩。Task 14 重写该分支（删卡内自建面板、改注册实时计划）后整块连同三处引用一并删除，探针已干净。
+    - `src/components/CharacterInventory.jsx:1218`（**仍活着**；原记的 `src/pages/` 路径有误，该文件在 `components` 下）：`editingProto` 声明在 `:1019` 的另一层作用域，编辑弹窗里"法器充能上限"那一行一点开就崩。HEAD 与工作树**都**报，本计划不碰该文件，**交用户裁定**。
+    - `src/pages/CharacterSheet.jsx:979`（**HEAD 仍活着，工作树已被另一窗口修掉**）：`setRaceFeatPickerOpen` 声明在主组件里，`RaceBackgroundInline` 种族特性行上的"选择"按钮一点就崩。HEAD 版本探针报 `no-undef`，工作树版本干净——是另一窗口未提交改动的成果，**不属本计划，也不可由本计划提交**。
+12. **`no-undef` 不开进仓库 lint 配置**（Task 16 最终裁定：**维持不开**）：`eslint.config.js` 目前不开 `no-undef`，Vite/esbuild 只转译不解析标识符，所以"用到未导入/未声明"永远过编译——这正是第 11 条能长期存活的土壤。全仓探下来真错极少，开启的噪声本来很低，但仍裁定不开，两条理由：一是这是共享工作树，改全局 lint 配置会波及他人在改文件的提交门禁；二是**开启后立刻就会红在 `CharacterInventory.jsx:1218`**——那是本计划范围外、尚未裁定的一处真错，等于用本计划的提交去替别人设卡。改走"逐处修引用"的路线：本计划范围内的三处已随 Task 14 清零，剩下两处见第 11 条。**复现命令**（临时配置，不改仓库）：造一份只含 `languageOptions.globals = { browser, es2022 }` + `parserOptions.ecmaFeatures.jsx = true` + `rules: { 'no-undef': 'error' }` 的 flat config，`npx eslint --no-config-lookup --no-ignore --config <该文件> <目标文件>`。该临时配置必须放在项目目录内才能解析 `globals` 依赖；`src/**/*.test.js` 里的 `process` / `global` 需补 node globals 才不会误报。
+13. **`rollAllWeaponDamage` 是死代码**（Task 16 新发现，**本计划未动**）：`CombatStatus.jsx:1253` 定义，`:3120` 塞进 `cardCtx` 传给四类卡，`:1362` 的注释还拿它举例说明"装备暴击× 仅作用于武器 rollAllWeaponDamage"——但没有任何卡片调用它。旧的两个伤害确认面板删除后，它的最后一条活路径也没了。留着会误导后来人以为武器伤害还有一条独立结算路径（那条注释已经在误导）。**交用户裁定**：删函数 + 从 `cardCtx` 摘掉 + 改写 `:1362` 注释，三处一起动才干净。
