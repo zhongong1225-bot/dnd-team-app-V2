@@ -42,7 +42,7 @@ function loadViteEnv() {
 
 /** 与 e2e/app-smoke.spec.js、e2e/quick-roll.spec.js 中 loginAs 前缀一致 */
 const OWNER_PATTERN =
-  /^(E2E玩家|vault-\d+|wh-\d+|newchar-\d+|sheet-\d+|nav-\d+|dash-\d+|qr-\d+|save-\d+|bar-\d+)$/
+  /^(E2E玩家|vault-\d+|wh-\d+|newchar-\d+|sheet-\d+|nav-\d+|dash-\d+|qr-\d+|save-[\w-]*\d+|bar-\d+)$/
 
 const dryRun = process.argv.includes('--dry-run')
 

@@ -134,6 +134,17 @@ export function getWeaponModeOptions(weaponOpt) {
   return WEAPON_MODE_OPTIONS.filter((o) => o.value === 'one_hand')
 }
 
+/**
+ * 武器编辑器的熟练指示文案：伤害是否含属性调整值由算法给出的 canAddAbilityMod 决定
+ * （副手会被剥夺，除非「双武器战斗」授予附赠攻击加值），只看熟练会把副手卡说错。
+ */
+export function weaponProficiencyNote({ weaponProficient, canAddAbilityMod }) {
+  if (!weaponProficient) return '未熟练（命中不含熟练加值，伤害不含属性调整值）'
+  return canAddAbilityMod
+    ? '✓ 已熟练（命中含熟练加值，伤害含属性调整值）'
+    : '✓ 已熟练（命中含熟练加值；附赠攻击不加属性调整值，负值仍生效）'
+}
+
 /** 武器可用属性选项 */
 export function getAbilityOptions(weaponOpt, currentAbility) {
   const ranged = weaponOpt && isRangedWeaponProto(weaponOpt.proto)

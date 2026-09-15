@@ -51,7 +51,7 @@ import {
   getMergedWeaponExtraDiceStrings, filterExtraDiceAgainstMain,
   parseSpellDamageFromDescription, spellUsesAttack, inferSaveFromSpellDescription, normalizeSpellName,
   applyUpcastToDamageList, getEffectiveCastLevel,
-  sanitizeLegacyCombatMeans, computeLiveGains,
+  sanitizeLegacyCombatMeans, computeLiveGains, isValidComboAttachment,
 } from './combat/combatMeanUtils'
 import { deriveWieldedWeaponMeans, buildWeaponMeanConfig } from './combat/deriveWieldedWeaponMeans'
 import { collectTierMemberIds } from '../lib/weaponProficiency'

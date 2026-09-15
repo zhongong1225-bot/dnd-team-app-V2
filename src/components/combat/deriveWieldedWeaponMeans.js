@@ -87,11 +87,12 @@ export function deriveWieldedWeaponMeans(character, ctx = {}) {
         unavailableReason = offhandBlockReason(mainOpt, opt, ctx)
         available = unavailableReason === ''
       }
-      // 存档模式必须仍是当前可选值：旧编辑器留下的 bonus_action、武器被 DM 改过词条，
-      // 都会让照单采纳的结果与 actionLabel 打架（伤害剥了属性调整值却标「1 动作」）
-      const modeFromConfig = getWeaponModeOptions(opt).some((o) => o.value === cfg.versatileMode) ? cfg.versatileMode : null
-      // 副手卡的 actionLabel 恒为附赠动作，若沿用存档模式会出现「标签附赠动作、伤害却加满属性调整值」
-      const weaponVersatileMode = isOffhand ? 'bonus_action' : (modeFromConfig || getDefaultWeaponMode(opt))
+      // 副手只认附赠动作一档（存档模式可能是它在主手时期写的）；主手的存档模式必须仍是当前可选值：
+      // 武器被 DM 改过词条会让旧档位对不上伤害骰，旧编辑器留下的 bonus_action 更会剥掉属性调整值却仍标「1 动作」
+      const allowedModes = isOffhand ? ['bonus_action'] : getWeaponModeOptions(opt).map((o) => o.value)
+      const weaponVersatileMode = allowedModes.includes(cfg.versatileMode)
+        ? cfg.versatileMode
+        : (isOffhand ? 'bonus_action' : getDefaultWeaponMode(opt))
       return {
         id: makeWieldedMeanId(i, opt.inventoryId),
         type: 'physical',
@@ -133,7 +134,7 @@ export function buildWeaponMeanConfig(mean, form = {}) {
     damageTypeOverride: str(form.damageType),
     extraDamageDice: Array.isArray(form.extraDamageDice) ? [...form.extraDamageDice] : [],
     targetCreatureType: str(form.targetCreatureType),
-    // 与词条推断一致的属性不存档：存了就成了快照，DM 之后给武器加「灵巧」也不会跟着变
+    // 与原型词条推断一致的属性不存档：存了就成了快照，DM 之后给原型加「灵巧」也不会跟着变
     abilityForAttack: (form.ability && form.ability !== protoDefaultAbility) ? str(form.ability) : '',
     disabledAutoGainKeys: deriveDisabledAutoGainKeys(form.gains),
   }
