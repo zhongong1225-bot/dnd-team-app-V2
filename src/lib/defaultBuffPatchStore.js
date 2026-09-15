@@ -152,6 +152,18 @@ export function buildClassFeatureBuffKey(sourceClass, sourceSubclass, featureId)
   return `${sourceClass}|${sourceSubclass || ''}|${featureId}`
 }
 
+/**
+ * 卡级生效范围归一：效果编辑器（BuffForm）产出 {scopeType, scopeDetail}，
+ * 存储与展示端历史约定为 {type}。两侧别名同时落库，任一侧读取都不会落空。
+ * global 视为无范围，返回 null。
+ */
+function normalizeCardScope(cardScope) {
+  if (!cardScope || typeof cardScope !== 'object') return null
+  const type = cardScope.type || cardScope.scopeType
+  if (!type || type === 'global') return null
+  return { ...cardScope, type, scopeType: type }
+}
+
 /* ---- 专长 BUFF：读写模组库 ---- */
 
 function findFeatTemplate(library, featId) {
@@ -177,12 +189,13 @@ export function loadDefaultBuffPatch(moduleId, kind, id) {
     if (idx === -1) return null
     const t = library.buffTemplates[idx]
     const duration = cloneDurationRaw(t.duration)
+    const cardScope = normalizeCardScope(t.cardScope)
     return {
       effects: Array.isArray(t.effects) ? t.effects : [],
       ...(t.tombstone ? { tombstone: true } : {}),
       ...(duration ? { duration } : {}),
       ...(t.enabled === false ? { enabled: false } : {}),
-      ...(t.cardScope && typeof t.cardScope === 'object' ? { cardScope: t.cardScope } : {}),
+      ...(cardScope ? { cardScope } : {}),
     }
   }
 
@@ -190,24 +203,25 @@ export function loadDefaultBuffPatch(moduleId, kind, id) {
   const patch = map[buildDefaultBuffPatchKey(kind, id)]
   if (!patch || typeof patch !== 'object') return null
   const duration = cloneDurationRaw(patch.duration)
+  const cardScope = normalizeCardScope(patch.cardScope)
   return {
     effects: Array.isArray(patch.effects) ? patch.effects : [],
     ...(patch.tombstone ? { tombstone: true } : {}),
     ...(duration ? { duration } : {}),
     ...(patch.enabled === false ? { enabled: false } : {}),
-    ...(patch.cardScope && typeof patch.cardScope === 'object' ? { cardScope: patch.cardScope } : {}),
+    ...(cardScope ? { cardScope } : {}),
     ...(patch.cardName ? { cardName: patch.cardName } : {}),
     ...(patch.cardDescription ? { cardDescription: patch.cardDescription } : {}),
   }
 }
 
 /**
- * 保存默认 BUFF 补丁（空效果且无持续时间写墓碑模板，而非删除）
+ * 保存默认 BUFF 补丁（效果为空一律写墓碑模板，附加字段随模板保留；不再删除）
  * 专长类型写入模组库 buffTemplates（sourceKind='feat'），其他类型写入独立存储。
  * @param {string} moduleId
  * @param {'feat'|'invocation'|'fightingStyle'|'classFeature'} kind
  * @param {string} id
- * @param {{ effects?: Array, duration?: string, enabled?: boolean, sourceName?: string, cardScope?: object } | null} patch
+ * @param {{ effects?: Array, duration?: string, enabled?: boolean, sourceName?: string, cardScope?: {type?: string, scopeType?: string, scopeDetail?: Array}, cardName?: string, cardDescription?: string } | null} patch
  */
 export function saveDefaultBuffPatch(moduleId, kind, id, patch) {
   if (!id) return
@@ -220,14 +234,15 @@ export function saveDefaultBuffPatch(moduleId, kind, id, patch) {
     const duration = cloneDurationRaw(patch?.duration)
     const enabled = patch?.enabled !== false
     const sourceName = patch?.sourceName || id
-    const hasCardScope = !!(patch?.cardScope && typeof patch.cardScope === 'object'
-      && patch.cardScope.type && patch.cardScope.type !== 'global')
+    const cardScope = normalizeCardScope(patch?.cardScope)
     const tplId = idx !== -1 ? library.buffTemplates[idx].id : generateId('bufftpl')
 
     let tpl
-    if (effects.length === 0 && !duration && enabled && !hasCardScope) {
+    if (effects.length === 0) {
       // 墓碑：DM 显式清空须与「从未配置」区分，否则读取端回退硬编码模板使清空复活
-      tpl = { id: tplId, source: sourceName, sourceKind: 'feat', featId: id, effects: [], enabled: true, tombstone: true }
+      tpl = { id: tplId, source: sourceName, sourceKind: 'feat', featId: id, effects: [], enabled, tombstone: true }
+      if (duration) tpl.duration = duration
+      if (cardScope) tpl.cardScope = cardScope
     } else {
       tpl = {
         id: tplId,
@@ -238,7 +253,7 @@ export function saveDefaultBuffPatch(moduleId, kind, id, patch) {
         enabled,
       }
       if (duration) tpl.duration = duration
-      if (hasCardScope) tpl.cardScope = { ...patch.cardScope }
+      if (cardScope) tpl.cardScope = cardScope
     }
 
     if (idx !== -1) library.buffTemplates[idx] = tpl
@@ -253,22 +268,18 @@ export function saveDefaultBuffPatch(moduleId, kind, id, patch) {
   const effects = patch && Array.isArray(patch.effects) ? patch.effects : []
   const duration = cloneDurationRaw(patch?.duration)
   const enabled = patch?.enabled !== false
-  if (effects.length === 0 && !duration && enabled && !patch?.cardName && !patch?.cardDescription
-    && !(patch?.cardScope && typeof patch.cardScope === 'object' && patch.cardScope.type && patch.cardScope.type !== 'global')) {
-    // 墓碑：DM 显式清空效果，须与「从未配置」区分，否则读取端会回退硬编码默认使清空复活
-    map[key] = { effects: [], tombstone: true }
-  } else {
-    map[key] = {
-      effects: effects.map((e) => ({ ...e })),
-      ...(duration ? { duration } : {}),
-      ...(enabled ? {} : { enabled: false }),
-      ...(patch?.cardScope && typeof patch.cardScope === 'object' && patch.cardScope.type && patch.cardScope.type !== 'global'
-        ? { cardScope: { ...patch.cardScope } }
-        : {}),
-      ...(patch?.cardName ? { cardName: patch.cardName } : {}),
-      ...(patch?.cardDescription ? { cardDescription: patch.cardDescription } : {}),
-    }
+  const cardScope = normalizeCardScope(patch?.cardScope)
+  const extra = {
+    ...(duration ? { duration } : {}),
+    ...(enabled ? {} : { enabled: false }),
+    ...(cardScope ? { cardScope } : {}),
+    ...(patch?.cardName ? { cardName: patch.cardName } : {}),
+    ...(patch?.cardDescription ? { cardDescription: patch.cardDescription } : {}),
   }
+  map[key] = effects.length === 0
+    // 墓碑：DM 显式清空效果，须与「从未配置」区分，否则读取端会回退硬编码默认使清空复活
+    ? { effects: [], tombstone: true, ...extra }
+    : { effects: effects.map((e) => ({ ...e })), ...extra }
   saveRaw(moduleId, map)
 }
 
@@ -333,6 +344,22 @@ export function migrateFeatBuffsToModuleLibrary(moduleId) {
     if (exists !== -1) continue
     const effects = Array.isArray(patch.effects) ? patch.effects : []
     const duration = cloneDurationRaw(patch.duration)
+    const cardScope = normalizeCardScope(patch.cardScope)
+    if (patch.tombstone) {
+      // 旧 raw 存储里的显式清空：若不搬迁，随后的清理会不可逆地把它降级为「从未配置」→ 硬编码复活
+      library.buffTemplates.push({
+        id: generateId('bufftpl'),
+        source: featId,
+        sourceKind: 'feat',
+        featId,
+        effects: [],
+        enabled: patch.enabled !== false,
+        tombstone: true,
+        ...(duration ? { duration } : {}),
+        ...(cardScope ? { cardScope } : {}),
+      })
+      continue
+    }
     if (effects.length === 0 && !duration) continue
     library.buffTemplates.push({
       id: generateId('bufftpl'),
@@ -342,6 +369,7 @@ export function migrateFeatBuffsToModuleLibrary(moduleId) {
       effects: effects.map((e) => ({ ...e })),
       ...(duration ? { duration } : {}),
       ...(patch.enabled === false ? { enabled: false } : {}),
+      ...(cardScope ? { cardScope } : {}),
     })
   }
   saveLib(moduleId, library)
