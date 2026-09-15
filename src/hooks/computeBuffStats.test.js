@@ -125,8 +125,11 @@ describe('双武器战斗与双持客效果聚合', () => {
     expect(statsWith(eff('offhand_ignores_light', false)).offhandIgnoresLight).toBeFalsy()
   })
 
-  it('兼容字符串与对象写法', () => {
+  it("兼容字符串 'true' 写法", () => {
     expect(statsWith(eff('two_weapon_fighting_bonus', 'true')).twoWeaponFightingBonus).toBe(true)
-    expect(statsWith(eff('two_weapon_fighting_bonus', { value: true })).twoWeaponFightingBonus).toBe(true)
+  })
+
+  it('对象形状不授予标记：布尔效果只认严格布尔值，{ addAbilityMod: true } 这类旧配置不生效', () => {
+    expect(statsWith(eff('two_weapon_fighting_bonus', { value: true })).twoWeaponFightingBonus).toBeFalsy()
   })
 })

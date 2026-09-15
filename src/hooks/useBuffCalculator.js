@@ -199,11 +199,9 @@ function parseSpeedBonus(raw, evalVal) {
   return result
 }
 
-/** 布尔型效果取值：兼容 true / 'true' / {value:true} / 1 */
+/** 布尔型效果取值：兼容 true / 'true' / 1；对象形状不计入（如 { addAbilityMod: true } 这类未登记写法） */
 function truthyEffectValue(raw) {
-  if (raw === true || raw === 1 || raw === 'true') return true
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw.value === true || raw.value === 1
-  return false
+  return raw === true || raw === 1 || raw === 'true'
 }
 
 /**
@@ -408,11 +406,17 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
     let dmgRanged = 0
     let dmgAll = 0
     const weaponCategoryAttackDamageBonuses = []
+    // 副手姿态标记（offense 布尔效果，与命中/伤害加值同一类信息）
+    let twoWeaponFightingBonus = false
+    let offhandIgnoresLight = false
 
     for (const b of entries) {
       const raw = b.value
       const { scope } = normalizeScope(b.scope, b.scopeDetail)
       const isGlobal = scope === SCOPE_KIND.global || scope === ''
+
+      if (b.effectType === 'two_weapon_fighting_bonus') twoWeaponFightingBonus = truthyEffectValue(raw) || twoWeaponFightingBonus
+      if (b.effectType === 'offhand_ignores_light') offhandIgnoresLight = truthyEffectValue(raw) || offhandIgnoresLight
 
       if (b.effectType === 'attack_damage_bonus' && typeof raw === 'string') {
         const attackMatch = raw.match(/攻击\s*[+＋]?\s*(\d+)/i)
@@ -555,8 +559,6 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
     // 先收集状态免疫（来自 BUFF 效果）
     const conditionImmunities = new Set()
     const weaponExpertiseCategories = new Set()
-    let twoWeaponFightingBonus = false
-    let offhandIgnoresLight = false
     for (const b of entries) {
       if (b.effectType === 'condition_immunity' && Array.isArray(b.value)) {
         for (const c of b.value) conditionImmunities.add(String(c))
@@ -564,8 +566,6 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       if (b.effectType === 'weapon_expertise' && Array.isArray(b.value)) {
         for (const c of b.value) weaponExpertiseCategories.add(String(c))
       }
-      if (b.effectType === 'two_weapon_fighting_bonus') twoWeaponFightingBonus = truthyEffectValue(b.value) || twoWeaponFightingBonus
-      if (b.effectType === 'offhand_ignores_light') offhandIgnoresLight = truthyEffectValue(b.value) || offhandIgnoresLight
     }
     const rawConditions = Array.isArray(character?.conditions) ? character.conditions : []
     const conditions = rawConditions.filter((c) => !conditionImmunities.has(c))
@@ -773,7 +773,7 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       else if (b.effectType === 'initiative_buff' && raw && typeof raw === 'object' && !Array.isArray(raw)) {
         const bon = evalVal(raw.bonus)
         if (!Number.isNaN(bon)) initBonus += bon
-        if (raw.proficient === true || raw.proficient === 'true' || raw.proficient === 1) {
+        if (truthyEffectValue(raw.proficient)) {
           initBonus += initiativeProfBonus
         }
       }
@@ -849,7 +849,7 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
         }
       }
       // 新表：地形无视（移动与施法）
-      else if (b.effectType === 'terrain_ignore' && (raw === true || raw === 'true' || raw === 1)) {
+      else if (b.effectType === 'terrain_ignore' && truthyEffectValue(raw)) {
         ignoreDifficultTerrain = true
       }
       // 新表：专注增强（对象：val + advantage；兼容旧文本/纯数字/公式）
@@ -921,7 +921,7 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       }
       // 防死：一次 HP 降至 0 以下时强制改为 1（布尔值）
       else if (b.effectType === 'death_ward') {
-        if (raw === true || raw === 'true' || raw === 1) deathWard = true
+        if (truthyEffectValue(raw)) deathWard = true
       }
       // 新增：额外攻击（数值）
       else if (b.effectType === 'extra_attack') {
