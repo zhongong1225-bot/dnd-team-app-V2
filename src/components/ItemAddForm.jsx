@@ -289,6 +289,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
   const [weaponTraits, setWeaponTraits] = useState(() => [])
   const [weaponRange, setWeaponRange] = useState(() => '')
   const [weaponTier, setWeaponTier] = useState(() => '')
+  const [itemCategory, setItemCategory] = useState(() => '')
   const [weaponAmmoCategory, setWeaponAmmoCategory] = useState(() => '')
   const [weaponMastery, setWeaponMastery] = useState(() => '')
   const [explosiveAttackDistance, setExplosiveAttackDistance] = useState(() => '')
@@ -363,6 +364,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     setWeaponTraits([])
     setWeaponRange('')
     setWeaponTier('')
+    setItemCategory('')
     setWeaponAmmoCategory('')
     setWeaponMastery('')
     setExplosiveAttackDistance('')
@@ -381,6 +383,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     }
     setType(typeFromProto)
     setItemId(nextItemId)
+    setItemCategory(proto?.类别 ?? entry?.类别 ?? '')
     setRarity(entry?.rarity ?? '')
     setIsAttuned(!!entry?.isAttuned)
     setRequiresAttunement(resolveEntryRequiresAttunement(entry, proto) || !!entry?.isAttuned)
@@ -452,6 +455,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     const proto = getItemById(itemId)
     setName(proto ? getItemDisplayName(proto) : '')
     setIntro(proto?.详细介绍 ?? '')
+    setItemCategory(proto?.类别 ?? '')
     if (isDefaultStorageItem(itemId)) {
       setEffectModules([createItemStorageModule()])
     } else {
@@ -650,7 +654,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       const baseItem = {
         类型: proto?.类型 || type || '近战武器',
         子类型: isArmor ? (armorFields.armorSubtype || proto?.子类型 || '') : (proto?.子类型 || ''),
-        类别: proto?.类别 || '自定义',
+        类别: (itemCategory.trim() || proto?.类别) || '自定义',
         名称: name?.trim() || '',
         攻击: 攻击 || '',
         附注: 附注 != null ? String(附注).trim() : '',
@@ -695,15 +699,18 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       ? (armorFields.armorSubtype || '')
       : (typeChanged ? subtypeForType(type) : (proto?.子类型 ?? ''))
     const subChanged = isArmor && nextSub !== (proto?.子类型 ?? '')
+    /** 只改型号也必须写回原型，否则类别输入框存盘后什么都不变 */
+    const categoryChanged = !!itemCategory.trim() && itemCategory.trim() !== (proto?.类别 ?? '')
     /** 档位与类型无关：只改熟练档位也必须写回原型，否则会静默丢失；比对基准与下拉框回读用的是同一个归一化判定 */
     const tierChanged = isWeapon && weaponTier !== (getWeaponProficiencyTier(proto) ?? '')
-    const rewriteTypeFields = typeChanged || subChanged
+    const rewriteTypeFields = typeChanged || subChanged || categoryChanged
     if (type && (rewriteTypeFields || tierChanged)) {
       const typePatch = {
         // 攻击/附注/精通 等先按「这一件库存条目」初始化，只有类型真的变了才允许覆盖共享原型
         ...(rewriteTypeFields ? {
           类型: type,
           子类型: nextSub,
+          类别: itemCategory.trim() || (proto?.类别 ?? ''),
           攻击: isWeapon ? (攻击 || '') : '',
           伤害: isWeapon ? (伤害 || '') : '',
           精通: isWeapon && 精通 ? 精通 : '',
@@ -719,7 +726,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
         savedProto = await updateCustomItem(proto.id, typePatch)
       } else {
         const base = proto || {
-          类别: (name?.trim() || editEntry?.name || '自定义'),
+          类别: itemCategory.trim() || (name?.trim() || editEntry?.name || '自定义'),
           名称: name?.trim() || editEntry?.name || '',
           重量: editEntry?.重量 ?? '',
           价格: '',
@@ -919,6 +926,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                   setType(newType)
                   setItemId('')
                   setOfficialTemplateId('')
+                  setItemCategory('')
                   if (newType !== '盔甲' && newType !== '衣服') setArmorFields({ isShield: false, armorSubtype: '', baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' })
                   if (newType !== '近战武器' && newType !== '远程武器' && newType !== '枪械') {
                     setWeaponDamage({ minus: '', plus: '', o1: '', o2: '', type: '', o3: '' })
@@ -941,6 +949,15 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                   <option key={g.type} value={g.type}>{g.type}</option>
                 ))}
               </select>
+              <span className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider shrink-0">类别</span>
+              <input
+                type="text"
+                value={itemCategory}
+                onChange={(e) => setItemCategory(e.target.value)}
+                placeholder={selectedPrototype?.类别 || '型号，如 全身铠'}
+                title="物品的具体型号，只影响归类与显示；AC、力量需求、隐匿等行为由护甲附注决定"
+                className={inputClassInline + ' h-8 min-w-0 w-28 text-sm shrink-0'}
+              />
               <div className="ml-auto flex flex-wrap justify-end min-w-0 items-center gap-1.5">
                 <select
                   value={rarity}
