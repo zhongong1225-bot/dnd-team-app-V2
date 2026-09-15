@@ -157,6 +157,26 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
     return spells.length > 0 ? `习得：${spells.join('、')}` : effectLabel
   }
 
+  // saving_throw_advantage: 显示豁免优势
+  if (buff.effectType === 'saving_throw_advantage' && v && typeof v === 'object' && !Array.isArray(v)) {
+    const condition = v.condition
+    const conditionLabel = getConditionLabel(condition) || condition || '状态'
+    return `${conditionLabel}豁免优势`
+  }
+
+  // skill_proficiency: 显示技能熟练
+  if (buff.effectType === 'skill_proficiency' && v && typeof v === 'object' && !Array.isArray(v)) {
+    const skill = v.skill
+    const skillLabel = SKILLS.find(s => s.id === skill)?.label || skill || '技能'
+    return `${skillLabel}熟练`
+  }
+
+  // darkvision_bonus: 显示暗视加成
+  if (buff.effectType === 'darkvision_bonus' && typeof v === 'object' && !Array.isArray(v)) {
+    const bonus = Number(v.bonus) || 0
+    return `暗视+${bonus}尺`
+  }
+
   if (info.effect.dataType === 'boolean') return buff.value ? effectLabel : ''
   if (buff.effectType === 'item_storage' && typeof v === 'number') {
     return `容量（${v}磅）`

@@ -49,13 +49,16 @@ import {
   getDefaultWeaponMode, getWeaponModeOptions, getAbilityOptions, getWeaponBaseDamageObjects, stripDiceFlatMod, getWeaponNote, weaponHasTwoHanded, weaponHasThrown, weaponHasVersatile, weaponHasLight, isDualWieldingLightWeapons,
   parseWeaponAttack, formatWeaponAttackDiceDisplay, formatSignedModifier, getWeaponAttackStringForParsing,
   GAIN_TYPES, getEnabledGains, sumGainAttackBonus, sumGainDamageBonus, sumGainPerDieBonus, getGainExtraDice, getGainAdvantage, hasGainDiceFloor2,
-  computePhysicalWeaponStats, buildDefaultGainsFromBuffs, mergeAutoGains, gainsContentEqual,
+  computePhysicalWeaponStats, buildDefaultGainsFromBuffs,
   getWeaponEntrySpellAbility, getWeaponEntryDamageExtras, getMergedWeaponExtraDiceStrings, filterExtraDiceAgainstMain,
   parseSpellDamageFromDescription, spellUsesAttack, inferSaveFromSpellDescription, normalizeSpellName,
   applyUpcastToDamageList, getEffectiveCastLevel,
+  sanitizeLegacyCombatMeans, computeLiveGains,
 } from './combat/combatMeanUtils'
+import { deriveWieldedWeaponMeans } from './combat/deriveWieldedWeaponMeans'
+import { collectTierMemberIds } from '../lib/weaponProficiency'
 
-import { getItemById, parseWeaponNoteToTraits } from '../data/itemDatabase'
+import { getItemById, getItemList, ITEM_DATABASE, parseWeaponNoteToTraits } from '../data/itemDatabase'
 import { getSpellById, getWandScrollSpellPower, getMergedSpells } from '../data/spellDatabase'
 import { getSpellcastingLevel, getMaxSpellSlotsByRing, getHitDice, getPrimarySpellcastingAbility, getCharacterClasses, getPactLevel, getPactSlotsByLevel } from '../data/classDatabase'
 import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
@@ -635,7 +638,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     return 'physical'
   }
   const [combatMeans, setCombatMeans] = useState(() => {
-    const arr = Array.isArray(char?.combatMeans) ? char.combatMeans : []
+    const arr = sanitizeLegacyCombatMeans(Array.isArray(char?.combatMeans) ? char.combatMeans : [])
     return arr.map((m, idx) => ({
       id: m.id ?? `cm_${idx}_${m.type === 'combo' ? 'combo' : m.type || 'physical'}`,
       type: normalizeCombatMeanType(m.type),
@@ -657,8 +660,27 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       primaryMeanId: m.primaryMeanId ?? null,
       attachments: Array.isArray(m.attachments) ? m.attachments : [],
       gains: Array.isArray(m.gains) ? m.gains : [],
+      disabledAutoGainKeys: Array.isArray(m.disabledAutoGainKeys) ? m.disabledAutoGainKeys : [],
     }))
   })
+
+  const tierMemberIds = useMemo(() => collectTierMemberIds(ITEM_DATABASE), [])
+  const profWeaponIds = useMemo(
+    () => (Array.isArray(char?.proficiencies?.weapons) ? char.proficiencies.weapons : []),
+    [char?.proficiencies?.weapons],
+  )
+  const derivedMeans = useMemo(
+    () => deriveWieldedWeaponMeans(char, {
+      profWeapons: profWeaponIds,
+      tierMemberIds,
+      offhandIgnoresLight: !!buffStats?.offhandIgnoresLight,
+      isTransformed: !!buffStats?.creatureTransform,
+    }),
+    [char, profWeaponIds, tierMemberIds, buffStats?.offhandIgnoresLight, buffStats?.creatureTransform],
+  )
+  /** 渲染列表：派生武器卡在前，剩余非物理卡在后 */
+  const renderedMeans = useMemo(() => [...derivedMeans, ...combatMeans], [derivedMeans, combatMeans])
+
   const [showAddCombatMeanModal, setShowAddCombatMeanModal] = useState(false)
   const [editingCombatMeanId, setEditingCombatMeanId] = useState(null) // 编辑法术攻击时设为该条 id
   const [addMeanStep, setAddMeanStep] = useState('type') // 'type' | 'weapon' | 'item' | 'spell_attack' | 'combo'
@@ -875,7 +897,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   }, [char?.id, char?.['class'], char?.classLevel, char?.subclass, char?.multiclass, char?.prestige, char?.selectedFeats, buffStats?.abilities])
 
   useEffect(() => {
-    const arr = Array.isArray(char?.combatMeans) ? char.combatMeans : []
+    const arr = sanitizeLegacyCombatMeans(Array.isArray(char?.combatMeans) ? char.combatMeans : [])
     setCombatMeans(arr.map((m, idx) => ({
       id: m.id ?? `cm_${idx}_${m.type === 'combo' ? 'combo' : m.type || 'physical'}`,
       type: normalizeCombatMeanType(m.type),
@@ -897,36 +919,18 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       primaryMeanId: m.primaryMeanId ?? null,
       attachments: Array.isArray(m.attachments) ? m.attachments : [],
       gains: Array.isArray(m.gains) ? m.gains : [],
+      disabledAutoGainKeys: Array.isArray(m.disabledAutoGainKeys) ? m.disabledAutoGainKeys : [],
     })))
   }, [char?.id, char?.combatMeans])
 
-  /** 全局自动同步：当 BUFF 变化且不在编辑弹窗内时，为每个战斗手段重新生成 auto 增益 */
+  const legacyPurgeRef = useRef(false)
   useEffect(() => {
-    if (showAddCombatMeanModal || editingCombatMeanId) return
-    const prev = combatMeansRef.current
-    let changed = false
-    const next = prev.map((cm) => {
-      let ctxCm = cm
-      let isSpellMean = cm.type === 'spell_attack' || cm.type === 'spell'
-      if (cm.type === 'combo') {
-        const primary = prev.find((m) => m.id === cm.primaryMeanId)
-        if (primary) {
-          ctxCm = primary
-          isSpellMean = primary.type === 'spell_attack' || primary.type === 'spell'
-        }
-      }
-      const autoGains = buildDefaultGainsFromBuffs(ctxCm, buffStats, mergedBuffs, isSpellMean, char, itemFormulaContext)
-      const merged = mergeAutoGains(cm.gains, autoGains)
-      if (!gainsContentEqual(cm.gains, merged)) {
-        changed = true
-        return { ...cm, gains: merged }
-      }
-      return cm
-    })
-    if (changed) {
-      saveCombatMeans(next)
-    }
-  }, [mergedBuffs, buffStats, itemFormulaContext, char, showAddCombatMeanModal, editingCombatMeanId])
+    if (legacyPurgeRef.current) return
+    legacyPurgeRef.current = true
+    const raw = Array.isArray(char?.combatMeans) ? char.combatMeans : []
+    const purged = sanitizeLegacyCombatMeans(raw)
+    if (purged !== raw) saveCombatMeans(purged)
+  }, [char?.id, char?.combatMeans])
 
   useEffect(() => {
     if (hpCurrent > maxHp) setHpCurrent(maxHp)
@@ -956,6 +960,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         primaryMeanId: m.primaryMeanId ?? null,
         attachments: Array.isArray(m.attachments) ? m.attachments : [],
         gains: Array.isArray(m.gains) ? m.gains : [],
+        disabledAutoGainKeys: Array.isArray(m.disabledAutoGainKeys) ? m.disabledAutoGainKeys : [],
       })),
     })
   }
