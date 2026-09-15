@@ -148,6 +148,28 @@ function ScrollItemCard({ currentQty, canEdit, useScroll, itemIndex, removeComba
   )
 }
 
+/* 子法术 → 伤害骰列表（主行与展开行两条释放路径共用，缺一处就会在点击时引用未定义变量） */
+function buildSubSpellDamageList(selectedSub) {
+  const damageList = []
+  if (!selectedSub) return damageList
+  const dCount = Math.max(0, Number(selectedSub?.damageDiceCount) ?? 0)
+  const dSides = Math.max(1, Number(selectedSub?.damageDiceSides) ?? 6)
+  if (dCount > 0) {
+    const diceExpr = `${dCount}d${dSides}`
+    const damageTypeLabel = selectedSub.damageType ? getDamageTypeLabel(selectedSub.damageType) : ''
+    damageList.push({ dice: diceExpr, type: damageTypeLabel || '' })
+  }
+  const extraDice = selectedSub._damageExtras?.extraDice || []
+  extraDice.forEach((extraDice) => {
+    const diceMatch = extraDice.match(/(\d+)d(\d+)/)
+    if (diceMatch) {
+      const [, , typePart] = extraDice.split(/\s+/)
+      damageList.push({ dice: extraDice, type: typePart || '' })
+    }
+  })
+  return damageList
+}
+
 /* ══════════════════════════════════════════════════
    法器/魔杖子组件
    ═════════════════════════════════════════════════ */
@@ -155,26 +177,7 @@ function FocusItemCard({ itemMeanOpt, currentCharge, chargeMax, spellRange, hitT
   const cell = 'pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden'
   const { openForCheck, handleCreatureSpellAttackResult, setDamageRollConfirm } = ctx
 
-  // 构建伤害列表（用于多步流程）
-  const damageList = []
-  if (selectedSub) {
-    const dCount = Math.max(0, Number(selectedSub?.damageDiceCount) ?? 0)
-    const dSides = Math.max(1, Number(selectedSub?.damageDiceSides) ?? 6)
-    if (dCount > 0) {
-      const diceExpr = `${dCount}d${dSides}`
-      const damageTypeLabel = selectedSub.damageType ? getDamageTypeLabel(selectedSub.damageType) : ''
-      damageList.push({ dice: diceExpr, type: damageTypeLabel || '' })
-    }
-    // 额外骰子
-    const extraDice = selectedSub._damageExtras?.extraDice || []
-    extraDice.forEach((extraDice) => {
-      const diceMatch = extraDice.match(/(\d+)d(\d+)/)
-      if (diceMatch) {
-        const [, , typePart] = extraDice.split(/\s+/)
-        damageList.push({ dice: extraDice, type: typePart || '' })
-      }
-    })
-  }
+  const damageList = buildSubSpellDamageList(selectedSub)
 
   return (
     <>
@@ -472,7 +475,7 @@ export default function ItemUseCard({ displayMean, itemMeanOpt, ctx }) {
                 onResult: (total, rawD20) => {
                   setDamageRollConfirm({
                     spellName: selectedSub.spellName || itemMeanOpt.name,
-                    damageList,
+                    damageList: buildSubSpellDamageList(selectedSub),
                     nwSpellAtk: selectedSub._atkValue || 0,
                     slotLevel: selectedSub.level || 0,
                     spellData: null,
@@ -487,7 +490,7 @@ export default function ItemUseCard({ displayMean, itemMeanOpt, ctx }) {
               // 豁免型：直接显示伤害确认弹窗
               setDamageRollConfirm({
                 spellName: selectedSub.spellName || itemMeanOpt.name,
-                damageList,
+                damageList: buildSubSpellDamageList(selectedSub),
                 saveDC: selectedSub._atkValue || 0,
                 isAttackType: false,
                 onRollDamage: () => {

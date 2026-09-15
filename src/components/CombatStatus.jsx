@@ -499,7 +499,7 @@ const normalizeCombatMeanType = (t) => {
   return 'physical'
 }
 
-/** state 形状归一化（含存量物理卡清理）：saveCombatMeans 那份是写回序列化、字段集不同，两者不可合并 */
+/** state 形状归一化（补默认值、兜 id、存量物理清理）；saveCombatMeans 那份只挑要落盘的字段、不补默认值，职责不同不可合并 */
 function normalizeCombatMeanEntries(arr) {
   const list = sanitizeLegacyCombatMeans(Array.isArray(arr) ? arr : [])
   return list.map((m, idx) => ({

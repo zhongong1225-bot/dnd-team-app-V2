@@ -1375,6 +1375,8 @@ git commit -m "feat: 组合技主手段可选手持派生武器卡"
 - Modify: `src/components/CombatStatus.jsx`（`openEditWeaponMean` / 保存路径）
 - Modify: `src/components/combat/combatMeanUtils.js:560`
 
+> **Task 9 收尾轮留下的中间态（本 Task 必须闭合）**：派生卡的铅笔能打开武器表单，表单里的 `previewWeaponStats` 还会即时反映改动，但保存最终落到 `updateCombatMean`，而该函数开头已加派生守卫 → **改动静默丢弃**（比原来的"写进 combatMeans 却没人读"更诚实，但玩家仍会误判已生效）。本 Task 把保存路径改写进 `entry.combatMeanConfig` 之后，这条链才算通；在改写完成前不要移除该守卫。
+
 - [ ] **Step 1: 删熟练勾选框**
 
 `AddWeaponStep.jsx:101-104` 那整个 `<label className="flex items-center gap-2 cursor-pointer">…武器熟练…</label>` 删除。在其原位置改为只读的熟练指示（玩家不用配，但要能看懂为什么数值是这样）：
@@ -1920,7 +1922,8 @@ git commit -m "feat: 武器与变身卡释放改走五步流，数值投骰瞬�
 
 攻击型分支改为：先 `registerWeaponPlan(key, { name: selectedSub.spellName || itemMeanOpt.name, getAttack: () => ({ bonus: selectedSub._atkValue || 0, advantage: null, critThreatMinNatural: buffStats?.critThreatMinNatural, critDiceMultiplier: 2 }), getDamagePlan: () => ({ diceList: damageList, flatMod: focusSpellDamageExtras.flatBonus || 0 }), onCommitted: () => setFocusUsePending({ inventoryIndex: itemMeanOpt.index, name: itemMeanOpt.name, combatMeanId: meanId, spellSub: selectedSub, gains, spellDamageExtras: selectedSub?._damageExtras || { flatBonus: 0, extraDice: [] }, damageFloor2: selectedSub?._diceFloor2 || false }) })`，再 `openWeaponAttackFlow(key)`。
 
-> `gains` 用 ctx 里那份**现算**结果，不要用 `getEnabledGainsFromMean(cm)`。后者读 `cm.gains` 快照，而 Task 9 已删除"BUFF 变化自动回写快照"的 effect，快照从此冻结——卡面显示新 BUFF 的加值、投出去却是旧值（或反之）。本 Task 需把 `:108`（爆炸品快捷骰）、`:255`（法器快捷骰）、`:504`（主行名称列）三处 `getEnabledGainsFromMean(cm)` 一并换成 `gains`，三处都已在作用域内（`:84`/`:154`/`:292` 的解构里都有 `gains`），换完删除 `getEnabledGainsFromMean`（`:281`）本体。
+> **已在 Task 9 收尾轮完成**：`ItemUseCard.jsx` 三处 `getEnabledGainsFromMean(cm)` 已换成 ctx/props 里现算的 `gains`，该 helper 已删除（快照冻结会造成卡面显示与投掷加值分叉）。本 Task 只需 `grep -rn "getEnabledGainsFromMean" src/` 确认无残留。
+> 同一轮还把"子法术 → 伤害骰列表"提成模块级 `buildSubSpellDamageList(selectedSub)`（原先主组件 `ItemUseCard` 的名称列分支裸引用 `damageList`，那是 `FocusItemCard` 的局部变量，点击即 ReferenceError）。因此本 Task Step 2 片段里所有 `diceList: damageList` 的取数，在**主组件作用域**内必须写成 `diceList: buildSubSpellDamageList(selectedSub)`；在 `FocusItemCard` 内仍可直接用 `damageList`（那行现在是 `const damageList = buildSubSpellDamageList(selectedSub)`）。
 
 `onCommitted` 是必需的：道具的充能与法术位消耗发生在 `useFocusCharge`（`:1221-1235`）内部，五步流本身 resourceType 为 none，不接这一步就会**永远不扣充能**。它在命中与未命中两条路径都会被调用一次（`AbilityUseModal` 的 `handleMiss` 同样调 `onConfirm`），与现状"投完攻击才进消耗面板"相比只是把扣费时机挪到结算之后，方向是变保守不变松。
 
