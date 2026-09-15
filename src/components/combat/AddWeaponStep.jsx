@@ -28,7 +28,7 @@ export default function AddWeaponStep({
 }) {
   const proficiencyNote = weaponProficiencyNote({
     weaponProficient,
-    canAddAbilityMod: previewWeaponStats ? previewWeaponStats.canAddAbilityMod : weaponProficient,
+    canAddAbilityMod: previewWeaponStats?.canAddAbilityMod ?? weaponProficient,
   })
 
   return (

@@ -88,11 +88,10 @@ export function deriveWieldedWeaponMeans(character, ctx = {}) {
         available = unavailableReason === ''
       }
       // 副手只认附赠动作一档（存档模式可能是它在主手时期写的）；主手的存档模式必须仍是当前可选值：
-      // 武器被 DM 改过词条会让旧档位对不上伤害骰，旧编辑器留下的 bonus_action 更会剥掉属性调整值却仍标「1 动作」
+      // 出手词条被 DM 改过（如灵巧换重型）会让旧档位对不上伤害骰，旧编辑器留下的 bonus_action 更会剥掉属性调整值却仍标「1 动作」
+      const fallbackMode = isOffhand ? 'bonus_action' : getDefaultWeaponMode(opt)
       const allowedModes = isOffhand ? ['bonus_action'] : getWeaponModeOptions(opt).map((o) => o.value)
-      const weaponVersatileMode = allowedModes.includes(cfg.versatileMode)
-        ? cfg.versatileMode
-        : (isOffhand ? 'bonus_action' : getDefaultWeaponMode(opt))
+      const weaponVersatileMode = allowedModes.includes(cfg.versatileMode) ? cfg.versatileMode : fallbackMode
       return {
         id: makeWieldedMeanId(i, opt.inventoryId),
         type: 'physical',

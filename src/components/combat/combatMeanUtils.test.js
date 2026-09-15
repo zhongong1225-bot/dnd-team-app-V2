@@ -355,23 +355,33 @@ describe('deriveDisabledAutoGainKeys', () => {
 })
 
 describe('getWeaponModeOptions', () => {
-  const modes = (id) => getWeaponModeOptions({ proto: getItemById(id) }).map((o) => o.value)
+  // 内联词条验证纯函数契约：可选集只由 子类型 / 附注 决定，不应随 DM 改词条而失效
+  const modesOf = (proto) => getWeaponModeOptions({ proto }).map((o) => o.value)
+  // 真表校对：这几把武器的词条必须确实落在预期档位上
+  const storedModes = (id) => modesOf(getItemById(id))
 
   it('档位只由武器词条决定：纯单手 / 多用 / 纯双手 / 远程各自的可选集', () => {
-    expect(modes('dagger')).toEqual(['one_hand'])
-    expect(modes('longsword')).toEqual(['one_hand', 'two_hand'])
-    expect(modes('greatsword')).toEqual(['two_hand'])
-    expect(modes('light_crossbow')).toEqual(['ranged'])
+    expect(modesOf({ 附注: '灵巧，轻型' })).toEqual(['one_hand'])
+    expect(modesOf({ 附注: '多用（1d10）' })).toEqual(['one_hand', 'two_hand'])
+    expect(modesOf({ 附注: '重型，双手武器' })).toEqual(['two_hand'])
+    expect(modesOf({ 子类型: '远程', 附注: '装填' })).toEqual(['ranged'])
+  })
+
+  it('真表里四把代表性武器的可选集与规则预期一致', () => {
+    expect(storedModes('dagger')).toEqual(['one_hand'])
+    expect(storedModes('longsword')).toEqual(['one_hand', 'two_hand'])
+    expect(storedModes('greatsword')).toEqual(['two_hand'])
+    expect(storedModes('light_crossbow')).toEqual(['ranged'])
   })
 
   it('多用+投掷给单手与远程：投掷与多用双手是两回事，不能互相顶掉', () => {
-    const opt = { proto: { 附注: '灵巧，轻型，多用（1d8），投掷（射程 20/60）' } }
-    expect(getWeaponModeOptions(opt).map((o) => o.value)).toEqual(['one_hand', 'ranged'])
+    expect(modesOf({ 附注: '灵巧，轻型，多用（1d8），投掷（射程 20/60）' })).toEqual(['one_hand', 'ranged'])
   })
 
   it('附赠攻击永远不在可选集里：它是副手槽的属性，双持也不能把它塞进主手的档', () => {
-    expect(modes('dagger')).not.toContain('bonus_action')
-    expect(modes('longsword')).not.toContain('bonus_action')
+    expect(modesOf({ 附注: '灵巧，轻型' })).not.toContain('bonus_action')
+    expect(modesOf({ 附注: '重型，双手武器' })).not.toContain('bonus_action')
+    expect(storedModes('longsword')).not.toContain('bonus_action')
   })
 
   it('无武器时给全表，由调用方按词条再收窄', () => {
@@ -382,11 +392,13 @@ describe('getWeaponModeOptions', () => {
 describe('weaponProficiencyNote', () => {
   const cases = [
     { args: { weaponProficient: false, canAddAbilityMod: false }, text: '未熟练（命中不含熟练加值，伤害不含属性调整值）' },
+    // 未熟练优先：算法在未熟练时也可能给出 true（例如非副手的默认值），文案不能被带偏
+    { args: { weaponProficient: false, canAddAbilityMod: true }, text: '未熟练（命中不含熟练加值，伤害不含属性调整值）' },
     { args: { weaponProficient: true, canAddAbilityMod: true }, text: '✓ 已熟练（命中含熟练加值，伤害含属性调整值）' },
     { args: { weaponProficient: true, canAddAbilityMod: false }, text: '✓ 已熟练（命中含熟练加值；附赠攻击不加属性调整值，负值仍生效）' },
   ]
 
-  it.each(cases)('三态文案与算法判据一一对应（$args.weaponProficient / $args.canAddAbilityMod）', ({ args, text }) => {
+  it.each(cases)('文案与算法判据一一对应（$args.weaponProficient / $args.canAddAbilityMod）', ({ args, text }) => {
     expect(weaponProficiencyNote(args)).toBe(text)
   })
 })
