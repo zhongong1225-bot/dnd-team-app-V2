@@ -97,6 +97,8 @@ const EDT_SELECT = EDT_INPUT + ' cursor-pointer'
 const EDT_CARD = 'rounded-lg bg-[#1e2a3a] p-3'
 const EDT_SECTION = 'text-sm font-semibold text-[#c79a42]'
 const EDT_HELP = 'text-xs text-[#8899aa]'
+/** 面板内紧凑输入框：曾在三个编辑器里各自重复声明，漏声明的那个（改骰子）一点开就 ReferenceError */
+const panelInputCls = inputClass.replace(/\bh-10\b/, 'h-8').replace(/\btext-sm\b/, 'text-sm').replace(/\bw-full\b/, '')
 
 /** 命中判定下拉统一选项：六属性豁免 + 法术攻击 + 效应 */
 const HIT_RESOLUTION_OPTIONS = [
@@ -3982,7 +3984,6 @@ function RerollValueEditor({ value, onChange }) {
 
 /** 额外武器伤害：XdX+X + 伤害类型；下拉含「自定义…」，选中后手动输入类型名（原样存储与显示） */
 function ExtraWeaponDamageEditor({ value, module, onChange }) {
-  const panelInputCls = inputClass.replace(/\bh-10\b/, 'h-8').replace(/\btext-sm\b/, 'text-sm').replace(/\bw-full\b/, '')
   const valueObj = typeof value === 'object' && value && !Array.isArray(value) ? value : { diceCount: 1, diceSides: 6, flatBonus: 0, damageType: '' }
   const matched = DAMAGE_TYPES.find((d) => d.value === valueObj.damageType || d.label === valueObj.damageType)
   const [customMode, setCustomMode] = useState(false)
@@ -4046,7 +4047,6 @@ function ExtraWeaponDamageEditor({ value, module, onChange }) {
 }
 
 function ShieldPoolEditor({ value, onChange, module }) {
-  const panelInputCls = inputClass.replace(/\bh-10\b/, 'h-8').replace(/\btext-sm\b/, 'text-sm').replace(/\bw-full\b/, '')
   const sv = value && typeof value === 'object' ? value : {}
   const max = sv.max != null ? Number(sv.max) || 10 : 10
   const threshold = sv.threshold != null ? Number(sv.threshold) || 0 : 0
@@ -4276,7 +4276,6 @@ function EffectValueEditor({
   const textDisplay = typeof value === 'string' ? value : (isCustom ? customText : '')
 
   const compactClass = EDT_INPUT
-  const panelInputCls = inputClass.replace(/\bh-10\b/, 'h-8').replace(/\btext-sm\b/, 'text-sm').replace(/\bw-full\b/, '')
   if (isBoolean) {
     if (inline) {
       return (
