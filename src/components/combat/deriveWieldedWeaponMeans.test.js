@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest'
-import { deriveWieldedWeaponMeans, makeWieldedMeanId, buildWeaponMeanConfig, WIELDED_UNAVAILABLE_NO_MAIN } from './deriveWieldedWeaponMeans'
+import { deriveWieldedWeaponMeans, makeWieldedMeanId, findMeanByStoredId, buildWeaponMeanConfig, WIELDED_UNAVAILABLE_NO_MAIN } from './deriveWieldedWeaponMeans'
 
 let seq = 0
 /** 造一份角色：held 传原型 id 数组（null = 空槽） */
@@ -85,11 +85,50 @@ describe('deriveWieldedWeaponMeans', () => {
     expect(cards[0].weaponProficient).toBe(false)
   })
 
-  it('id 由槽位序号 + 物品编号确定性拼出', () => {
+  it('id 只认物品编号，不含槽位序号', () => {
     const char = charWith(['longsword'])
     const cards = deriveWieldedWeaponMeans(char, CTX)
-    expect(cards[0].id).toBe(makeWieldedMeanId(0, char.inventory[0].id))
-    expect(cards[0].id).toBe(`wielded_0_${char.inventory[0].id}`)
+    expect(cards[0].id).toBe(makeWieldedMeanId(char.inventory[0].id))
+    expect(cards[0].id).toBe(`wielded_${char.inventory[0].id}`)
+  })
+
+  it('同一件武器从副手挪到主手，id 不变（组合技据此不解绑）', () => {
+    const char = charWith(['dagger', 'dagger'])
+    const offId = char.equippedHeld[1].inventoryId
+    const beforeId = bySlot(deriveWieldedWeaponMeans(char, CTX))[1].id
+    char.equippedHeld[0].inventoryId = offId
+    char.equippedHeld[1].inventoryId = null
+    const cards = deriveWieldedWeaponMeans(char, CTX)
+    expect(cards).toHaveLength(1)
+    expect(cards[0].slotIndex).toBe(0)
+    expect(cards[0].id).toBe(beforeId)
+  })
+
+  it('同一件物品被两个手持位引用（脏数据）时只出一张卡，主手优先', () => {
+    const char = charWith(['dagger', 'dagger'])
+    char.equippedHeld[1].inventoryId = char.equippedHeld[0].inventoryId
+    const cards = deriveWieldedWeaponMeans(char, CTX)
+    expect(cards).toHaveLength(1)
+    expect(cards[0].slotIndex).toBe(0)
+  })
+
+  it('旧存档带槽位序号的 primaryMeanId 仍能认到同一件武器的卡', () => {
+    const char = charWith(['longsword'])
+    const inv = char.inventory[0].id
+    const cards = deriveWieldedWeaponMeans(char, CTX)
+    expect(findMeanByStoredId(cards, `wielded_0_${inv}`)).toBe(cards[0])
+    // 序号与当前槽位不符（存档时在主手、现在在副手）也一样认得
+    expect(findMeanByStoredId(cards, `wielded_3_${inv}`)).toBe(cards[0])
+    expect(findMeanByStoredId(cards, `wielded_${inv}`)).toBe(cards[0])
+  })
+
+  it('findMeanByStoredId 认不到就返回 null，不猜', () => {
+    const char = charWith(['longsword'])
+    const cards = deriveWieldedWeaponMeans(char, CTX)
+    expect(findMeanByStoredId(cards, null)).toBe(null)
+    expect(findMeanByStoredId(cards, 'wielded_0_inv_other')).toBe(null)
+    expect(findMeanByStoredId(cards, 'cm_123')).toBe(null)
+    expect(findMeanByStoredId(null, 'wielded_0_x')).toBe(null)
   })
 
   it('武器原型解析走 getItemById（内置武器可查到 proto）', () => {

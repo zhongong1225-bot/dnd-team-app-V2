@@ -19,7 +19,6 @@ import {
 import {
   useBuffCalculator,
   sumWeaponCategoryAttackDamageBonus,
-  getCritDamageDiceMultiplierFromItemEntry,
   getCritThreatMinNaturalFromItemEntry,
 } from '../hooks/useBuffCalculator'
 import { getMergedBuffsForCalculator, getEffectsFromBuff, getEffectsFromItem } from '../lib/effects/effectMapping'
@@ -48,19 +47,19 @@ import {
   parseWeaponAttack, getWeaponAttackStringForParsing,
   getEnabledGains, sumGainAttackBonus, sumGainDamageBonus, sumGainPerDieBonus, getGainExtraDice, getGainAdvantage, hasGainDiceFloor2,
   computePhysicalWeaponStats, buildDefaultGainsFromBuffs,
-  getMergedWeaponExtraDiceStrings, filterExtraDiceAgainstMain,
+  getMergedWeaponExtraDiceStrings,
   parseSpellDamageFromDescription, spellUsesAttack, inferSaveFromSpellDescription, normalizeSpellName,
   applyUpcastToDamageList, getEffectiveCastLevel,
   sanitizeLegacyCombatMeans, computeLiveGains, isValidComboAttachment,
 } from './combat/combatMeanUtils'
-import { deriveWieldedWeaponMeans, buildWeaponMeanConfig } from './combat/deriveWieldedWeaponMeans'
+import { deriveWieldedWeaponMeans, buildWeaponMeanConfig, findMeanByStoredId } from './combat/deriveWieldedWeaponMeans'
 import { collectTierMemberIds } from '../lib/weaponProficiency'
 
 import { getItemById, ITEM_DATABASE, parseWeaponNoteToTraits } from '../data/itemDatabase'
 import { getSpellById, getWandScrollSpellPower, getMergedSpells } from '../data/spellDatabase'
 import { getSpellcastingLevel, getMaxSpellSlotsByRing, getHitDice, getPrimarySpellcastingAbility, getCharacterClasses, getPactLevel, getPactSlotsByLevel } from '../data/classDatabase'
 import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
-import { rollDice, rollCombatDicePool, parseCombatDiceExpression } from '../data/weaponDatabase'
+import { rollCombatDicePool, parseCombatDiceExpression } from '../data/weaponDatabase'
 import { buildQuickRollAnimation } from '../lib/quickRollAnimation'
 import AbilityUseModal from './AbilityUseModal'
 import ActiveAbilityQuickBar from './combat/ActiveAbilityQuickBar'
@@ -1103,9 +1102,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   }
   const openEditComboMean = (cm) => {
     setEditingCombatMeanId(cm.id)
-    // 派生卡 id 含槽位下标，手持位重排后即失效：回填前必须确认它仍在渲染列表里，否则下拉空白却带着值
-    const stillRendered = renderedMeans.some((m) => m.id === cm.primaryMeanId)
-    setAddComboPrimaryId(stillRendered ? cm.primaryMeanId : null)
+    // 旧存档的 primaryMeanId 带槽位序号，武器换槽后按物品编号认回来；认不回才落"待重选"，别让下拉空白却带着值
+    const primary = findMeanByStoredId(renderedMeans, cm.primaryMeanId)
+    setAddComboPrimaryId(primary ? primary.id : null)
     setAddComboAttachments(
       Array.isArray(cm.attachments)
         ? cm.attachments.map((a) => ({
@@ -1115,7 +1114,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           }))
         : []
     )
-    const primary = renderedMeans.find((m) => m.id === cm.primaryMeanId)
     setAddGains(cm.gains?.length ? [...cm.gains] : buildDefaultGainsFromBuffs(primary || cm, buffStats, mergedBuffs, char))
     setAddMeanStep('combo')
     setShowAddCombatMeanModal(true)
@@ -1255,92 +1253,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   /** 额外伤害骰：默认折叠，点「添加」后展开编辑（类似附魔） */
   const [showWeaponExtraDiceEditor, setShowWeaponExtraDiceEditor] = useState(false)
 
-  /** 物理武器：汇总主伤+所有额外骰，按伤害类型分组投掷并展示 */
-  const rollAllWeaponDamage = (cm, weaponOpt, attackParsed, totalDamageMod, displayDamageType, isCrit) => {
-    /** 仅本把武器 entry 上的「暴击×」；其它已装备武器的附魔不串用 */
-    const critMult = isCrit ? getCritDamageDiceMultiplierFromItemEntry(weaponOpt?.entry ?? null, itemFormulaContext) : 1
-    const animParts = []
-    const animValues = []
-    const sources = []
-    const mainDiceList = attackParsed?.diceList?.length
-      ? attackParsed.diceList
-      : attackParsed?.dice
-        ? [attackParsed.dice]
-        : []
-    mainDiceList.forEach((oneDice, i) => {
-      sources.push({
-        dice: oneDice,
-        modifier: i === 0 ? Number(totalDamageMod) || 0 : 0,
-        type: displayDamageType || '钝击',
-      })
-    })
-    const rawT = cm.damageType || attackParsed.type
-    const gainExtras = getGainExtraDice(getEnabledGains(cm))
-    const extras = filterExtraDiceAgainstMain(attackParsed, rawT, [...getMergedWeaponExtraDiceStrings(cm, weaponOpt), ...gainExtras])
-    const floor2 = hasGainDiceFloor2(getEnabledGains(cm))
-    extras.forEach((d) => {
-      const parts = typeof d === 'string' && d.includes(' ') ? d.split(' ') : [d, displayDamageType || '钝击']
-      const dice = parts[0]
-      const type = parts[1] || displayDamageType || '钝击'
-      if (dice) sources.push({ dice, modifier: 0, type })
-    })
-    const byType = {}
-    sources.forEach(({ dice, modifier, type }) => {
-      const pool1 = rollCombatDicePool(dice)
-      if (!pool1.parsed) {
-        const r1 = rollDice(dice)
-        const rolls = [...(r1.rolls ?? [])]
-        const sumR1 = (r1.rolls ?? []).reduce((s, n) => s + (Number(n) || 0), 0)
-        /** 重击：多轮骰点；表达式 flat 仅取首轮（与解析路径一致） */
-        const exprFlatOnce = (Number(r1.total) || 0) - sumR1
-        for (let k = 1; k < critMult; k++) {
-          const r = rollDice(dice)
-          rolls.push(...(r.rolls ?? []))
-        }
-        if (!byType[type]) byType[type] = { rolls: [], modifier: 0 }
-        byType[type].rolls.push(...rolls)
-        byType[type].modifier += (Number(modifier) || 0) + exprFlatOnce
-        return
-      }
-      const extraCritRolls = []
-      for (let k = 1; k < critMult; k++) {
-        const poolExtra = rollCombatDicePool(dice)
-        extraCritRolls.push(...poolExtra.rolls)
-      }
-      const rolls = [...pool1.rolls, ...extraCritRolls]
-      /** 重击：骰子多投若干轮；表达式末尾加值（XdY+N 的 N）只加一次（D&D 2024 与 5e 武器重击一致） */
-      const exprFlatOnce = pool1.flatMod
-      const sourceMod = Number(modifier) || 0
-      const pExpr = pool1.parsed
-      if (pExpr && rolls.length === pExpr.count * critMult) {
-        const effCount = pExpr.count * critMult
-        const totalFlat = sourceMod + exprFlatOnce
-        const piece =
-          totalFlat !== 0
-            ? `${effCount}d${pExpr.sides}${totalFlat >= 0 ? '+' : ''}${totalFlat}`
-            : `${effCount}d${pExpr.sides}`
-        animParts.push(piece)
-        animValues.push(...rolls.map((n) => Number(n)))
-      }
-      if (!byType[type]) byType[type] = { rolls: [], modifier: 0 }
-      byType[type].rolls.push(...rolls)
-      byType[type].modifier += sourceMod + exprFlatOnce
-    })
-    if (floor2) {
-      Object.values(byType).forEach((bundle) => {
-        bundle.rolls = (bundle.rolls || []).map((n) => Math.max(2, Number(n) || 0))
-      })
-      for (let i = 0; i < animValues.length; i++) {
-        animValues[i] = Math.max(2, Number(animValues[i]) || 0)
-      }
-    }
-    const animBundle =
-      animParts.length > 0 && animValues.length > 0
-        ? { animate: true, formula: animParts.join(','), diceValues: animValues }
-        : {}
-    setLastDamageRoll({ byType, ...animBundle })
-  }
-
   // 豁免型法术直接投伤害
   const handleCreatureSpellSaveDamage = (spellName, damageList, slotLevel, spellData) => {
     if (!damageList || damageList.length === 0) return
@@ -1365,7 +1277,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const dt = String(damageTypeLabel || '').trim()
     const { extraDice = [], floor2 = false } = options || {}
     const typeExtra = dt ? { damageTypeLabel: dt } : {}
-    /** 法术/非武器伤害重击始终按规则 ×2；装备暴击× 仅作用于武器 rollAllWeaponDamage */
+    /** 法术/非武器伤害重击始终按规则 ×2；武器上的「暴击×」附注由武器卡读出、经计划注册表交给释放弹窗 */
     const critDiceMult = isCrit ? 2 : 1
     const applyFloor2 = (vals) =>
       floor2 ? vals.map((n) => Math.max(2, Number(n) || 0)) : vals.map((n) => Number(n) || 0)
@@ -2884,7 +2796,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         <div className="space-y-2">
           {renderedMeans.map((cm) => {
             const isCombo = cm.type === 'combo'
-            const comboPrimary = isCombo ? renderedMeans.find((m) => m.id === cm.primaryMeanId) : null
+            const comboPrimary = isCombo ? findMeanByStoredId(renderedMeans, cm.primaryMeanId) : null
             const displayMean = isCombo && comboPrimary
               ? {
                   ...comboPrimary,
@@ -2995,7 +2907,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               focusSpellMap,
               // 回调
               openEditWeaponMean, openEditSpellAttack, openEditItemMean, openEditComboMean,
-              removeCombatMean, openForCheck, rollAllWeaponDamage, rollDamageDice,
+              removeCombatMean, openForCheck, rollDamageDice,
               consumeSpellSlotForMean, renderAutoGainBadges,
               registerWeaponPlan, openWeaponAttackFlow,
               // 状态设置

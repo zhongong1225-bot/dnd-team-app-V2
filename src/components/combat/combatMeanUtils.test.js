@@ -273,7 +273,7 @@ describe('computeLiveGains', () => {
     const character = { inventory: [{ id: 'inv_0', itemId: 'longsword' }] }
     // physical_attack 范围只匹配物理来源：组合技自身不算，只有主卡算，故可据此判别取数源
     const opts = { buffStats: {}, mergedBuffs: buffsFrom([{ effectType: 'damage_bonus', scope: 'physical_attack', scopeDetail: [], value: 2 }]), character }
-    const combo = { type: 'combo', gains: [], primaryMeanId: 'wielded_0_inv_0' }
+    const combo = { type: 'combo', gains: [], primaryMeanId: 'wielded_inv_0' }
     expect(computeLiveGains(combo, opts).some((g) => g.type === 'damageBonus')).toBe(false)
     expect(computeLiveGains(combo, { ...opts, primaryForGains: primary }).some((g) => g.type === 'damageBonus')).toBe(true)
   })
@@ -293,7 +293,7 @@ describe('computeLiveGains', () => {
 })
 
 describe('getCombatMeanLabel / getWeaponMeanDisplayName 武器命名口径', () => {
-  const derived = { id: 'wielded_0_inv_9', type: 'physical', derived: true, weaponOpt: { name: '长剑' }, weaponNameSuffix: '（+1）' }
+  const derived = { id: 'wielded_inv_9', type: 'physical', derived: true, weaponOpt: { name: '长剑' }, weaponNameSuffix: '（+1）' }
 
   it('优先用 weaponOpt.name，后缀紧跟名字不加空格', () => {
     expect(getCombatMeanLabel(derived, {})).toBe('长剑（+1）')

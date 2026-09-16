@@ -17,9 +17,25 @@ export const WIELDED_UNAVAILABLE_MAIN_TWO_HANDED = '主手为双手武器，副�
 export const WIELDED_UNAVAILABLE_NO_LIGHT = '缺少轻型词条，且未获得双持客'
 export const WIELDED_UNAVAILABLE_NO_MAIN = '主手未持武器，副手无法发动附赠攻击'
 
-/** 派生卡 id：必须由槽位序号 + 物品编号确定性拼出（组合技要稳定引用它） */
-export function makeWieldedMeanId(slotIndex, inventoryId) {
-  return `wielded_${slotIndex}_${inventoryId}`
+/** 派生卡 id：只认物品编号（组合技要稳定引用它，武器换槽不得解绑） */
+export function makeWieldedMeanId(inventoryId) {
+  return `wielded_${inventoryId}`
+}
+
+/**
+ * 按存档里的 primaryMeanId 找主手段卡。
+ * 旧存档存的是带槽位序号的格式（wielded_0_inv_x），武器换槽后序号就对不上了，
+ * 故等值找不到时剥掉序号再认一次；否则玩家一换手持位，组合技就无声解绑。
+ * 等值优先：物品编号本身以「数字_」开头时，剥序号才可能认错卡。
+ */
+export function findMeanByStoredId(means, storedId) {
+  const list = Array.isArray(means) ? means : []
+  if (!storedId) return null
+  const exact = list.find((m) => m?.id === storedId)
+  if (exact) return exact
+  const legacy = /^wielded_\d+_(.+)$/.exec(storedId)
+  if (!legacy) return null
+  return list.find((m) => m?.id === makeWieldedMeanId(legacy[1])) || null
 }
 
 function slotLabelFor(index) {
@@ -76,9 +92,13 @@ export function deriveWieldedWeaponMeans(character, ctx = {}) {
 
   const mainOpt = resolved[0]
 
+  const seenInventoryIds = new Set()
   return resolved
     .map((opt, i) => {
       if (!opt) return null
+      // 同一件物品被两个手持位引用时只出一张卡（id 认物品编号，重复会撞 key 与计划注册表）；主手优先
+      if (seenInventoryIds.has(opt.inventoryId)) return null
+      seenInventoryIds.add(opt.inventoryId)
       const cfg = (opt.entry.combatMeanConfig && typeof opt.entry.combatMeanConfig === 'object') ? opt.entry.combatMeanConfig : {}
       const isOffhand = i === 1
       let available = true
@@ -93,7 +113,7 @@ export function deriveWieldedWeaponMeans(character, ctx = {}) {
       const allowedModes = isOffhand ? ['bonus_action'] : getWeaponModeOptions(opt).map((o) => o.value)
       const weaponVersatileMode = allowedModes.includes(cfg.versatileMode) ? cfg.versatileMode : fallbackMode
       return {
-        id: makeWieldedMeanId(i, opt.inventoryId),
+        id: makeWieldedMeanId(opt.inventoryId),
         type: 'physical',
         derived: true,
         slotIndex: i,
