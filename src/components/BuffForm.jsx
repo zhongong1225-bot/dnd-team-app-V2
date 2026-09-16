@@ -29,6 +29,7 @@ import {
   DAMAGE_RELATION_OPTIONS,
   WEAPON_PROPERTY_OPTIONS,
   migrateProficiencyTextToArray,
+  getEffectInfo,
 } from '../data/buffTypes'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { getClassDisplayName, ALL_CLASS_NAMES } from '../data/classDatabase'
@@ -216,6 +217,10 @@ function patchDefaultsForEffectType(effectType, currentValue) {
   if (effectType === 'base_speed_increment') patch.value = { walk: 0, fly: 0, swim: 0, climb: 0 }
   if (effectType === 'ability_score_uncapped') patch.break20 = {}
   if (effectType === 'choice') patch.value = { choiceOptions: [{ name: '选项 A', effects: [] }, { name: '选项 B', effects: [] }], choiceSelected: 0 }
+  const nextDataType = getEffectInfo(effectType)?.effect?.dataType
+  // 布尔型效果选中即启用：默认关着会让 DM 加了效果却毫无作用，且界面上看不出差别
+  if (nextDataType === 'boolean') patch.value = true
+  else if (typeof currentValue === 'boolean') patch.value = 0
   return patch
 }
 
