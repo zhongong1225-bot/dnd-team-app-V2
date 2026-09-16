@@ -10,7 +10,7 @@
  */
 
 import { getBuffsFromClassFeatures, getBuffsFromSelectedFeats } from './effects/effectMapping.js'
-import { getCharacterClasses, getMaxSpellSlotsByRing } from '../data/classDatabase.js'
+import { getCharacterClasses, getMaxSpellSlotsByRing, getPactSlotRing, getPactSlotsMaxByRing } from '../data/classDatabase.js'
 import { buildCardsFromCharacter } from './cardAdapter.js'
 import { normalizeChargeItemValue, resolveLevelScaling, getMainHandWeaponDamageType } from './chargeItemModel.js'
 import { deriveCooldownFromRecovery } from './recoveryCooldown.js'
@@ -181,6 +181,17 @@ export function canUseAbility(ability, char) {
           if (max > 0 && current <= 0) {
             return { usable: false, reason: `${ring}环法术位已耗尽` }
           }
+        } else if (norm.consumptionMode === 'pact') {
+          // 契约法术：独立契约池，环阶由魔契师等级自动识别
+          const ring = getPactSlotRing(char)
+          if (!ring) {
+            return { usable: false, reason: '无魔契师职业，无法消耗契约法术位' }
+          }
+          const pactMax = getPactSlotsMaxByRing(char)[ring] || 0
+          const pactCur = (char.pactSlots || {})[ring] ?? pactMax
+          if (pactMax > 0 && pactCur <= 0) {
+            return { usable: false, reason: `${ring}环契约法术位已耗尽` }
+          }
         } else if (norm.consumptionMode === 'free') {
           // 自由消耗：检查从 slotLevel 向下是否有任何环位有剩余
           const startRing = norm.slotLevel || 1
@@ -271,7 +282,18 @@ export function executeAbility(ability, char, options = {}) {
         const currentSlots = { ...(char.spellSlots || {}) }
         const newSlots = { ...currentSlots }
 
-        if (norm.consumptionMode === 'fixed') {
+        if (norm.consumptionMode === 'pact') {
+          // 契约法术：扣独立契约池，环阶自动识别
+          const ring = getPactSlotRing(char)
+          if (ring) {
+            const pactMax = getPactSlotsMaxByRing(char)[ring] || 0
+            const pactCurrent = { ...(char.pactSlots || {}) }
+            const pactCur = pactCurrent[ring] ?? pactMax
+            if (pactCur > 0) {
+              patch.pactSlots = { ...pactCurrent, [ring]: pactCur - 1 }
+            }
+          }
+        } else if (norm.consumptionMode === 'fixed') {
           // 固定消耗：扣减指定环位
           const ring = norm.slotLevel || 1
           const current = currentSlots[ring] || 0

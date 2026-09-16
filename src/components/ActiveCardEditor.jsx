@@ -23,6 +23,7 @@ import DurationEditor from './DurationEditor'
 /**
  * 从角色数据动态生成可用资源选项。
  * 规则：充能数始终可用 + 角色实际拥有的职业资源 + 有法术位时显示"法术位"。
+ * spellSlots 传入的是法术位上限（含魔契师契约槽），非当前剩余——剩余字段在休息/消耗前为空，会误判成无法术位。
  */
 function buildResourceOptions(charResources, spellSlots) {
   const opts = [
@@ -65,7 +66,7 @@ function buildResourceOptions(charResources, spellSlots) {
  * @param {function} props.onDurationChange   - 持续时间变更回调
  * @param {function} props.renderEffects      - 渲染效果区的函数（由 BuffForm 提供 ActiveEffectsList）
  * @param {object}   props.charResources      - 角色职业资源 (char.classResources)
- * @param {object}   props.spellSlots        - 角色法术位 (char.spellSlots)
+ * @param {object}   props.spellSlots        - 角色法术位上限（含契约槽），用于判断是否提供"法术位"选项
  */
 export default function ActiveCardEditor({
   data,
@@ -154,6 +155,7 @@ export default function ActiveCardEditor({
               >
                 <option value="fixed">固定消耗</option>
                 <option value="free">自由消耗</option>
+                <option value="pact">契约法术</option>
               </select>
               {(chargeData.consumptionMode || 'fixed') === 'fixed' ? (
                 <>
@@ -164,6 +166,8 @@ export default function ActiveCardEditor({
                     min={1} max={9} compact narrow className="!h-7"
                   />
                 </>
+              ) : chargeData.consumptionMode === 'pact' ? (
+                <span className="text-[10px] text-dnd-text-muted shrink-0">环阶由魔契师等级自动决定</span>
               ) : (
                 <>
                   <span className="text-[10px] text-dnd-text-muted shrink-0">最大环位</span>

@@ -113,6 +113,7 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   weapon_expertise: 'calculator',
   // custom
   custom_condition: 'metadata',
+  option_list: 'metadata',
 }
 
 /** @type {Record<string, 'calculator' | 'metadata'>} */

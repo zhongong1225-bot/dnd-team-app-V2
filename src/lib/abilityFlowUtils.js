@@ -1,5 +1,7 @@
 // src/lib/abilityFlowUtils.js
 
+import { getRerollValueLabel } from '../data/buffTypes'
+
 function hasAttackRoll(effects) {
   for (const eff of (effects || [])) {
     if (eff.type === 'spell' && eff.value?.hitResolution === 'spell_attack') return true
@@ -23,6 +25,7 @@ export function hasDiceEffects(effects) {
     if (eff.type === 'damage' || eff.type === 'heal') return true
     if (eff.type === 'ability' && (eff.value?.diceCount > 0)) return true
     if (eff.type === 'add_roll_dice' && (eff.value?.diceCount > 0)) return true
+    if (eff.type === 'reroll' && ((eff.value?.surfaces?.length > 0) || (eff.value?.extraDice?.diceCount > 0))) return true
     if (eff.type === 'spell') {
       if ((eff.value?.damageDiceCount || 0) > 0) return true
       const subs = eff.value?.subEffects || []
@@ -155,6 +158,9 @@ export function generatePreviewLines(effects, featureName) {
         break
       case 'add_roll_dice':
         lines.push(`🎲 增加投掷数 ${ev.diceCount || 1}d${ev.diceSides || 10}${ev.diceBonus ? `+${ev.diceBonus}` : ''}${ev.note ? `（${ev.note}）` : ''}`)
+        break
+      case 'reroll':
+        lines.push(`🎲 ${getRerollValueLabel(ev)}`)
         break
       default:
         lines.push(`✨ ${ev.title || eff.type}`)

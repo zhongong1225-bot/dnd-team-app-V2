@@ -57,7 +57,7 @@ import { collectTierMemberIds } from '../lib/weaponProficiency'
 
 import { getItemById, ITEM_DATABASE, parseWeaponNoteToTraits } from '../data/itemDatabase'
 import { getSpellById, getWandScrollSpellPower, getMergedSpells } from '../data/spellDatabase'
-import { getSpellcastingLevel, getMaxSpellSlotsByRing, getHitDice, getPrimarySpellcastingAbility, getCharacterClasses, getPactLevel, getPactSlotsByLevel } from '../data/classDatabase'
+import { getSpellcastingLevel, getMaxSpellSlotsByRing, getHitDice, getPrimarySpellcastingAbility, getCharacterClasses, getPactLevel, getPactSlotsByLevel, getPactSlotsMaxByRing, getSlotPoolForRing } from '../data/classDatabase'
 import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
 import { rollCombatDicePool, parseCombatDiceExpression } from '../data/weaponDatabase'
 import { buildQuickRollAnimation } from '../lib/quickRollAnimation'
@@ -1483,6 +1483,35 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       return next
     })
   }
+  // 契约法术位独立池（char.pactSlots），与常规法术位完全分开存储/扣减/恢复
+  const pactMaxByRing = useMemo(() => getPactSlotsMaxByRing(char), [char])
+  const visiblePactRings = useMemo(
+    () => [1, 2, 3, 4, 5, 6, 7, 8, 9].filter((r) => (pactMaxByRing[r] ?? 0) > 0),
+    [pactMaxByRing],
+  )
+  const [pactSlotsCurrentLocal, setPactSlotsCurrentLocal] = useState(char?.pactSlots ?? {})
+  const pactSlotsSaveTimerRef = useRef(null)
+  useEffect(() => {
+    setPactSlotsCurrentLocal(char?.pactSlots ?? {})
+  }, [char?.pactSlots])
+  useEffect(() => () => {
+    if (pactSlotsSaveTimerRef.current) clearTimeout(pactSlotsSaveTimerRef.current)
+  }, [])
+  const savePactSlotsDebounced = useCallback((next) => {
+    if (pactSlotsSaveTimerRef.current) clearTimeout(pactSlotsSaveTimerRef.current)
+    pactSlotsSaveTimerRef.current = setTimeout(() => {
+      onSave({ pactSlots: next })
+      pactSlotsSaveTimerRef.current = null
+    }, 140)
+  }, [onSave])
+  const setPactSlotCurrentTotal = (ring, remaining) => {
+    const max = pactMaxByRing[ring] ?? 0
+    setPactSlotsCurrentLocal((prev) => {
+      const next = { ...(prev ?? {}), [ring]: Math.max(0, Math.min(max, remaining)) }
+      savePactSlotsDebounced(next)
+      return next
+    })
+  }
   /** 同一轮施法内多次点击（法术攻击 + 伤害）避免重复扣法术位 */
   const spentSpellSlotIdsRef = useRef(new Set())
   const getSpellMeanSlotRing = useCallback((cm) => {
@@ -1504,17 +1533,20 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const ring = getSpellMeanSlotRing(cm)
     if (!ring) return true
     if (spentSpellSlotIdsRef.current.has(cm.id)) return true
-    const max = effectiveMaxByRing[ring] ?? 0
-    const totalCur = Math.min(max, Math.max(0, spellSlotsCurrentLocal[ring] ?? max))
+    const usePact = getSlotPoolForRing(char, ring) === 'pact'
+    const max = usePact ? (pactMaxByRing[ring] ?? 0) : (effectiveMaxByRing[ring] ?? 0)
+    const curPool = usePact ? pactSlotsCurrentLocal : spellSlotsCurrentLocal
+    const totalCur = Math.min(max, Math.max(0, curPool[ring] ?? max))
     if (totalCur <= 0) {
       window.alert(`${label || ring + ' 环法术位'}已耗尽`)
       return false
     }
-    setSpellSlotCurrentTotal(ring, totalCur - 1)
+    if (usePact) setPactSlotCurrentTotal(ring, totalCur - 1)
+    else setSpellSlotCurrentTotal(ring, totalCur - 1)
     spentSpellSlotIdsRef.current.add(cm.id)
     setTimeout(() => spentSpellSlotIdsRef.current.delete(cm.id), 8000)
     return true
-  }, [getSpellMeanSlotRing, effectiveMaxByRing, spellSlotsCurrentLocal])
+  }, [getSpellMeanSlotRing, effectiveMaxByRing, pactMaxByRing, spellSlotsCurrentLocal, pactSlotsCurrentLocal, char])
 
   const setBaseSlotCurrent = (ring, remainingBase) => {
     setSpellSlotCurrentTotal(ring, Math.max(0, Math.min(effectiveMaxByRing[ring] ?? 0, remainingBase)))
@@ -1721,15 +1753,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       }
     }
 
-    // 魔契师短休恢复契约法术位
+    // 魔契师短休恢复契约法术位（独立池，不与常规法术位合并）
     const pactLv = getPactLevel(char)
     if (pactLv > 0) {
       const pactSlots = getPactSlotsByLevel(pactLv)
-      const cur = spellSlotsCurrentLocal ?? {}
+      const cur = pactSlotsCurrentLocal ?? {}
       const recovered = {}
       let changed = false
       for (let ring = 1; ring <= 9; ring++) {
-        const max = effectiveMaxByRing[ring] ?? 0
+        const max = pactMaxByRing[ring] ?? 0
         const add = pactSlots[ring] ?? 0
         if (add > 0 && max > 0) {
           const curVal = Math.min(max, cur[ring] ?? max)
@@ -1743,8 +1775,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       }
       if (changed) {
         const merged = { ...(cur ?? {}), ...recovered }
-        setSpellSlotsCurrentLocal(merged)
-        onSave({ spellSlots: merged })
+        setPactSlotsCurrentLocal(merged)
+        onSave({ pactSlots: merged })
       }
     }
 
@@ -1846,6 +1878,27 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       onSave({ spellSlots: merged })
     }
 
+    // 长休恢复所有契约法术位到最大值（独立池）
+    const pactCur = pactSlotsCurrentLocal ?? {}
+    const pactRestored = {}
+    let pactChanged = false
+    for (let ring = 1; ring <= 9; ring++) {
+      const pactMax = pactMaxByRing[ring] ?? 0
+      if (pactMax > 0) {
+        const pactCurVal = pactCur[ring] ?? pactMax
+        if (pactCurVal < pactMax) {
+          pactRestored[ring] = pactMax
+          summary.pactSlots.push({ ring, from: pactCurVal, to: pactMax })
+          pactChanged = true
+        }
+      }
+    }
+    if (pactChanged) {
+      const pactMerged = { ...(pactCur ?? {}), ...pactRestored }
+      setPactSlotsCurrentLocal(pactMerged)
+      onSave({ pactSlots: pactMerged })
+    }
+
     // 重置长休冷却的主动技能（包括短休和长休冷却）
     const cooldownPatch = resetAbilityCooldowns(char, 'long', moduleId)
     if (cooldownPatch) {
@@ -1889,7 +1942,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
 
   const dexMod = abilityModifier(effectiveAbilities?.dex ?? 10)
   const init = dexMod + (buffStats?.initBonus ?? 0)
-  const perception = 10 + abilityModifier(effectiveAbilities?.wis ?? 10) + Math.floor(prof * skillProfFactor(effectiveSkillLevel(char?.skills?.perception, !!buffStats?.grantedSkillProficiencies?.perception)))
+  const perception = 10 + abilityModifier(effectiveAbilities?.wis ?? 10) + Math.floor(prof * skillProfFactor(effectiveSkillLevel(char?.skills?.perception, !!buffStats?.grantedSkillProficiencies?.perception, !!buffStats?.grantedSkillExpertise?.perception)))
   const speedBase = (char?.speed ?? 30) + (buffStats?.speedBonus ?? 0)
   const speedPenalty = buffStats?.speedExhaustionPenalty ?? 0
   const speed = Math.max(0, Math.floor(speedBase * (buffStats?.speedMultiplier ?? 1)) - speedPenalty)
@@ -2782,6 +2835,81 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               </div>
             </div>
           </div>
+          {visiblePactRings.length > 0 && (
+            <div className="w-full mt-2">
+              <div className="w-full min-w-0 flex flex-col gap-2 rounded border border-purple-400/25 bg-purple-500/10 p-2 sm:p-2.5 text-sm">
+                <div className="flex min-w-0 w-full items-stretch gap-2 sm:gap-3">
+                  <div className="flex shrink-0 flex-col justify-center border-r border-white/15 pr-2 sm:pr-3">
+                    <span className="text-purple-300 text-xs font-bold uppercase tracking-wide sm:text-sm">契约法术位</span>
+                  </div>
+                  <div className="flex min-w-0 flex-1 flex-col justify-center gap-1">
+                    <div className="flex min-h-9 min-w-0 flex-row items-center" role="group" aria-label="契约法术位，圆点均分宽度">
+                      {visiblePactRings.flatMap((ring, ringIdx) => {
+                        const max = pactMaxByRing[ring] ?? 0
+                        const cur = Math.min(max, Math.max(0, pactSlotsCurrentLocal[ring] ?? max))
+                        const sep = ringIdx > 0 ? (
+                          <div key={`sep-pact-${ring}`} className="mx-0.5 h-5 w-px shrink-0 self-center bg-white/20 sm:mx-1" aria-hidden />
+                        ) : null
+                        const out = []
+                        if (sep) out.push(sep)
+                        const numeralClass = 'text-[8px] sm:text-[9px] tabular-nums'
+                        if (canEdit) {
+                          for (let i = 0; i < max; i++) {
+                            const remainingIfClick = i + 1
+                            const isFilled = i < cur
+                            const tip = remainingIfClick === 1 && cur === 1
+                              ? '点击后剩余 0（实心=剩余，空心=已用）'
+                              : `点击后剩余 ${remainingIfClick}/${max}（实心=剩余，空心=已用）`
+                            out.push(
+                              <button
+                                key={`pact-${ring}-${i}`}
+                                type="button"
+                                onClick={() => {
+                                  if (remainingIfClick === 1 && cur === 1) setPactSlotCurrentTotal(ring, 0)
+                                  else setPactSlotCurrentTotal(ring, remainingIfClick)
+                                }}
+                                className="touch-manipulation flex min-h-9 min-w-0 flex-1 basis-0 items-center justify-center px-0.5"
+                                title={`${ring}环契约 · ${tip}`}
+                                aria-label={`${ring}环契约 · ${tip}`}
+                              >
+                                <span
+                                  className={`flex aspect-square max-h-7 w-full max-w-full min-w-[10px] items-center justify-center rounded-full border-2 px-px font-bold leading-none tracking-tight ${numeralClass} ${
+                                    isFilled
+                                      ? 'border-purple-300 bg-purple-500/85 text-[#141820] shadow-[0_0_6px_rgba(192,132,252,0.35)]'
+                                      : 'border-gray-500 bg-transparent text-gray-400'
+                                  }`}
+                                >
+                                  {ring}
+                                </span>
+                              </button>,
+                            )
+                          }
+                        } else {
+                          for (let i = 0; i < max; i++) {
+                            const isFilled = i < cur
+                            out.push(
+                              <div key={`pact-${ring}-${i}`} className="flex min-h-9 min-w-0 flex-1 basis-0 items-center justify-center px-0.5" aria-hidden>
+                                <span
+                                  className={`flex aspect-square max-h-7 w-full max-w-full min-w-[10px] items-center justify-center rounded-full border-2 px-px font-bold leading-none tracking-tight ${numeralClass} ${
+                                    isFilled
+                                      ? 'border-purple-300 bg-purple-500/85 text-[#141820]'
+                                      : 'border-gray-500 bg-transparent text-gray-400'
+                                  }`}
+                                >
+                                  {ring}
+                                </span>
+                              </div>,
+                            )
+                          }
+                        }
+                        return out
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : canEdit ? (
         <button type="button" onClick={() => { setShowSpellModule(true); onSave({ showSpellModule: true }); }} className="w-full mt-2 py-1.5 rounded-lg border border-dashed border-gray-500 text-gray-400 hover:bg-gray-800/50 text-sm font-bold uppercase tracking-wider">

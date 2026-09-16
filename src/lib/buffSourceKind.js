@@ -82,7 +82,9 @@ export function isVirtualBuffEntry(buff) {
  */
 export function getColumnKeyForBuff(buff) {
   if (!buff) return 'adventure'
-  if (buff.fromFeat || buff.fromInvocation || buff.fromFightingStyle) return 'feat'
+  // 魔能祈唤属职业资源，归职业栏；专长/战斗风格仍归专长栏
+  if (buff.fromInvocation) return 'class'
+  if (buff.fromFeat || buff.fromFightingStyle) return 'feat'
   if (buff.fromClassFeature) return 'class'
   if (buff.fromItem) return 'equipment'
   if (buff.fromRace || buff.fromBackground) return 'race'

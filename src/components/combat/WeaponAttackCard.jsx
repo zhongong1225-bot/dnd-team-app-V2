@@ -141,6 +141,7 @@ export default function WeaponAttackCard({ displayMean, weaponOpt, ctx, comboSuf
   const physicalAttackBonus = physStats?.physicalAttackBonus ?? 0
   const gainAdvantage = physStats?.gainAdvantage ?? null
   const weaponExtraDiceStrings = physStats?.weaponExtraDiceStrings ?? []
+  const pactWeapon = physStats?.pactWeapon ?? null
   // 明细须与卡面总加值对得上：damageMod 是剥夺属性调整值后实际生效的加值
   const damageMod = physStats?.damageMod ?? abilityMod
   const abilityModNote = physStats?.canAddAbilityMod === false && abilityMod > 0
@@ -204,6 +205,12 @@ export default function WeaponAttackCard({ displayMean, weaponOpt, ctx, comboSuf
           <ActionLabelBadge source={displayMean.actionLabel || '1 动作'} />
           {displayMean.slotLabel && <span className="shrink-0 text-[10px] text-gray-500">{displayMean.slotLabel}</span>}
           <span className={`text-white font-medium ${CM_MEAN_HI} truncate min-w-0`}>{fullName}</span>
+          {pactWeapon && (
+            <span
+              className="shrink-0 px-1 rounded text-[10px] font-semibold leading-4 border border-dnd-gold/60 text-dnd-gold"
+              title="契约武器"
+            >契</span>
+          )}
           {canEdit && (
             <button type="button" onClick={(e) => { e.stopPropagation(); onEdit() }} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-dnd-gold-light shrink-0" title={isCombo ? '编辑组合技' : '编辑武器'}>
               <Pencil size={12} />

@@ -81,7 +81,7 @@ function buffEntryToCard(buffEntry) {
     'spell', 'ability', 'shield', 'temp_buff', 'creature_transform',
     'restore_spell_slots', 'summon', 'custom_logic', 'damage', 'heal',
     'random_table', 'attack_buff', 'consume_spell_slot_to_restore_charges',
-    'add_roll_dice'
+    'add_roll_dice', 'reroll'
   ]
   
   // 原始 effects 数组（用于提取 charge_item/contained_spell）

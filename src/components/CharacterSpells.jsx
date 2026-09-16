@@ -6,7 +6,7 @@ import { useMemo, useState, useRef, useEffect, useCallback } from 'react'
 import { ArrowLeft, Trash2, Search, BookOpen, Plus, ChevronDown, ChevronRight, User } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { getSpellById, getSpellsByClass, searchSpells } from '../data/spellDatabase'
-import { getCharacterClasses, getMaxSpellSlotsByRing } from '../data/classDatabase'
+import { getCharacterClasses, getMaxSpellSlotsByRing, getPactSlotRing, getPactSlotsMaxByRing, getSlotPoolForRing } from '../data/classDatabase'
 import { useModule } from '../contexts/ModuleContext'
 import { useBuffCalculator } from '../hooks/useBuffCalculator'
 import { getMergedBuffsForCalculator, getFlatEffectEntries } from '../lib/effects/effectMapping'
@@ -162,6 +162,9 @@ export default function CharacterSpells({
     })
   }, [char])
 
+  /** 魔契师契约法术位环阶（用于将所有法术显示为同一环阶） */
+  const pactSlotRing = useMemo(() => getPactSlotRing(char), [char])
+
   /** 按环阶分组（0→9），同环内按名称排序 */
   const spellsByLevel = useMemo(() => {
     const grouped = {}
@@ -178,11 +181,23 @@ export default function CharacterSpells({
       .filter(Boolean)
       .sort((a, b) => (a.spell.name ?? '').localeCompare(b.spell.name ?? ''))
       .forEach((item) => {
-        const lv = item.spell.level ?? 0
+        // 魔契师特殊规则：所有已准备法术都显示为契约法术位的环阶
+        // 但戏法(level=0)和玄奥秘法(6-9环，来自mystic_arcanum特性)保持原环阶
+        let lv = item.spell.level ?? 0
+        
+        // 检查是否为玄奥秘法（通过检查是否有mystic_arcanum相关的标记或效果）
+        const isMysticArcanum = item.mysticArcanum === true || 
+          (item.spell.level >= 6 && item.spell.level <= 9 && char?.selectedClassFeatures?.some(f => f.includes('mystic_arcanum')))
+        
+        // 戏法和玄奥秘法保持原环阶，其他法术如果是魔契师则使用契约环阶
+        if (lv > 0 && !isMysticArcanum && pactSlotRing != null) {
+          lv = pactSlotRing
+        }
+        
         if (grouped[lv]) grouped[lv].push(item)
       })
     return grouped
-  }, [spells, innateSpells])
+  }, [spells, innateSpells, pactSlotRing, char])
 
   /** 目录：第一层级环位、第二层级该环下的法术名（顺序与右侧卡片一致） */
   const spellTocGroups = useMemo(() => {
@@ -266,6 +281,18 @@ export default function CharacterSpells({
     onSave({ spellSlots: next })
   }
 
+  // 契约法术位独立池：常规池在该环无槽而契约池有槽时，施法读写契约池
+  const pactMaxByRing = useMemo(() => getPactSlotsMaxByRing(char), [char])
+  const pactSlotsCurrent = char?.pactSlots ?? {}
+  const slotRemainingForRing = useCallback((ring) => {
+    if (getSlotPoolForRing(char, ring) === 'pact') {
+      const max = pactMaxByRing[ring] ?? 0
+      return Math.max(0, Math.min(max, pactSlotsCurrent[ring] ?? max))
+    }
+    const max = effectiveMaxByRing[ring] ?? 0
+    return Math.max(0, Math.min(max, spellSlotsCurrent[ring] ?? max))
+  }, [char, pactMaxByRing, pactSlotsCurrent, effectiveMaxByRing, spellSlotsCurrent])
+
   const preparedCount = useMemo(() => {
     return spells.filter((s) => {
       const spell = getSpellById(s.spellId)
@@ -276,6 +303,7 @@ export default function CharacterSpells({
 
   const classes = getCharacterClasses(char) ?? []
   const prepareAllClass = classes.find((c) => PREPARE_ALL_CLASSES.includes(c.name))?.name
+  const addSpellsLabel = classes.length ? `添加${classes.map((c) => c.name).join('、')}法术` : '添加法术'
 
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -305,11 +333,19 @@ export default function CharacterSpells({
       const ring = castRing
       const spell = castModal.spell
       const spellId = castModal.spellId
-      const maxR = effectiveMaxByRing[ring] ?? 0
-      const cur = Math.max(0, (spellSlotsCurrent[ring] ?? maxR) - 1)
-      const nextSlots = { ...spellSlotsCurrent, [ring]: cur }
-      setOptimisticSpellSlots(nextSlots)
-      const patch = { spellSlots: nextSlots }
+      const usePact = getSlotPoolForRing(char, ring) === 'pact'
+      const patch = {}
+      if (usePact) {
+        const maxR = pactMaxByRing[ring] ?? 0
+        const cur = Math.max(0, (pactSlotsCurrent[ring] ?? maxR) - 1)
+        patch.pactSlots = { ...pactSlotsCurrent, [ring]: cur }
+      } else {
+        const maxR = effectiveMaxByRing[ring] ?? 0
+        const cur = Math.max(0, (spellSlotsCurrent[ring] ?? maxR) - 1)
+        const nextSlots = { ...spellSlotsCurrent, [ring]: cur }
+        setOptimisticSpellSlots(nextSlots)
+        patch.spellSlots = nextSlots
+      }
       if (psychicEchoSuccess && hasPsychicCollapse && spell) {
         patch.psychicCollapseEcho = {
           spellId,
@@ -326,7 +362,10 @@ export default function CharacterSpells({
       castModal.spell,
       castModal.spellId,
       effectiveMaxByRing,
+      pactMaxByRing,
+      pactSlotsCurrent,
       spellSlotsCurrent,
+      char,
       hasPsychicCollapse,
       onSave,
     ],
@@ -470,10 +509,10 @@ export default function CharacterSpells({
             setDropdownOpen((v) => !v)
           }}
           className={primaryWide}
-          title="仅列出当前角色职业法表中可学、且尚未加入的法术"
+          title={`仅列出${classes.map((c) => c.name).join('、') || '该角色'}法表中可学、且尚未加入的法术`}
         >
           <Plus className="h-3.5 w-3.5 shrink-0 opacity-90" />
-          添加法术
+          {addSpellsLabel}
           <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
         </button>
         {dropdownOpen && (
@@ -767,8 +806,9 @@ export default function CharacterSpells({
       const levelSpells = spellsByLevel[level] ?? []
       if (levelSpells.length === 0) return null
       const levelLabel = LEVEL_LABELS[level] ?? `${level}环`
-      const maxSlots = level >= 1 ? (maxSlotsByRing[level] ?? 0) : 0
-      const currentSlots = level >= 1 ? (spellSlotsCurrent[level] ?? maxSlots) : 0
+      const usePactPool = level >= 1 && getSlotPoolForRing(char, level) === 'pact'
+      const maxSlots = level >= 1 ? (usePactPool ? (pactMaxByRing[level] ?? 0) : (maxSlotsByRing[level] ?? 0)) : 0
+      const currentSlots = level >= 1 ? slotRemainingForRing(level) : 0
       const clampedCurrent = Math.min(maxSlots, Math.max(0, currentSlots))
       const ringCardOpen = openSpellLevelCards.has(level)
 
@@ -886,7 +926,8 @@ export default function CharacterSpells({
           </div>
           {ringCardOpen && (
             <div className="grid grid-cols-2 gap-3 px-3 py-3 sm:grid-cols-4">
-              {levelSpells.map(({ spellId, prepared, spell }) => {
+              {levelSpells.map((item) => {
+                const { spellId, prepared, spell } = item
                 const metaItems = [
                   { label: '施法时间', value: spell.castingTime },
                   { label: '施法距离', value: spell.range },
@@ -968,11 +1009,18 @@ export default function CharacterSpells({
                         <button
                           type="button"
                           onClick={() => {
-                            if ((spell.level ?? 0) === 0) {
+                            // 戏法不能消耗法术位
+                            const actualLevel = spell.level ?? 0
+                            if (actualLevel === 0) {
                               return
                             }
-                            setCastModal({ open: true, spell, spellId, spellLevel: spell.level })
-                            setCastRing(spell.level)
+                            // 魔契师使用契约法术位环阶（戏法和玄奥秘法除外）
+                            const isMysticArcanum = item.mysticArcanum === true || 
+                              (actualLevel >= 6 && actualLevel <= 9 && char?.selectedClassFeatures?.some(f => f.includes('mystic_arcanum')))
+                            const castLevel = (!isMysticArcanum && pactSlotRing != null) ? pactSlotRing : actualLevel
+                            
+                            setCastModal({ open: true, spell, spellId, spellLevel: castLevel })
+                            setCastRing(castLevel)
                           }}
                           className="btn-panel-add w-full"
                         >
@@ -1154,9 +1202,9 @@ export default function CharacterSpells({
                 <label className="mb-1.5 block text-xs font-medium text-dnd-text-muted">用几环施法（升环施法）</label>
                 <div className="flex flex-wrap gap-1.5">
                   {Array.from({ length: 10 - castModal.spellLevel }, (_, i) => castModal.spellLevel + i).map((r) => {
-                    const maxR = effectiveMaxByRing[r] ?? 0
-                    const rawRem = spellSlotsCurrent[r] ?? maxR
-                    const rem = Math.min(maxR, Math.max(0, rawRem))
+                    const usePact = getSlotPoolForRing(char, r) === 'pact'
+                    const maxR = usePact ? (pactMaxByRing[r] ?? 0) : (effectiveMaxByRing[r] ?? 0)
+                    const rem = slotRemainingForRing(r)
                     const ok = rem > 0
                     return (
                       <button
@@ -1207,13 +1255,7 @@ export default function CharacterSpells({
                     applyCastConsumption({})
                     setCastModal((m) => ({ ...m, open: false }))
                   }}
-                  disabled={
-                    (() => {
-                      const maxR = effectiveMaxByRing[castRing] ?? 0
-                      const raw = spellSlotsCurrent[castRing] ?? maxR
-                      return Math.min(maxR, Math.max(0, raw)) <= 0
-                    })()
-                  }
+                  disabled={slotRemainingForRing(castRing) <= 0}
                   className="flex-1 rounded-lg bg-dnd-red py-2 text-sm font-medium text-white hover:bg-dnd-red-hover disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {hasPsychicCollapse && castRing >= 1 ? '投掷并继续' : '确认释放'}

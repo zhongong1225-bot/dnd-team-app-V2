@@ -25,7 +25,7 @@ import {
   getPrimarySpellcastingAbility,
   getCharacterClasses,
   getClassData,
-  getMaxSpellSlotsByRing,
+  getAnySpellSlotMaxByRing,
 } from '../data/classDatabase'
 import { useRuleTextOverridesMap } from '../hooks/useRuleTextOverridesMap'
 import {
@@ -80,6 +80,7 @@ import { buildCardsFromCharacter, findActiveAbilityInCards, findAllActiveAbiliti
 import { isVirtualBuffEntry } from '../lib/buffSourceKind'
 import { getShieldPoolCurrent, setShieldPoolCurrent, decrementShieldPool, resetShieldPool } from '../lib/shieldPoolUtils'
 import { formatRecoveryBrief, resolveChargeItemCharges, RESOURCE_TYPE_OPTIONS } from '../lib/chargeItemModel'
+import { OPTION_LIST_DEFAULT_TITLE, extractOptionLists, normalizeOptionListValue } from '../lib/optionListModel'
 import { deriveCooldownFromRecovery } from '../lib/recoveryCooldown'
 import AbilityUseModal from '../components/AbilityUseModal'
 import { SCOPE_TYPE_OPTIONS } from '../lib/cardModel'
@@ -770,6 +771,15 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
     if (!selectedRace?.subraces || !raceCard.subraceId) return null
     return selectedRace.subraces.find(s => s.id === raceCard.subraceId) || null
   }, [selectedRace, raceCard.subraceId])
+  // 属性加值槽：由种族+子种族 abilityScoreBonuses 生成，每槽点数固定（如 +2 / +1），玩家只选填哪个属性
+  const asiSlots = useMemo(() => {
+    const raceBonuses = normalizeAbilityScoreBonuses(selectedRace?.abilityScoreBonuses, [])
+    const subraceBonuses = normalizeAbilityScoreBonuses(selectedSubrace?.abilityScoreBonuses, [])
+    return [
+      ...raceBonuses.map(b => ({ ...b, source: 'race' })),
+      ...subraceBonuses.map(b => ({ ...b, source: 'subrace' })),
+    ]
+  }, [selectedRace, selectedSubrace])
   const selectedBackground = useMemo(() => getBackgroundById(backgroundCard.backgroundId), [backgroundCard.backgroundId])
 
   // 旧数据一次性迁移：asiAssignments 键不存在时尝试从旧格式推断
@@ -838,15 +848,21 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
     setRaceBuffEditorOpen(false)
   }
 
-  // 属性加值编辑 - 进入编辑模式
+  // 属性加值编辑 - 进入编辑模式（草稿按槽位对齐，点数取自槽定义）
   const handleAsiEditStart = () => {
-    setAsiDraftAssignments([...(raceCard.asiAssignments || [])])
+    const existing = raceCard.asiAssignments || []
+    setAsiDraftAssignments(asiSlots.map((s, i) => ({ ability: existing[i]?.ability || '', amount: s.amount })))
     setAsiEditMode(true)
   }
 
-  // 属性加值编辑 - 保存
+  // 属性加值编辑 - 保存（按槽顺序写回，点数固定为槽的 amount）
   const handleAsiSave = () => {
-    onSave({ raceCard: { ...raceCard, asiAssignments: [...asiDraftAssignments] } })
+    const cleaned = asiSlots.map((s, i) => ({
+      ability: asiDraftAssignments[i]?.ability || '',
+      amount: s.amount,
+      source: s.source,
+    }))
+    onSave({ raceCard: { ...raceCard, asiAssignments: cleaned } })
     setAsiEditMode(false)
   }
 
@@ -856,14 +872,13 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
     setAsiEditMode(false)
   }
 
-  // 属性加值编辑 - 修改草稿
-  const handleAsiDraftChange = (index, ability, amount) => {
-    const existing = [...asiDraftAssignments]
-    existing.splice(index, 1)
-    if (ability && amount) {
-      existing.push({ ability, amount })
-    }
-    setAsiDraftAssignments(existing)
+  // 属性加值编辑 - 修改草稿（只改属性，点数由槽固定）
+  const handleAsiDraftChange = (index, ability) => {
+    setAsiDraftAssignments(prev => {
+      const next = [...prev]
+      next[index] = { ability: ability || '', amount: asiSlots[index]?.amount || 1 }
+      return next
+    })
   }
 
   const handleBackgroundBuffSave = (buff) => {
@@ -1131,54 +1146,20 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
 
       {(showSelectors || readonlyAsi) && raceCard.raceId && (
         <>
-          {/* 属性加值分配 — 从种族定义的加值槽生成下拉菜单 */}
-          {(() => {
-            const raceBonuses = normalizeAbilityScoreBonuses(selectedRace?.abilityScoreBonuses, [])
-            const subraceBonuses = normalizeAbilityScoreBonuses(selectedSubrace?.abilityScoreBonuses, [])
-            
-            console.log('[ASI] selectedRace.abilityScoreBonuses:', selectedRace?.abilityScoreBonuses)
-            console.log('[ASI] raceBonuses:', raceBonuses)
-            
-            // 收集所有强势属性（种族编辑器中勾选的属性）
-            const strongAbilities = new Set()
-            raceBonuses.forEach(b => {
-              if (Array.isArray(b.allowedAbilities)) {
-                b.allowedAbilities.forEach(k => strongAbilities.add(k))
-              }
-            })
-            subraceBonuses.forEach(b => {
-              if (Array.isArray(b.allowedAbilities)) {
-                b.allowedAbilities.forEach(k => strongAbilities.add(k))
-              }
-            })
-            
-            console.log('[ASI] strongAbilities:', Array.from(strongAbilities))
-            
-            // 即使没有强势属性，也应该显示分配区域（所有属性都只能+1）
-            
-            const assignments = asiEditMode ? asiDraftAssignments : (raceCard.asiAssignments || [])
+          {/* 属性加值分配 — 按种族/子种族的加值槽渲染，每槽点数固定（+2 / +1），只选填属性 */}
+          {asiSlots.length > 0 && (() => {
             const ALL_ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha']
-            
-            const getMaxAmount = (ability) => {
-              if (!ability) return 2
-              if (strongAbilities.size === 0) return 1
-              const isStrong = strongAbilities.has(ability)
-              return isStrong ? 2 : 1
-            }
-            
-            const isAbilityTaken = (ability, currentIndex) => {
-              return assignments.some((a, idx) => idx !== currentIndex && a.ability === ability)
-            }
-            
-            // 确保assignments数组至少有3个元素
-            const displayAssignments = [...assignments]
-            while (displayAssignments.length < 3) {
-              displayAssignments.push({ ability: '', amount: 1 })
-            }
-            
-            // 已分配的摘要文本
-            const assignedSummary = assignments.filter(a => a.ability).map(a => `+${a.amount}${ABILITY_NAMES_ZH[a.ability]}`).join(' ')
-            
+            const stored = raceCard.asiAssignments || []
+            const draft = asiEditMode
+              ? asiDraftAssignments
+              : asiSlots.map((s, i) => ({ ability: stored[i]?.ability || '', amount: s.amount }))
+            const assignedSummary = asiSlots
+              .map((s, i) => (stored[i]?.ability ? `+${s.amount}${ABILITY_NAMES_ZH[stored[i].ability]}` : null))
+              .filter(Boolean)
+              .join(' ')
+            const isAbilityTaken = (ability, currentIndex) =>
+              draft.some((a, idx) => idx !== currentIndex && a.ability === ability)
+
             return (
               <>
                 <span className="col-span-2 text-right text-[11px] text-[#8899aa] font-medium bg-[#1a2535] rounded-md border border-[#2a3a4e] px-2 py-1.5">属性加值</span>
@@ -1199,40 +1180,29 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
                       )}
                     </>
                   ) : (
-                    // 编辑模式：下拉框 + 输入框 + 保存/取消按钮
+                    // 编辑模式：每个加值槽一个「+点数 + 属性下拉」
                     <>
                       <span className="text-[10px] text-gray-500 shrink-0">分配</span>
-                      {displayAssignments.slice(0, 3).map((assignment, i) => {
-                        const maxAmount = getMaxAmount(assignment.ability)
+                      {asiSlots.map((slot, i) => {
+                        const allowed = Array.isArray(slot.allowedAbilities) && slot.allowedAbilities.length > 0
+                          ? slot.allowedAbilities
+                          : ALL_ABILITY_KEYS
+                        const chosen = draft[i]?.ability || ''
                         return (
                           <div key={i} className="flex items-center gap-1.5 shrink-0">
-                            <select 
-                              value={assignment.ability || ''} 
-                              onChange={e => handleAsiDraftChange(i, e.target.value, assignment.amount)}
+                            <span className="shrink-0 text-[12px] font-semibold text-dnd-gold tabular-nums">+{slot.amount}</span>
+                            <select
+                              value={chosen}
+                              onChange={e => handleAsiDraftChange(i, e.target.value)}
                               className="px-2 py-1 rounded bg-[#141c28] border border-[#2a3a4e] text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 w-[90px]"
                             >
                               <option value="">选择属性</option>
                               {ALL_ABILITY_KEYS.map(k => (
-                                <option key={k} value={k} disabled={isAbilityTaken(k, i)}>
-                                  {ABILITY_NAMES_ZH[k]}{strongAbilities.has(k) ? ' (强)' : ''}
+                                <option key={k} value={k} disabled={!allowed.includes(k) || isAbilityTaken(k, i)}>
+                                  {ABILITY_NAMES_ZH[k]}
                                 </option>
                               ))}
                             </select>
-                            {assignment.ability && (
-                              <input
-                                type="number"
-                                min="1"
-                                max={maxAmount}
-                                value={assignment.amount}
-                                onChange={e => {
-                                  let val = Number(e.target.value)
-                                  if (val < 1) val = 1
-                                  if (val > maxAmount) val = maxAmount
-                                  handleAsiDraftChange(i, assignment.ability, val)
-                                }}
-                                className="px-1.5 py-1 rounded bg-[#141c28] border border-[#2a3a4e] text-xs text-gray-200 focus:outline-none focus:border-dnd-gold/50 w-[45px] text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                              />
-                            )}
                           </div>
                         )
                       })}
@@ -1408,7 +1378,7 @@ function RaceBackgroundInline({ char, canEdit, onSave, raceBuffEditorOpen, setRa
               compact: true,
               hideDuration: true,
               charResources: char?.classResources,
-              spellSlots: char?.spellSlots,
+              spellSlots: getAnySpellSlotMaxByRing(char),
               charClasses,
               referenceData,
               baseReferenceData,
@@ -1983,6 +1953,44 @@ export function syncFeatsWithSlots(rawFeats, slots) {
   return next
 }
 
+// 属性值提升类职业特性（含奇械师「额外专长」）；与 computeFeatSlots 的回退判定同名
+const ASI_FEATURE_NAME_RE = /^(属性值提升|属性提升|额外专长)$/
+
+function isAsiFeature(f) {
+  return ASI_FEATURE_NAME_RE.test(f?.name || '')
+}
+
+// 该职业在 classDatabase 中是否用「逐级 ASI 卡」（多张属性值提升卡），否则单卡覆盖多个等级
+function classUsesPerLevelAsiCards(className) {
+  const data = getClassData(className)
+  if (!data?.features) return false
+  return data.features.filter((ft) => ASI_FEATURE_NAME_RE.test(ft?.name || '')).length > 1
+}
+
+// 从专长槽条目推导「属性值提升/选专长」的中文摘要
+function summarizeFeatSlotChoice(row, featById) {
+  if (!row?.featId) return '待选择'
+  const effects = Array.isArray(row?.featBuffPatch?.effects) ? row.featBuffPatch.effects : []
+  if (row.featId === 'ability_score_improvement') {
+    const asi = effects.find(
+      (e) => e.effectType === 'ability_score_uncapped' && e.value && typeof e.value === 'object',
+    )
+    if (asi) {
+      const entries = Object.entries(asi.value).filter(([, v]) => Number(v))
+      if (entries.length === 1) {
+        const [k, v] = entries[0]
+        return `${ABILITY_NAMES_ZH[k] || k}+${v}`
+      }
+      if (entries.length >= 2) {
+        return entries.map(([k, v]) => `${ABILITY_NAMES_ZH[k] || k}+${v}`).join(' ')
+      }
+    }
+    return '属性值提升'
+  }
+  const feat = featById?.get(row.featId)
+  return `专长：${feat?.name || row.featId}`
+}
+
 function mergeSelectedInvocations(current, nextIds) {
   const pool = (current || []).map((x) => {
     const invocationId = typeof x === 'string' ? x : (x?.invocationId ?? x?.id ?? '')
@@ -2044,6 +2052,10 @@ function getMaxInvocationsByWarlockLevel(level) {
 function EldritchInvocationsBlock({ char, canEdit, onSave, moduleId, referenceData, baseReferenceData, formulaContext }) {
   const [modalOpen, setModalOpen] = useState(false)
   const [buffEditorId, setBuffEditorId] = useState(null)
+  const [openIds, setOpenIds] = useState({})
+  const [useChargeValue, setUseChargeValue] = useState(null)
+  const [lastResult, setLastResult] = useState(null)
+  const toggleOpen = (id) => setOpenIds((prev) => ({ ...prev, [id]: !prev[id] }))
   const selected = char?.selectedInvocations ?? []
   const byId = useMemo(() => new Map(ELDRITCH_INVOCATIONS.map((x) => [x.id, x])), [])
   const selectedIds = selected.map((x) =>
@@ -2094,37 +2106,99 @@ function EldritchInvocationsBlock({ char, canEdit, onSave, moduleId, referenceDa
         )}
       </div>
       {selected.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="space-y-1">
           {selected.map((x, i) => {
             const id = typeof x === 'string' ? x : (x?.invocationId ?? x?.id ?? '')
             const inv = byId.get(id)
             const configured = hasOwnConfig(id)
-            const inner = (
-              <>
-                {configured && <span className="w-1.5 h-1.5 rounded-full bg-dnd-gold shrink-0" aria-hidden />}
-                {inv?.name ?? id}
-              </>
-            )
-            const cls = `inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-white/10 bg-[#243147]/60 text-xs text-gray-200`
-            return canEdit ? (
-              <button
-                key={`${id}-${i}`}
-                type="button"
-                onClick={() => setBuffEditorId(id)}
-                className={`${cls} hover:border-dnd-gold/50 hover:bg-[#2c3b55] transition-colors cursor-pointer`}
-                title={`点击编辑「${inv?.name ?? id}」对本角色的效果${inv?.description ? '｜' + inv.description : ''}`}
-              >
-                {inner}
-              </button>
-            ) : (
-              <span key={`${id}-${i}`} className={cls} title={inv?.description ?? ''}>
-                {inner}
-              </span>
+            const row = getRow(id)
+            const charPatch = row && typeof row === 'object' ? row.invocationBuffPatch : null
+            const defaultPatch = moduleId ? loadDefaultBuffPatch(moduleId, 'invocation', id) : null
+            const merged = mergeWithDefaultPatch(charPatch, defaultPatch)
+            const allEffects = Array.isArray(merged?.effects) ? merged.effects : []
+            const activeEffects = allEffects.filter((e) => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
+            const summaries = allEffects
+              .filter((e) => !(e.effectType === 'charge_item' && e.value && typeof e.value === 'object'))
+              .map((e) => getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText, scope: e.scope, scopeDetail: e.scopeDetail }, formulaContext))
+              .filter(Boolean)
+            const open = !!openIds[id]
+            return (
+              <div key={`${id}-${i}`} className="rounded-md border border-[#2a3a4e] bg-[#1a2535] px-2 py-1.5">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleOpen(id)}
+                    className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-[#667788] hover:text-dnd-gold hover:bg-white/[0.06] transition-colors"
+                    title={open ? '收起说明' : '展开说明'}
+                  >
+                    {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+                  <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                    {configured && <span className="w-1.5 h-1.5 rounded-full bg-dnd-gold shrink-0" aria-hidden />}
+                    <span className="text-[13px] font-semibold text-white shrink-0">{inv?.name ?? id}</span>
+                    {summaries.length > 0 && (
+                      <span className="text-[11px] text-[#8899aa] truncate">{summaries.slice(0, 3).join('・')}</span>
+                    )}
+                  </div>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => setBuffEditorId(id)}
+                      className="shrink-0 w-6 h-6 flex items-center justify-center rounded text-[#667788] hover:text-dnd-gold hover:bg-white/[0.06] transition-colors"
+                      title={`编辑「${inv?.name ?? id}」对本角色的效果`}
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  {activeEffects.length > 0 && (
+                    <div className="shrink-0 w-32 flex flex-col gap-1">
+                      {activeEffects.map((ce, ci) => {
+                        const cv = ce.value
+                        const charges = resolveChargeItemCharges(cv, char)
+                        const resourceType = cv.resourceType || 'charges'
+                        return (
+                          <EnergyBarButton
+                            key={ci}
+                            name={cv.title || '释放'}
+                            chargeInfo={resourceType === 'charges' && charges > 0 ? `(${charges})` : null}
+                            onClick={() => setUseChargeValue(cv)}
+                          />
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+                {open && (
+                  <div className="text-[11px] text-[#8899aa] leading-snug mt-1 pl-7 space-y-0.5">
+                    {inv?.description && <div>{inv.description}</div>}
+                    {summaries.length > 3 && <div>{summaries.slice(3).join('・')}</div>}
+                  </div>
+                )}
+              </div>
             )
           })}
         </div>
       ) : (
         <p className="text-gray-500 text-xs">未选择魔能祈唤</p>
+      )}
+      {lastResult && (
+        <div className="w-full mt-1 text-[11px] text-gray-300 space-y-0.5">
+          {lastResult.lines.map((line, i) => (
+            <div key={i}>{line}</div>
+          ))}
+        </div>
+      )}
+      {useChargeValue && (
+        <AbilityUseModal
+          chargeValue={useChargeValue}
+          char={char}
+          featureName={useChargeValue?.title || '魔能祈唤'}
+          onConfirm={(patch, lines) => {
+            if (patch && Object.keys(patch).length > 0) onSave(patch)
+            setLastResult({ lines })
+          }}
+          onClose={() => setUseChargeValue(null)}
+        />
       )}
       <EldritchInvocationPicker
         isOpen={modalOpen}
@@ -2148,11 +2222,12 @@ function EldritchInvocationsBlock({ char, canEdit, onSave, moduleId, referenceDa
             onClose={() => setBuffEditorId(null)}
             title={`编辑魔能祈唤效果：${inv?.name ?? buffEditorId}`}
             description="自定义该祈唤对本角色的 BUFF 效果，保存后立即生效。"
+            intro={inv?.description || null}
             buffFormProps={{
               key: `invocation-buff-${buffEditorId}`,
               compact: true,
               charResources: char?.classResources,
-              spellSlots: char?.spellSlots,
+              spellSlots: getAnySpellSlotMaxByRing(char),
               charClasses,
               referenceData, baseReferenceData, formulaContext,
               initial: {
@@ -2254,51 +2329,102 @@ function FightingStylesBlock({ char, feature, canEdit, onSave, moduleId }) {
   )
 }
 
-/** 职业特性动作按钮：根据 BUFF 配置渲染充能使用等按钮（含确认弹窗 + 效果处理） */
-function ClassFeatureActions({ feature, moduleId, char, onSave }) {
+/** 职业特性主动释放按钮：mode='single' 渲染底部单按钮；mode='list' 渲染整宽多按钮行（≥2 个释放效果时） */
+function ClassFeatureActions({ feature, moduleId, char, onSave, chargeEffects: chargeEffectsProp, mode = 'single' }) {
   const [lastResult, setLastResult] = useState(null)
   const [useChargeValue, setUseChargeValue] = useState(null)
-  const [useActiveAbility, setUseActiveAbility] = useState(null)
 
-  const buffKey = buildClassFeatureBuffKey(feature.sourceClass, feature.sourceSubclass, feature.id)
-
-  /* ── 主动释放按钮（统一从 card.buffEffects 读取 charge_item）── */
-  const classes = getCharacterClasses(char)
-  const cls = classes.find((c) => c.name === feature.sourceClass)
-  const classLevel = cls?.level || 1
-  const subclass = cls?.subclass || ''
-  const cards = buildCardsFromCharacter(char, moduleId)
-  // 查找对应的卡
-  const featureCard = cards.find(c =>
-    c.slotKind === 'class' &&
-    c.sourceKey === `${feature.sourceClass}|${feature.sourceSubclass || ''}|${feature.id}`
-  )
-  // 优先从卡读取 charge_item 效果
-  let chargeEffects = featureCard && Array.isArray(featureCard.buffEffects)
-    ? featureCard.buffEffects.filter((e) => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
-    : []
-  // 回退：卡没有时从 defaultPatch 读取（兼容旧数据）
-  if (chargeEffects.length === 0) {
-    const defaultPatch = loadDefaultBuffPatch(moduleId, 'classFeature', buffKey)
-    const effects = Array.isArray(defaultPatch?.effects) ? defaultPatch.effects : []
-    chargeEffects = effects.filter((e) => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
+  let chargeEffects = chargeEffectsProp
+  if (!chargeEffects) {
+    const buffKey = buildClassFeatureBuffKey(feature.sourceClass, feature.sourceSubclass, feature.id)
+    const cards = buildCardsFromCharacter(char, moduleId)
+    const featureCard = cards.find(c =>
+      c.slotKind === 'class' &&
+      c.sourceKey === `${feature.sourceClass}|${feature.sourceSubclass || ''}|${feature.id}`
+    )
+    chargeEffects = featureCard && Array.isArray(featureCard.buffEffects)
+      ? featureCard.buffEffects.filter((e) => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
+      : []
+    if (chargeEffects.length === 0) {
+      const defaultPatch = loadDefaultBuffPatch(moduleId, 'classFeature', buffKey)
+      const effects = Array.isArray(defaultPatch?.effects) ? defaultPatch.effects : []
+      chargeEffects = effects.filter((e) => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
+    }
   }
 
   const getResourceLabel = (resourceType) => {
     return RESOURCE_TYPE_OPTIONS.find((o) => o.value === resourceType)?.label ?? resourceType
   }
+  const isClassResourceType = (resourceType) =>
+    !!resourceType && resourceType !== 'charges' && resourceType !== 'none' && !/^spell_slot/.test(resourceType)
 
   if (chargeEffects.length === 0) return null
+
+  const renderModal = () => useChargeValue && (
+    <AbilityUseModal
+      chargeValue={useChargeValue}
+      char={char}
+      featureName={useChargeValue?.title || feature.name}
+      onConfirm={(patch, lines) => {
+        if (patch && Object.keys(patch).length > 0) onSave(patch)
+        setLastResult({ lines })
+      }}
+      onClose={() => setUseChargeValue(null)}
+    />
+  )
+
+  const renderResult = () => lastResult && (
+    <div className="w-full mt-1 text-[11px] text-gray-300 space-y-0.5">
+      {lastResult.lines.map((line, i) => (
+        <div key={i}>{line}</div>
+      ))}
+    </div>
+  )
+
+  if (mode === 'list') {
+    return (
+      <div className="mt-1 mb-2">
+        <div className="space-y-1">
+          {chargeEffects.map((chargeEff, idx) => {
+            const cv = chargeEff.value
+            const charges = resolveChargeItemCharges(cv, char)
+            const resourceType = cv.resourceType || 'charges'
+            const isClassRes = isClassResourceType(resourceType)
+            const cost = Number(cv.charges) || 1
+            const abilityName = cv.title || cv.name || feature.name
+            const costLabel = isClassRes ? `${getResourceLabel(resourceType)} ×${cost}` : null
+            return (
+              <div
+                key={idx}
+                className="rounded-md border border-[#2a3a4e] bg-[#1a2535] px-2 py-1.5 flex items-center gap-2"
+              >
+                <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                  <span className="text-[13px] font-semibold text-white">{abilityName}</span>
+                  {costLabel && <span className="shrink-0 text-[11px] font-bold text-[#c79a42]">{costLabel}</span>}
+                </div>
+                <div className="shrink-0 w-32">
+                  <EnergyBarButton
+                    name="释放"
+                    chargeInfo={resourceType === 'charges' && charges > 0 ? `(${charges})` : null}
+                    onClick={() => setUseChargeValue(cv)}
+                  />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        {renderResult()}
+        {renderModal()}
+      </div>
+    )
+  }
 
   return (
     <>
       {chargeEffects.map((chargeEff, idx) => {
         const cv = chargeEff.value
         const charges = resolveChargeItemCharges(cv, char)
-        const recovery = cv.recovery
-        const recoveryLabel = recovery ? formatRecoveryBrief(recovery) : ''
         const resourceType = cv.resourceType || 'charges'
-        const resLabel = getResourceLabel(resourceType)
         const chargeInfo = resourceType === 'charges' && charges > 0 ? `(${charges})` : null
 
         return (
@@ -2310,41 +2436,8 @@ function ClassFeatureActions({ feature, moduleId, char, onSave }) {
           />
         )
       })}
-      {lastResult && (
-        <div className="w-full mt-1 text-[11px] text-gray-300 space-y-0.5">
-          {lastResult.lines.map((line, i) => (
-            <div key={i}>{line}</div>
-          ))}
-        </div>
-      )}
-
-      {/* ── 使用确认弹窗（AbilityUseModal） ── */}
-      {useChargeValue && (
-        <AbilityUseModal
-          chargeValue={useChargeValue}
-          char={char}
-          featureName={feature.name}
-          onConfirm={(patch, lines) => {
-            if (patch && Object.keys(patch).length > 0) onSave(patch)
-            setLastResult({ lines })
-          }}
-          onClose={() => setUseChargeValue(null)}
-        />
-      )}
-
-      {/* ── 主动技能确认弹窗 ── */}
-      {useActiveAbility && (
-        <AbilityUseModal
-          activeAbility={useActiveAbility}
-          char={char}
-          featureName={useActiveAbility.name || feature.name}
-          onConfirm={(patch, lines) => {
-            if (patch && Object.keys(patch).length > 0) onSave(patch)
-            setLastResult({ lines })
-          }}
-          onClose={() => setUseActiveAbility(null)}
-        />
-      )}
+      {renderResult()}
+      {renderModal()}
     </>
   )
 }
@@ -2454,6 +2547,59 @@ function FocusAbilitiesBlock({ char, onSave }) {
           onClose={() => setUseChargeValue(null)}
         />
       )}
+    </div>
+  )
+}
+
+/** 选项清单表：卡内常驻、逐行折叠、无释放按钮（纯查阅；数据来自 DM 配置或旧诡诈打击结构） */
+function OptionListTable({ data }) {
+  const [openIds, setOpenIds] = useState({})
+  const toggleOpen = (id) => setOpenIds((prev) => ({ ...prev, [id]: !prev[id] }))
+  const options = Array.isArray(data?.options) ? data.options : []
+  if (options.length === 0) return null
+  const costLabel = data.costLabel || ''
+  return (
+    <div className="mt-1 mb-2">
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <span className="text-xs font-semibold text-[#8899aa]">
+          {data.title || OPTION_LIST_DEFAULT_TITLE}{costLabel ? ` · 消耗${costLabel}` : ''}
+        </span>
+        {data.note && <span className="text-[10px] text-[#667788]">{data.note}</span>}
+      </div>
+      <div className="space-y-1">
+        {options.map((o, i) => {
+          const id = o.name || String(i)
+          const open = !!openIds[id]
+          return (
+            <div key={id} className="rounded-md border border-[#2a3a4e] bg-[#1a2535] px-2 py-1.5">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => toggleOpen(id)}
+                  className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-[#667788] hover:text-dnd-gold hover:bg-white/[0.06] transition-colors"
+                  title={open ? '收起效果说明' : '展开效果说明'}
+                >
+                  {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
+                <span className="text-[13px] font-semibold text-white">{o.name}</span>
+                {o.cost && (
+                  <span className="shrink-0 text-[11px] font-bold text-[#c79a42]">
+                    {costLabel ? `${costLabel} ×${o.cost}` : `×${o.cost}`}
+                  </span>
+                )}
+                {o.save && (
+                  <span className="shrink-0 text-[10px] text-[#667788] border border-[#2a3a4e] rounded px-1">
+                    {o.save}豁免
+                  </span>
+                )}
+              </div>
+              {open && (
+                <div className="text-[11px] text-[#8899aa] leading-snug mt-1 pl-7">{o.detail}</div>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -2589,7 +2735,7 @@ const SUBCLASS_SELECTION_FEATURE_IDS = new Set([
 ])
 
 /** 职业特性：根据当前职业与等级自动展示，不可手动增删 */
-function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, baseReferenceData, formulaContext, sheetModuleId, buffPatchRev }) {
+function ClassFeaturesSection({ char, level, canEdit, onSave, isAdmin, referenceData, baseReferenceData, formulaContext, sheetModuleId, buffPatchRev }) {
   const { currentModuleId } = useModule()
   const moduleId = currentModuleId || 'default'
   const overridesMap = useRuleTextOverridesMap(moduleId)
@@ -2603,6 +2749,43 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
   const [editOptionCardDesc, setEditOptionCardDesc] = useState('')
   const [optionDescEditing, setOptionDescEditing] = useState(false)
   const [choiceModalFeature, setChoiceModalFeature] = useState(null)
+  const [asiPickerSlot, setAsiPickerSlot] = useState(null)
+  // ASI 职业卡镜像专长槽：单一数据源为 char.selectedFeats，职业卡本身不产出管线效果
+  const asiSlots = useMemo(() => computeFeatSlots(char, level), [char, level])
+  const asiFeatById = useMemo(() => new Map(FEATS.map((x) => [x.id, x])), [])
+  const selectedFeats = char?.selectedFeats ?? []
+  const closeAsiPicker = () => setAsiPickerSlot(null)
+  const handleAsiPick = ({ featId, effects = [] }) => {
+    if (!featId || !asiPickerSlot) return
+    const slot = asiPickerSlot
+    const raw = char?.selectedFeats ?? []
+    let next
+    if (raw.some((r) => r?.slotId === slot.id)) {
+      next = raw.map((r) => {
+        if (r?.slotId !== slot.id) return r
+        const updated = {
+          ...r,
+          featId,
+          level: slot.level ?? r?.level ?? 1,
+          sourceClass: slot.sourceClass ?? r?.sourceClass ?? '',
+        }
+        if (effects.length > 0) updated.featBuffPatch = { effects }
+        else if (updated.featBuffPatch != null) delete updated.featBuffPatch
+        return updated
+      })
+    } else {
+      const row = { slotId: slot.id, featId, level: slot.level ?? 1, sourceClass: slot.sourceClass ?? '' }
+      if (effects.length > 0) row.featBuffPatch = { effects }
+      next = [...raw, row]
+    }
+    onSave({ selectedFeats: next })
+    closeAsiPicker()
+  }
+  // 属性值提升专长可复选，镜像选择器不对其做「已选」拦截
+  const asiPickerSelectedIds = useMemo(
+    () => new Set(selectedFeats.map((r) => r?.featId).filter((id) => id && id !== 'ability_score_improvement')),
+    [selectedFeats],
+  )
   const charClasses = [
     ...(char?.['class'] ? [{ className: char['class'], level: char.classLevel || 1 }] : []),
     ...(Array.isArray(char?.multiclass) ? char.multiclass.filter(m => m['class']).map(m => ({ className: m['class'], level: m.level || 0 })) : []),
@@ -2665,6 +2848,18 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
             f.description,
           )
           const isChoiceType = !!CLASS_FEATURE_CHOICE_REGISTRY[buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)]
+          // ASI 镜像：本卡控制的「通用专长」槽位
+          const isAsi = isAsiFeature(f)
+          let asiControlledSlots = []
+          if (isAsi) {
+            const classAsiSlots = asiSlots.filter(
+              (s) => s.category === '通用专长' && s.sourceClass === f.sourceClass && s.id.startsWith('asi_'),
+            )
+            asiControlledSlots = classUsesPerLevelAsiCards(f.sourceClass)
+              ? classAsiSlots.filter((s) => s.level === f.level)
+              : classAsiSlots
+          }
+          const asiRowFor = (slot) => selectedFeats.find((r) => r?.slotId === slot?.id) || null
           const cfBuffKey = buildClassFeatureBuffKey(f.sourceClass, f.sourceSubclass, f.id)
           const cfPatch = loadDefaultBuffPatch(moduleId, 'classFeature', cfBuffKey)
           const cfScope = cfPatch?.cardScope
@@ -2685,6 +2880,32 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
           const cfCard = classFeatureCards.find(c =>
             c.slotKind === 'class' && c.sourceKey === `${f.sourceClass}|${f.sourceSubclass || ''}|${f.id}`
           )
+          // 主动释放效果（charge_item）：≥2 个时启用多按钮制式
+          const cfChargeEffects = (() => {
+            let list = cfCard && Array.isArray(cfCard.buffEffects)
+              ? cfCard.buffEffects.filter(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
+              : []
+            if (list.length === 0) {
+              const effects = Array.isArray(cfPatch?.effects) ? cfPatch.effects : []
+              list = effects.filter(e => e.effectType === 'charge_item' && e.value && typeof e.value === 'object')
+            }
+            return list
+          })()
+          const cfMultiRelease = cfChargeEffects.length >= 2
+          // 选项清单（纯查阅表）：DM 配置优先，无配置时回退职业数据里写死的诡诈打击结构
+          const cfOptionTables = (() => {
+            const fromPatch = extractOptionLists(cfPatch?.effects)
+            if (fromPatch.length > 0) return fromPatch
+            if (f.cunningStrike) {
+              return [normalizeOptionListValue({
+                title: '诡诈打击选项',
+                note: f.cunningStrike.dcNote,
+                costLabel: f.cunningStrike.costLabel,
+                options: f.cunningStrike.options,
+              })]
+            }
+            return []
+          })()
           // 效果摘要（用于 BUFF 标签列显示）；选择型特性取已选选项的效果
           let cfEffectsSource = Array.isArray(cfPatch?.effects) ? cfPatch.effects : []
           if (isChoiceType && cfEffectsSource.length === 0 && choiceRegistryEntry && chosenOptionId) {
@@ -2725,9 +2946,42 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
                 .filter(Boolean)
             : []
           const allCfSummaries = [...cfEffectSummaries, ...selectedStyleEffectSummaries]
-          const cfBuffTags = allCfSummaries.length > 0
-            ? allCfSummaries.slice(0, 3)
-            : (cfScopeLabel ? [cfScopeLabel] : [])
+          // ASI 卡：简述列固定 2×2 网格（最多 4 槽），每格既是映射也是选择入口
+          const asiSlotTags = isAsi ? [(
+            <div key="asi-slots" className="grid grid-cols-2 gap-x-1 gap-y-[3px] w-full">
+              {asiControlledSlots.slice(0, 4).map((slot) => {
+                const sRow = asiRowFor(slot)
+                const sChosen = !!sRow?.featId
+                const label = `${slot.level}级 ${summarizeFeatSlotChoice(sRow, asiFeatById).replace(/^专长：/, '')}`
+                const chip = `h-[17px] leading-[17px] px-1 rounded-[2px] border text-[10px] truncate text-left bg-[#1a2535] ${
+                  sChosen ? 'border-[#2a3a4e] text-[#8899aa]' : 'border-dashed border-dnd-gold/60 text-dnd-gold'
+                }`
+                return canEdit ? (
+                  <button
+                    key={slot.id}
+                    type="button"
+                    title={sChosen ? `点击更换该等级的选择（${label}）` : `点击选择该等级的专长或属性提升`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setAsiPickerSlot(slot)
+                    }}
+                    className={chip + ` cursor-pointer transition-colors ${
+                      sChosen ? 'hover:border-dnd-gold/60 hover:text-dnd-gold' : 'hover:bg-dnd-gold/10'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ) : (
+                  <span key={slot.id} className={chip}>{label}</span>
+                )
+              })}
+            </div>
+          )] : []
+          const cfBuffTags = isAsi
+            ? asiSlotTags
+            : (allCfSummaries.length > 0
+              ? allCfSummaries.slice(0, 3)
+              : (cfScopeLabel ? [cfScopeLabel] : []))
           // 护盾池检测（统一从 card.buffEffects 查找，包含所有来源的效果）
           const cfShieldPoolEffect = cfCard && Array.isArray(cfCard.buffEffects)
             ? cfCard.buffEffects.find(e => e.effectType === 'shield_pool' && e.value && typeof e.value === 'object')
@@ -2787,6 +3041,7 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
                 sourceSub={f.sourceSubclass || f.sourceClass}
                 buffTags={cfBuffTags}
                 headerRight={
+                  isAsi ? null : (
                   <button
                     type="button"
                     onClick={(e) => {
@@ -2802,12 +3057,18 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
                   >
                     <Settings className="w-3.5 h-3.5" />
                   </button>
+                  )
                 }
-                footer={<ClassFeatureActions feature={f} moduleId={moduleId} char={char} onSave={onSave} />}
+                footer={cfMultiRelease ? undefined : <ClassFeatureActions feature={f} moduleId={moduleId} char={char} onSave={onSave} chargeEffects={cfChargeEffects} mode="single" />}
                 alwaysContent={
                   f.id === 'focus_points' && f.sourceClass === '火铳手'
                     ? <FocusAbilitiesBlock char={char} onSave={onSave} />
-                    : undefined
+                    : (cfOptionTables.length > 0 || cfMultiRelease)
+                      ? <>
+                          {cfOptionTables.map((t, ti) => <OptionListTable key={ti} data={t} />)}
+                          {cfMultiRelease && <ClassFeatureActions feature={f} moduleId={moduleId} char={char} onSave={onSave} chargeEffects={cfChargeEffects} mode="list" />}
+                        </>
+                      : undefined
                 }
               >
                 {cfShieldPoolEffect && (() => {
@@ -2946,7 +3207,7 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
             readOnly: !isAdmin,
             hideDuration: true,
             charResources: char?.classResources,
-            spellSlots: char?.spellSlots,
+            spellSlots: getAnySpellSlotMaxByRing(char),
             charClasses,
             referenceData,
             baseReferenceData,
@@ -3029,6 +3290,18 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
         />
       )}
 
+      {/* ASI 职业卡镜像：选择属性值提升或专长，写入对应「通用专长」槽 */}
+      <FeatPickerModal
+        isOpen={!!asiPickerSlot}
+        onClose={closeAsiPicker}
+        onConfirm={handleAsiPick}
+        overridesMap={overridesMap}
+        selectedIds={asiPickerSelectedIds}
+        allowedCategories={['通用专长']}
+        moduleId={moduleId}
+        formulaContext={formulaContext}
+      />
+
       {/* 选项专属 BUFF 编辑器弹窗 */}
       {buffEditorOption && (
         <BuffEditorModal
@@ -3085,7 +3358,7 @@ function ClassFeaturesSection({ char, canEdit, onSave, isAdmin, referenceData, b
             readOnly: !isAdmin,
             hideDuration: true,
             charResources: char?.classResources,
-            spellSlots: char?.spellSlots,
+            spellSlots: getAnySpellSlotMaxByRing(char),
             charClasses,
             referenceData,
             baseReferenceData,
@@ -3721,7 +3994,7 @@ function FeatsSection({ char, level, canEdit, onSave, formulaContext, sheetModul
               compact: true,
               hideDuration: true,
               charResources: char?.classResources,
-              spellSlots: char?.spellSlots,
+              spellSlots: getAnySpellSlotMaxByRing(char),
               charClasses,
               referenceData, baseReferenceData, formulaContext,
               initial: {
@@ -4169,7 +4442,7 @@ function ClassSection({ char, level, canEdit, onSave, moduleId, referenceData, b
               readOnly: !canEdit,
               hideDuration: true,
               charResources: char?.classResources,
-              spellSlots: char?.spellSlots,
+              spellSlots: getAnySpellSlotMaxByRing(char),
               charClasses,
               referenceData, baseReferenceData, formulaContext,
               initial: {
@@ -5078,7 +5351,7 @@ export default function CharacterSheet() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="min-w-0">
                   <h3 className="section-title">职业特性</h3>
-                  <ClassFeaturesSection char={char} canEdit={canEdit} onSave={persist} isAdmin={isAdmin} referenceData={referenceData} baseReferenceData={baseReferenceData} formulaContext={buffFormulaContext} sheetModuleId={sheetModuleId} buffPatchRev={buffPatchRev} />
+                  <ClassFeaturesSection char={char} level={level} canEdit={canEdit} onSave={persist} isAdmin={isAdmin} referenceData={referenceData} baseReferenceData={baseReferenceData} formulaContext={buffFormulaContext} sheetModuleId={sheetModuleId} buffPatchRev={buffPatchRev} />
                 </div>
                 <div className="min-w-0">
                   <h3 className="section-title">专长</h3>

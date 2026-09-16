@@ -2,7 +2,7 @@
  * 战斗手段共享工具：常量、武器/法术/组合技/增益 纯函数
  * 从 CombatStatus.jsx 抽出，供添加弹窗各步骤组件共用。
  */
-import { DAMAGE_TYPES, getDamageTypeLabel, normalizeScope, SCOPE_KIND, scopeMatchesCombatMean, parseDamageString, formatDamageForAttack, weaponProtoMatchesBuffWeaponCategories } from '../../data/buffTypes'
+import { DAMAGE_TYPES, getDamageTypeLabel, normalizeScope, SCOPE_KIND, scopeMatchesCombatMean, parseDamageString, formatDamageForAttack, weaponProtoMatchesBuffWeaponCategories, normalizePactWeaponValue } from '../../data/buffTypes'
 import { getSpellById } from '../../data/spellDatabase'
 import { getItemById } from '../../data/itemDatabase'
 import { MARTIAL_TECHNIQUES, getMartialTechniqueById } from '../../data/martialTechniques'
@@ -296,6 +296,31 @@ export function getSpellAbilityForAttackFromBuffs(flatEffects, ctx) {
   return null
 }
 
+/** 从武器附魔 effects 读取契约武器配置 */
+export function getWeaponEntryPactWeapon(entry) {
+  if (!entry || !Array.isArray(entry.effects)) return null
+  for (const e of entry.effects) {
+    if (e && e.effectType === 'pact_weapon' && e.value && typeof e.value === 'object') {
+      return normalizePactWeaponValue(e.value)
+    }
+  }
+  return null
+}
+
+/** 从 flatBuffEffects 读取契约武器配置（尊重 scope） */
+export function getPactWeaponFromBuffs(flatEffects, ctx) {
+  if (!Array.isArray(flatEffects)) return null
+  for (const e of flatEffects) {
+    if (!e || e.effectType !== 'pact_weapon') continue
+    const { scope } = normalizeScope(e.scope, e.scopeDetail)
+    if (scope !== '' && scope !== SCOPE_KIND.global) {
+      if (!scopeMatchesCombatMean(e, { ...ctx, sourceKind: 'physical' })) continue
+    }
+    if (e.value && typeof e.value === 'object') return normalizePactWeaponValue(e.value)
+  }
+  return null
+}
+
 /** 判断武器属性种类：str / dex / spell */
 export function resolvePhysicalWeaponAbilityKind(cm, weaponOpt, spellAbilityOverride) {
   const ex = cm?.abilityForAttack
@@ -357,7 +382,13 @@ export function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
     : 0
   let buffAttackBonus = (isRangedWeapon ? (buffStats?.rangedAttackBonus ?? 0) : (buffStats?.meleeAttackBonus ?? 0)) + weaponCategoryAttackFlat
   let buffDamageBonus = (isRangedWeapon ? (buffStats?.rangedDamageBonus ?? 0) : (buffStats?.meleeDamageBonus ?? 0)) + weaponCategoryAttackFlat
-  const weaponProficient = cm.weaponProficient !== false
+  // 契约武器：从本武器附魔或角色级 BUFF（尊重 scope）读取改造配置，驱动熟练/命中属性/伤害类型/法器
+  const pactWeapon = getPactWeaponFromBuffs(flatBuffEffects, {
+    weaponProto: weaponOpt?.proto,
+    damageType: cm.damageType,
+    sourceItemInventoryId: weaponOpt?.entry?.id,
+  }) || getWeaponEntryPactWeapon(weaponOpt?.entry)
+  const weaponProficient = cm.weaponProficient !== false || pactWeapon?.proficiency === true
   const weaponExpertiseCategories = buffStats?.weaponExpertiseCategories ?? []
   const weaponIsExpert = weaponProficient && weaponExpertiseCategories.length > 0 && weaponOpt?.proto && weaponProtoMatchesBuffWeaponCategories(weaponOpt.proto, weaponExpertiseCategories)
   const gains = getEnabledGains(cm)
@@ -370,7 +401,8 @@ export function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
   const attackParsed = weaponOpt
     ? parseWeaponAttack(getWeaponAttackStringForParsing(weaponOpt, cm.weaponVersatileMode))
     : { dice: null, diceList: [], type: '—' }
-  const rawDamageType = cm.damageType || attackParsed.type
+  const baseDamageType = cm.damageType || attackParsed.type
+  const rawDamageType = (pactWeapon && pactWeapon.damageType) ? getDamageTypeLabel(pactWeapon.damageType) : baseDamageType
   const newEffectScopeCtx = {
     sourceKind: 'physical',
     weaponProto: weaponOpt?.proto,
@@ -413,7 +445,7 @@ export function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
   }
   buffAttackBonus += newEffectAttackBonus
   buffDamageBonus += newEffectDamageBonus
-  const spellAbilityOverride = getSpellAbilityForAttackFromBuffs(flatBuffEffects, {
+  const spellAbilityOverride = (pactWeapon ? pactWeapon.ability : null) || getSpellAbilityForAttackFromBuffs(flatBuffEffects, {
     weaponProto: weaponOpt?.proto,
     damageType: rawDamageType,
     sourceItemInventoryId: weaponOpt?.entry?.id,
@@ -439,6 +471,7 @@ export function computePhysicalWeaponStats(cm, weaponOpt, ctx) {
     gainPerDieBonus, gainExtraDice, gainAdvantage, gainDiceFloor2, attackParsed, rawDamageType,
     physicalAttackBonus, damageMod, canAddAbilityMod, isBonusActionOffhand, weaponExtraDiceStrings, allWeaponDiceCount,
     weaponPerDieMod, totalDamageMod, displayDamageType, newEffectHitBonusAdvantage,
+    pactWeapon,
   }
 }
 

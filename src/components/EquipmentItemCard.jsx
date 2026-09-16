@@ -195,6 +195,13 @@ export default function EquipmentItemCard({
   const recoveryMethod = chargeItemEffect?.value?.recovery?.method
   const methodArr = Array.isArray(recoveryMethod) ? recoveryMethod : (recoveryMethod ? [recoveryMethod] : [])
   const hasAbsorbEnergy = typeof onAbsorbEnergy === 'function' && (methodArr.includes('absorb_energy') || methodArr.includes('reaction_absorb'))
+  const hasPactWeapon = effects.some((e) => e?.effectType === 'pact_weapon')
+  const pactBadgeNode = hasPactWeapon ? (
+    <span
+      className="shrink-0 ml-1 px-1 rounded text-[10px] font-semibold leading-4 border border-dnd-gold/60 text-dnd-gold"
+      title="契约武器"
+    >契</span>
+  ) : null
 
   /* ── 统一能量条按钮（主动技能 / 护盾池 / 内含法术） ──── */
   const hasContainedSpellBtn = !hasActiveAbility && !hasShieldPool && hasContainedSpell && containedSpellEntry
@@ -364,6 +371,7 @@ export default function EquipmentItemCard({
             >
               {displayName}
             </span>
+            {pactBadgeNode}
           </div>
           {/* 右列：动作簇 = 外框(图标+标签+充能/护盾数) + 吸能按钮 */}
           <div className="flex items-center justify-end gap-1.5 min-w-0">
@@ -480,6 +488,7 @@ export default function EquipmentItemCard({
       >
         {displayName}
       </span>
+      {pactBadgeNode}
     </div>
   )
 
@@ -756,6 +765,7 @@ export default function EquipmentItemCard({
                   >
                     {displayName}
                   </span>
+                  {pactBadgeNode}
                   {magicBonus ? (
                     <span className="shrink-0 ml-2 text-[11px] font-semibold" style={{ color: '#c79a42' }}>
                       +{magicBonus}

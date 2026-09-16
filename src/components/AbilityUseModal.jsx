@@ -21,6 +21,7 @@ import {
   scaleStanceModules,
   isFreeSlotConsumption,
   isFixedSlotConsumption,
+  isPactSlotConsumption,
   POKER_SUITS,
   POKER_RANKS,
   POKER_SUIT_LABELS,
@@ -31,7 +32,7 @@ import {
 } from '../lib/chargeItemModel'
 import { rollDice, rollCombatDicePool } from '../data/weaponDatabase'
 import { proficiencyBonus, abilityModifier, calcMaxHP, getHPBuffSum } from '../lib/formulas'
-import { getCharacterClasses, getPrimarySpellcastingAbility, getMaxSpellSlotsByRing } from '../data/classDatabase'
+import { getCharacterClasses, getPrimarySpellcastingAbility, getMaxSpellSlotsByRing, getPactSlotRing, getPactSlotsMaxByRing } from '../data/classDatabase'
 import { getCreatureById, parseCreatureHp, listCreatures } from '../data/creatureLibrary'
 import { getEntryChargeMax } from '../lib/chargeRecovery'
 import {
@@ -42,6 +43,16 @@ import {
   extractSaveInfo,
   generatePreviewLines,
 } from '../lib/abilityFlowUtils'
+import { getMergedBuffsForCalculator, getFlatEffectEntries } from '../lib/effects/effectMapping'
+import { computeBuffStats } from '../hooks/useBuffCalculator'
+import { getActiveShieldEffects } from '../lib/shieldEngine'
+import { deriveWieldedWeaponMeans } from './combat/deriveWieldedWeaponMeans'
+import { computePhysicalWeaponStats, computeLiveGains } from './combat/combatMeanUtils'
+import { collectTierMemberIds } from '../lib/weaponProficiency'
+import { ITEM_DATABASE } from '../data/itemDatabase'
+import { SAVE_NAMES, SKILLS, skillProfFactor } from '../data/dndSkills'
+import { effectiveSkillLevel } from './AbilityModule'
+import { normalizeRerollValue } from '../data/buffTypes'
 import AbilityStepProgressBar from './AbilityStepProgressBar'
 
 const MODAL_KEYFRAMES = `
@@ -104,6 +115,131 @@ export function activeAbilityToChargeValue(ability) {
 }
 
 /* ══════════════════════════════════════════════════════════════
+ * 改骰子（reroll）— 按勾选的作用面调用角色自身公式掷 d20＋调整值
+ *
+ * 数值口径与角色页保持一致：
+ *   先攻   = 敏调 + initBonus（CombatStatus 先攻块）
+ *   命中   = 主手武器派生卡 physicalAttackBonus（变身后取天生武器）
+ *   豁免   = 属调 +（豁免熟练 ? 等级熟练加值）+ BUFF + 力竭（AbilityModule saveMod）
+ *   技能   = 属调 + floor(熟练×系数) + BUFF + 力竭（AbilityModule skillMod）
+ *   死亡豁免 = d20 + deathSaveBonus
+ * ══════════════════════════════════════════════════════════════ */
+function buildRerollContext(char) {
+  const mergedBuffs = getMergedBuffsForCalculator(char, char?.moduleId)
+  const buffStats = computeBuffStats(char, mergedBuffs, getActiveShieldEffects(char?.shields))
+  const flatBuffEffects = getFlatEffectEntries(mergedBuffs, char)
+  const effectiveAbilities = buffStats.abilities ?? char?.abilities ?? {}
+  const totalLevel = getCharacterClasses(char).reduce((s, c) => s + (c.level || 0), 0) || 1
+  const level = Math.max(1, Math.min(20, Math.floor(totalLevel)))
+  const profForSaves = proficiencyBonus(level)
+  const prof = buffStats.proficiencyOverride ?? profForSaves
+  const spellAbility = getPrimarySpellcastingAbility(char)
+  const spellMod = spellAbility ? abilityModifier(effectiveAbilities[spellAbility] ?? 10) : 0
+  const classLevels = {}
+  for (const c of getCharacterClasses(char)) classLevels[c.name] = c.level
+  const itemFormulaContext = {
+    level,
+    abilities: effectiveAbilities,
+    prof: profForSaves,
+    spellDC: spellAbility ? 8 + profForSaves + spellMod : 0,
+    spellAttack: spellAbility ? profForSaves + spellMod : 0,
+    classLevels,
+  }
+  return { mergedBuffs, buffStats, flatBuffEffects, effectiveAbilities, level, prof, profForSaves, spellAbility, itemFormulaContext }
+}
+
+/** 命中作用面：主手武器攻击加值；变身后回退到天生武器（与 CombatStatus 武器卡同源） */
+function computeRerollAttackBonus(char, ctx) {
+  const { mergedBuffs, buffStats, flatBuffEffects, effectiveAbilities, prof, spellAbility, itemFormulaContext } = ctx
+  const naturalWeapons = buffStats?.creatureTransform?.naturalWeapons || []
+  if (naturalWeapons.length > 0) {
+    return (Number(naturalWeapons[0].attackBonus) || 0) + (buffStats?.meleeAttackBonus || 0)
+  }
+  const means = deriveWieldedWeaponMeans({ equippedHeld: char?.equippedHeld, inventory: char?.inventory }, {
+    profWeapons: Array.isArray(char?.proficiencies?.weapons) ? char.proficiencies.weapons : [],
+    tierMemberIds: collectTierMemberIds(ITEM_DATABASE),
+    offhandIgnoresLight: !!buffStats?.offhandIgnoresLight,
+    isTransformed: false,
+  })
+  const main = means.find((m) => m.slotIndex === 0)
+  if (!main?.weaponOpt) return null
+  const liveGains = computeLiveGains(main, { buffStats, mergedBuffs, character: char, formulaContext: itemFormulaContext })
+  const stats = computePhysicalWeaponStats({ ...main, gains: liveGains }, main.weaponOpt, {
+    effectiveAbilities, prof, spellAbility, buffStats, flatBuffEffects, itemFormulaContext,
+  })
+  return stats.physicalAttackBonus
+}
+
+/** 执行改骰子效果：返回 { line, expr?, values? }[]，expr/values 供 3D 骰子动画 */
+function computeRerollResults(char, rawValue) {
+  const rv = normalizeRerollValue(rawValue)
+  const out = []
+  if (rv.surfaces.length === 0 && rv.extraDice.diceCount === 0) {
+    out.push({ line: '🎲 改骰子：未配置作用面或附加骰子' })
+    return out
+  }
+  const ctx = buildRerollContext(char)
+  const { buffStats, effectiveAbilities, prof, profForSaves } = ctx
+  const exhaustion = buffStats.d20ExhaustionPenalty ?? 0
+
+  const pushD20 = (label, mod) => {
+    const { total: natural, rolls } = rollDice('1d20')
+    const modStr = mod >= 0 ? `+${mod}` : `${mod}`
+    out.push({
+      line: `🎲 ${label}: d20=${natural}${mod !== 0 ? modStr : ''} = ${natural + mod}`,
+      expr: mod !== 0 ? `1d20${modStr}` : '1d20',
+      values: rolls.map(Number),
+    })
+  }
+
+  for (const surface of rv.surfaces) {
+    if (surface === 'initiative') {
+      pushD20('先攻', abilityModifier(effectiveAbilities.dex ?? 10) + (buffStats.initBonus ?? 0))
+    } else if (surface === 'attack') {
+      const bonus = computeRerollAttackBonus(char, ctx)
+      if (bonus == null) out.push({ line: '🎲 命中: 主手未持武器，无法计算命中加值' })
+      else pushD20('命中', bonus)
+    } else if (surface === 'save') {
+      const key = rv.saveAbility
+      const savesBase = char?.savingThrows ?? {}
+      const granted = buffStats.saveProficiencyGranted ?? {}
+      const isProf = !!savesBase[key] || !!granted[key]
+      const concentrationPart = key === 'con' ? (buffStats.concentrationBonus ?? 0) : 0
+      const mod = abilityModifier(effectiveAbilities[key] ?? 10) + (isProf ? profForSaves : 0)
+        + (buffStats.saveBonusPerAbility?.[key] ?? 0) + concentrationPart + exhaustion
+      pushD20(SAVE_NAMES[key] || `${key}豁免`, mod)
+    } else if (surface === 'skill') {
+      const skill = SKILLS.find((x) => x.id === rv.skillId)
+      if (!skill) {
+        out.push({ line: '🎲 技能: 编辑器中未选择技能子项' })
+        continue
+      }
+      const levelState = effectiveSkillLevel(char?.skills?.[skill.id], !!(buffStats.grantedSkillProficiencies ?? {})[skill.id], !!(buffStats.grantedSkillExpertise ?? {})[skill.id])
+      const concentrationPart = skill.id === 'concentration' ? (buffStats.concentrationBonus ?? 0) : 0
+      const mod = abilityModifier(effectiveAbilities[skill.ab] ?? 10) + Math.floor(prof * skillProfFactor(levelState))
+        + (buffStats.skillBonusPerSkill?.[skill.id] ?? 0) + concentrationPart + exhaustion
+      pushD20(`${skill.name}检定`, mod)
+    } else if (surface === 'death_save') {
+      pushD20('死亡豁免', buffStats.deathSaveBonus ?? 0)
+    }
+  }
+
+  const ed = rv.extraDice
+  if (ed.diceCount > 0) {
+    const diceExpr = `${ed.diceCount}d${ed.diceSides}`
+    const { total, rolls } = rollDice(diceExpr)
+    const fb = ed.flatBonus
+    const fbStr = fb > 0 ? `+${fb}` : fb < 0 ? `${fb}` : ''
+    out.push({
+      line: `🎲 附加骰子: ${rolls.join('+')}${fbStr} = ${total + fb}`,
+      expr: fb !== 0 ? `${diceExpr}${fb > 0 ? '+' : ''}${fb}` : diceExpr,
+      values: rolls.map(Number),
+    })
+  }
+  return out
+}
+
+/* ══════════════════════════════════════════════════════════════
  * processAllEffects — 效果处理管线（模块级纯函数）
  *
  * 从旧版 handleConfirm 的效果循环提取，遍历 norm.effects 逐个处理，
@@ -122,10 +258,13 @@ export function activeAbilityToChargeValue(ability) {
 function processAllEffects(ctx) {
   const {
     char, norm, amt, featureName, selectedCreatureId,
-    isFreeSlot,
+    isFreeSlot, isPactSlot,
     effectiveChargeValue, computeSpellDC, computeSpellAttack,
     skipDamageDice = false, runningHpIn,
   } = ctx
+  // 契约法术消耗按契约环阶缩放，其余按消耗数量缩放
+  const scaleAmount = ctx.scaleAmount ?? amt
+  const scalePerUnit = isFreeSlot || isPactSlot
 
   const patch = {}
   const lines = []
@@ -135,7 +274,7 @@ function processAllEffects(ctx) {
 
   for (const eff of (norm.effects || [])) {
     const ev = eff.value || {}
-    const scaled = computeScaledEffect(ev, amt, isFreeSlot && eff.applyMultiplier !== false, char)
+    const scaled = computeScaledEffect(ev, scaleAmount, scalePerUnit && eff.applyMultiplier !== false, char)
 
     /* ── attack_buff：命中/伤害加成 + 额外骰 ── */
     if (eff.type === 'attack_buff') {
@@ -203,7 +342,7 @@ function processAllEffects(ctx) {
       const subEffects = Array.isArray(ev.subEffects) ? ev.subEffects : []
       for (const subEff of subEffects) {
         const sv = subEff.value || {}
-        const sScaled = computeScaledEffect(sv, amt, isFreeSlot && subEff.applyMultiplier !== false)
+        const sScaled = computeScaledEffect(sv, scaleAmount, scalePerUnit && subEff.applyMultiplier !== false)
 
         if (subEff.type === 'ability') {
           const sDice = sScaled.diceCount ?? (sv.diceCount || 0)
@@ -778,6 +917,16 @@ function processAllEffects(ctx) {
       animParts.push(diceBonus !== 0 ? `${diceExpr}${diceBonus > 0 ? '+' : ''}${diceBonus}` : diceExpr)
       animValues.push(...rolls.map(Number))
 
+    /* ── reroll：改骰子（按勾选作用面调用角色公式掷 d20＋调整值 + 附加骰） ── */
+    } else if (eff.type === 'reroll') {
+      for (const r of computeRerollResults(char, ev)) {
+        lines.push(r.line)
+        if (r.expr) {
+          animParts.push(r.expr)
+          animValues.push(...r.values)
+        }
+      }
+
     /* ── damage：直接伤害 ── */
     } else if (eff.type === 'damage') {
       let dv = { ...ev }
@@ -1068,6 +1217,7 @@ function mergePatches(resourcePatch, effectPatch, char) {
 function PrepareStepContent({
   norm, char, amt, setAmt, maxAmount,
   isSpellSlot, isFreeSlot, isNone, isClassResource, resLabel,
+  isPactSlot, pactRing, pactMax, pactLeft,
   needsCreatureSelection, availableCreatures, selectedCreatureId, setSelectedCreatureId,
   resourceError,
 }) {
@@ -1084,7 +1234,17 @@ function PrepareStepContent({
     <div className="space-y-3">
       {/* 资源选择 */}
       <div className="flex items-center gap-x-2 flex-wrap">
-        {isSpellSlot || isFreeSlot ? (
+        {isPactSlot ? (
+          // 契约法术位：环阶由契约等级自动决定，每次消耗 1 个
+          <>
+            <span className="text-xs text-gray-300">消耗</span>
+            <span className="text-[10px] text-gray-500">
+              {pactRing
+                ? `1 个 ${pactRing} 环契约法术位（剩余 ${pactLeft}/${pactMax}）`
+                : '契约法术位（无魔契师职业）'}
+            </span>
+          </>
+        ) : isSpellSlot || isFreeSlot ? (
           // 法术位：显示环位信息和剩余数量
           <>
             <span className="text-xs text-gray-300">消耗</span>
@@ -1176,6 +1336,7 @@ function PrepareStepContent({
 function ConfirmStepContent({
   norm, featureName, flowType, amt, executeLabel,
   isSpellSlot, isFreeSlot, isNone, isClassResource, resLabel,
+  isPactSlot, pactRing,
   computeSpellDC, computeSpellAttack, selectedCreatureId, attackPreset,
 }) {
   const previewLines = useMemo(() => generatePreviewLines(norm.effects, featureName), [norm.effects, featureName])
@@ -1184,7 +1345,8 @@ function ConfirmStepContent({
   const selectedCreature = selectedCreatureId ? getCreatureById(selectedCreatureId) : null
 
   let resourceSummary
-  if (isSpellSlot) resourceSummary = `${amt} 个${norm.slotLevel || 1}环法术位`
+  if (isPactSlot) resourceSummary = pactRing ? `1 个 ${pactRing} 环契约法术位` : '契约法术位（无魔契师职业）'
+  else if (isSpellSlot) resourceSummary = `${amt} 个${norm.slotLevel || 1}环法术位`
   else if (isFreeSlot) resourceSummary = `1 个${amt}环及以上法术位（效果 ×${amt}）`
   else if (isNone) resourceSummary = attackPreset?.resourceLabel || '无资源消耗'
   else if (isClassResource) resourceSummary = `${amt} 点${resLabel}`
@@ -1305,7 +1467,12 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
   const [resultFailed, setResultFailed] = useState(false)
 
   /* ── 准备步骤状态 ── */
-  const [amt, setAmt] = useState(1)
+  const [amt, setAmt] = useState(() => {
+    const rt = norm.resourceType
+    const isClassRes = !!rt && rt !== 'charges' && rt !== 'none'
+      && !isFixedSlotConsumption(norm) && !isFreeSlotConsumption(norm) && !isPactSlotConsumption(norm)
+    return isClassRes ? (Number(norm.charges) || 1) : 1
+  })
   const maxAmount = useMemo(() => getMaxSpendableAmount(norm, char), [norm, char])
   const [selectedCreatureId, setSelectedCreatureId] = useState(null)
 
@@ -1325,8 +1492,12 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
 
   const isSpellSlot = isFixedSlotConsumption(norm)
   const isFreeSlot = isFreeSlotConsumption(norm)
+  const isPactSlot = isPactSlotConsumption(norm)
+  const pactRing = isPactSlot ? getPactSlotRing(char) : null
+  const pactMax = isPactSlot && pactRing ? (getPactSlotsMaxByRing(char)[pactRing] ?? 0) : 0
+  const pactLeft = isPactSlot && pactRing ? (char?.pactSlots?.[pactRing] ?? pactMax) : 0
   const isNone = norm.resourceType === 'none'
-  const isClassResource = norm.resourceType !== 'charges' && !isSpellSlot && !isFreeSlot && !isNone
+  const isClassResource = norm.resourceType !== 'charges' && !isSpellSlot && !isFreeSlot && !isPactSlot && !isNone
   const resLabel = RESOURCE_TYPE_OPTIONS.find((o) => o.value === norm.resourceType)?.label ?? norm.resourceType
 
   /* ── 生物选择（creature_transform / summon 无预置 creatureId 时需要） ── */
@@ -1429,7 +1600,12 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
   /* ── 资源充足性检查（准备步骤禁用按钮 + 错误提示） ── */
   const resourceError = useMemo(() => {
     if (!char) return '缺少角色数据'
-    if (isSpellSlot) {
+    if (isPactSlot) {
+      if (!pactRing) return '无魔契师职业，无法消耗契约法术位'
+      const max = getPactSlotsMaxByRing(char)[pactRing] ?? 0
+      const left = char.pactSlots?.[pactRing] ?? max
+      if (left <= 0) return `${pactRing}环契约法术位已耗尽`
+    } else if (isSpellSlot) {
       const ring = norm.slotLevel || 1
       const left = char.spellSlots?.[ring] || 0
       if (left < amt) return `${ring}环法术位不足（需要 ${amt}，剩余 ${left}）`
@@ -1465,14 +1641,27 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
     if (needsCreatureSelection && !selectedCreatureId) return '请选择目标生物'
     if (amt < 1 || amt > maxAmount) return '消耗数量无效'
     return null
-  }, [char, isSpellSlot, isFreeSlot, isClassResource, isNone, norm, amt, maxAmount, effectiveChargeValue, hasWildShapeTransform, needsCreatureSelection, selectedCreatureId, resLabel])
+  }, [char, isSpellSlot, isFreeSlot, isPactSlot, pactRing, isClassResource, isNone, norm, amt, maxAmount, effectiveChargeValue, hasWildShapeTransform, needsCreatureSelection, selectedCreatureId, resLabel])
 
   /* ── 资源消耗（进入第 3 步时调用） ── */
   const consumeResources = useCallback(() => {
     const patch = {}
     const lines = []
 
-    if (isSpellSlot) {
+    if (isPactSlot) {
+      const ring = pactRing
+      if (ring) {
+        const max = getPactSlotsMaxByRing(char)[ring] ?? 0
+        const currentSlots = { ...(char.pactSlots || {}) }
+        const current = currentSlots[ring] ?? max
+        const newCurrent = Math.max(0, current - 1)
+        currentSlots[ring] = newCurrent
+        patch.pactSlots = currentSlots
+        lines.push(`消耗 1 个 ${ring} 环契约法术位（剩余 ${newCurrent}）`)
+      } else {
+        lines.push('无契约法术位可消耗')
+      }
+    } else if (isSpellSlot) {
       const ring = norm.slotLevel || 1
       const currentSlots = { ...(char.spellSlots || {}) }
       const current = currentSlots[ring] || 0
@@ -1530,7 +1719,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
     }
 
     return { patch, lines }
-  }, [char, norm, amt, isSpellSlot, isFreeSlot, isClassResource, isNone, effectiveChargeValue, resLabel, consumeFreeSpellSlot, hasWildShapeTransform, attackPreset])
+  }, [char, norm, amt, isSpellSlot, isFreeSlot, isPactSlot, pactRing, isClassResource, isNone, effectiveChargeValue, resLabel, consumeFreeSpellSlot, hasWildShapeTransform, attackPreset])
 
   /* ── 不可撤回提示（2 秒后淡出） ── */
   const flashIrreversible = useCallback(() => {
@@ -1541,11 +1730,12 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
   /* ── 效果处理上下文 ── */
   const buildEffectsCtx = useCallback((overrides = {}) => ({
     char, norm, amt, featureName, selectedCreatureId,
-    isSpellSlot, isFreeSlot, isClassResource, isNone, resLabel,
+    isSpellSlot, isFreeSlot, isPactSlot, isClassResource, isNone, resLabel,
+    scaleAmount: isPactSlot ? (pactRing || 1) : amt,
     effectiveChargeValue, computeSpellDC, computeSpellAttack,
     skipDamageDice: false,
     ...overrides,
-  }), [char, norm, amt, featureName, selectedCreatureId, isSpellSlot, isFreeSlot, isClassResource, isNone, resLabel, effectiveChargeValue, computeSpellDC, computeSpellAttack])
+  }), [char, norm, amt, featureName, selectedCreatureId, isSpellSlot, isFreeSlot, isPactSlot, pactRing, isClassResource, isNone, resLabel, effectiveChargeValue, computeSpellDC, computeSpellAttack])
 
   /* ── 步骤 3（攻击型）：消耗资源 → 投 d20 → 等待 DM 裁决 ── */
   const executeAttackStep = useCallback(() => {
@@ -1825,6 +2015,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
                 norm={norm} char={char} amt={amt} setAmt={setAmt} maxAmount={maxAmount}
                 isSpellSlot={isSpellSlot} isFreeSlot={isFreeSlot} isNone={isNone}
                 isClassResource={isClassResource} resLabel={resLabel}
+                isPactSlot={isPactSlot} pactRing={pactRing} pactMax={pactMax} pactLeft={pactLeft}
                 needsCreatureSelection={needsCreatureSelection}
                 availableCreatures={availableCreatures}
                 selectedCreatureId={selectedCreatureId} setSelectedCreatureId={setSelectedCreatureId}
@@ -1837,6 +2028,7 @@ export default function AbilityUseModal({ chargeValue, activeAbility, char, feat
                 amt={amt} executeLabel={executeLabel}
                 isSpellSlot={isSpellSlot} isFreeSlot={isFreeSlot} isNone={isNone}
                 isClassResource={isClassResource} resLabel={resLabel}
+                isPactSlot={isPactSlot} pactRing={pactRing}
                 computeSpellDC={computeSpellDC} computeSpellAttack={computeSpellAttack}
                 selectedCreatureId={selectedCreatureId} attackPreset={attackPreset}
               />

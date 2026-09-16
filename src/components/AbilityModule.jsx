@@ -59,9 +59,11 @@ function summarizeLabels(labels, max = 6) {
 }
 
 /** BUFF/种族/专长赠送的技能熟练：与手动设置取高，锁定至少熟练（手动可升到专精，但不能取消到熟练以下） */
-export function effectiveSkillLevel(manualLevel, granted) {
-  if (!granted) return manualLevel || 'none'
-  return manualLevel === 'expertise' ? 'expertise' : 'prof'
+/** grantedExpertise：条件精通——角色已有熟练（含手动/其他赠送）则升精通，否则只赠送熟练 */
+export function effectiveSkillLevel(manualLevel, granted, grantedExpertise) {
+  let level = !granted ? (manualLevel || 'none') : (manualLevel === 'expertise' ? 'expertise' : 'prof')
+  if (grantedExpertise) level = level === 'prof' || level === 'expertise' ? 'expertise' : 'prof'
+  return level
 }
 
 const GRANTED_BELOW_PROF = new Set(['none', 'half'])
@@ -240,6 +242,7 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
   const skillsState = char?.skills ?? {}
   /** 由 BUFF/种族特性/专长赠送的技能熟练（引擎在 computeBuffStats 中聚合 skill_proficiency 效果） */
   const grantedSkills = useMemo(() => buffStats?.grantedSkillProficiencies ?? {}, [buffStats?.grantedSkillProficiencies])
+  const grantedExpertise = useMemo(() => buffStats?.grantedSkillExpertise ?? {}, [buffStats?.grantedSkillExpertise])
   const proficiencies = useMemo(() => normalizeProfState(char?.proficiencies), [char?.proficiencies])
   const toolOptions = useMemo(() => {
     const labels = ITEM_DATABASE
@@ -375,12 +378,12 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
 
   const skillMod = useCallback((skill) => {
     const mod = abilityModifier(effectiveAbilities[skill.ab] ?? 10)
-    const level = effectiveSkillLevel(skillsState[skill.id], !!grantedSkills[skill.id])
+    const level = effectiveSkillLevel(skillsState[skill.id], !!grantedSkills[skill.id], !!grantedExpertise[skill.id])
     const factor = skillProfFactor(level)
     const skillBuff = buffStats?.skillBonusPerSkill?.[skill.id] ?? 0
     const concentrationPart = skill.id === 'concentration' ? (buffStats?.concentrationBonus ?? 0) : 0
     return mod + Math.floor(prof * factor) + skillBuff + concentrationPart
-  }, [effectiveAbilities, skillsState, grantedSkills, prof, buffStats?.skillBonusPerSkill, buffStats?.concentrationBonus])
+  }, [effectiveAbilities, skillsState, grantedSkills, grantedExpertise, prof, buffStats?.skillBonusPerSkill, buffStats?.concentrationBonus])
 
   const skillsByAb = useMemo(() => {
     const m = { str: [], dex: [], con: [], int: [], wis: [], cha: [] }
@@ -558,7 +561,7 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
                     {skillList.map((skill) => {
                       const total = skillMod(skill)
                       const granted = !!grantedSkills[skill.id]
-                      const current = effectiveSkillLevel(skillsState[skill.id], granted)
+                      const current = effectiveSkillLevel(skillsState[skill.id], granted, !!grantedExpertise[skill.id])
                       const isRolling = rollingId === skill.id
 
                       return (

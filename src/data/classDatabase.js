@@ -441,13 +441,13 @@ const CLASS_DATA = {
       { id: 'roguish_archetype', name: '游荡者子职', description: '你选择一项游荡者子职：诡术师、刺客、魂刃或盗贼。子职在特定游荡者等级给予对应能力，见游荡者特性表。', level: 3 },
       { id: 'steady_aim', name: '稳定瞄准', description: '以一个附赠动作，你在当前回合为你的下一次攻击提供优势。你只能在本回合还没有移动时使用此附赠动作；使用后，你的速度在当前回合归 0。', level: 3 },
       { id: 'asi_rogue', name: '属性值提升', description: '你获得属性值提升专长或满足条件的其他专长。亦于 8、10、12、16 级获得。', level: 4 },
-      { id: 'cunning_strike', name: '诡诈打击', description: '当你造成偷袭伤害时，可选择下列一种诡诈打击效果加入本次偷袭；每种效果需花费一定数量的偷袭伤害骰，须在投掷伤害前扣除。豁免 DC 为 8+熟练加值+敏捷调整值。淬毒（1d6）：附上毒素，目标体质豁免失败则中毒 1 分钟，每回合结束时可重试；须携带制毒工具。摔绊（1d6）：目标大型及以下须敏捷豁免，失败则倒地。撤步（1d6）：攻击后立刻移动至多速度一半的距离，不引发借机攻击。', level: 5 },
+      { id: 'cunning_strike', name: '诡诈打击', description: '当你造成偷袭伤害时，可选择下列一种诡诈打击效果加入本次偷袭；每种效果需花费一定数量的偷袭伤害骰，须在投掷伤害前扣除。', level: 5, cunningStrike: { costLabel: '偷袭骰', dcNote: '豁免 DC = 8 + 熟练加值 + 敏捷调整值', options: [ { name: '淬毒', cost: '1d6', save: '体质', effect: '附上毒素，目标体质豁免失败则中毒 1 分钟，每回合结束时可重试；须携带制毒工具。' }, { name: '摔绊', cost: '1d6', save: '敏捷', effect: '目标大型及以下须敏捷豁免，失败则倒地。' }, { name: '撤步', cost: '1d6', save: '', effect: '攻击后立刻移动至多速度一半的距离，不引发借机攻击。' } ] } },
       { id: 'uncanny_dodge', name: '直觉闪避', description: '当一个你能看见的攻击者用一次攻击检定命中你时，你可以用反应将这次攻击对你造成的伤害减半（向下取整）。', level: 5 },
       { id: 'expertise_6', name: '专精', description: '6 级时额外再获得两项由你选择的你已熟练的技能的专精。', level: 6 },
       { id: 'evasion', name: '反射闪避', description: '当你受到一个允许你进行敏捷豁免只承受一半伤害的效应影响时，豁免成功时不受伤害，豁免失败时只承受一半伤害。失能状态下无法使用。', level: 7 },
       { id: 'reliable_talent', name: '可靠才能', description: '每当你进行属性检定且可运用某项技能熟练或工具熟练时，可将 D20 投出的 9 及以下视为 10。', level: 7 },
       { id: 'improved_cunning_strike', name: '进阶诡诈打击', description: '你在造成偷袭伤害时可以一次性选用两种诡诈打击效果，每种效果都需独立扣除对应的偷袭伤害骰。', level: 11 },
-      { id: 'devious_strike', name: '凶狡打击', description: '下列效果加入你的诡诈打击选项。恍惚（2d6）：目标体质豁免失败则下一回合只能选择移动、一个动作或一个附赠动作之一。击昏（6d6）：目标体质豁免失败则陷入昏迷 1 分钟或直到受到任何伤害；每回合结束时可重试。眩目（3d6）：目标敏捷豁免失败则目盲直到其下回合结束。', level: 14 },
+      { id: 'devious_strike', name: '凶狡打击', description: '下列效果加入你的诡诈打击选项。', level: 14, cunningStrike: { costLabel: '偷袭骰', dcNote: '豁免 DC = 8 + 熟练加值 + 敏捷调整值', options: [ { name: '恍惚', cost: '2d6', save: '体质', effect: '目标体质豁免失败则下一回合只能选择移动、一个动作或一个附赠动作之一。' }, { name: '击昏', cost: '6d6', save: '体质', effect: '目标体质豁免失败则陷入昏迷 1 分钟或直到受到任何伤害；每回合结束时可重试。' }, { name: '眩目', cost: '3d6', save: '敏捷', effect: '目标敏捷豁免失败则目盲直到其下回合结束。' } ] } },
       { id: 'slippery_mind', name: '圆滑心智', description: '你获得感知豁免与魅力豁免的熟练。', level: 15 },
       { id: 'elusive', name: '飘忽不定', description: '只要你并未失能，以你为目标的攻击检定无法具有优势。', level: 18 },
       { id: 'epic_boon_rogue', name: '传奇恩惠', description: '你获得一项传奇恩惠专长或其他一项你选择的适用专长。推荐选择暗夜精魂之恩惠。', level: 19 },
@@ -459,7 +459,7 @@ const CLASS_DATA = {
         features: [
           { id: 'fast_hands', name: '快手', description: '你可以通过附赠动作进行下列行为之一：巧手——进行一次敏捷（巧手）检定，用盗贼工具解开锁或解除陷阱，或进行扒窃；使用物件——执行操作动作，或执行魔法动作以使用要求该动作的魔法物品。', level: 3 },
           { id: 'second_story_work', name: '梁上君子', description: '你的训练使你擅长抵达难以到达的地方。攀爬者：你获得等同于你速度的攀爬速度。跳跃者：你的跳跃距离由敏捷决定而非力量。', level: 3 },
-          { id: 'supreme_sneak', name: '极效潜行', description: '你获得下列诡诈打击选项。无声袭击（花费 1d6）：若你通过执行躲藏动作获得了隐形状态，且你在结束回合时仍处于四分之三掩护或全身掩护之后，则本次攻击不会导致该状态结束。', level: 9 },
+          { id: 'supreme_sneak', name: '极效潜行', description: '你获得下列诡诈打击选项。', level: 9, cunningStrike: { costLabel: '偷袭骰', dcNote: '', options: [ { name: '无声袭击', cost: '1d6', save: '', effect: '若你通过执行躲藏动作获得了隐形状态，且你在结束回合时仍处于四分之三掩护或全身掩护之后，则本次攻击不会导致该状态结束。' } ] } },
           { id: 'use_magic_device', name: '使用魔法装置', description: '你学会如何最大化利用魔法装置。同调：你可以一次性同调最多四件魔法物品。充能：每当你使用魔法物品的消耗充能特性时，投 d6，若结果为 6 则本次使用不消耗充能。卷轴：你可以使用任何法术卷轴，以智力为施法关键属性。戏法或一环法术卷轴可稳定使用；更高环阶卷轴须通过智力（奥秘）检定（DC=10+法术环阶），成功则施展该法术，失败则卷轴化为尘埃。', level: 13 },
           { id: 'thiefs_reflexes', name: '窃盗本能', description: '每次战斗的第一轮里，你可以行动两个回合：先以正常先攻执行第一个回合，再以先攻数值减 10 的先攻执行第二个回合。', level: 17 },
         ],
@@ -671,7 +671,6 @@ const CLASS_DATA = {
       { id: 'full_focus', name: '全神贯注', description: '短休前可重新获得所有专注点。6 级 1 次/天，12 级 2 次/天，18 级 3 次/天。', level: 6 },
       { id: 'disrupting_shot', name: '干扰射击', description: '火器攻击命中时可不造成伤害，改为迫使目标消耗反应进行一次移动，移动距离为该生物一半速度、最多 30 尺。', level: 7 },
       { id: 'deadly_focus', name: '致命专注', description: '火器攻击时暴击骰 -1（9 级）。17 级必杀手：暴击骰 -2。', level: 9 },
-      { id: 'precise_shot', name: '精准射击', description: '自 6 级起，可消耗 1 专注点发动「精准射击」，效果见下方「专注点 · 特殊能力」表。', level: 6 },
       { id: 'barrage_fire', name: '弹雨火力', description: '每回合可进行一次额外火器攻击，伤害减半。', level: 13 },
       { id: 'unwavering_precision', name: '不屈精准', description: '15 级获得，详见模组。', level: 15 },
       { id: 'headshot', name: '爆头', description: '远程武器对生物造成重击时，可选择爆头：若其生命值不高于 100 则死亡；否则额外受到 10d10 伤害（武器伤害类型）。使用后直至短休或长休无法再次使用。', level: 20 },
@@ -1193,7 +1192,7 @@ const CLASS_DATA = {
       { id: 'extra_attack_shadow', name: '额外攻击', description: '当你在自己回合执行攻击动作时，可攻击两次，而非一次。', level: 2 },
       { id: 'asi_shadow_3', name: '属性提升', description: '按《玩家手册》提升一项属性 2 点、或两项各 1 点（上限 20）；若战役允许，可改选一项专长。', level: 3 },
       { id: 'surprise_step', name: '奇袭步', description: '当你处于隐匿状态时，可在你的回合结束时立刻重投先攻。你可以选择是否采用新先攻。若新先攻低于当前先攻：不会再获得一整轮动作，但获得一次新的反应。若新先攻更高且选择采用：本轮不再动一整轮，之后按新先攻更早行动。', level: 4 },
-      { id: 'cunning_strike', name: '凶狡打击', description: '你获得凶狡打击（Cunning Strike）：打出偷袭时，可消耗部分偷袭骰以附加效应。效应表与可选消耗直接采用 2024《玩家手册》盗贼的凶狡打击条目。', level: 5 },
+      { id: 'cunning_strike', name: '凶狡打击', description: '你获得凶狡打击（Cunning Strike）：打出偷袭时，可消耗部分偷袭骰以附加效应。效应表与可选消耗直接采用 2024《玩家手册》盗贼的凶狡打击条目。', level: 5, cunningStrike: { costLabel: '偷袭骰', dcNote: '豁免 DC = 8 + 熟练加值 + 敏捷调整值', options: [ { name: '淬毒', cost: '1d6', save: '体质', effect: '附上毒素，目标体质豁免失败则中毒 1 分钟，每回合结束时可重试；须携带制毒工具。' }, { name: '摔绊', cost: '1d6', save: '敏捷', effect: '目标大型及以下须敏捷豁免，失败则倒地。' }, { name: '撤步', cost: '1d6', save: '', effect: '攻击后立刻移动至多速度一半的距离，不引发借机攻击。' }, { name: '恍惚', cost: '2d6', save: '体质', effect: '目标体质豁免失败则下一回合只能选择移动、一个动作或一个附赠动作之一。' }, { name: '眩目', cost: '3d6', save: '敏捷', effect: '目标敏捷豁免失败则目盲直到其下回合结束。' }, { name: '击昏', cost: '6d6', save: '体质', effect: '目标体质豁免失败则陷入昏迷 1 分钟或直到受到任何伤害；每回合结束时可重试。' } ] } },
       { id: 'improved_critical', name: '精通重击', description: '你的武器攻击在掷出 19–20 时即造成重击（若原已更优，取其优）。', level: 6 },
       { id: 'asi_shadow_7', name: '属性提升', description: '按《玩家手册》提升一项属性 2 点、或两项各 1 点（上限 20）；若战役允许，可改选一项专长。', level: 7 },
       { id: 'shadow_summon', name: '召影', description: '学会召唤并驱使自己影子。次数等于智力调整值（至少 1 次），长休恢复全部。召唤（附赠动作）：60 尺内出现 1 个影子（不需视野，不可跨位面）。召唤当下可立刻对 5 尺内目标打击一次（DC=8+熟练加值+敏捷调整值，敏捷豁免，失败受偷袭骰力场伤害，成功减半），最多持续 1 分钟，超过 120 尺消失，无视野。换位（反应）：与影子互换位置一次。力场打击（附赠动作）：令影子对 5 尺内目标打击（同 DC 敏捷豁免），随后影子消失。', level: 8 },
@@ -1561,20 +1560,50 @@ export function getPactSlotsByLevel(pactLevel) {
 }
 
 /**
- * 按角色计算的各环位最大法术位（含契约魔法；兼职时契约与施法等级的法术位合并显示）
+ * 按角色计算的各环位最大常规法术位（不含契约魔法；契约位独立存于 char.pactSlots）
  * @param {object} character 角色数据
  * @returns {{ [ring: number]: number }} 环位 -> 数量
  */
 export function getMaxSpellSlotsByRing(character) {
   const spellLv = getSpellcastingLevel(character)
-  const pactLv = getPactLevel(character)
-  const fromSpell = getSpellSlotsByLevel(spellLv)
-  const fromPact = getPactSlotsByLevel(pactLv)
-  const out = {}
-  for (let ring = 1; ring <= 9; ring++) {
-    out[ring] = (fromSpell[ring] ?? 0) + (fromPact[ring] ?? 0)
+  return getSpellSlotsByLevel(spellLv)
+}
+
+/**
+ * 按角色计算的各环位最大契约法术位（仅魔契师，独立于常规法术位池）
+ * @param {object} character 角色数据
+ * @returns {{ [ring: number]: number }} 环位 -> 数量
+ */
+export function getPactSlotsMaxByRing(character) {
+  return getPactSlotsByLevel(getPactLevel(character))
+}
+
+/**
+ * 判定某环阶施法应从哪个法术位池扣除：常规池在该环无槽而契约池有槽时走契约池（纯魔契师），否则走常规池
+ * @param {object} character 角色数据
+ * @param {number} ring 环阶 1-9
+ * @returns {'pact'|'regular'}
+ */
+export function getSlotPoolForRing(character, ring) {
+  const regMax = getMaxSpellSlotsByRing(character)[ring] ?? 0
+  const pactMax = getPactSlotsMaxByRing(character)[ring] ?? 0
+  if (regMax <= 0 && pactMax > 0) return 'pact'
+  return 'regular'
+}
+
+/**
+ * 常规池与契约池按环取较大值合并，仅用于「角色是否拥有法术位」这类存在性判断（如编辑器资源下拉），不用于扣减
+ * @param {object} character 角色数据
+ * @returns {{ [ring: number]: number }} 环位 -> 数量
+ */
+export function getAnySpellSlotMaxByRing(character) {
+  const reg = getMaxSpellSlotsByRing(character)
+  const pact = getPactSlotsMaxByRing(character)
+  const merged = { ...reg }
+  for (const [ring, v] of Object.entries(pact)) {
+    merged[ring] = Math.max(merged[ring] || 0, v || 0)
   }
-  return out
+  return merged
 }
 
 /**
@@ -1585,6 +1614,19 @@ export function getPactLevel(character) {
   return classes
     .filter((c) => (getClassData(c.name)?.spellcasting?.type) === 'pact')
     .reduce((s, c) => s + c.level, 0)
+}
+
+/**
+ * 获取魔契师契约法术位的环阶
+ * @param {object} character 角色数据
+ * @returns {number|null} 契约法术位环阶（1-5），无魔契师职业则返回null
+ */
+export function getPactSlotRing(character) {
+  const pactLv = getPactLevel(character)
+  if (!pactLv || pactLv < 1) return null
+  const entry = PACT_SLOTS_BY_LEVEL[Math.min(20, pactLv)]
+  if (!entry) return null
+  return entry[0] // [ring, count]
 }
 
 /**

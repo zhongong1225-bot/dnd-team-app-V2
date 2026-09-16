@@ -11,6 +11,7 @@ import BuffForm from './BuffForm'
  * @param {React.node} header      自定义头部内容（选择器、输入框等），替换 title
  * @param {string}    title        简单标题（header 未提供时使用）
  * @param {string}    description  标题下方的描述文字
+ * @param {React.node} intro       描述下方的规则原文块（如祈唤/特性描述），可滚动
  * @param {number}    zIndex       遮罩层 z-index（默认 300，内容区 +1）
  * @param {boolean}   plain        无卡片壳，直接渲染 BuffForm（用于 ModuleLibrary 等场景）
  * @param {object}    buffFormProps 透传给 BuffForm 的所有 props
@@ -21,6 +22,7 @@ export default function BuffEditorModal({
   header,
   title,
   description,
+  intro,
   zIndex = 300,
   plain,
   wide,
@@ -65,6 +67,11 @@ export default function BuffEditorModal({
               )}
               {description && (
                 <p className="text-xs text-dnd-text-muted mt-1">{description}</p>
+              )}
+              {intro && (
+                <div className="mt-2 text-xs text-gray-300 leading-relaxed whitespace-pre-line max-h-40 overflow-auto rounded border border-white/10 bg-white/[0.03] p-2">
+                  {intro}
+                </div>
               )}
             </div>
             <div className="p-4">

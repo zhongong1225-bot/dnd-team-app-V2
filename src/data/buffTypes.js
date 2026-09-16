@@ -3,6 +3,8 @@
  * 二级联动：大类 -> 具体效果
  */
 
+import { SAVE_NAMES, SKILLS } from './dndSkills'
+
 /** 伤害类型选项（统一简称，无英文展示；value 为程序用键） */
 export const DAMAGE_TYPES = [
   { value: 'acid', label: '强酸', desc: '腐蚀性液体，消化酶' },
@@ -368,7 +370,7 @@ export function formatDamagePiercingTraitsValue(value) {
  * 第一级：大类 (category)
  * 第二级：具体效果 (key, label, dataType, subSelect, hidden)
  */
-const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'active_release', 'container', 'proficiency', 'choice', 'visual', 'custom']
+const CATEGORY_ORDER = ['ability', 'offense', 'pact_weapon', 'defense', 'mobility_casting', 'active_release', 'container', 'proficiency', 'reroll', 'choice', 'visual', 'custom']
 
 export const BUFF_TYPES = {
   ability: {
@@ -451,6 +453,14 @@ export const BUFF_TYPES = {
       { key: 'extra_attack', label: '额外攻击数', dataType: 'number', hidden: true },
       // 额外动作资源（如 action surge 给额外动作）— 已合并到额外攻击数
       { key: 'extra_action_resource', label: '额外动作资源', dataType: 'number', hidden: true },
+    ],
+  },
+  /** 契约武器：把一把武器整体改造成契约武器（熟练/命中属性/伤害类型/法器），复合效果，一次配齐 */
+  pact_weapon: {
+    label: '契约武器',
+    color: 'gold',
+    effects: [
+      { key: 'pact_weapon', label: '契约武器', dataType: 'object', subSelect: 'pactWeapon' },
     ],
   },
   defense: {
@@ -547,6 +557,14 @@ export const BUFF_TYPES = {
       { key: 'weapon_mastery', label: '精通武器', dataType: 'array', subSelect: 'proficiencyChecklist', proficiencyOptions: 'weaponMastery' },
     ],
   },
+  /** 改骰子：主动释放时按勾选的作用面调用角色对应公式掷 d20＋调整值，可附加骰子；不直接参与被动数值计算 */
+  reroll: {
+    label: '改骰子',
+    color: 'amber',
+    effects: [
+      { key: 'reroll', label: '改骰子', dataType: 'object', subSelect: 'reroll' },
+    ],
+  },
   /** 与防御/攻击等大类同级：自由描述类状态，不参与数值计算 */
   /** 选择型 BUFF：玩家从多个命名选项中选择一个，仅应用选中选项的效果 */
   choice: {
@@ -568,7 +586,10 @@ export const BUFF_TYPES = {
   custom: {
     label: '自定义',
     color: 'slate',
-    effects: [{ key: 'custom_condition', label: ' 自由填写 (状态)', dataType: 'text' }],
+    effects: [
+      { key: 'custom_condition', label: ' 自由填写 (状态)', dataType: 'text' },
+      { key: 'option_list', label: '选项清单 (查阅表)', dataType: 'object', subSelect: 'optionList' },
+    ],
   },
 }
 
@@ -634,6 +655,101 @@ export const ADVANTAGE_OPTIONS = [
   { value: 'advantage', label: '优势' },
   { value: 'disadvantage', label: '劣势' },
 ]
+
+/** 改骰子作用面：释放时可被改骰的 d20 检定类型 */
+export const REROLL_SURFACE_OPTIONS = [
+  { value: 'initiative', label: '先攻' },
+  { value: 'attack', label: '命中' },
+  { value: 'save', label: '豁免' },
+  { value: 'skill', label: '技能' },
+  { value: 'death_save', label: '死亡豁免' },
+]
+
+/** 改骰子效果默认值 */
+export function createDefaultRerollValue() {
+  return { surfaces: [], saveAbility: 'dex', skillId: '', extraDice: { diceCount: 0, diceSides: 4, flatBonus: 0 } }
+}
+
+/** 归一化改骰子效果值（容错旧/缺字段；旧 keep 字段直接丢弃） */
+export function normalizeRerollValue(value) {
+  const base = createDefaultRerollValue()
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return base
+  const validSurfaces = REROLL_SURFACE_OPTIONS.map((o) => o.value)
+  const surfaces = Array.isArray(value.surfaces) ? value.surfaces.filter((s) => validSurfaces.includes(s)) : []
+  const saveAbility = typeof value.saveAbility === 'string' && value.saveAbility ? value.saveAbility : base.saveAbility
+  const skillId = typeof value.skillId === 'string' ? value.skillId : ''
+  const ed = value.extraDice && typeof value.extraDice === 'object' ? value.extraDice : {}
+  const extraDice = {
+    diceCount: Math.max(0, Math.min(99, Number(ed.diceCount) || 0)),
+    diceSides: Number(ed.diceSides) || 4,
+    flatBonus: Number(ed.flatBonus) || 0,
+  }
+  return { surfaces, saveAbility, skillId, extraDice }
+}
+
+/** 改骰子效果摘要文案，如「改骰 先攻/豁免(敏捷) · +1d4」 */
+export function getRerollValueLabel(value) {
+  const v = normalizeRerollValue(value)
+  const parts = v.surfaces.map((s) => {
+    const label = REROLL_SURFACE_OPTIONS.find((o) => o.value === s)?.label || s
+    if (s === 'save') return `${label}(${SAVE_NAMES[v.saveAbility] || v.saveAbility})`
+    if (s === 'skill' && v.skillId) return `${label}(${SKILLS.find((x) => x.id === v.skillId)?.name || v.skillId})`
+    return label
+  })
+  const surfaceText = parts.length ? parts.join('/') : '未选作用面'
+  let diceText = ''
+  if (v.extraDice.diceCount > 0) {
+    const fb = v.extraDice.flatBonus
+    diceText = ` · +${v.extraDice.diceCount}d${v.extraDice.diceSides}${fb > 0 ? `+${fb}` : fb < 0 ? `${fb}` : ''}`
+  }
+  return `改骰 ${surfaceText}${diceText}`
+}
+
+/** 契约武器命中属性选项（默认魅力） */
+export const PACT_WEAPON_ABILITY_OPTIONS = [
+  { value: 'cha', label: '魅力' },
+  { value: 'int', label: '智力' },
+  { value: 'wis', label: '感知' },
+  { value: 'str', label: '力量' },
+  { value: 'dex', label: '敏捷' },
+]
+
+/** 契约武器伤害类型选项：原类型 + 全部伤害类型（排除治疗）。value 存英文，展示走 getDamageTypeLabel */
+export const PACT_WEAPON_DAMAGE_OPTIONS = [
+  { value: '', label: '原类型' },
+  ...DAMAGE_TYPES.filter((d) => d.value !== 'healing').map((d) => ({ value: d.value, label: d.label })),
+]
+
+/** 契约武器效果默认值 */
+export function createDefaultPactWeaponValue() {
+  return { proficiency: true, ability: 'cha', damageType: '', focus: true }
+}
+
+/** 归一化契约武器效果值（容错旧/缺字段） */
+export function normalizePactWeaponValue(value) {
+  const base = createDefaultPactWeaponValue()
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return base
+  const ability = PACT_WEAPON_ABILITY_OPTIONS.some((o) => o.value === value.ability) ? value.ability : base.ability
+  const damageType = PACT_WEAPON_DAMAGE_OPTIONS.some((o) => o.value === value.damageType) ? value.damageType : ''
+  return {
+    proficiency: value.proficiency !== false,
+    ability,
+    damageType,
+    focus: value.focus !== false,
+  }
+}
+
+/** 契约武器效果摘要文案，如「契约武器 · 魅力命中 · 心灵伤害 · 熟练 · 法器」 */
+export function getPactWeaponValueLabel(value) {
+  const v = normalizePactWeaponValue(value)
+  const parts = []
+  const abLabel = PACT_WEAPON_ABILITY_OPTIONS.find((o) => o.value === v.ability)?.label || '魅力'
+  parts.push(`${abLabel}命中`)
+  if (v.damageType) parts.push(`${getDamageTypeLabel(v.damageType)}伤害`)
+  if (v.proficiency) parts.push('熟练')
+  if (v.focus) parts.push('法器')
+  return `契约武器 · ${parts.join(' · ')}`
+}
 
 /** 与物品库选项中的某一项一致：比对 proto.类型 或 proto.类别 */
 export function protoMatchesWeaponBuffKey(proto, key) {
@@ -740,6 +856,31 @@ export const SCOPE_KIND_OPTIONS = [
   { value: SCOPE_KIND.aura, label: '灵光', tooltip: '灵光范围内的友方目标生效', autoActive: true },
   { value: SCOPE_KIND.custom, label: '自定义', tooltip: '自定义条件，由 DM 描述生效范围', autoActive: false },
 ]
+
+/**
+ * 范围字段真正参与计算的效果类型（战斗手段命中/伤害层会按 scope 过滤）。
+ * 其余效果类型（AC/HP/属性/豁免/速度/抗性/法术DC/专注/技能等）在全局层求和时不读 scope，
+ * 范围对它们是摆设——效果编辑器应据此隐藏「起效范围」下拉，仅保留生效条件。
+ */
+export const SCOPE_AWARE_EFFECT_TYPES = new Set([
+  'attack_bonus',
+  'damage_bonus',
+  'attack_damage_bonus',
+  'per_die_bonus',
+  'extra_damage_dice',
+  'advantage',
+  'dice_floor_2',
+  'attack_enhancement_bonus',
+  'hit_bonus',
+  'extra_weapon_damage',
+  'spell_ability_attack',
+  'pact_weapon',
+])
+
+/** 该效果类型是否消费「起效范围」（决定编辑器是否显示范围下拉） */
+export function isScopeAwareEffectType(effectType) {
+  return SCOPE_AWARE_EFFECT_TYPES.has(String(effectType ?? '').trim())
+}
 
 /** 生物类型选项（D&D 5e 常见生物类型） */
 export const CREATURE_TYPE_OPTIONS = [
@@ -933,10 +1074,8 @@ export function scopeMatchesCombatMean(effect, ctx = {}) {
   if (scope === SCOPE_KIND.aura) return true
   const details = Array.isArray(effect.scopeDetail) ? effect.scopeDetail.filter(Boolean) : []
   if (details.length === 0) return false
-  if (scope === SCOPE_KIND.creature_type) {
-    if (!ctx.targetCreatureType) return false
-    return details.includes(String(ctx.targetCreatureType))
-  }
+  // 某类生物：仅作文案标注（autoActive:false），目标类型由桌面 DM 判定，用户手动计算，绝不自动进命中/伤害公式
+  if (scope === SCOPE_KIND.creature_type) return false
   if (scope === SCOPE_KIND.damage_type) {
     if (!ctx.damageType) return false
     return details.some((d) => getDamageTypeLabel(d) === getDamageTypeLabel(ctx.damageType))
@@ -985,7 +1124,7 @@ export function formatScopeBrief(scope, scopeDetail) {
   if (details.length === 0) return ''
   if (s === SCOPE_KIND.creature_type) {
     const labels = details.map((v) => CREATURE_TYPE_OPTIONS.find((o) => o.value === v)?.label ?? v)
-    return `（${labels.join('/')}）`
+    return `（对${labels.join('/')}）`
   }
   if (s === SCOPE_KIND.damage_type) {
     const labels = details.map((v) => getDamageTypeLabel(v))
@@ -993,6 +1132,10 @@ export function formatScopeBrief(scope, scopeDetail) {
   }
   if (s === SCOPE_KIND.weapon_category) {
     return `（${details.join('/')}）`
+  }
+  if (s === SCOPE_KIND.specific_target) {
+    const text = details[0] ?? ''
+    return text ? `（${text}）` : ''
   }
   if (s === SCOPE_KIND.custom) {
     const text = details[0] ?? ''

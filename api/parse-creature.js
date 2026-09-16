@@ -1,7 +1,8 @@
 /**
- * Vercel Serverless Function — 生物库截图解析
+ * Vercel Serverless Function — 生物库截图/文字解析
  * POST /api/parse-creature
- * Body: { image: "data:image/png;base64,..." }
+ * Body: { images: ["data:image/png;base64,...", ...], text: "粘贴的数据块文字" }
+ *       images 与 text 可混合；兼容旧版单图字段 { image: "data:..." }
  * Returns: parsed creature data as JSON
  */
 
@@ -48,6 +49,7 @@ const SYSTEM_PROMPT = `你是一个 D&D 5e 生物数据块解析器。用户会�
   "languages": "语言中文描述（如：'通用语, 龙语'）",
   "traits": [{"name": "特质中文名", "description": "特质中文描述"}],
   "actions": [{"name": "动作中文名", "description": "动作中文描述，包含命中、伤害等数据"}],
+  "bonusActions": [{"name": "附赠动作中文名", "description": "附赠动作中文描述"}],
   "reactions": [{"name": "反应中文名", "description": "反应中文描述"}],
   "legendaryActions": [{"name": "传奇动作中文名", "description": "传奇动作中文描述"}]
 }
@@ -63,6 +65,7 @@ const SYSTEM_PROMPT = `你是一个 D&D 5e 生物数据块解析器。用户会�
 - speed: 只取数字，没有的飞行/游泳/攀爬速度填 null
 - traits/actions：名称和描述都必须翻译成中文，保留骰子和数字不变
 - 如果截图中有多个生物，只解析第一个
+- 如果提供了多张截图、或截图加文字，它们可能是同一生物数据块的不同部分，请合并为一个生物返回
 - 只返回 JSON，不要其他文字`;
 
 export default async function handler(req, res) {
@@ -84,20 +87,31 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { image } = req.body || {};
+    const { image, images, text } = req.body || {};
 
-    if (!image || typeof image !== 'string') {
-      return res.status(400).json({ error: 'Missing image data' });
+    const imageList = Array.isArray(images)
+      ? images.filter(item => typeof item === 'string')
+      : (typeof image === 'string' ? [image] : []);
+    const textPart = typeof text === 'string' ? text.trim() : '';
+
+    if (imageList.length === 0 && !textPart) {
+      return res.status(400).json({ error: 'Missing image or text data' });
     }
 
-    // Extract base64 data and media type
-    const match = image.match(/^data:(image\/\w+);base64,(.+)$/);
-    if (!match) {
-      return res.status(400).json({ error: 'Invalid image data format. Expected: data:image/xxx;base64,...' });
+    const contentParts = [];
+    for (const dataUrl of imageList) {
+      if (!/^data:image\/\w+;base64,.+$/.test(dataUrl)) {
+        return res.status(400).json({ error: 'Invalid image data format. Expected: data:image/xxx;base64,...' });
+      }
+      contentParts.push({ type: 'image_url', image_url: { url: dataUrl } });
     }
-
-    const mimeType = match[1];
-    const base64Data = match[2];
+    if (textPart) {
+      contentParts.push({ type: 'text', text: textPart });
+    }
+    contentParts.push({
+      type: 'text',
+      text: '请解析以上截图与文字中的 D&D 生物数据块（多张截图可能是同一数据块的不同部分，请合并为一个生物），返回 JSON。',
+    });
 
     // Call Qwen VL API
     const response = await fetch(QWEN_ENDPOINT, {
@@ -110,19 +124,7 @@ export default async function handler(req, res) {
         model: QWEN_MODEL,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image_url',
-                image_url: { url: `data:${mimeType};base64,${base64Data}` },
-              },
-              {
-                type: 'text',
-                text: '请解析这张图片中的 D&D 生物数据块，返回 JSON。',
-              },
-            ],
-          },
+          { role: 'user', content: contentParts },
         ],
         temperature: 0.1,
         max_tokens: 4000,

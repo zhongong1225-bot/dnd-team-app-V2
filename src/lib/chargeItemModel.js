@@ -34,7 +34,7 @@
  */
 
 import { createEmptyContainedSpellSub } from './containedSpellModel'
-import { getDamageTypeLabel, getDamageTypeValue } from '../data/buffTypes'
+import { getDamageTypeLabel, getDamageTypeValue, createDefaultRerollValue, normalizeRerollValue } from '../data/buffTypes'
 import { getCharacterClasses } from '../data/classDatabase'
 import { getItemById } from '../data/itemDatabase'
 import { isFormulaValue, formatFormulaLabel, evaluateBuffValue, proficiencyBonus } from './formulas'
@@ -178,10 +178,16 @@ export function isFixedSlotConsumption(norm) {
   return norm?.resourceType === 'spell_slot' && norm?.consumptionMode === 'fixed'
 }
 
+/** 归一化后的 value 是否为「法术位 · 契约法术」（独立契约池，环阶自动识别） */
+export function isPactSlotConsumption(norm) {
+  return norm?.resourceType === 'spell_slot' && norm?.consumptionMode === 'pact'
+}
+
 /** 消耗资源的显示标签（法术位会带上环位/自由区间） */
 export function getResourceLabel(norm) {
   if (!norm) return ''
   if (norm.resourceType === 'spell_slot') {
+    if (norm.consumptionMode === 'pact') return '契约法术位'
     return norm.consumptionMode === 'free'
       ? `法术位（自由 1-${norm.maxSlotLevel}环）`
       : `${RING_CN[norm.slotLevel] || norm.slotLevel}环法术位`
@@ -301,6 +307,9 @@ export function createChargeEffectEntry(type, overrides = {}) {
   if (type === 'add_roll_dice') {
     return { id, type, applyMultiplier: true, value: { diceCount: 1, diceSides: 10, diceBonus: 0, note: '' }, ...overrides }
   }
+  if (type === 'reroll') {
+    return { id, type, applyMultiplier: false, value: createDefaultRerollValue(), ...overrides }
+  }
   if (type === 'damage') {
     return { id, type, applyMultiplier: true, value: { diceCount: 1, diceSides: 6, diceBonus: 0, damageType: 'fire', addWeaponDamage: false, syncWithWeapon: false, levelScaling: [] }, ...overrides }
   }
@@ -362,8 +371,8 @@ export function normalizeChargeItemValue(value) {
   // resourceType：旧数据无此字段，默认 'charges'
   const validResourceTypes = RESOURCE_TYPE_OPTIONS.map((o) => o.value)
   let resourceType = validResourceTypes.includes(value.resourceType) ? value.resourceType : 'charges'
-  // consumptionMode: 'fixed' | 'free'
-  let consumptionMode = value.consumptionMode === 'free' ? 'free' : 'fixed'
+  // consumptionMode: 'fixed' | 'free' | 'pact'
+  let consumptionMode = (value.consumptionMode === 'free' || value.consumptionMode === 'pact') ? value.consumptionMode : 'fixed'
   // slotLevel: 固定消耗模式下消耗的环位 (1-9)
   let slotLevel = Math.max(1, Math.min(9, Number(value.slotLevel) || 1))
   // maxSlotLevel: 自由消耗模式下的最大环位 (1-9)
@@ -409,7 +418,7 @@ export function normalizeChargeItemValue(value) {
   const rawEffects = Array.isArray(value.effects) ? value.effects : []
   const effects = rawEffects.map((e) => {
     if (!e || typeof e !== 'object') return createChargeEffectEntry('spell')
-    const type = ['spell', 'ability', 'shield', 'temp_buff', 'creature_transform', 'restore_spell_slots', 'summon', 'custom_logic', 'damage', 'heal', 'random_table', 'attack_buff', 'consume_spell_slot_to_restore_charges'].includes(e.type) ? e.type : 'spell'
+    const type = ['spell', 'ability', 'shield', 'temp_buff', 'creature_transform', 'restore_spell_slots', 'summon', 'custom_logic', 'damage', 'heal', 'random_table', 'attack_buff', 'consume_spell_slot_to_restore_charges', 'add_roll_dice', 'reroll'].includes(e.type) ? e.type : 'spell'
     const id = e.id || genId()
     if (type === 'spell') {
       const rawSpellVal = e.value && typeof e.value === 'object' ? e.value : {}
@@ -555,8 +564,10 @@ export function normalizeChargeItemValue(value) {
         hitBonusPerUnit: Math.max(0, Number(av.hitBonusPerUnit) || 0),
         damageBonusPerUnit: Math.max(0, Number(av.damageBonusPerUnit) || 0),
         extraDicePerUnit: Math.max(0, Number(av.extraDicePerUnit) || 0),
+        baseDiceCount: Math.max(0, Number(av.baseDiceCount) || 0),
         diceSides: [4, 6, 8, 10, 12, 20].includes(Number(av.diceSides)) ? Number(av.diceSides) : 10,
         damageType: typeof av.damageType === 'string' ? av.damageType : 'fire',
+        levelScaling: Array.isArray(av.levelScaling) ? av.levelScaling : [],
       } }
     }
     if (type === 'random_table') {
@@ -586,6 +597,18 @@ export function normalizeChargeItemValue(value) {
           }
         }) : [],
       } }
+    }
+    if (type === 'add_roll_dice') {
+      const arv = e.value && typeof e.value === 'object' ? e.value : {}
+      return { id, type, applyMultiplier: e.applyMultiplier !== false, value: {
+        diceCount: Math.max(1, Number(arv.diceCount) || 1),
+        diceSides: [4, 6, 8, 10, 12, 20].includes(Number(arv.diceSides)) ? Number(arv.diceSides) : 10,
+        diceBonus: Number(arv.diceBonus) || 0,
+        note: typeof arv.note === 'string' ? arv.note : '',
+      } }
+    }
+    if (type === 'reroll') {
+      return { id, type, applyMultiplier: false, value: normalizeRerollValue(e.value) }
     }
     return { id, type, applyMultiplier: e.applyMultiplier !== false, value: {} }
   })
@@ -864,7 +887,7 @@ export function computeScaledEffect(effectValue, amount, freeMode = false, char 
     return {
       hitBonus: (Math.max(0, Number(base.hitBonusPerUnit) || 0)) * amt,
       damageBonus: (Math.max(0, Number(base.damageBonusPerUnit) || 0)) * amt,
-      extraDiceCount: (Math.max(0, Number(base.extraDicePerUnit) || 0)) * amt,
+      extraDiceCount: (Math.max(0, Number(base.extraDicePerUnit) || 0)) * amt + (Math.max(0, Number(effectValue.baseDiceCount) || 0)),
       diceSides: base.diceSides || 10,
       damageType: base.damageType || 'fire',
     }
@@ -973,7 +996,10 @@ export function getMaxSpendableAmount(norm, char) {
   }
   // 法术位消耗
   if (norm.resourceType === 'spell_slot') {
-    if (norm.consumptionMode === 'free') {
+    if (norm.consumptionMode === 'pact') {
+      // 契约法术位：每次消耗 1 个，环阶由角色契约等级决定
+      return 1
+    } else if (norm.consumptionMode === 'free') {
       // 自由消耗：最大可选环位 = maxSlotLevel
       return Math.max(1, Math.min(9, Number(norm.maxSlotLevel) || 1))
     } else {

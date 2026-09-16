@@ -11,7 +11,7 @@ import { Pencil, X } from 'lucide-react'
 import { getItemListGrouped, getItemById, getItemDisplayName, parseWeaponNoteToTraits, buildWeaponNoteFromTraits, WEAPON_TRAIT_OPTIONS, WEAPON_MASTERY_OPTIONS, itemRequiresAttunement, resolveEntryRequiresAttunement, addCustomItem, updateCustomItem, forkItemAsCustom, getCustomItems, getOfficialNonMagicalItemTemplates } from '../data/itemDatabase'
 import { inputClass, inputClassInline, textareaClass } from '../lib/inputStyles'
 import { useModule } from '../contexts/ModuleContext'
-import { BUFF_TYPES, getCategories, normalizeEffectCategory, parseDamageString, formatDamageForAttack, ITEM_STORAGE_DEFAULT_ITEM_IDS, WEAPON_PROFICIENCY_OPTIONS, getWeaponProficiencyTier } from '../data/buffTypes'
+import { BUFF_TYPES, getCategories, normalizeEffectCategory, parseDamageString, formatDamageForAttack, ITEM_STORAGE_DEFAULT_ITEM_IDS, WEAPON_PROFICIENCY_OPTIONS, getWeaponProficiencyTier, SCOPE_KIND, normalizeScope } from '../data/buffTypes'
 import { DamageDiceInlineRow, NumberStepper } from './BuffForm'
 import BuffForm from './BuffForm'
 import BuffEditorModal from './BuffEditorModal'
@@ -126,6 +126,9 @@ function createEmptyModule() {
     id: 'm_' + Math.random().toString(36).slice(2),
     category: firstCat,
     effectType: firstEffect,
+    scope: SCOPE_KIND.global,
+    scopeDetail: [],
+    effectCondition: '',
     value: 0,
     break20: {},
     customText: '',
@@ -187,9 +190,13 @@ function entryToEffectModules(entry, proto) {
         val = normalizeContainedSpellValue(val, entry?.charge)
       }
       const break20 = e.break20 && typeof e.break20 === 'object' && !Array.isArray(e.break20) ? e.break20 : {}
+      const { scope, scopeDetail } = normalizeScope(e.scope, e.scopeDetail)
       add(normalizeEffectCategory(e.effectType ?? '', e.category), e.effectType ?? '', {
         value: val,
         break20,
+        scope,
+        scopeDetail,
+        effectCondition: typeof e.effectCondition === 'string' ? e.effectCondition : '',
         customText: typeof e.value === 'string' ? e.value : (e.customText ?? ''),
       })
     })
@@ -510,6 +517,9 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = 'ç¡®è
       category: m.category,
       effectType: m.effectType,
       value: m.value,
+      scope: m.scope,
+      scopeDetail: m.scopeDetail,
+      ...(m.effectCondition ? { effectCondition: m.effectCondition } : {}),
       customText: m.customText ?? '',
       ...(m.break20 && typeof m.break20 === 'object' && Object.keys(m.break20).length ? { break20: m.break20 } : {}),
     }))
@@ -523,6 +533,9 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = 'ç¡®è
       id: 'm_' + Math.random().toString(36).slice(2),
       category: eff.category,
       effectType: eff.effectType,
+      scope: eff.scope,
+      scopeDetail: eff.scopeDetail,
+      effectCondition: eff.effectCondition ?? '',
       value: eff.value,
       break20: eff.break20 && typeof eff.break20 === 'object' ? eff.break20 : {},
       customText: typeof eff.value === 'string' ? eff.value : (eff.customText ?? ''),
@@ -599,12 +612,16 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = 'ç¡®è
         magicBonus = Number.isNaN(Number(bonus)) ? 0 : Number(bonus)
         return
       }
+      const { scope, scopeDetail } = normalizeScope(mod.scope, mod.scopeDetail)
       const effectEntry = {
         category: mod.category,
         effectType: currentEffect.key,
+        scope,
+        scopeDetail,
         value: saveVal,
         customText: mod.customText ?? '',
       }
+      if (mod.effectCondition) effectEntry.effectCondition = mod.effectCondition
       if (currentEffect.key === 'ability_score_uncapped' && mod.break20 && typeof mod.break20 === 'object' && Object.keys(mod.break20).length) {
         effectEntry.break20 = mod.break20
       }
@@ -799,7 +816,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = 'ç¡®è
             const currentEffect = catData?.effects?.find((e) => e.key === mod.effectType)
             const label = currentEffect ? (currentEffect.label ?? mod.effectType) : 'â€”'
             const summary = currentEffect
-              ? getEffectSummaryShort({ effectType: mod.effectType, value: mod.value, customText: mod.customText }, effectSummaryContext)
+              ? getEffectSummaryShort({ effectType: mod.effectType, value: mod.value, customText: mod.customText, scope: mod.scope, scopeDetail: mod.scopeDetail }, effectSummaryContext)
               : ''
             return (
               <span
@@ -808,7 +825,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = 'ç¡®è
                 title={summary}
               >
                 <span className="text-dnd-gold-light/80">{label}</span>
-                {summary && <span className="text-gray-400 truncate max-w-[120px]">{summary}</span>}
+                {summary && <span className="text-gray-400">{summary}</span>}
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); removeEffectModule(mod.id) }}
@@ -1335,6 +1352,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = 'ç¡®è
           compact: true,
           hideDuration: true,
           initial: buffFormInitial,
+          defaultScope: isWeapon ? 'self_weapon' : undefined,
           onSave: handleBuffFormSave,
           referenceData,
           baseReferenceData: referenceData,

@@ -1,7 +1,7 @@
 import { Trash2, Pencil } from 'lucide-react'
 import { getBuffSourceKindLabel, getBuffSourceKindTitle } from '../lib/buffSourceKind'
 import { getCreatureById } from '../data/creatureLibrary'
-import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue, formatDamageForAttack, formatScopeBrief, normalizeScope, formatSpellDamageBonusValue, ARMOR_PROFICIENCY_OPTIONS, WEAPON_PROFICIENCY_OPTIONS, VEHICLE_PROFICIENCY_OPTIONS, INSTRUMENT_PROFICIENCY_OPTIONS, TOOL_PROFICIENCY_OPTIONS, LANGUAGE_PROFICIENCY_OPTIONS, WEAPON_MASTERY_OPTIONS, SPECIAL_SENSES_OPTIONS, VISUAL_EFFECT_OPTIONS } from '../data/buffTypes'
+import { getEffectInfo, getDamageTypeLabel, getConditionLabel, getRerollValueLabel, getPactWeaponValueLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue, formatDamageForAttack, formatScopeBrief, normalizeScope, formatSpellDamageBonusValue, ARMOR_PROFICIENCY_OPTIONS, WEAPON_PROFICIENCY_OPTIONS, VEHICLE_PROFICIENCY_OPTIONS, INSTRUMENT_PROFICIENCY_OPTIONS, TOOL_PROFICIENCY_OPTIONS, LANGUAGE_PROFICIENCY_OPTIONS, WEAPON_MASTERY_OPTIONS, SPECIAL_SENSES_OPTIONS, VISUAL_EFFECT_OPTIONS } from '../data/buffTypes'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { getMergedSpells } from '../data/spellDatabase'
 import { formatContainedSpellBrief } from '../lib/containedSpellBrief'
@@ -157,6 +157,22 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
   if (buff.effectType === 'darkvision_bonus' && typeof v === 'object' && !Array.isArray(v)) {
     const bonus = Number(v.bonus) || 0
     return `暗视+${bonus}尺`
+  }
+
+  // reroll: 许可型重投，显示作用面/取值/附加骰子摘要
+  if (buff.effectType === 'reroll') {
+    return getRerollValueLabel(v)
+  }
+
+  // pact_weapon: 契约武器复合改造，显示命中属性/伤害类型/熟练/法器摘要
+  if (buff.effectType === 'pact_weapon') {
+    return getPactWeaponValueLabel(v)
+  }
+
+  // option_list: 纯查阅选项清单，只显示选项数量
+  if (buff.effectType === 'option_list') {
+    const n = Array.isArray(v?.options) ? v.options.length : 0
+    return n > 0 ? `${v.title || '选项清单'} ×${n}` : '选项清单'
   }
   
   // damage_type_relation: 显示伤害关系（抗性/免疫/易伤）
@@ -395,7 +411,7 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
       // 优势时保留所有已选技能（含数值为 0），以便显示「XXX范围下XXX优势」
       const shouldKeepZero = !!adv
       const entries = Object.entries(v).filter(([k, val]) => {
-        if (k === 'advantage') return false
+        if (k === 'advantage' || k === 'profSkills' || k === 'expertiseSkills') return false
         if (val == null) return false
         if (isFormulaValue(val)) return true
         if (typeof val === 'number') return shouldKeepZero ? true : val !== 0
@@ -409,6 +425,12 @@ export function getEffectSummaryShort(buff, context = {}, baseContext = context)
         }
         return `${nameZh}${formatSignedEntryVal(val, context)}`
       })
+      const grantNames = (key) => (Array.isArray(v[key]) ? v[key] : [])
+        .map((id) => SKILLS.find((s) => s.id === id)?.name || id)
+      const profNames = grantNames('profSkills')
+      const expNames = grantNames('expertiseSkills')
+      if (profNames.length) parts.push(`${profNames.join('、')}熟练`)
+      if (expNames.length) parts.push(`${expNames.join('、')}精通`)
       const uniqueParts = Array.from(new Set(parts))
       return uniqueParts.join('，')
     }
@@ -842,6 +864,14 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
     const text = (typeof buff.value === 'string' && buff.value !== '' ? buff.value : '') || (typeof buff.customText === 'string' && buff.customText !== '' ? buff.customText : '')
     return { label: text || '（视觉描述）', value: null }
   }
+  // 重投：许可型效果，整段摘要作为标签
+  if (buff.effectType === 'reroll') {
+    return { label: getRerollValueLabel(buff.value), value: null }
+  }
+  // 契约武器：复合改造，整段摘要作为标签
+  if (buff.effectType === 'pact_weapon') {
+    return { label: getPactWeaponValueLabel(buff.value), value: null }
+  }
   const effectLabel = info.effect.label ?? buff.effectType
 
   if (info.effect.dataType === 'boolean') {
@@ -945,12 +975,18 @@ function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
     }
     if (info.effect.subSelect === 'skillsAndAdvantage' && isPlainAbilityObject(v)) {
       const parts = Object.entries(v)
-        .filter(([k, val]) => k !== 'advantage' && val != null && val !== 0)
+        .filter(([k, val]) => k !== 'advantage' && k !== 'profSkills' && k !== 'expertiseSkills' && val != null && val !== 0)
         .map(([k, val]) => {
           const sk = SKILLS.find((s) => s.id === k)
           const nameZh = sk ? sk.name : k
           return `${nameZh} ${formatSignedEntryVal(val, context)}`
         })
+      const grantNames = (key) => (Array.isArray(v[key]) ? v[key] : [])
+        .map((id) => SKILLS.find((s) => s.id === id)?.name || id)
+      const profNames = grantNames('profSkills')
+      const expNames = grantNames('expertiseSkills')
+      if (profNames.length) parts.push(`${profNames.join('、')}熟练`)
+      if (expNames.length) parts.push(`${expNames.join('、')}精通`)
       const adv = v.advantage === 'advantage' ? '优势' : v.advantage === 'disadvantage' ? '劣势' : ''
       return { label: effectLabel, value: parts.length ? parts.join('、') + (adv ? ' ' + adv : '') : (adv || null) }
     }

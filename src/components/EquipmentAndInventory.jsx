@@ -2398,6 +2398,27 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
         />
       ) : null}
 
+      <ItemAddForm
+        open={addFormOpen}
+        onClose={() => setAddFormOpen(false)}
+        onSave={(entry) => {
+          onSave({ inventory: [...inv, entry] })
+          if (activityActor && character?.name) {
+            const nm = entry?.name?.trim() || '物品'
+            logTeamActivity({
+              actor: activityActor,
+              moduleId: character.moduleId ?? 'default',
+              summary: `玩家 ${activityActor} 为角色「${character.name}」的背包添加了「${nm}」`,
+            })
+          }
+          setAddFormOpen(false)
+        }}
+        submitLabel="放入背包"
+        inventory={inv}
+        spellDC={spellDC}
+        spellAttackBonus={spellAttackBonus}
+        referenceData={referenceData}
+      />
       <ItemAddForm open={editingIndex !== null} onClose={() => setEditingIndex(null)} onSave={applyEditSave} submitLabel="保存" editEntry={editingIndex != null ? inv[editingIndex] : null} inventory={inv} spellDC={spellDC} spellAttackBonus={spellAttackBonus} referenceData={referenceData} />
       <ItemAddForm
         open={editingNested !== null}

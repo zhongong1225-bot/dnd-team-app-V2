@@ -8,12 +8,14 @@ import {
   DAMAGE_TYPES,
   CONDITION_OPTIONS,
   ABILITY_KEYS,
+  ABILITY_NAMES_ZH,
   ADVANTAGE_OPTIONS,
   PIERCING_DAMAGE_OPTIONS,
   DICE_SIDES_OPTIONS,
   parseDamageString,
   SCOPE_KIND,
   SCOPE_KIND_OPTIONS,
+  isScopeAwareEffectType,
   CREATURE_TYPE_OPTIONS,
   WEAPON_SCOPE_CATEGORY_OPTIONS,
   normalizeScope,
@@ -29,6 +31,13 @@ import {
   DAMAGE_RELATION_OPTIONS,
   WEAPON_PROPERTY_OPTIONS,
   migrateProficiencyTextToArray,
+  REROLL_SURFACE_OPTIONS,
+  normalizeRerollValue,
+  createDefaultRerollValue,
+  PACT_WEAPON_ABILITY_OPTIONS,
+  PACT_WEAPON_DAMAGE_OPTIONS,
+  normalizePactWeaponValue,
+  createDefaultPactWeaponValue,
   getEffectInfo,
 } from '../data/buffTypes'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
@@ -43,6 +52,7 @@ import {
   createEmptyContainedSpellSub,
 } from '../lib/containedSpellModel'
 import { normalizeChargeRecoveryValue } from '../lib/chargeRecovery'
+import { normalizeOptionListValue } from '../lib/optionListModel'
 import {
   normalizeChargeItemValue,
   createChargeEffectEntry,
@@ -217,6 +227,9 @@ function patchDefaultsForEffectType(effectType, currentValue) {
   if (effectType === 'base_speed_increment') patch.value = { walk: 0, fly: 0, swim: 0, climb: 0 }
   if (effectType === 'ability_score_uncapped') patch.break20 = {}
   if (effectType === 'choice') patch.value = { choiceOptions: [{ name: '选项 A', effects: [] }, { name: '选项 B', effects: [] }], choiceSelected: 0 }
+  if (effectType === 'option_list') patch.value = { title: '', note: '', costLabel: '', options: [{ name: '选项 A', cost: '', save: '', detail: '' }] }
+  if (effectType === 'reroll') patch.value = createDefaultRerollValue()
+  if (effectType === 'pact_weapon') patch.value = createDefaultPactWeaponValue()
   const nextDataType = getEffectInfo(effectType)?.effect?.dataType
   // 布尔型效果选中即启用：默认关着会让 DM 加了效果却毫无作用，且界面上看不出差别
   if (nextDataType === 'boolean') patch.value = true
@@ -241,12 +254,13 @@ function createEmptyEffectModule(overrides = {}) {
 }
 
 /** 从 initial 归一化为 effects 数组（兼容旧单条与新版 effects[]，旧 4 大类规范化为 6 大类） */
-function normalizeInitialEffects(initial) {
+function normalizeInitialEffects(initial, defaultScope) {
   const mapEffect = (e) => {
     let value = e.value ?? 0
     if (e.effectType === 'concentration_save_enhance') value = normalizeConcentrationSaveEnhanceValue(value)
     if (e.effectType === 'attack_damage_bonus') value = normalizeAttackDamageBonusModuleValue(value)
     if (e.effectType === 'choice') value = normalizeChoiceValue(value)
+    if (e.effectType === 'option_list') value = normalizeOptionListValue(value)
     const { scope, scopeDetail } = normalizeScope(e.scope, e.scopeDetail)
     const break20 = e.break20 && typeof e.break20 === 'object' && !Array.isArray(e.break20) ? e.break20 : {}
     return {
@@ -268,7 +282,7 @@ function normalizeInitialEffects(initial) {
   if (initial?.category != null || initial?.effectType != null) {
     return migrateProficiencyTextToArray([initial]).map(mapEffect)
   }
-  return [createEmptyEffectModule()]
+  return [createEmptyEffectModule(defaultScope ? { scope: defaultScope } : {})]
 }
 
 /** 根据效果类型把 value 转为保存用的最终值 */
@@ -335,6 +349,9 @@ export function normalizeValueForSave(module, currentEffect) {
   }
   if (needsSubSelect === 'choice') {
     return normalizeChoiceValue(value)
+  }
+  if (needsSubSelect === 'optionList') {
+    return normalizeOptionListValue(value)
   }
   if (needsSubSelect === 'damageTypeRelation') {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -529,6 +546,8 @@ export function normalizeValueForSave(module, currentEffect) {
     }
     return { distance: 0, area: null }
   }
+  if (needsSubSelect === 'reroll') return normalizeRerollValue(value)
+  if (needsSubSelect === 'pactWeapon') return normalizePactWeaponValue(value)
   return value
 }
 
@@ -565,7 +584,10 @@ function isComplexValueType(currentEffect) {
     needsSubSelect === 'deathSaveBonus' ||
     needsSubSelect === 'healingBonus' ||
     needsSubSelect === 'critRange' ||
-    needsSubSelect === 'attackDistanceRange'
+    needsSubSelect === 'attackDistanceRange' ||
+    needsSubSelect === 'reroll' ||
+    needsSubSelect === 'pactWeapon' ||
+    needsSubSelect === 'optionList'
   )
 }
 
@@ -1744,6 +1766,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
             >
               <option value="fixed">固定消耗</option>
               <option value="free">自由消耗</option>
+              <option value="pact">契约法术</option>
             </select>
             {(data.consumptionMode || 'fixed') === 'fixed' ? (
               <>
@@ -1759,6 +1782,8 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
                   referenceData={referenceData}
                 />
               </>
+            ) : (data.consumptionMode === 'pact') ? (
+              <span className="text-gray-500 text-xs">环阶由魔契师等级自动决定，消耗独立契约法术位</span>
             ) : (
               <>
                 <span className={labelCls}>最大环位</span>
@@ -1970,6 +1995,7 @@ function ChargeItemEditor({ module, onChange, spellDC, spellAttackBonus, useWand
             <button type="button" onClick={() => addEffect('summon')} className="px-1.5 py-0.5 rounded border border-indigo-600/70 bg-indigo-900/20 text-indigo-300 hover:bg-indigo-800/40 hover:border-indigo-500/80 text-xs font-medium transition-colors" title="添加召唤效果">+ 召唤</button>
             <button type="button" onClick={() => addEffect('random_table')} className="px-1.5 py-0.5 rounded border border-amber-600/70 bg-amber-900/20 text-amber-300 hover:bg-amber-800/40 hover:border-amber-500/80 text-xs font-medium transition-colors" title="添加随机库">+ 随机库</button>
             <button type="button" onClick={() => addEffect('add_roll_dice')} className="px-1.5 py-0.5 rounded border border-sky-600/70 bg-sky-900/20 text-sky-300 hover:bg-sky-800/40 hover:border-sky-500/80 text-xs font-medium transition-colors" title="添加增加投掷数">+ 增加投掷数</button>
+            <button type="button" onClick={() => addEffect('reroll')} className="px-1.5 py-0.5 rounded border border-amber-600/70 bg-amber-900/20 text-amber-300 hover:bg-amber-800/40 hover:border-amber-500/80 text-xs font-medium transition-colors" title="添加改骰子">🎲 改骰子</button>
           </div>
         </div>
 
@@ -2790,36 +2816,53 @@ function ActiveEffectsList({ data, onChange, spellDC, spellAttackBonus, useWandS
                   </div>
                   <div className="space-y-1 text-xs">
                     <div className="flex items-center gap-x-2">
-                      <span className={labelCls}>命中加值</span>
-                      <span className="text-gray-500">每环位 +</span>
-                      <NumberStepper value={av.hitBonusPerUnit ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, hitBonusPerUnit: Math.max(0, v) } })} min={0} max={99} compact narrow className="!h-7 !w-12" />
-                      <span className="text-gray-500">（消耗N环则+N×{av.hitBonusPerUnit ?? 0}）</span>
+                      <span className="text-gray-500 shrink-0">每环</span>
+                      <span className={labelCls}>命中+</span>
+                      <NumberStepper value={av.hitBonusPerUnit ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, hitBonusPerUnit: Math.max(0, v) } })} min={0} max={99} compact narrow className="!h-6 !w-10" />
+                      <span className={labelCls}>伤害+</span>
+                      <NumberStepper value={av.damageBonusPerUnit ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, damageBonusPerUnit: Math.max(0, v) } })} min={0} max={99} compact narrow className="!h-6 !w-10" />
                     </div>
                     <div className="flex items-center gap-x-2">
-                      <span className={labelCls}>伤害加值</span>
-                      <span className="text-gray-500">每环位 +</span>
-                      <NumberStepper value={av.damageBonusPerUnit ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, damageBonusPerUnit: Math.max(0, v) } })} min={0} max={99} compact narrow className="!h-7 !w-12" />
-                      <span className="text-gray-500">（消耗N环则+N×{av.damageBonusPerUnit ?? 0}）</span>
-                    </div>
-                    <div className="flex items-center gap-x-2">
-                      <span className={labelCls}>额外骰子</span>
-                      <span className="text-gray-500">每环位 +</span>
-                      <NumberStepper value={av.extraDicePerUnit ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, extraDicePerUnit: Math.max(0, v) } })} min={0} max={99} compact narrow className="!h-7 !w-12" />
+                      <span className="text-gray-500 shrink-0">每环</span>
+                      <span className={labelCls}>额外骰</span>
+                      <NumberStepper value={av.extraDicePerUnit ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, extraDicePerUnit: Math.max(0, v) } })} min={0} max={99} compact narrow className="!h-6 !w-10" />
                       <span className="text-gray-500">d</span>
-                      <select value={av.diceSides ?? 10} onChange={(e) => updateEffect(idx, { value: { ...av, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3.5rem]'}>
+                      <select value={av.diceSides ?? 10} onChange={(e) => updateEffect(idx, { value: { ...av, diceSides: Number(e.target.value) } })} className={selectCls + ' !w-[3rem] !h-6'}>
                         {[4, 6, 8, 10, 12, 20].map((s) => <option key={s} value={s}>{s}</option>)}
                       </select>
-                      <span className="text-gray-500">（消耗N环则+N×{av.extraDicePerUnit ?? 0}d{av.diceSides ?? 10}）</span>
+                      <span className="text-gray-500 shrink-0 ml-1">固定</span>
+                      <span className={labelCls}>基础骰</span>
+                      <NumberStepper value={av.baseDiceCount ?? 0} onChange={(v) => updateEffect(idx, { value: { ...av, baseDiceCount: Math.max(0, v) } })} min={0} max={99} compact narrow className="!h-6 !w-10" />
                     </div>
                     <div className="flex items-center gap-x-2">
                       <span className={labelCls}>伤害类型</span>
-                      <select value={av.damageType ?? 'fire'} onChange={(e) => updateEffect(idx, { value: { ...av, damageType: e.target.value } })} className={selectCls + ' !w-[4.5rem]'}>
+                      <select value={av.damageType ?? 'fire'} onChange={(e) => updateEffect(idx, { value: { ...av, damageType: e.target.value } })} className={selectCls + ' !w-[4.5rem] !h-6'}>
                         {DAMAGE_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
                       </select>
                     </div>
                   </div>
                 </div>
                 <LevelScalingEditor entries={av.levelScaling} onChange={(v) => updateEffect(idx, { value: { ...av, levelScaling: v } })} charClasses={charClasses} fields="attack_buff" />
+              </div>
+            </div>
+          )
+        }
+
+        /* ── 改骰子 ── */
+        if (eff.type === 'reroll') {
+          return (
+            <div key={eff.id} className="flex items-start gap-x-2">
+              <span className="shrink-0 mt-1.5 text-xs font-bold text-dnd-gold-light tracking-wider whitespace-nowrap">主——</span>
+              <div className="flex-1 min-w-0">
+                <div className="rounded-md border border-amber-800/30 bg-[#0d1520]/50 px-2 py-1.5">
+                  <div className="flex items-center gap-x-2 mb-1">
+                    <span className="text-amber-400 text-xs shrink-0 font-medium">改骰子</span>
+                    <button type="button" onClick={() => removeEffect(idx)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors shrink-0 ml-auto" title="删除">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <RerollValueEditor value={eff.value} onChange={(nv) => updateEffect(idx, { value: nv })} />
+                </div>
               </div>
             </div>
           )
@@ -3845,6 +3888,344 @@ function MultiSelectDropdown({ options, selected, onChange, placeholder, id, cla
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+/** 改骰子编辑器：勾选作用面（释放时自动调用角色对应公式掷 d20＋调整值），豁免/技能需选定子项，附加骰子额外加掷 */
+function RerollValueEditor({ value, onChange }) {
+  const v = normalizeRerollValue(value)
+  const set = (patch) => onChange({ ...v, ...patch })
+  const toggleSurface = (val, checked) => {
+    const next = checked ? [...v.surfaces, val] : v.surfaces.filter((s) => s !== val)
+    set({ surfaces: next })
+  }
+  return (
+    <div className="space-y-2">
+      <div>
+        <span className={EDT_LABEL}>作用面：</span>
+        <div className="flex flex-wrap gap-2 mt-1">
+          {REROLL_SURFACE_OPTIONS.map((o) => {
+            const checked = v.surfaces.includes(o.value)
+            return (
+              <label key={o.value} className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => toggleSurface(o.value, e.target.checked)}
+                  className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                />
+                <span className="text-xs text-gray-300">{o.label}</span>
+              </label>
+            )
+          })}
+        </div>
+      </div>
+      {v.surfaces.includes('save') && (
+        <div className="flex items-center gap-2">
+          <span className={EDT_LABEL}>豁免子项：</span>
+          <select
+            value={v.saveAbility}
+            onChange={(e) => set({ saveAbility: e.target.value })}
+            className={panelInputCls + ' min-w-[5.5rem] w-auto'}
+          >
+            {Object.entries(SAVE_NAMES).map(([k, label]) => (
+              <option key={k} value={k}>{label}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      {v.surfaces.includes('skill') && (
+        <div className="flex items-center gap-2">
+          <span className={EDT_LABEL}>技能子项：</span>
+          <select
+            value={v.skillId}
+            onChange={(e) => set({ skillId: e.target.value })}
+            className={panelInputCls + ' min-w-[7rem] w-auto'}
+          >
+            <option value="">— 选择技能 —</option>
+            {SKILLS.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className={EDT_LABEL}>附加骰子：</span>
+        <NumberStepper
+          value={v.extraDice.diceCount}
+          min={0} max={99}
+          onChange={(n) => set({ extraDice: { ...v.extraDice, diceCount: n } })}
+          compact narrow
+        />
+        <span className="text-gray-400 text-xs">d</span>
+        <select
+          value={v.extraDice.diceSides}
+          onChange={(e) => set({ extraDice: { ...v.extraDice, diceSides: parseInt(e.target.value, 10) || 4 } })}
+          className={panelInputCls + ' min-w-[3.5rem] w-auto'}
+        >
+          {DICE_SIDES_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        <span className="text-gray-400 text-xs">+</span>
+        <NumberStepper
+          value={v.extraDice.flatBonus}
+          onChange={(n) => set({ extraDice: { ...v.extraDice, flatBonus: n } })}
+          compact narrow
+        />
+      </div>
+      <p className="text-[10px] text-gray-500">释放时按勾选的作用面自动调用角色对应公式掷 d20＋调整值；附加骰子额外加掷。勾选豁免/技能时需选定子项。</p>
+    </div>
+  )
+}
+
+/** 额外武器伤害：XdX+X + 伤害类型；下拉含「自定义…」，选中后手动输入类型名（原样存储与显示） */
+function ExtraWeaponDamageEditor({ value, module, onChange }) {
+  const panelInputCls = inputClass.replace(/\bh-10\b/, 'h-8').replace(/\btext-sm\b/, 'text-sm').replace(/\bw-full\b/, '')
+  const valueObj = typeof value === 'object' && value && !Array.isArray(value) ? value : { diceCount: 1, diceSides: 6, flatBonus: 0, damageType: '' }
+  const matched = DAMAGE_TYPES.find((d) => d.value === valueObj.damageType || d.label === valueObj.damageType)
+  const [customMode, setCustomMode] = useState(false)
+  const isCustom = customMode || (!matched && !!valueObj.damageType)
+  const pickType = (v) => {
+    if (v === '__custom__') {
+      setCustomMode(true)
+      onChange({ ...module, value: { ...valueObj, damageType: '' } })
+    } else {
+      setCustomMode(false)
+      onChange({ ...module, value: { ...valueObj, damageType: v } })
+    }
+  }
+  return (
+    <div className="flex items-center gap-2 flex-nowrap flex-wrap">
+      <NumberStepper
+        value={valueObj.diceCount ?? 1}
+        min={1} max={99}
+        onChange={(n) => onChange({ ...module, value: { ...valueObj, diceCount: n } })}
+        compact narrow
+      />
+      <span className="text-gray-400 text-xs">d</span>
+      <select
+        value={valueObj.diceSides ?? 6}
+        onChange={(e) => onChange({ ...module, value: { ...valueObj, diceSides: parseInt(e.target.value, 10) || 6 } })}
+        className={panelInputCls + ' min-w-[3.5rem] w-auto'}
+      >
+        {DICE_SIDES_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+      <span className="text-gray-400 text-xs">+</span>
+      <NumberStepper
+        value={valueObj.flatBonus ?? 0}
+        onChange={(n) => onChange({ ...module, value: { ...valueObj, flatBonus: n } })}
+        compact narrow
+      />
+      <select
+        value={isCustom ? '__custom__' : (matched ? matched.value : '')}
+        onChange={(e) => pickType(e.target.value)}
+        className={panelInputCls + ' min-w-[4.5rem] w-auto'}
+      >
+        <option value="">伤害类型</option>
+        {DAMAGE_TYPES.map((d) => (
+          <option key={d.value} value={d.value}>{d.label}</option>
+        ))}
+        <option value="__custom__">自定义…</option>
+      </select>
+      {isCustom && (
+        <input
+          type="text"
+          value={valueObj.damageType ?? ''}
+          onChange={(e) => onChange({ ...module, value: { ...valueObj, damageType: e.target.value } })}
+          placeholder="类型名"
+          maxLength={12}
+          className={panelInputCls + ' min-w-[5rem] w-[6rem]'}
+        />
+      )}
+    </div>
+  )
+}
+
+function ShieldPoolEditor({ value, onChange, module }) {
+  const panelInputCls = inputClass.replace(/\bh-10\b/, 'h-8').replace(/\btext-sm\b/, 'text-sm').replace(/\bw-full\b/, '')
+  const sv = value && typeof value === 'object' ? value : {}
+  const max = sv.max != null ? Number(sv.max) || 10 : 10
+  const threshold = sv.threshold != null ? Number(sv.threshold) || 0 : 0
+  const recoverOn = sv.recoverOn || 'manual'
+  const bonusEffects = Array.isArray(sv.bonusEffects) ? sv.bonusEffects : []
+  const [bonusPickerOpen, setBonusPickerOpen] = useState(false)
+  const [bonusPickerCategory, setBonusPickerCategory] = useState(Object.keys(BUFF_TYPES)[0] || '')
+  const [bonusEditingIdx, setBonusEditingIdx] = useState(null)
+  const bonusOnChange = (idx, next) => {
+    const updated = bonusEffects.map((be, i) => i === idx ? next : be)
+    onChange({ ...module, value: { ...sv, bonusEffects: updated } })
+  }
+  const bonusAddEffect = (category, effectType) => {
+    const newEffect = { id: 'be_' + Date.now().toString(36), category, effectType, value: {}, scope: 'global', scopeDetail: undefined }
+    onChange({ ...module, value: { ...sv, bonusEffects: [...bonusEffects, newEffect] } })
+    setBonusPickerOpen(false)
+    setBonusEditingIdx(bonusEffects.length)
+  }
+  const bonusRemoveEffect = (idx) => {
+    const updated = bonusEffects.filter((_, i) => i !== idx)
+    onChange({ ...module, value: { ...sv, bonusEffects: updated } })
+    if (bonusEditingIdx === idx) setBonusEditingIdx(null)
+    else if (bonusEditingIdx > idx) setBonusEditingIdx(bonusEditingIdx - 1)
+  }
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-gray-400 w-16">AC 上限</span>
+        <input
+          type="number"
+          value={max}
+          onChange={(e) => onChange({ ...module, value: { ...sv, max: Number(e.target.value) || 10 } })}
+          className={panelInputCls + ' !py-1 !w-20 text-xs'}
+          min={1}
+        />
+      </div>
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-gray-400 w-16">AC 阈值</span>
+        <input
+          type="number"
+          value={threshold}
+          onChange={(e) => onChange({ ...module, value: { ...sv, threshold: Number(e.target.value) || 0 } })}
+          className={panelInputCls + ' !py-1 !w-20 text-xs'}
+          min={0}
+        />
+        <span className="text-xs text-gray-500">低于此值时护盾失效</span>
+      </div>
+      <div>
+        <span className="text-xs text-gray-400 block mb-1">恢复条件</span>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { value: 'short', label: '短休' },
+            { value: 'long', label: '长休' },
+            { value: 'dawn', label: '黎明' },
+            { value: 'manual', label: '仅手动' },
+            { value: 'none', label: '不可恢复' },
+          ].map((o) => (
+            <label key={o.value} className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="shieldPoolRecover"
+                checked={recoverOn === o.value}
+                onChange={() => onChange({ ...module, value: { ...sv, recoverOn: o.value } })}
+                className="border-gray-600 bg-gray-800 text-dnd-gold"
+              />
+              <span className="text-xs text-gray-300">{o.label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+      {/* ── 高于阈值增益 ── */}
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-xs text-gray-400">高于阈值增益</span>
+          <button
+            type="button"
+            onClick={() => setBonusPickerOpen(!bonusPickerOpen)}
+            className={`flex items-center gap-2 px-1.5 py-0.5 rounded border text-xs transition-colors ${
+              bonusPickerOpen ? 'border-[#3a4a5e] bg-[#2a3a4e] text-[#c0c0c0]' : 'border-[#3a4a5e] text-[#8899aa] hover:bg-[#2a3a4e]'
+            }`}
+          >
+            <Plus className="w-3 h-3" />
+            {bonusPickerOpen ? '收起' : '添加效果'}
+          </button>
+        </div>
+        {bonusPickerOpen && (
+          <div className="flex items-center gap-2 mb-2">
+            <select
+              value={bonusPickerCategory}
+              onChange={(e) => setBonusPickerCategory(e.target.value)}
+              className={EDT_SELECT + ' shrink-0'}
+            >
+              {Object.entries(BUFF_TYPES).map(([k, v]) => (
+                <option key={k} value={k}>{v.label}</option>
+              ))}
+            </select>
+            <select
+              onChange={(e) => { if (e.target.value) { bonusAddEffect(bonusPickerCategory, e.target.value); e.target.value = '' } }}
+              defaultValue=""
+              className="h-7 px-1.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-xs cursor-pointer flex-1 min-w-0"
+            >
+              <option value="" disabled>选择效果类型…</option>
+              {(BUFF_TYPES[bonusPickerCategory]?.effects || []).filter(e => !e.hidden).map(eff => (
+                <option key={eff.key} value={eff.key}>{eff.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {bonusEffects.length === 0 ? (
+          <p className="text-gray-500 text-xs text-center py-1">高于阈值时无增益效果</p>
+        ) : (
+          <div className="space-y-1">
+            {bonusEffects.map((be, idx) => {
+              const beCatData = BUFF_TYPES[be.category]
+              const beCurrentEffect = beCatData?.effects?.find(e => e.key === be.effectType)
+              const beSummary = beCurrentEffect
+                ? getEffectSummaryShort({ effectType: be.effectType, value: be.value, scope: be.scope, scopeDetail: be.scopeDetail }, {})
+                : '未选择效果'
+              const beRawLabel = beCurrentEffect ? (beCurrentEffect.label ?? be.effectType) : '—'
+              const beDisplayLabel = beSummary && beSummary !== beRawLabel && beSummary !== '未选择效果' ? beSummary : beRawLabel
+              const isBonusEditing = bonusEditingIdx === idx
+              return (
+                <div key={be.id || idx}>
+                  <div className={`rounded-lg border px-2 py-1.5 flex items-center justify-between gap-2 ${
+                    isBonusEditing ? 'border-gray-600 bg-gray-700/50' : 'border-gray-700 bg-gray-800/50'
+                  }`}>
+                    <div className="min-w-0 flex-1 flex items-center gap-2">
+                      <span className="text-[9px] px-1 py-0.5 rounded shrink-0 font-medium text-amber-400 bg-amber-500/10">增益</span>
+                      <span className="text-xs text-gray-300 font-medium truncate">{beDisplayLabel}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button type="button" onClick={() => setBonusEditingIdx(isBonusEditing ? null : idx)}
+                        className={`p-1 rounded transition-colors ${isBonusEditing ? 'text-gray-300 bg-gray-700' : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'}`}
+                        title={isBonusEditing ? '收起编辑' : '编辑'}>
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button type="button" onClick={() => bonusRemoveEffect(idx)}
+                        className="p-1 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors" title="删除">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  {isBonusEditing && (
+                    <div className="mt-1 p-2 rounded-lg border border-gray-600 bg-gray-800 space-y-1.5">
+                      <div className="flex items-center justify-between gap-2 pb-1 border-b border-gray-700">
+                        <span className="text-xs text-gray-400 font-medium">编辑增益效果</span>
+                        <button type="button" onClick={() => setBonusEditingIdx(null)}
+                          className="text-xs px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors">收起</button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <select value={be.category || ''}
+                          onChange={(e) => {
+                            const newEffects = BUFF_TYPES[e.target.value]?.effects ?? []
+                            bonusOnChange(idx, { ...be, category: e.target.value, effectType: newEffects[0]?.key ?? '' })
+                          }}
+                          className={EDT_SELECT + ' shrink-0'}>
+                          {Object.entries(BUFF_TYPES).map(([k, v]) => (<option key={k} value={k}>{v.label}</option>))}
+                        </select>
+                        <select value={be.effectType || ''}
+                          onChange={(e) => bonusOnChange(idx, { ...be, effectType: e.target.value })}
+                          className={EDT_SELECT}>
+                          <option value="" disabled>选择效果类型…</option>
+                          {(BUFF_TYPES[be.category]?.effects || []).filter(e => !e.hidden).map(eff => (
+                            <option key={eff.key} value={eff.key}>{eff.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {be.effectType && <UnifiedScopeConditionEditor scope={be.scope} scopeDetail={be.scopeDetail} effectCondition={be.effectCondition} scopeAware={isScopeAwareEffectType(be.effectType)} onChange={(next) => bonusOnChange(idx, { ...be, ...next })} />}
+                      {be.effectType && beCatData && (
+                        <EffectValueEditor module={{ ...be }} onChange={(next) => bonusOnChange(idx, next)} catData={beCatData} />
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -5140,7 +5521,14 @@ function EffectValueEditor({
           </div>
           {selectedSkills.length > 0 && (
             <div className="flex flex-wrap gap-2 items-center">
-              {selectedSkills.map((sk) => (
+              {selectedSkills.map((sk) => {
+                const profOn = Array.isArray(valueObj.profSkills) && valueObj.profSkills.includes(sk.id)
+                const expOn = Array.isArray(valueObj.expertiseSkills) && valueObj.expertiseSkills.includes(sk.id)
+                const toggleGrant = (key, on) => {
+                  const rest = (Array.isArray(valueObj[key]) ? valueObj[key] : []).filter((x) => x !== sk.id)
+                  onChange({ ...module, value: { ...valueObj, [key]: on ? [...rest, sk.id] : rest } })
+                }
+                return (
                 <div key={sk.id} className="flex items-center gap-2">
                   <span className="text-xs text-dnd-gold-light/80">{sk.name}</span>
                   <NumberStepper referenceData={activeReferenceData}
@@ -5148,8 +5536,27 @@ function EffectValueEditor({
                     onChange={(v) => onChange({ ...module, value: { ...valueObj, [sk.id]: v } })}
                     compact
                   />
+                  <label className="flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer select-none whitespace-nowrap" title="赠送该技能熟练；角色已有熟练时不叠加">
+                    <input
+                      type="checkbox"
+                      checked={profOn}
+                      onChange={(e) => toggleGrant('profSkills', e.target.checked)}
+                      className="w-3 h-3 accent-dnd-red"
+                    />
+                    熟练
+                  </label>
+                  <label className="flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer select-none whitespace-nowrap" title="角色已有熟练则升精通，否则赠送熟练">
+                    <input
+                      type="checkbox"
+                      checked={expOn}
+                      onChange={(e) => toggleGrant('expertiseSkills', e.target.checked)}
+                      className="w-3 h-3 accent-dnd-red"
+                    />
+                    精通
+                  </label>
                 </div>
-              ))}
+                )
+              })}
               <span className="text-gray-400 text-xs shrink-0">优势/劣势</span>
               <select
                 value={valueObj.advantage ?? ''}
@@ -5204,42 +5611,58 @@ function EffectValueEditor({
             </select>
           </div>
         )
-      })() : needsSubSelect === 'extraWeaponDamage' ? (() => {
-        const valueObj = typeof value === 'object' && value && !Array.isArray(value) ? value : { diceCount: 1, diceSides: 6, flatBonus: 0, damageType: '' }
+      })() : needsSubSelect === 'extraWeaponDamage' ? (
+        <ExtraWeaponDamageEditor value={value} module={module} onChange={onChange} />
+      ) : needsSubSelect === 'reroll' ? (
+        <RerollValueEditor value={value} onChange={(nv) => onChange({ ...module, value: nv })} />
+      ) : needsSubSelect === 'pactWeapon' ? (() => {
+        const v = normalizePactWeaponValue(value)
+        const setField = (field, val) => onChange({ ...module, value: { ...v, [field]: val } })
         return (
-          <div className="flex items-center gap-2 flex-nowrap flex-wrap">
-            <NumberStepper
-              value={valueObj.diceCount ?? 1}
-              min={1} max={99}
-              onChange={(n) => onChange({ ...module, value: { ...valueObj, diceCount: n } })}
-              compact narrow
-            />
-            <span className="text-gray-400 text-xs">d</span>
-            <select
-              value={valueObj.diceSides ?? 6}
-              onChange={(e) => onChange({ ...module, value: { ...valueObj, diceSides: parseInt(e.target.value, 10) || 6 } })}
-              className={panelInputCls + ' min-w-[3.5rem] w-auto'}
-            >
-              {DICE_SIDES_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-            <span className="text-gray-400 text-xs">+</span>
-            <NumberStepper
-              value={valueObj.flatBonus ?? 0}
-              onChange={(n) => onChange({ ...module, value: { ...valueObj, flatBonus: n } })}
-              compact narrow
-            />
-            <select
-              value={valueObj.damageType ?? ''}
-              onChange={(e) => onChange({ ...module, value: { ...valueObj, damageType: e.target.value } })}
-              className={panelInputCls + ' min-w-[4.5rem] w-auto'}
-            >
-              <option value="">伤害类型</option>
-              {DAMAGE_TYPES.map((d) => (
-                <option key={d.value} value={d.value}>{d.label}</option>
-              ))}
-            </select>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={EDT_LABEL}>命中属性：</span>
+              <select
+                value={v.ability}
+                onChange={(e) => setField('ability', e.target.value)}
+                className={panelInputCls + ' min-w-[5.5rem] w-auto'}
+              >
+                {PACT_WEAPON_ABILITY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              <span className={EDT_LABEL}>伤害类型：</span>
+              <select
+                value={v.damageType}
+                onChange={(e) => setField('damageType', e.target.value)}
+                className={panelInputCls + ' min-w-[6rem] w-auto'}
+              >
+                {PACT_WEAPON_DAMAGE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={v.proficiency}
+                  onChange={(e) => setField('proficiency', e.target.checked)}
+                  className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                />
+                <span className="text-xs text-gray-300">视为已熟练</span>
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={v.focus}
+                  onChange={(e) => setField('focus', e.target.checked)}
+                  className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                />
+                <span className="text-xs text-gray-300">可作施法法器</span>
+              </label>
+            </div>
+            <p className="text-[10px] text-gray-500">把本武器改造成契约武器：命中与伤害改用所选属性、可覆盖伤害类型、视为已熟练、并可作施法法器（法器仅标记，不参与数值）。建议加在武器附魔上，起效范围默认「本武器」。</p>
           </div>
         )
       })() : needsSubSelect === 'containedSpell' ? (
@@ -5291,6 +5714,11 @@ function EffectValueEditor({
         <ChoiceBUFFEditor
           choiceOptions={value?.choiceOptions}
           choiceSelected={value?.choiceSelected}
+          onChange={(v) => onChange({ ...module, value: v })}
+        />
+      ) : needsSubSelect === 'optionList' ? (
+        <OptionListEditor
+          value={value}
           onChange={(v) => onChange({ ...module, value: v })}
         />
       ) : needsSubSelect === 'damageTypeRelation' ? (
@@ -5516,189 +5944,7 @@ function EffectValueEditor({
           )
         })()
       ) : needsSubSelect === 'shieldPool' ? (
-        (() => {
-          const sv = value && typeof value === 'object' ? value : {}
-          const max = sv.max != null ? Number(sv.max) || 10 : 10
-          const threshold = sv.threshold != null ? Number(sv.threshold) || 0 : 0
-          const recoverOn = sv.recoverOn || 'manual'
-          const bonusEffects = Array.isArray(sv.bonusEffects) ? sv.bonusEffects : []
-          const [bonusPickerOpen, setBonusPickerOpen] = useState(false)
-          const [bonusPickerCategory, setBonusPickerCategory] = useState(Object.keys(BUFF_TYPES)[0] || '')
-          const [bonusEditingIdx, setBonusEditingIdx] = useState(null)
-          const bonusOnChange = (idx, next) => {
-            const updated = bonusEffects.map((be, i) => i === idx ? next : be)
-            onChange({ ...module, value: { ...sv, bonusEffects: updated } })
-          }
-          const bonusAddEffect = (category, effectType) => {
-            const newEffect = { id: 'be_' + Date.now().toString(36), category, effectType, value: {}, scope: 'global', scopeDetail: undefined }
-            onChange({ ...module, value: { ...sv, bonusEffects: [...bonusEffects, newEffect] } })
-            setBonusPickerOpen(false)
-            setBonusEditingIdx(bonusEffects.length)
-          }
-          const bonusRemoveEffect = (idx) => {
-            const updated = bonusEffects.filter((_, i) => i !== idx)
-            onChange({ ...module, value: { ...sv, bonusEffects: updated } })
-            if (bonusEditingIdx === idx) setBonusEditingIdx(null)
-            else if (bonusEditingIdx > idx) setBonusEditingIdx(bonusEditingIdx - 1)
-          }
-          return (
-            <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-400 w-16">AC 上限</span>
-                <input
-                  type="number"
-                  value={max}
-                  onChange={(e) => onChange({ ...module, value: { ...sv, max: Number(e.target.value) || 10 } })}
-                  className={panelInputCls + ' !py-1 !w-20 text-xs'}
-                  min={1}
-                />
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-400 w-16">AC 阈值</span>
-                <input
-                  type="number"
-                  value={threshold}
-                  onChange={(e) => onChange({ ...module, value: { ...sv, threshold: Number(e.target.value) || 0 } })}
-                  className={panelInputCls + ' !py-1 !w-20 text-xs'}
-                  min={0}
-                />
-                <span className="text-xs text-gray-500">低于此值时护盾失效</span>
-              </div>
-              <div>
-                <span className="text-xs text-gray-400 block mb-1">恢复条件</span>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    { value: 'short', label: '短休' },
-                    { value: 'long', label: '长休' },
-                    { value: 'dawn', label: '黎明' },
-                    { value: 'manual', label: '仅手动' },
-                    { value: 'none', label: '不可恢复' },
-                  ].map((o) => (
-                    <label key={o.value} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="shieldPoolRecover"
-                        checked={recoverOn === o.value}
-                        onChange={() => onChange({ ...module, value: { ...sv, recoverOn: o.value } })}
-                        className="border-gray-600 bg-gray-800 text-dnd-gold"
-                      />
-                      <span className="text-xs text-gray-300">{o.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-              {/* ── 高于阈值增益 ── */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-gray-400">高于阈值增益</span>
-                  <button
-                    type="button"
-                    onClick={() => setBonusPickerOpen(!bonusPickerOpen)}
-                    className={`flex items-center gap-2 px-1.5 py-0.5 rounded border text-xs transition-colors ${
-                      bonusPickerOpen ? 'border-[#3a4a5e] bg-[#2a3a4e] text-[#c0c0c0]' : 'border-[#3a4a5e] text-[#8899aa] hover:bg-[#2a3a4e]'
-                    }`}
-                  >
-                    <Plus className="w-3 h-3" />
-                    {bonusPickerOpen ? '收起' : '添加效果'}
-                  </button>
-                </div>
-                {bonusPickerOpen && (
-                  <div className="flex items-center gap-2 mb-2">
-                    <select
-                      value={bonusPickerCategory}
-                      onChange={(e) => setBonusPickerCategory(e.target.value)}
-                      className={EDT_SELECT + ' shrink-0'}
-                    >
-                      {Object.entries(BUFF_TYPES).map(([k, v]) => (
-                        <option key={k} value={k}>{v.label}</option>
-                      ))}
-                    </select>
-                    <select
-                      onChange={(e) => { if (e.target.value) { bonusAddEffect(bonusPickerCategory, e.target.value); e.target.value = '' } }}
-                      defaultValue=""
-                      className="h-7 px-1.5 rounded border border-gray-600 bg-gray-700 text-gray-300 text-xs cursor-pointer flex-1 min-w-0"
-                    >
-                      <option value="" disabled>选择效果类型…</option>
-                      {(BUFF_TYPES[bonusPickerCategory]?.effects || []).filter(e => !e.hidden).map(eff => (
-                        <option key={eff.key} value={eff.key}>{eff.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                {bonusEffects.length === 0 ? (
-                  <p className="text-gray-500 text-xs text-center py-1">高于阈值时无增益效果</p>
-                ) : (
-                  <div className="space-y-1">
-                    {bonusEffects.map((be, idx) => {
-                      const beCatData = BUFF_TYPES[be.category]
-                      const beCurrentEffect = beCatData?.effects?.find(e => e.key === be.effectType)
-                      const beSummary = beCurrentEffect
-                        ? getEffectSummaryShort({ effectType: be.effectType, value: be.value, scope: be.scope, scopeDetail: be.scopeDetail }, {})
-                        : '未选择效果'
-                      const beRawLabel = beCurrentEffect ? (beCurrentEffect.label ?? be.effectType) : '—'
-                      const beDisplayLabel = beSummary && beSummary !== beRawLabel && beSummary !== '未选择效果' ? beSummary : beRawLabel
-                      const isBonusEditing = bonusEditingIdx === idx
-                      return (
-                        <div key={be.id || idx}>
-                          <div className={`rounded-lg border px-2 py-1.5 flex items-center justify-between gap-2 ${
-                            isBonusEditing ? 'border-gray-600 bg-gray-700/50' : 'border-gray-700 bg-gray-800/50'
-                          }`}>
-                            <div className="min-w-0 flex-1 flex items-center gap-2">
-                              <span className="text-[9px] px-1 py-0.5 rounded shrink-0 font-medium text-amber-400 bg-amber-500/10">增益</span>
-                              <span className="text-xs text-gray-300 font-medium truncate">{beDisplayLabel}</span>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <button type="button" onClick={() => setBonusEditingIdx(isBonusEditing ? null : idx)}
-                                className={`p-1 rounded transition-colors ${isBonusEditing ? 'text-gray-300 bg-gray-700' : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'}`}
-                                title={isBonusEditing ? '收起编辑' : '编辑'}>
-                                <Pencil className="w-3.5 h-3.5" />
-                              </button>
-                              <button type="button" onClick={() => bonusRemoveEffect(idx)}
-                                className="p-1 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors" title="删除">
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                          {isBonusEditing && (
-                            <div className="mt-1 p-2 rounded-lg border border-gray-600 bg-gray-800 space-y-1.5">
-                              <div className="flex items-center justify-between gap-2 pb-1 border-b border-gray-700">
-                                <span className="text-xs text-gray-400 font-medium">编辑增益效果</span>
-                                <button type="button" onClick={() => setBonusEditingIdx(null)}
-                                  className="text-xs px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors">收起</button>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <select value={be.category || ''}
-                                  onChange={(e) => {
-                                    const newEffects = BUFF_TYPES[e.target.value]?.effects ?? []
-                                    bonusOnChange(idx, { ...be, category: e.target.value, effectType: newEffects[0]?.key ?? '' })
-                                  }}
-                                  className={EDT_SELECT + ' shrink-0'}>
-                                  {Object.entries(BUFF_TYPES).map(([k, v]) => (<option key={k} value={k}>{v.label}</option>))}
-                                </select>
-                                <select value={be.effectType || ''}
-                                  onChange={(e) => bonusOnChange(idx, { ...be, effectType: e.target.value })}
-                                  className={EDT_SELECT}>
-                                  <option value="" disabled>选择效果类型…</option>
-                                  {(BUFF_TYPES[be.category]?.effects || []).filter(e => !e.hidden).map(eff => (
-                                    <option key={eff.key} value={eff.key}>{eff.label}</option>
-                                  ))}
-                                </select>
-                              </div>
-                              {be.effectType && <UnifiedScopeConditionEditor scope={be.scope} scopeDetail={be.scopeDetail} effectCondition={be.effectCondition} onChange={(next) => bonusOnChange(idx, { ...be, ...next })} />}
-                              {be.effectType && beCatData && (
-                                <EffectValueEditor module={{ ...be }} onChange={(next) => bonusOnChange(idx, next)} catData={beCatData} />
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          )
-        })()
+        <ShieldPoolEditor value={value} module={module} onChange={onChange} />
       ) : needsSubSelect === 'abilityAdjustment' ? (() => {
         const v = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
         const prof = v.proficiency && typeof v.proficiency === 'object' ? v.proficiency : {}
@@ -5888,6 +6134,71 @@ function EffectValueEditor({
           </div>
         )
       })() : null}
+    </div>
+  )
+}
+
+/** 选项清单编辑器：DM 逐行配置卡内纯查阅表（名称/消耗/豁免/说明），不参与数值计算 */
+function OptionListEditor({ value, onChange }) {
+  const v = normalizeOptionListValue(value)
+  const blankRow = () => ({ name: '', cost: '', save: '', detail: '' })
+  const rows = v.options.length > 0 ? v.options : [blankRow()]
+  const cell = EDT_INPUT + ' !flex-none'
+  const moveBtn = 'p-0.5 rounded text-gray-500 hover:bg-white/10 hover:text-white transition-colors disabled:opacity-30 disabled:hover:bg-transparent'
+  const set = (patch) => onChange({ ...v, ...patch })
+  const setRow = (i, patch) => set({ options: rows.map((o, j) => (j === i ? { ...o, ...patch } : o)) })
+  const addRow = () => set({ options: [...rows, blankRow()] })
+  const removeRow = (i) => set({ options: rows.filter((_, j) => j !== i).concat(rows.length > 1 ? [] : [blankRow()]) })
+  const moveRow = (i, d) => {
+    const j = i + d
+    if (j < 0 || j >= rows.length) return
+    const next = [...rows]
+    const tmp = next[i]
+    next[i] = next[j]
+    next[j] = tmp
+    set({ options: next })
+  }
+  return (
+    <div className="rounded-md bg-[#161e2b]/50 p-2.5 flex flex-col gap-y-2 w-full">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className={EDT_LABEL}>表标题</span>
+        <input value={v.title} onChange={(e) => set({ title: e.target.value })} placeholder="选项清单" className={cell + ' !w-40'} />
+        <span className={EDT_LABEL}>消耗名</span>
+        <input value={v.costLabel} onChange={(e) => set({ costLabel: e.target.value })} placeholder="如：偷袭骰" className={cell + ' !w-28'} />
+        <span className={EDT_LABEL}>表备注</span>
+        <input value={v.note} onChange={(e) => set({ note: e.target.value })} placeholder="如：豁免 DC = 8 + 熟练加值 + 敏捷调整值" className={EDT_INPUT} />
+      </div>
+      {rows.map((o, i) => (
+        <div key={i} className="rounded border border-[#2a3a4e] bg-[#1a2535] p-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="shrink-0 w-4 text-[10px] text-[#667788] text-right">{i + 1}</span>
+            <input value={o.name} onChange={(e) => setRow(i, { name: e.target.value })} placeholder="选项名" className={cell + ' !w-36'} />
+            <input value={o.cost} onChange={(e) => setRow(i, { cost: e.target.value })} placeholder="消耗" className={cell + ' !w-20'} />
+            <select value={o.save} onChange={(e) => setRow(i, { save: e.target.value })} className={EDT_SELECT + ' !flex-none !w-28'}>
+              <option value="">无豁免</option>
+              {ABILITY_KEYS.map((k) => <option key={k} value={ABILITY_NAMES_ZH[k]}>{ABILITY_NAMES_ZH[k]}豁免</option>)}
+            </select>
+            <div className="ml-auto flex items-center gap-1 shrink-0">
+              <button type="button" onClick={() => moveRow(i, -1)} disabled={i === 0} className={moveBtn} title="上移">↑</button>
+              <button type="button" onClick={() => moveRow(i, 1)} disabled={i === rows.length - 1} className={moveBtn} title="下移">↓</button>
+              <button type="button" onClick={() => removeRow(i)} className="p-0.5 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-400 transition-colors" title="删除选项">
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+          <textarea
+            value={o.detail}
+            onChange={(e) => setRow(i, { detail: e.target.value })}
+            placeholder="效果说明（卡内展开该行后可见）"
+            rows={2}
+            className={textareaClass + ' mt-1.5 w-full !text-xs'}
+          />
+        </div>
+      ))}
+      <button type="button" onClick={addRow} className="flex items-center gap-1 self-start text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors">
+        <Plus className="w-3.5 h-3.5" /> 添加选项
+      </button>
+      <p className="text-[10px] text-gray-500">纯查阅效果：只在角色卡上渲染成选项表，不参与数值计算，也不生成释放按钮。</p>
     </div>
   )
 }
@@ -6170,7 +6481,7 @@ function UpgradeEditor({ upgrade, baseValue, effectType, category, charClasses, 
   )
 }
 
-export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClear, defaultSourceKind, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData, sourceNameOptions = [], sourceKindOptions = BUFF_SOURCE_KIND_OPTIONS_EDITABLE, compact = false, readOnly = false, hideDuration = false, subordinates = [], charResources, spellSlots, charClasses = [], footerHint = null }) {
+export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClear, defaultSourceKind, defaultScope = null, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData, sourceNameOptions = [], sourceKindOptions = BUFF_SOURCE_KIND_OPTIONS_EDITABLE, compact = false, readOnly = false, hideDuration = false, subordinates = [], charResources, spellSlots, charClasses = [], footerHint = null }) {
   const sourceKindLocked = !!(initial?.fromFeat || initial?.fromItem)
   const [source, setSource] = useState(initial?.source ?? '')
   const [duration, setDuration] = useState(() => normalizeDuration(initial?.duration))
@@ -6194,7 +6505,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
     ? { ...initial, effects: initial.effects.filter(e => e.effectType !== 'custom_text') }
     : initial
 
-  const [effectModules, setEffectModules] = useState(() => normalizeInitialEffects(filteredInitial))
+  const [effectModules, setEffectModules] = useState(() => normalizeInitialEffects(filteredInitial, defaultScope))
   /** 初始效果 ID 集合，用于判断新建 vs 编辑 */
   const _initIdsRef = useRef(new Set(effectModules.map(m => m.id)))
   /** 行内效果类型选择器开关 */
@@ -6277,6 +6588,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
       category,
       effectType: effectKey,
       value: effectKey === 'charge_item' ? normalizeChargeItemValue({}) : 0,
+      ...(defaultScope && effectKey !== 'charge_item' ? { scope: defaultScope } : {}),
     })
     setEffectModules((prev) => [...prev, newMod])
     setShowEffectPicker(false)
@@ -6696,6 +7008,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
                             scope={mod.scope}
                             scopeDetail={mod.scopeDetail}
                             effectCondition={mod.effectCondition}
+                            scopeAware={isScopeAwareEffectType(mod.effectType)}
                             onChange={(next) => updateModule(mod.id, next)}
                           />
                         </>
@@ -6729,6 +7042,7 @@ export default function BuffForm({ initial, onSave, onAutoSave, onCancel, onClea
                                   <button type="button" onClick={() => addChargeEffect('summon')} className="h-6 px-2 rounded border border-[#3a4a5e] bg-[#2a3a4e] text-[#c0c0c0] hover:bg-[#3a4a5e] text-xs leading-none flex items-center">+ 召唤</button>
                                   <button type="button" onClick={() => addChargeEffect('consume_spell_slot_to_restore_charges')} className="h-6 px-2 rounded border border-purple-600/70 bg-purple-900/30 text-purple-300 hover:bg-purple-800/40 text-xs leading-none flex items-center">+ 耗环回充</button>
                                   <button type="button" onClick={() => addChargeEffect('random_table')} className="h-6 px-2 rounded border border-amber-600/70 bg-amber-900/30 text-amber-300 hover:bg-amber-800/40 text-xs leading-none flex items-center">+ 随机库</button>
+                                  <button type="button" onClick={() => addChargeEffect('reroll')} className="h-6 px-2 rounded border border-amber-600/70 bg-amber-900/30 text-amber-300 hover:bg-amber-800/40 text-xs leading-none flex items-center">🎲 改骰子</button>
                                 </div>
                               </div>
                               {(chargeData.effects || []).length === 0 && (
@@ -6965,9 +7279,9 @@ function EffectConditionEditor({ effectCondition, onChange }) {
   )
 }
 
-/** 统一范围/条件编辑器：合并起效范围和生效条件为一个下拉 */
-function UnifiedScopeConditionEditor({ scope, scopeDetail, effectCondition, onChange }) {
-  const currentScope = scope || SCOPE_KIND.global
+/** 统一范围/条件编辑器：合并起效范围和生效条件为一个下拉。scopeAware=false 时（非战斗效果）只保留生效条件 */
+function UnifiedScopeConditionEditor({ scope, scopeDetail, effectCondition, onChange, scopeAware = true }) {
+  const currentScope = scopeAware ? (scope || SCOPE_KIND.global) : SCOPE_KIND.global
   const currentCondition = effectCondition || ''
   const details = Array.isArray(scopeDetail) ? scopeDetail.filter(Boolean) : []
 
@@ -6995,6 +7309,7 @@ function UnifiedScopeConditionEditor({ scope, scopeDetail, effectCondition, onCh
 
   const getUnifiedValue = () => {
     if (currentCondition) return currentCondition
+    if (!scopeAware) return SCOPE_KIND.global
     return currentScope || SCOPE_KIND.global
   }
 
@@ -7023,15 +7338,19 @@ function UnifiedScopeConditionEditor({ scope, scopeDetail, effectCondition, onCh
   return (
     <div className="space-y-2">
       <div>
-        <label className="block text-sm font-semibold text-[#c79a42] mb-1.5">起效范围 / 生效条件：</label>
+        <label className="block text-sm font-semibold text-[#c79a42] mb-1.5">{scopeAware ? '起效范围 / 生效条件：' : '生效条件：'}</label>
         <select
           value={getUnifiedValue()}
           onChange={(e) => handleUnifiedChange(e.target.value)}
           className={selCls + ' w-full sm:w-64 min-w-0'}
         >
-          {SCOPE_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
+          {scopeAware ? (
+            SCOPE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))
+          ) : (
+            <option value={SCOPE_KIND.global}>始终生效</option>
+          )}
           {CONDITION_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
@@ -7171,6 +7490,7 @@ function EffectModuleModal({
           scope={draft.scope}
           scopeDetail={draft.scopeDetail}
           effectCondition={draft.effectCondition}
+          scopeAware={isScopeAwareEffectType(effectiveEffectType)}
           onChange={(next) => updateDraft(next)}
         />
       )}

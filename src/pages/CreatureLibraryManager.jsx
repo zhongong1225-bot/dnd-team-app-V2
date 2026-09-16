@@ -94,8 +94,10 @@ function mapParsedToCreature(parsed) {
   // Traits / Actions — normalize to structured objects
   if (Array.isArray(parsed.traits)) base.traits = normalizeTraits(parsed.traits)
   if (Array.isArray(parsed.actions)) base.actions = normalizeActions(parsed.actions)
-  if (Array.isArray(parsed.reactions)) base.reactions = parsed.reactions
-  if (Array.isArray(parsed.legendaryActions)) base.legendaryActions = parsed.legendaryActions
+  if (Array.isArray(parsed.bonusActions)) base.bonusActions = normalizeActions(parsed.bonusActions)
+  if (parsed.reactions) base.reactions = parsed.reactions
+  if (parsed.legendaryActions) base.legendaryActions = parsed.legendaryActions
+  if (parsed.senses != null) base.senses = String(parsed.senses)
   
   // Spells — normalize names
   if (Array.isArray(parsed.spells)) {
@@ -108,6 +110,28 @@ function mapParsedToCreature(parsed) {
   return base
 }
 
+/** 新建空白表单（数组字段各自独立引用，避免与 DEFAULT_CREATURE 共享） */
+function createEmptyForm() {
+  return {
+    ...DEFAULT_CREATURE,
+    id: '',
+    name: '',
+    abilities: { ...DEFAULT_CREATURE.abilities },
+    speed: { ...DEFAULT_CREATURE.speed },
+    resistances: [],
+    immunities: [],
+    vulnerabilities: [],
+    conditionImmunities: [],
+    naturalWeapons: [],
+    traits: [],
+    actions: [],
+    bonusActions: [],
+    reactions: [],
+    legendaryActions: [],
+    spells: [],
+  }
+}
+
 export default function CreatureLibraryManager() {
   const navigate = useNavigate()
   const [creatures, setCreatures] = useState([])
@@ -117,7 +141,8 @@ export default function CreatureLibraryManager() {
   const [parseError, setParseError] = useState('')
   const [translating, setTranslating] = useState(false)
   const [translateProgress, setTranslateProgress] = useState('')
-  const [previewImage, setPreviewImage] = useState(null)
+  const [pendingImages, setPendingImages] = useState([])
+  const [pendingText, setPendingText] = useState('')
   const [supabaseLoading, setSupabaseLoading] = useState(false)
   const [duplicateDialog, setDuplicateDialog] = useState(null) // { pending, existing }
   const [duplicateSaving, setDuplicateSaving] = useState(false)
@@ -162,7 +187,7 @@ export default function CreatureLibraryManager() {
   )
 
   const startNew = () => {
-    setEditing({ ...DEFAULT_CREATURE, id: '', name: '', abilities: { ...DEFAULT_CREATURE.abilities }, traits: [], actions: [] })
+    setEditing(createEmptyForm())
   }
 
   const startEdit = (creature) => {
@@ -362,6 +387,24 @@ export default function CreatureLibraryManager() {
     patch('reactions', reactions)
   }
 
+  // ── 附赠动作 编辑 ──────────────────────────────────────────────
+  const addBonusAction = () => {
+    patch('bonusActions', [
+      ...(editing.bonusActions || []),
+      { name: '', description: '' },
+    ])
+  }
+  const updateBonusAction = (idx, key, value) => {
+    const bonusActions = [...(editing.bonusActions || [])]
+    bonusActions[idx] = { ...bonusActions[idx], [key]: value }
+    patch('bonusActions', bonusActions)
+  }
+  const removeBonusAction = (idx) => {
+    const bonusActions = [...(editing.bonusActions || [])]
+    bonusActions.splice(idx, 1)
+    patch('bonusActions', bonusActions)
+  }
+
   // ── 传奇动作 编辑 ──────────────────────────────────────────────
   const addLegendaryAction = () => {
     patch('legendaryActions', [
@@ -437,105 +480,95 @@ export default function CreatureLibraryManager() {
     patch('spells', spells)
   }
 
-  // ── 截图录入 ──────────────────────────────────────────────────────
-  const handleImageFile = useCallback(async (file) => {
-    if (!file || !file.type.startsWith('image/')) return
+  // ── 素材暂存与解析 ──────────────────────────────────────────────
+  const readAsDataUrl = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+
+  const ensureFormOpen = useCallback(() => {
+    setEditing(prev => prev || createEmptyForm())
+  }, [])
+
+  const stageImageFiles = useCallback(async (files) => {
+    const urls = []
+    for (const file of files) {
+      if (!file || !file.type.startsWith('image/')) continue
+      urls.push(await readAsDataUrl(file))
+    }
+    if (urls.length === 0) return
+    setPendingImages(prev => [...prev, ...urls])
+    ensureFormOpen()
+  }, [ensureFormOpen])
+
+  const stageText = useCallback((text) => {
+    setPendingText(prev => (prev ? `${prev}\n\n${text}` : text))
+    ensureFormOpen()
+  }, [ensureFormOpen])
+
+  const runParse = useCallback(async ({ images, text, preserveId }) => {
     setParseError('')
     setParseLoading(true)
-    setPreviewImage(null)
-
     try {
-      // Read file as base64 data URL
-      const dataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(reader.result)
-        reader.onerror = reject
-        reader.readAsDataURL(file)
-      })
-
-      setPreviewImage(dataUrl)
-
-      // Call API
       const res = await fetch('/api/parse-creature', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: dataUrl }),
+        body: JSON.stringify({ images, text }),
       })
-
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        throw new Error(data.error || data.detail || '解析失败')
-      }
-
-      // Map parsed data to creature form
+      if (!res.ok) throw new Error(data.error || data.detail || '解析失败')
       const mapped = mapParsedToCreature(data)
-      setEditing(prev => prev ? { ...mapped, id: prev.id } : mapped)
+      setEditing(prev => ({ ...mapped, id: preserveId && prev ? prev.id : '' }))
+      setPendingImages([])
+      setPendingText('')
+      return true
     } catch (err) {
       console.error('Parse creature error:', err)
-      setParseError(err.message || '截图解析失败，请手动填写')
+      setParseError(err.message || '解析失败，请手动填写')
+      return false
     } finally {
       setParseLoading(false)
     }
   }, [])
+
+  const handleParseStaged = () => {
+    runParse({ images: pendingImages, text: pendingText, preserveId: true })
+  }
 
   const handlePaste = useCallback((e) => {
     const items = e.clipboardData?.items
     if (!items) return
+    const imageFiles = []
     for (const item of items) {
       if (item.type.startsWith('image/')) {
-        e.preventDefault()
         const file = item.getAsFile()
-        if (file) handleImageFile(file)
-        return
+        if (file) imageFiles.push(file)
       }
     }
-  }, [handleImageFile])
+    if (imageFiles.length > 0) {
+      e.preventDefault()
+      stageImageFiles(imageFiles)
+      return
+    }
+    const target = e.target
+    const inField = target && (
+      target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable
+    )
+    if (inField) return
+    const text = (e.clipboardData?.getData('text/plain') || '').trim()
+    if (!text) return
+    e.preventDefault()
+    stageText(text)
+  }, [stageImageFiles, stageText])
 
-  // Global paste listener when editing
+  // 全局粘贴监听：列表页与编辑页都生效，素材先入暂存区
   useEffect(() => {
-    if (!editing) return
     const handler = (e) => handlePaste(e)
     document.addEventListener('paste', handler)
     return () => document.removeEventListener('paste', handler)
-  }, [editing, handlePaste])
-
-  // 列表页截图新建
-  const handleListScreenshot = useCallback(async (file) => {
-    if (!file || !file.type.startsWith('image/')) return
-    setParseError('')
-    setParseLoading(true)
-    setPreviewImage(null)
-
-    try {
-      const dataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(reader.result)
-        reader.onerror = reject
-        reader.readAsDataURL(file)
-      })
-
-      setPreviewImage(dataUrl)
-
-      const res = await fetch('/api/parse-creature', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: dataUrl }),
-      })
-
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || data.detail || '解析失败')
-
-      const mapped = mapParsedToCreature(data)
-      setEditing({ ...mapped, id: '' })
-    } catch (err) {
-      console.error('Parse creature error:', err)
-      setParseError(err.message || '截图解析失败')
-      // Still open edit form so user can fill manually
-      setEditing({ ...DEFAULT_CREATURE, id: '', name: '', abilities: { ...DEFAULT_CREATURE.abilities }, traits: [], actions: [] })
-    } finally {
-      setParseLoading(false)
-    }
-  }, [])
+  }, [handlePaste])
 
   // ── 批量翻译 ──────────────────────────────────────────────────────
   const handleTranslateAll = useCallback(async () => {
@@ -594,7 +627,7 @@ export default function CreatureLibraryManager() {
         </div>
 
         <div className="space-y-3">
-          {/* 截图录入 */}
+          {/* 素材暂存与解析 */}
           <div className="rounded-lg bg-dnd-card border border-white/10 p-3 space-y-2">
             <div className="flex items-center gap-2">
               <button
@@ -602,24 +635,59 @@ export default function CreatureLibraryManager() {
                 disabled={parseLoading}
                 className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-medium shrink-0"
               >
-                {parseLoading ? '解析中...' : '上传截图'}
+                上传截图
               </button>
-              <span className="text-[10px] text-dnd-text-muted">或 Ctrl+V 粘贴图片</span>
+              <button
+                onClick={handleParseStaged}
+                disabled={parseLoading || (pendingImages.length === 0 && !pendingText.trim())}
+                className="px-3 py-1.5 rounded-lg bg-dnd-gold hover:bg-dnd-gold-light disabled:opacity-40 text-black text-xs font-medium shrink-0"
+              >
+                {parseLoading
+                  ? '解析中...'
+                  : `解析${pendingImages.length > 0 || pendingText.trim() ? `（${pendingImages.length} 图${pendingText.trim() ? ' + 文字' : ''}）` : ''}`}
+              </button>
+              <span className="text-[10px] text-dnd-text-muted">可多选；或 Ctrl+V 粘贴截图/文字，攒齐后一次解析</span>
               <input
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
+                multiple
                 className="hidden"
                 onChange={e => {
-                  const file = e.target.files?.[0]
-                  if (file) handleImageFile(file)
+                  const files = Array.from(e.target.files || [])
+                  if (files.length) stageImageFiles(files)
                   e.target.value = ''
                 }}
               />
             </div>
-            {previewImage && (
-              <div className="relative">
-                <img src={previewImage} alt="preview" className="max-h-40 rounded border border-white/10" />
+            {pendingImages.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {pendingImages.map((url, idx) => (
+                  <div key={idx} className="relative">
+                    <img src={url} alt={`待解析截图 ${idx + 1}`} className="h-20 rounded border border-white/10" />
+                    <button
+                      onClick={() => setPendingImages(prev => prev.filter((_, i) => i !== idx))}
+                      className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-dnd-red text-white text-[10px] leading-4 text-center"
+                      title="移除"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {pendingText && (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className={labelCls}>粘贴的文字（可编辑）</label>
+                  <button onClick={() => setPendingText('')} className="text-dnd-red/60 hover:text-dnd-red text-[10px]">清空</button>
+                </div>
+                <textarea
+                  className={`${inputCls} resize-none`}
+                  rows={4}
+                  value={pendingText}
+                  onChange={e => setPendingText(e.target.value)}
+                />
               </div>
             )}
             {parseLoading && (
@@ -691,6 +759,15 @@ export default function CreatureLibraryManager() {
                 <label className={labelCls}>AC</label>
                 <input className={inputCls} type="number" value={editing.ac} onChange={e => patch('ac', Number(e.target.value) || 10)} />
               </div>
+            </div>
+            <div>
+              <label className={labelCls}>视觉</label>
+              <input
+                className={inputCls}
+                value={editing.senses || ''}
+                onChange={e => patch('senses', e.target.value)}
+                placeholder="黑暗视觉 60 尺，被动感知 15"
+              />
             </div>
           </div>
 
@@ -795,6 +872,42 @@ export default function CreatureLibraryManager() {
                   placeholder="动作描述（如：命中 +5，伤害 2d6+3 挥砍）"
                   value={a.description}
                   onChange={e => patchAction(a.id, 'description', e.target.value)}
+                />
+              </div>
+            ))}
+          </div>
+
+          {/* 附赠动作 */}
+          <div className="rounded-lg bg-dnd-card border border-white/10 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-dnd-text-muted">附赠动作</span>
+              <button onClick={addBonusAction} className="text-dnd-gold text-xs hover:text-dnd-gold-light">+ 添加</button>
+            </div>
+            {(editing.bonusActions || []).length === 0 && <div className="text-[10px] text-gray-600">无附赠动作</div>}
+            {(editing.bonusActions || []).map((a, idx) => (
+              <div key={idx} className="space-y-1 border-t border-white/5 pt-2">
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-dnd-text-muted w-5 shrink-0">{idx + 1}.</span>
+                  <input
+                    className={`${inputCls} flex-1`}
+                    placeholder="附赠动作名称"
+                    value={a.name || ''}
+                    onChange={e => updateBonusAction(idx, 'name', e.target.value)}
+                  />
+                  <button
+                    onClick={() => removeBonusAction(idx)}
+                    className="text-dnd-red/60 hover:text-dnd-red shrink-0 px-1"
+                    title="删除"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+                <textarea
+                  className={`${inputCls} resize-none`}
+                  rows={2}
+                  placeholder="附赠动作描述"
+                  value={a.description || ''}
+                  onChange={e => updateBonusAction(idx, 'description', e.target.value)}
                 />
               </div>
             ))}
@@ -1096,11 +1209,19 @@ export default function CreatureLibraryManager() {
             ref={listFileInputRef}
             type="file"
             accept="image/*"
+            multiple
             className="hidden"
-            onChange={e => {
-              const file = e.target.files?.[0]
-              if (file) handleListScreenshot(file)
+            onChange={async e => {
+              const files = Array.from(e.target.files || [])
               e.target.value = ''
+              if (files.length === 0) return
+              const urls = []
+              for (const file of files) {
+                if (file.type.startsWith('image/')) urls.push(await readAsDataUrl(file))
+              }
+              if (urls.length === 0) return
+              const ok = await runParse({ images: urls, text: '', preserveId: false })
+              if (!ok) setEditing(createEmptyForm())
             }}
           />
         </div>

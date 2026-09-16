@@ -299,10 +299,17 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
 
     // 聚合 skill_proficiency：种族/专长/装备赠送的技能熟练（属性页与手动开关取高，锁定至少熟练）
     const grantedSkillProficiencies = {}
+    // skill_bonus 上的「精通」勾选：条件升级（角色已有熟练→精通，否则→熟练），由属性页结算
+    const grantedSkillExpertise = {}
     for (const b of entries) {
-      if (b.effectType !== 'skill_proficiency' || !b.value || typeof b.value !== 'object') continue
-      if (typeof b.value.skill === 'string' && b.value.skill) grantedSkillProficiencies[b.value.skill] = true
-      if (Array.isArray(b.value.skills)) for (const k of b.value.skills) if (k) grantedSkillProficiencies[k] = true
+      if (b.effectType === 'skill_proficiency' && b.value && typeof b.value === 'object') {
+        if (typeof b.value.skill === 'string' && b.value.skill) grantedSkillProficiencies[b.value.skill] = true
+        if (Array.isArray(b.value.skills)) for (const k of b.value.skills) if (k) grantedSkillProficiencies[k] = true
+      }
+      if (b.effectType === 'skill_bonus' && b.value && typeof b.value === 'object' && !Array.isArray(b.value)) {
+        if (Array.isArray(b.value.profSkills)) for (const k of b.value.profSkills) if (k) grantedSkillProficiencies[k] = true
+        if (Array.isArray(b.value.expertiseSkills)) for (const k of b.value.expertiseSkills) if (k) grantedSkillExpertise[k] = true
+      }
     }
 
     const baseSpellMod = spellAbility ? abilityModifier(baseAbilities[spellAbility] ?? 10) : 0
@@ -825,7 +832,7 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
         const { scope: skillScope } = normalizeScope(b.scope, b.scopeDetail)
         if (skillScope === SCOPE_KIND.global || skillScope === '') {
           for (const [k, val] of Object.entries(raw)) {
-            if (k === 'advantage' || ['ref', 'ability', 'mult', 'add'].includes(k)) continue
+            if (k === 'advantage' || k === 'profSkills' || k === 'expertiseSkills' || ['ref', 'ability', 'mult', 'add'].includes(k)) continue
             if (val == null) continue
             const n = evalVal(val)
             if (!Number.isNaN(n)) skillBonusPerSkill[k] = (skillBonusPerSkill[k] || 0) + n
@@ -923,10 +930,10 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       else if (b.effectType === 'death_ward') {
         if (truthyEffectValue(raw)) deathWard = true
       }
-      // 新增：额外攻击（数值）
+      // 新增：额外攻击（数值）。规则上多个"额外攻击"特性不叠加，只取最高值
       else if (b.effectType === 'extra_attack') {
         const ea = evalVal(raw)
-        if (!Number.isNaN(ea)) extraAttack += ea
+        if (!Number.isNaN(ea)) extraAttack = Math.max(extraAttack, ea)
       }
       // 新增：额外动作资源（数值）
       else if (b.effectType === 'extra_action_resource') {
@@ -1093,6 +1100,7 @@ export function computeBuffStats(character, activeBuffs, shieldEffects) {
       spellDamageBonuses,
       proficiencyOverride: profOverride,
       grantedSkillProficiencies,
+      grantedSkillExpertise,
       flightSpeed,
       flightHover,
       saveBonusPerAbility,

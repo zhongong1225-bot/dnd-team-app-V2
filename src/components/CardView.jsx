@@ -9,7 +9,7 @@
  *   - SlotPanel：卡槽面板包装（标题 + 卡片列表）
  */
 
-import { useState, memo } from 'react'
+import { useState, memo, Children } from 'react'
 import { ChevronDown, ChevronUp, Settings, Zap, Shield } from 'lucide-react'
 import { NumberStepper } from './BuffForm'
 
@@ -42,7 +42,7 @@ function CardView({
   categoryActive = false,
 }) {
   const hasDescription = Boolean(description || descriptionNode)
-  const hasChildren = Boolean(children)
+  const hasChildren = Children.toArray(children).length > 0
   const canExpand = hasDescription || hasChildren
 
   const toggleExpand = () => {
@@ -183,6 +183,7 @@ function CardView({
             style={{ ...cellBorder, padding: '4px 8px', overflow: 'hidden' }}
           >
             {buffTags.map((tag, i) => (
+              typeof tag === 'string' ? (
               <span
                 key={i}
                 style={{
@@ -199,6 +200,9 @@ function CardView({
               >
                 {tag}
               </span>
+              ) : (
+                <span key={i} style={{ display: 'contents' }}>{tag}</span>
+              )
             ))}
           </div>
 

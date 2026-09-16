@@ -12,6 +12,7 @@
  * - hitDice: 生命骰字符串（如 "2d8"）
  * - ac: 基础AC（不含敏捷调整值的部分）
  * - speed: 速度对象 { walk, fly, swim, climb }
+ * - senses: 视觉/感官自由文本（如 "黑暗视觉 60 尺，被动感知 15"）
  * - resistances: 抗性数组
  * - immunities: 免疫数组
  * - vulnerabilities: 易伤数组
@@ -19,6 +20,7 @@
  * - naturalWeapons: 天生武器数组 [{ name, attackBonus, damage }]
  * - traits: 特性描述数组
  * - actions: 动作描述数组
+ * - bonusActions: 附赠动作数组 [{ name, description }]
  * - reactions: 反应动作数组 [{ name, description }]
  * - legendaryActions: 传奇动作数组 [{ name, description, cost }]
  * - legendaryActionPoints: 传奇动作点数
@@ -103,6 +105,7 @@ export const DEFAULT_CREATURE = {
     swim: null,
     climb: null,
   },
+  senses: '',
   resistances: [],
   immunities: [],
   vulnerabilities: [],
@@ -110,6 +113,7 @@ export const DEFAULT_CREATURE = {
   naturalWeapons: [],
   traits: [],
   actions: [],
+  bonusActions: [],  // [{ name, description }]
   reactions: [],  // [{ name, description }]
   legendaryActions: [],  // [{ name, description, cost }]
   legendaryActionPoints: 0,
