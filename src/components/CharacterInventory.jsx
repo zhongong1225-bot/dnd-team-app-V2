@@ -850,6 +850,8 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                       : Math.max(0, Math.floor(Number(entry.qty) || 0))
                     : Math.max(1, Math.floor(Number(entry?.qty) || 1))
                   const isEditing = canEdit && editingIndex === i
+                  // 「充能上限」那一块渲染在下方 IIFE 之外，原型必须提到行作用域才拿得到
+                  const editingProto = isEditing && entry?.itemId ? getItemById(entry.itemId) : null
                   return (
                     <Fragment key={entry.id ?? `inv-${i}`}>
                       <tr
@@ -1016,7 +1018,6 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                                   <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="名称" className={inputClass + ' h-10'} />
                                 </div>
                                 {(() => {
-                                  const editingProto = inv[editingIndex]?.itemId ? getItemById(inv[editingIndex].itemId) : null
                                   const showEditAttackDamage = editingProto && (editingProto.类型 === '近战武器' || editingProto.类型 === '远程武器' || editingProto.类型 === '枪械' || editingProto.类型 === '爆炸物' || (editingProto.类型 === '消耗品' && editingProto.子类型 === '爆炸品'))
                                   const showEditExplosiveExtra = editingProto && (editingProto.类型 === '爆炸物' || (editingProto.类型 === '消耗品' && editingProto.子类型 === '爆炸品'))
                                   const showEditArmorNote = editingProto && editingProto.类型 === '盔甲'
